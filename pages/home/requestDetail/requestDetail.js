@@ -1,6 +1,8 @@
 // pages/home/requestDetail/requestDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
+const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
+const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -103,7 +105,8 @@ Page({
     this.setData({ tripId: id, myOpenid })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
-    await this.loadTripDetail(id)
+    const hasPreview = this.applyCachedPreview(id)
+    this.loadTripDetail(id, { silent: hasPreview })
   },
 
   onShow() {
@@ -178,6 +181,127 @@ Page({
     return false
   },
 
+  isFreshPreview(preview, id, type) {
+    if (!preview || preview.id !== id || preview.type !== type || !preview.item) return false
+    if (!preview.savedAt || Date.now() - Number(preview.savedAt) > DETAIL_PREVIEW_TTL) return false
+    return true
+  },
+
+  applyCachedPreview(id) {
+    let applied = false
+
+    try {
+      const cached = wx.getStorageSync(DETAIL_PREVIEW_KEY)
+      if (this.isFreshPreview(cached, id, "request")) {
+        applied = this.applyRequestData(cached.item)
+      }
+    } catch (e) {
+      console.warn("read request detail preview failed", e)
+    }
+
+    try {
+      const channel = this.getOpenerEventChannel && this.getOpenerEventChannel()
+      if (channel && typeof channel.on === "function") {
+        channel.on("routePreview", (preview) => {
+          if (this.isFreshPreview(preview, id, "request")) {
+            this.applyRequestData(preview.item)
+          }
+        })
+      }
+    } catch (e) {
+      console.warn("bind request detail preview channel failed", e)
+    }
+
+    return applied
+  },
+
+  applyRequestData(trip, options = {}) {
+    if (!trip) return false
+
+    // 1) 顶部展示字段
+    let departAddress = ''
+    let destAddress = ''
+    let formattedDepartTime = ''
+
+    if (Array.isArray(trip.departures) && trip.departures.length > 0) {
+      const d = trip.departures[0]
+      departAddress = d.address || ''
+      const dateStr = d.date || ''
+      const timeStr = (d.time || '').slice(0, 5)
+
+      const weekday = getWeekdayStr(dateStr)
+      const dateNoYear = formatDateNoYear(dateStr)
+
+      if (dateNoYear && timeStr) formattedDepartTime = `${dateNoYear} ${weekday} ${timeStr}`
+      else if (dateNoYear) formattedDepartTime = `${dateNoYear} ${weekday}`
+      else formattedDepartTime = timeStr || ''
+    }
+
+    if (Array.isArray(trip.destinations) && trip.destinations.length > 0) {
+      destAddress = trip.destinations[0].address || ''
+    }
+
+    // 2) owner / driver openid
+    const ownerOpenid = trip.openid || trip._openid || ''
+    const driverOpenid = trip.driverOpenid || trip.driverID || ''
+
+    // 3) passengerID（兼容各种字段）
+    const passengerID = normalizePassengerID(trip.passengerID)
+    const passengerIdsAlt = uniq(
+      (Array.isArray(trip.passengerIds) && trip.passengerIds) ||
+      (Array.isArray(trip.passengers) && trip.passengers) ||
+      []
+    )
+    const joinedAll = uniq([...passengerID, ...passengerIdsAlt])
+
+    // 4) 人数与余位（后端如果给 passengerCount 优先用）
+    const passengerCount =
+      Number.isFinite(Number(trip.passengerCount))
+        ? Number(trip.passengerCount)
+        : joinedAll.length
+
+    const seatLeft = Math.max(0, MAX_PASSENGERS - passengerCount)
+    const isFull = seatLeft <= 0
+
+    // 5) 状态
+    const st = String(trip.status || 'open')
+    const isClosed = (st !== 'open') || (st === 'close' || st === 'closed' || st === 'past')
+
+    // 6) 已登录才计算“我是谁”
+    const myOpenid = wx.getStorageSync('openid') || ''
+    const isOwner = !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
+    const joinedByMe = !!(myOpenid && joinedAll.includes(myOpenid))
+
+    // 7) 司机接单状态（保持与 driverPickupDetail 一致）
+    const isAccepted = !!driverOpenid || (trip.status && String(trip.status) !== 'open')
+    const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
+
+    this.setData({
+      trip,
+      departAddress,
+      destAddress,
+      formattedDepartTime,
+
+      seatLeft,
+      myOpenid,
+      ownerOpenid,
+      driverOpenid,
+
+      isOwner,
+      joinedByMe,
+      isFull,
+      isClosed,
+
+      isAccepted,
+      acceptedByMe,
+
+      loading: false
+    })
+
+    this._lastDetailLoadedAt = Date.now()
+    return true
+  },
+
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
     if (!silent) this.setData({ loading: true })
@@ -189,6 +313,10 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
+        if (this.data.trip) {
+          console.warn('getCarpoolRequestDetail failed after preview:', res.result)
+          return
+        }
         this.showToast('加载失败', 'none')
         this.setData({ loading: false })
         return
@@ -196,92 +324,21 @@ Page({
 
       const trip = res.result.data
       if (!trip) {
+        if (this.data.trip) {
+          console.warn('getCarpoolRequestDetail returned empty after preview')
+          return
+        }
         this.showToast('未找到该路线', 'none')
         this.setData({ loading: false })
         return
       }
 
-      // 1) 顶部展示字段
-      let departAddress = ''
-      let destAddress = ''
-      let formattedDepartTime = ''
-
-      if (Array.isArray(trip.departures) && trip.departures.length > 0) {
-        const d = trip.departures[0]
-        departAddress = d.address || ''
-        const dateStr = d.date || ''
-        const timeStr = (d.time || '').slice(0, 5)
-
-        const weekday = getWeekdayStr(dateStr)
-        const dateNoYear = formatDateNoYear(dateStr)
-
-        if (dateNoYear && timeStr) formattedDepartTime = `${dateNoYear} ${weekday} ${timeStr}`
-        else if (dateNoYear) formattedDepartTime = `${dateNoYear} ${weekday}`
-        else formattedDepartTime = timeStr || ''
-      }
-
-      if (Array.isArray(trip.destinations) && trip.destinations.length > 0) {
-        destAddress = trip.destinations[0].address || ''
-      }
-
-      // 2) owner / driver openid
-      const ownerOpenid = trip.openid || trip._openid || ''
-      const driverOpenid = trip.driverOpenid || trip.driverID || ''
-
-      // 3) passengerID（兼容各种字段）
-      const passengerID = normalizePassengerID(trip.passengerID)
-      const passengerIdsAlt = uniq(
-        (Array.isArray(trip.passengerIds) && trip.passengerIds) ||
-        (Array.isArray(trip.passengers) && trip.passengers) ||
-        []
-      )
-      const joinedAll = uniq([...passengerID, ...passengerIdsAlt])
-
-      // 4) 人数与余位（后端如果给 passengerCount 优先用）
-      const passengerCount =
-        Number.isFinite(Number(trip.passengerCount))
-          ? Number(trip.passengerCount)
-          : joinedAll.length
-
-      const seatLeft = Math.max(0, MAX_PASSENGERS - passengerCount)
-      const isFull = seatLeft <= 0
-
-      // 5) 状态
-      const st = String(trip.status || 'open')
-      const isClosed = (st !== 'open') || (st === 'close' || st === 'closed' || st === 'past')
-
-      // 6) 已登录才计算“我是谁”
-      const myOpenid = wx.getStorageSync('openid') || ''
-      const isOwner = !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
-      const joinedByMe = !!(myOpenid && joinedAll.includes(myOpenid))
-
-      // 7) 司机接单状态（保持与 driverPickupDetail 一致）
-      const isAccepted = !!driverOpenid || (trip.status && String(trip.status) !== 'open')
-      const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
-
-      this.setData({
-        trip,
-        departAddress,
-        destAddress,
-        formattedDepartTime,
-
-        seatLeft,
-        myOpenid,
-        ownerOpenid,
-        driverOpenid,
-
-        isOwner,
-        joinedByMe,
-        isFull,
-        isClosed,
-
-        isAccepted,
-        acceptedByMe,
-
-        loading: false
-      })
-      this._lastDetailLoadedAt = Date.now()
+      this.applyRequestData(trip)
     } catch (err) {
+      if (this.data.trip) {
+        console.warn('getCarpoolRequestDetail error after preview:', err)
+        return
+      }
       console.error('loadTripDetail error:', err)
       this.showToast('网络异常', 'none')
       this.setData({ loading: false })

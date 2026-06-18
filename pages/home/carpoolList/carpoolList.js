@@ -8,6 +8,7 @@ const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
 const LIST_CACHE_TTL = 2 * 60 * 1000
+const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 
 const DEFAULT_FROM_PLACES = [
   "Manhattan",
@@ -978,16 +979,59 @@ Page({
   // =========================
   // 跳转详情：兼容旧逻辑
   // =========================
+  findDetailItem(id, type) {
+    const fromGroups = []
+    ;(this.data.dayGroups || []).forEach(group => {
+      if (Array.isArray(group.items)) fromGroups.push(...group.items)
+    })
+
+    const pools = [
+      fromGroups,
+      type === "request" ? this.data.originalRequestList : this.data.originalCarpoolList,
+      this.data.originalCarpoolList,
+      this.data.originalRequestList
+    ]
+
+    for (const list of pools) {
+      const item = (list || []).find(x => x && x._id === id)
+      if (item) return item
+    }
+
+    return null
+  },
+
+  openDetailPage(url, id, type) {
+    const item = this.findDetailItem(id, type)
+    const preview = item ? { id, type, item, savedAt: Date.now() } : null
+
+    if (preview) {
+      try {
+        wx.setStorageSync(DETAIL_PREVIEW_KEY, preview)
+      } catch (e) {
+        console.warn("cache detail preview failed", e)
+      }
+    }
+
+    wx.navigateTo({
+      url,
+      success: (res) => {
+        if (preview && res.eventChannel) {
+          res.eventChannel.emit("routePreview", preview)
+        }
+      }
+    })
+  },
+
   goTripDetail(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
-    wx.navigateTo({ url: `/pages/home/tripDetail/tripDetail?id=${id}` })
+    this.openDetailPage(`/pages/home/tripDetail/tripDetail?id=${id}`, id, "carpool")
   },
 
   goRequestDetail(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
-    wx.navigateTo({ url: `/pages/home/requestDetail/requestDetail?id=${id}` })
+    this.openDetailPage(`/pages/home/requestDetail/requestDetail?id=${id}`, id, "request")
   },
 
   // =========================
@@ -1000,9 +1044,9 @@ Page({
     if (!id) return
 
     if (type === "request") {
-      wx.navigateTo({ url: `/pages/home/requestDetail/requestDetail?id=${id}` })
+      this.openDetailPage(`/pages/home/requestDetail/requestDetail?id=${id}`, id, "request")
     } else {
-      wx.navigateTo({ url: `/pages/home/tripDetail/tripDetail?id=${id}` })
+      this.openDetailPage(`/pages/home/tripDetail/tripDetail?id=${id}`, id, "carpool")
     }
   }
 })

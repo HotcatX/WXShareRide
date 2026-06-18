@@ -1,6 +1,8 @@
 // pages/home/tripDetail/tripDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
+const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
+const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -146,7 +148,8 @@ Page({
 
     // ✅ 允许游客浏览：不再 onLoad 强制登录
     this.setData({ tripId })
-    await this.loadTripDetail(tripId)
+    const hasPreview = this.applyCachedPreview(tripId)
+    this.loadTripDetail(tripId, { silent: hasPreview })
 
   },
 
@@ -269,6 +272,96 @@ Page({
   // =========================
   // loadTripDetail
   // =========================
+  isFreshPreview(preview, id, type) {
+    if (!preview || preview.id !== id || preview.type !== type || !preview.item) return false
+    if (!preview.savedAt || Date.now() - Number(preview.savedAt) > DETAIL_PREVIEW_TTL) return false
+    return true
+  },
+
+  applyCachedPreview(id) {
+    let applied = false
+
+    try {
+      const cached = wx.getStorageSync(DETAIL_PREVIEW_KEY)
+      if (this.isFreshPreview(cached, id, "carpool")) {
+        applied = this.applyTripData(cached.item, id, { fromPreview: true })
+      }
+    } catch (e) {
+      console.warn("read detail preview failed", e)
+    }
+
+    try {
+      const channel = this.getOpenerEventChannel && this.getOpenerEventChannel()
+      if (channel && typeof channel.on === "function") {
+        channel.on("routePreview", (preview) => {
+          if (this.isFreshPreview(preview, id, "carpool")) {
+            this.applyTripData(preview.item, id, { fromPreview: true })
+          }
+        })
+      }
+    } catch (e) {
+      console.warn("bind detail preview channel failed", e)
+    }
+
+    return applied
+  },
+
+  applyTripData(trip, id, options = {}) {
+    if (!trip) return false
+
+    const myOpenid = wx.getStorageSync('openid') || ''
+    let hasJoined = false
+    let isOwner = false
+
+    if (myOpenid) {
+      if (trip._openid === myOpenid) isOwner = true
+      if (Array.isArray(trip.passengers)) {
+        hasJoined = trip.passengers.some(p => p && p._openid === myOpenid)
+      }
+    }
+
+    let departAddress = ''
+    let destAddress = ''
+    let formattedDepartTime = ''
+    let carBrandModel = this.data.carBrandModel || ''
+
+    if (!options.fromPreview) carBrandModel = ''
+
+    if (Array.isArray(trip.departures) && trip.departures.length > 0) {
+      const d = trip.departures[0]
+      departAddress = d.address || ''
+      const dateStr = d.date || ''
+      const timeStr = d.time || ''
+      const weekday = getWeekdayStr(dateStr)
+      const dateNoYear = formatDateNoYear(dateStr)
+      if (dateNoYear && timeStr) formattedDepartTime = `${dateNoYear} ${weekday} ${timeStr}`
+      else if (dateNoYear) formattedDepartTime = `${dateNoYear} ${weekday}`
+      else formattedDepartTime = timeStr || ''
+    }
+
+    if (Array.isArray(trip.destinations) && trip.destinations.length > 0) {
+      destAddress = trip.destinations[0].address || ''
+    }
+
+    const showFortLeeCoreTip = containsFortLeeCore(departAddress) || containsFortLeeCore(destAddress)
+
+    this.setData({
+      trip,
+      hasJoined,
+      isOwner,
+      driverInfo: options.fromPreview ? this.data.driverInfo : null,
+      departAddress,
+      destAddress,
+      formattedDepartTime,
+      carBrandModel,
+      showFortLeeCoreTip,
+      loading: false
+    })
+
+    this._lastDetailLoadedAt = Date.now()
+    return true
+  },
+
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
     if (!silent) this.setData({ loading: true })
@@ -280,6 +373,10 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
+        if (this.data.trip) {
+          console.warn('getCarpoolDetail failed after preview:', res.result)
+          return
+        }
         this.showToastBar('加载失败', 'error')
         this.setData({ loading: false })
         return
@@ -290,62 +387,22 @@ Page({
         : res.result.data
 
       if (!trip) {
+        if (this.data.trip) {
+          console.warn('getCarpoolDetail returned empty after preview')
+          return
+        }
         this.showToastBar('未找到该路线', 'warn')
         this.setData({ loading: false })
         return
       }
 
-      const myOpenid = wx.getStorageSync('openid') || ''
-      let hasJoined = false
-      let isOwner = false
-
-      if (myOpenid) {
-        if (trip._openid === myOpenid) isOwner = true
-        if (Array.isArray(trip.passengers)) {
-          hasJoined = trip.passengers.some(p => p && p._openid === myOpenid)
-        }
-      }
-
-      let departAddress = ''
-      let destAddress = ''
-      let formattedDepartTime = ''
-
-      let carBrandModel = ''
-
-      if (Array.isArray(trip.departures) && trip.departures.length > 0) {
-        const d = trip.departures[0]
-        departAddress = d.address || ''
-        const dateStr = d.date || ''
-        const timeStr = d.time || ''
-        const weekday = getWeekdayStr(dateStr)
-        const dateNoYear = formatDateNoYear(dateStr)
-        if (dateNoYear && timeStr) formattedDepartTime = `${dateNoYear} ${weekday} ${timeStr}`
-        else if (dateNoYear) formattedDepartTime = `${dateNoYear} ${weekday}`
-        else formattedDepartTime = timeStr || ''
-      }
-
-      if (Array.isArray(trip.destinations) && trip.destinations.length > 0) {
-        destAddress = trip.destinations[0].address || ''
-      }
-
-      const showFortLeeCoreTip = containsFortLeeCore(departAddress) || containsFortLeeCore(destAddress)
-
-      this.setData({
-        trip,
-        hasJoined,
-        isOwner,
-        driverInfo: null,
-        departAddress,
-        destAddress,
-        formattedDepartTime,
-        carBrandModel,
-        showFortLeeCoreTip,
-        loading: false
-      })
-      this._lastDetailLoadedAt = Date.now()
-
+      this.applyTripData(trip, id)
       if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
     } catch (err) {
+      if (this.data.trip) {
+        console.warn('getCarpoolDetail error after preview:', err)
+        return
+      }
       this.showToastBar('网络异常', 'error')
       console.error('请求错误:', err)
       this.setData({ loading: false })

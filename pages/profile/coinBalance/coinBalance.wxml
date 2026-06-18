@@ -1,0 +1,37 @@
+<view class="page">
+
+<!-- custom nav -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <view class="nav-left" bindtap="onBack">
+      <image class="nav-back" src="/images/back.png" mode="aspectFit" />
+    </view>
+    <text class="nav-title">金币余额</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<view class="content">
+
+敬请期待
+
+  <!-- <view class="block">
+    <view class="h">什么是金币？</view>
+    <view class="p">参与拼车的所有司机和乘客均可获得。</view>
+    <view class="p">司机：完成一次发车可获得“1金币”。</view>
+    <view class="p">乘客：完成一次乘车可获得“0.5金币”。</view>
+  </view>
+
+  <view class="block">
+    <view class="h">获得金币的要求是什么？</view>
+    <view class="p">司机需提前 6h 时发布拼车行程。</view>
+    <view class="p">乘客需提前 6h 时加入出行行程。</view>
+  </view>
+
+  <view class="block">
+    <view class="h">金币的使用条件？</view>
+    <view class="p">参与我们的官方二手及商品的购买，无任何限制，可直接抵扣。</view>
+  </view> -->
+
+</view>
+</view>

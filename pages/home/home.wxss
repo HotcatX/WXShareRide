@@ -1,0 +1,394 @@
+/* =========================
+   pages/home/home.wxss
+   主页（无司机/乘客身份区分版本）
+   ========================= */
+
+/* ========= 全局背景与容器 ========= */
+page{
+  background: #f7efe9;
+}
+
+.content{
+  padding: 14rpx 24rpx calc(env(safe-area-inset-bottom) + 140rpx);
+  background: #f7efe9;
+  box-sizing: border-box;
+}
+
+/* ========= 顶部导航栏 ========= */
+.nav-bar{
+  width: 100%;
+  background: #fff;
+}
+
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* 左侧区域：放登录按钮；固定宽度保证标题永远绝对居中 */
+.nav-left{
+  width: 260rpx;                 
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  z-index: 2;                    /* 防止被标题层盖住导致点不到 */
+}
+
+/* 右侧占位（将来如果放图标也不会影响标题居中） */
+.nav-right{
+  width: 260rpx;
+  height: 1px;
+}
+
+/* 标题绝对居中 */
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 1;
+}
+
+/* 导航栏里的登录按钮（✅ 适当拉长） */
+.nav-login-btn{
+  height: 64rpx;
+  line-height: 56rpx;
+  font-size: 26rpx;
+  padding: 0 18rpx;              /* ✅ 左右更大 -> 更“长” */
+  min-width: 190rpx;             /* ✅ 进一步保证按钮长度 */
+  border-radius: 999rpx;
+  background: #179E16;
+  color: #fff;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* 去掉 button 默认边框 */
+.nav-login-btn::after{
+  border: none;
+}
+
+.nav-login-btn.disabled{
+  background: #cfcfcf;
+  color: #666;
+}
+
+/* ========= 顶部两张大卡片按钮（发车/拼车） ========= */
+.hero-grid{
+  display: flex;
+  justify-content: center;
+  gap: 48rpx;
+  margin: 32rpx 0 22rpx;
+  padding: 0 18rpx;
+  box-sizing: border-box;
+}
+
+.hero-btn{
+  width: 280rpx;
+  height: 280rpx;
+  border-radius: 44rpx;
+  overflow: hidden;
+}
+
+.hero-img{
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ========= 行程区域整体（创建路线 / 加入路线） ========= */
+.trip-canvas{
+  width: 95%;
+  margin: 0 auto;
+}
+
+/* section 白框（✅ 高度缩小：padding、间距都更紧凑） */
+.section-box{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 10rpx 12rpx;          /* ✅ 原 12/14 -> 更小 */
+  margin-top: 18rpx;             /* ✅ 原 26 -> 更小 */
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.04);
+  box-sizing: border-box;
+}
+
+/* section 标题栏 */
+.section-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sub-title{
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #111;
+}
+
+.section-action{
+  display: flex;
+  align-items: center;
+  padding: 4rpx 8rpx;            /* ✅ 略缩小 */
+  color: #999;
+}
+
+.action-text{
+  font-size: 26rpx;
+}
+
+/* 互斥展开：非当前块压缩为条状（只留标题行） */
+.section-bar{
+  padding-bottom: 0 !important;
+}
+
+.section-bar .trip-fixed{
+  display: none;
+}
+
+/* ========= scroll-view 固定高度：收起/展开（✅ 整体更矮） ========= */
+.trip-fixed{
+  overflow: hidden;
+  margin-top: 10rpx;             /* ✅ 原 12 -> 更小 */
+}
+
+/* 收起：显示 1 条高度（✅ 略降） */
+.trip-fixed--collapse{
+  height: 116rpx;                /* 原 132 */
+}
+
+/* 展开：显示约 3 条高度（✅ 略降） */
+.trip-fixed--expand{
+  height: 348rpx;                /* 原 396 */
+}
+
+/* 空态占位：跟收起一致 */
+.trip-empty-slot{
+  height: 116rpx;                /* 原 132 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 26rpx;
+}
+
+/* ========= 单条行程卡片（徽章 + 绿卡） ========= */
+.trip-item{
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-bottom: 10rpx;
+}
+
+.trip-badge{
+  width: 78rpx;
+  height: 78rpx;
+  flex: 0 0 78rpx;
+  display: block;
+}
+
+.trip-card{
+  flex: 1;
+  background: #dfe8d2;
+  border-radius: 22rpx;
+  padding: 10rpx 12rpx;
+  box-sizing: border-box;
+}
+
+.trip-row1{
+  display: flex;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.trip-place{
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #111;
+  max-width: 44%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trip-arrow{
+  margin: 0 10rpx;
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #111;
+}
+
+.trip-row2{
+  margin-top: 6rpx;
+  line-height: 1.15;
+}
+
+.trip-time{
+  font-size: 24rpx;
+  color: #222;
+  opacity: 0.9;
+}
+
+/* ========= 更新日志占位 ========= */
+.update-log-section{
+  margin-top: 30rpx;
+}
+
+.update-log-head{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 6rpx 4rpx 12rpx;
+}
+
+.update-log-title{
+  font-size: 30rpx;
+  font-weight: 800;
+  color: #111;
+}
+
+.update-log-card{
+  min-height: 210rpx;
+  border-radius: 26rpx;
+  padding: 28rpx 30rpx;
+  background: #fff;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 10rpx 24rpx rgba(0,0,0,0.08);
+}
+
+.update-log-card:active{
+  transform: scale(0.99);
+  opacity: 0.92;
+}
+
+.update-log-card-main{
+  flex: 1;
+  min-width: 0;
+}
+
+.update-log-row{
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.update-log-card-title{
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #111;
+}
+
+.update-log-badge{
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: #179E16;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+}
+
+.update-log-subtitle{
+  display: block;
+  margin-top: 10rpx;
+  color: #666;
+  font-size: 24rpx;
+}
+
+.update-log-list{
+  margin-top: 16rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.update-log-item{
+  max-width: 100%;
+  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  background: #f3f6ef;
+  color: #2d3a24;
+  font-size: 22rpx;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-log-arrow{
+  margin-left: 20rpx;
+  color: #999;
+  font-size: 52rpx;
+  line-height: 1;
+}
+
+/* ========= 可选：全局加载遮罩（保留） ========= */
+.global-loading{
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  background: rgba(255,255,255,0.0);
+}
+
+.global-loading__box{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24rpx 32rpx;
+  border-radius: 16rpx;
+  background: rgba(0,0,0,0.06);
+}
+
+.global-loading__text{
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: #666;
+}
+
+/* ========= 兼容保留：如果你还没删掉页面主体里的 login-row/login-btn =========
+   如果你已经把登录按钮放到导航栏了，可以把下面整段删掉
+======== */
+.login-row{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 14rpx 0 16rpx;
+  box-sizing: border-box;
+}
+
+.login-btn{
+  margin-left: auto;
+  height: 64rpx;
+  line-height: 64rpx;
+  font-size: 28rpx;
+  padding: 0 26rpx;
+  border-radius: 30rpx;
+  background: #179e16;
+  color: #fff;
+  box-shadow: 0 10rpx 18rpx rgba(0,0,0,0.10);
+}
+
+.login-btn.disabled{
+  background: #cfcfcf;
+  color: #fff;
+  opacity: 0.9;
+  box-shadow: none;
+}

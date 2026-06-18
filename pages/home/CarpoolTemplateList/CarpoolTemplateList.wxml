@@ -1,0 +1,191 @@
+<!-- pages/home/CarpoolTemplateList/CarpoolTemplateList.wxml -->
+
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="container">
+
+  <!-- 顶部：司机/乘客 身份切换 -->
+  <view class="role-bar">
+    <view class="role-switch">
+      <view
+        class="role-chip {{currentRole === 'driver' ? 'role-chip--active' : ''}}"
+        bindtap="switchRole"
+        data-role="driver"
+      >司机</view>
+
+      <view
+        class="role-chip {{currentRole === 'passenger' ? 'role-chip--active' : ''}}"
+        bindtap="switchRole"
+        data-role="passenger"
+      >乘客</view>
+    </view>
+  </view>
+
+  <block wx:if="{{currentRole === 'driver'}}">
+
+    <view wx:if="{{loading}}" class="state-text">正在加载模板...</view>
+
+    <view wx:elif="{{!templateList || templateList.length === 0}}" class="state-text">
+      暂无模板，点击下方“添加模板”开始创建
+    </view>
+
+    <block wx:else>
+      <block wx:for="{{templateList}}" wx:for-item="tpl" wx:key="_id">
+
+        <!-- ✅ 不再显示周几分组标题 -->
+
+        <!-- 模板卡片：排版与行程卡片一致 -->
+        <view class="trip-card" bindtap="onTemplateCardTap" data-id="{{tpl._id}}">
+          <view class="trip-main-row">
+            <text class="place-text-left">{{tpl._fromAddress}}</text>
+            <text class="arrow-text">→</text>
+            <text class="place-text-right">{{tpl._toAddress}}</text>
+          </view>
+
+          <view class="trip-sub-row">
+            <!-- 时间仍显示：周三 17:00 -->
+            <text class="time-text">{{tpl._timeLabel}}</text>
+            <text class="seat-text">载客：{{tpl.passengerCount || 4}}人</text>
+          </view>
+        </view>
+
+      </block>
+    </block>
+
+  </block>
+
+  <block wx:else>
+
+<!-- 乘客：常用出行地址 -->
+<view class="fav-wrap">
+
+<!-- 常用出发地 -->
+<view class="fav-card">
+
+  <!-- 第1行：标题 + 添加 -->
+  <view class="fav-head">
+    <text class="fav-title">常用出发地</text>
+
+    <view class="fav-btn" bindtap="onPickupBtnTap" hover-class="btn-hover">
+      {{ pickupEditing ? '保存' : '添加' }}
+    </view>
+  </view>
+
+  <!-- 输入框（添加时出现） -->
+  <view wx:if="{{pickupEditing}}" class="fav-input-row">
+    <input
+      class="fav-input"
+      placeholder="请输入常用出发地"
+      value="{{pickupInput}}"
+      bindinput="onPickupInput"
+      maxlength="60"
+    />
+  </view>
+
+  <!-- 第2行：地址(左) + 删除/完成(右) -->
+  <view class="fav-body-row" wx:if="{{pickupSpotList && pickupSpotList.length>0}}">
+    <view class="fav-tags">
+      <block wx:for="{{pickupSpotList}}" wx:key="*this">
+        <view
+          class="fav-tag {{pickupDeleteMode ? 'fav-tag--delete' : ''}}"
+          bindtap="onPickupTagTap"
+          data-value="{{item}}"
+        >
+          {{item}}
+          <text wx:if="{{pickupDeleteMode}}" class="fav-tag-x">×</text>
+        </view>
+      </block>
+    </view>
+
+    <view
+      class="fav-btn fav-btn--ghost {{ pickupDeleteMode ? 'fav-btn--danger' : '' }}"
+      bindtap="togglePickupDeleteMode"
+      hover-class="btn-hover"
+    >
+      {{ pickupDeleteMode ? '完成' : '删除' }}
+    </view>
+  </view>
+
+  <view wx:else class="fav-empty">暂无常用出发地</view>
+  </view>
+
+
+<!-- 常用目的地 -->
+<view class="fav-card">
+
+<!-- 第1行：标题 + 添加/保存 -->
+<view class="fav-head">
+  <text class="fav-title">常用目的地</text>
+
+  <view class="fav-btn" bindtap="onDropoffBtnTap" hover-class="btn-hover">
+    {{ dropoffEditing ? '保存' : '添加' }}
+  </view>
+</view>
+
+<!-- 输入框 -->
+<view wx:if="{{dropoffEditing}}" class="fav-input-row">
+  <input
+    class="fav-input"
+    placeholder="如：2050 / Modern 800 / LIC"
+    value="{{dropoffInput}}"
+    bindinput="onDropoffInput"
+    maxlength="60"
+  />
+</view>
+
+<!-- 第2行：地址(左) + 删除/完成(右) -->
+<view wx:if="{{dropoffSpotList && dropoffSpotList.length>0}}" class="fav-body-row">
+  <view class="fav-tags">
+    <block wx:for="{{dropoffSpotList}}" wx:key="*this">
+      <view
+        class="fav-tag {{dropoffDeleteMode ? 'fav-tag--delete' : ''}}"
+        bindtap="onDropoffTagTap"
+        data-value="{{item}}"
+      >
+        {{item}}
+        <text wx:if="{{dropoffDeleteMode}}" class="fav-tag-x">×</text>
+      </view>
+    </block>
+  </view>
+
+  <view
+    class="fav-btn fav-btn--ghost {{ dropoffDeleteMode ? 'fav-btn--danger' : '' }}"
+    bindtap="toggleDropoffDeleteMode"
+    hover-class="btn-hover"
+  >
+    {{ dropoffDeleteMode ? '完成' : '删除' }}
+  </view>
+</view>
+
+<view wx:else class="fav-empty">暂无常用目的地</view>
+</view>
+
+
+</view>
+
+</block>
+
+
+</view>
+
+<!-- 底部固定按钮：双按钮同一行（仅司机身份展示） -->
+<view class="ui-bottom-fixed" wx:if="{{currentRole === 'driver'}}">
+  <view class="ui-bottom-bar ui-bottom-bar--double">
+    <view class="ui-primary-btn ui-primary-btn--half" bindtap="goAddTemplate">
+      添加模板
+    </view>
+
+    <view
+      class="ui-danger-btn ui-danger-btn--half {{deleteMode ? 'ui-danger-btn--active' : ''}}"
+      bindtap="toggleDeleteMode"
+    >
+      {{ deleteMode ? '完成删除' : '删除模板' }}
+    </view>
+  </view>
+</view>
+

@@ -1,0 +1,88 @@
+<!-- 自定义导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">出行成就</text>
+  </view>
+ </view>
+
+<view class="page">
+  <!-- 顶部用户信息 -->
+  <view class="header-card">
+    <view class="avatar-wrap">
+      <image
+        class="avatar"
+        src="{{safeAvatarUrl}}"
+        mode="aspectFill"
+        binderror="onAvatarError"
+      />
+    </view>
+
+    <view class="user-meta">
+      <view class="name-row">
+        <text class="nickname">{{user.nickName || '微信用户'}}</text>
+      </view>
+      <text class="sub-title">{{driverTitle}}</text>
+
+      <view class="role-row">
+        <text class="role-label">当前身份：</text>
+        <view class="role-switch">
+          <view
+            class="role-btn {{activeRole==='driver' ? 'active' : ''}}"
+            data-role="driver"
+            bindtap="onSwitchRole"
+          >
+            司机
+          </view>
+          <view
+            class="role-btn {{activeRole==='passenger' ? 'active' : ''}}"
+            data-role="passenger"
+            bindtap="onSwitchRole"
+          >
+            乘客
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 统计区 -->
+  <view class="stats-card">
+    <text class="stats-title">出行记录统计</text>
+
+    <!-- 司机视图 -->
+    <view wx:if="{{activeRole==='driver'}}" class="stats-list">
+      <view class="stats-item">
+        <text class="k">发车次数：</text>
+        <text class="v">{{stats.driver.tripCount}}</text>
+      </view>
+      <view class="stats-item">
+        <text class="k">接人次数：</text>
+        <text class="v">{{stats.driver.riderCount}}</text>
+      </view>
+      <view class="stats-item">
+        <text class="k">总收入：</text>
+        <text class="v">${{stats.driver.totalIncome}}</text>
+      </view>
+    </view>
+
+    <!-- 乘客视图 -->
+    <view wx:else class="stats-list">
+      <view class="stats-item">
+        <text class="k">乘车次数：</text>
+        <text class="v">{{stats.passenger.tripCount}}</text>
+      </view>
+      <view class="stats-item">
+        <text class="k">拼车次数：</text>
+        <text class="v">{{stats.passenger.carpoolCount}}</text>
+      </view>
+      <view class="stats-item">
+        <text class="k">使用天数：</text>
+        <text class="v">{{stats.passenger.daysCount}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{loading}}" class="hint">加载中…</view>
+    <view wx:if="{{!loading && errorMsg}}" class="hint error">{{errorMsg}}</view>
+  </view>
+</view>

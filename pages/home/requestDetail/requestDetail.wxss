@@ -1,0 +1,268 @@
+/* pages/home/requestDetail/requestDetail.wxss */
+/* ✅ 以 carpoolRequestDetail 为底：保证内容区/提示框/toast 全部一致 */
+
+page{
+  background: #F6EFE8;
+}
+
+.ui-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #F6EFE8;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部导航（两份一致，保留即可） */
+.nav-bar{
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon{
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* 加载态 */
+.state-text{
+  flex: 1;
+  text-align: center;
+  margin-top: 80rpx;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+/* ✅ 中间滚动：两份一致（driver 里也有） */
+.ui-scroll{
+  flex: 1;
+  min-height: 0;
+  padding: 22rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+}
+
+/* ✅ 白卡：统一用一套（建议用 carpool 的 padding=18，才能“保持原求车详情”一致） */
+.ui-card{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 18rpx;
+  box-sizing: border-box;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  margin-top: 18rpx;
+}
+
+/* toast：统一轻提示条（滚动区内，不遮挡） */
+.ui-toast{
+  margin-top: 12rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  background: rgba(0,0,0,0.04);
+  border: 2rpx solid rgba(0,0,0,0.06);
+}
+.ui-toast-icon{
+  font-size: 26rpx;
+  font-weight: 900;
+}
+.ui-toast-text{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.60);
+}
+.ui-toast.success{
+  background: rgba(156,176,106,0.14);
+  border-color: rgba(156,176,106,0.28);
+}
+.ui-toast.warn{
+  background: rgba(254,129,75,0.14);
+  border-color: rgba(254,129,75,0.26);
+}
+.ui-toast.error{
+  background: rgba(229,75,59,0.12);
+  border-color: rgba(229,75,59,0.24);
+}
+
+/* 给底部按钮留空间
+   ✅ 你现在底部有两个按钮，会更高一点：把 140rpx 调大到 260rpx 更安全
+   （不会改变已有排版，只是避免内容被底部遮住） */
+.ui-bottom-space{
+  height: calc(260rpx + env(safe-area-inset-bottom));
+}
+
+/* 底部固定白框 */
+.ui-bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+.ui-bottom-bar{
+  background: #fff;
+  /* ✅ 两个按钮需要更高白框 */
+  height: 280rpx;
+  box-sizing: border-box;
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+  display: flex;
+  flex-direction: column; /* ✅ 确保竖排 */
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;             /* ✅ 两按钮间距（替代你 wxml 的 16rpx 空 view） */
+  padding: 22rpx 0 calc(10rpx + env(safe-area-inset-bottom)) 0;
+}
+
+/* 主按钮：默认用 carpool 的军绿色（布局不动） */
+.ui-primary-btn{
+  width: 93%;
+  height: 96rpx;
+  line-height: 96rpx;
+  border-radius: 999rpx;
+  background: #9CB06A;
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.10);
+}
+.ui-primary-btn::after{ border: none; }
+
+/* 禁用态：灰色 + 内凹阴影 */
+.ui-primary-btn--disabled{
+  background: #f0f0f0 !important;
+  color: #9a9a9a !important;
+  box-shadow:
+    inset 0 4rpx 6rpx rgba(0,0,0,0.12),
+    inset 0 -4rpx 6rpx rgba(255,255,255,0.8) !important;
+}
+
+/* ===== 卡片内排版 ===== */
+.card-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.75);
+  margin-bottom: 16rpx;
+}
+
+.route-row{
+  display: flex;
+  align-items: center;
+}
+.route-text-left,
+.route-text-right{
+  flex: 1;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.78);
+}
+.route-text-left{ text-align: left; }
+.route-text-right{ text-align: right; }
+.route-arrow{
+  width: 80rpx;
+  font-size: 34rpx;
+  font-weight: 900;
+  text-align: center;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+.time-seat-row{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.time-text,
+.seat-text{
+  font-size: 30rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.60);
+}
+
+.price-row{
+  margin-top: 20rpx;
+  display: flex;
+  justify-content: center;
+}
+.price-text-combined{
+  font-size: 34rpx;
+  line-height: 40rpx;
+  color: #E54B3B;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.info-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.value{
+  flex: 1;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.70);
+}
+
+/* ===== 提示框（requestDetail 用到 ui-tip-card / ui-note-card） ===== */
+.ui-tip-title,
+.ui-tip-line,
+.ui-note-title,
+.ui-note-line{
+  display: block;
+}
+
+.ui-tip-title{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #FE814B;
+  margin-bottom: 10rpx;
+}
+.ui-tip-line{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: #FE814B;
+  line-height: 1.55;
+}
+
+.ui-note-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.42);
+  margin-bottom: 10rpx;
+}
+.ui-note-line{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.48);
+  line-height: 1.55;
+}
+
+/* ✅ 橙框提示卡（你原来 carpoolRequestDetail 就是这个） */
+.ui-tip-card{
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx 20rpx 20rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
+  border: 3rpx solid #FE814B;
+  box-sizing: border-box;
+  width: 100%;
+}

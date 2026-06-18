@@ -1,0 +1,152 @@
+<!-- pages/home/requestDetail/requestDetail.wxml -->
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="ui-page">
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <!-- 内容滚动 -->
+  <view wx:else class="ui-scroll">
+
+    <!-- 顶部横向提示条（统一风格） -->
+    <view wx:if="{{toastVisible}}" class="ui-toast {{toastType}}">
+      <text class="ui-toast-icon">{{toastIcon}}</text>
+      <text class="ui-toast-text">{{toastText}}</text>
+    </view>
+
+    <!-- 顶部卡片：路线 -->
+    <view class="ui-card">
+      <view class="route-row">
+        <text class="route-text-left">{{departAddress || '出发地未设置'}}</text>
+        <text class="route-arrow">→</text>
+        <text class="route-text-right">{{destAddress || '目的地未设置'}}</text>
+      </view>
+
+      <view class="time-seat-row">
+        <text class="time-text">{{formattedDepartTime || '时间待定'}}</text>
+        <text class="seat-text">余位 {{seatLeft}}</text>
+      </view>
+
+      <view class="price-row">
+        <text class="price-text-combined">
+          参考价格：{{trip.referencePrice || trip.price || '价格待定'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 1 黑色提示框 -->
+    <view class="ui-card ui-tip-card">
+      <text class="ui-tip-title">备注：</text>
+      <text class="ui-tip-line">求车请添加同行人</text>
+      <text class="ui-tip-line">上/下车点不同 价格会有适当变化</text>
+    </view>
+
+    <!-- ② 红色提示框 -->
+    <view class="ui-card ui-tip-card">
+      <text class="ui-tip-title">提示：</text>
+      <text class="ui-tip-line">拼车失败，则一人支付全部费用</text>
+      <text class="ui-tip-line">拼车成功，则共同平摊全部费用</text>
+    </view>
+
+    <!-- ③ 注意事项 -->
+    <view class="ui-card ui-note-card">
+      <text class="ui-note-title">注意事项：</text>
+      <text class="ui-note-line">优先查看“拼车列表”是否满足需求的行程</text>
+      <text class="ui-note-line">短距离来车：与拼友自行打车</text>
+      <text class="ui-note-line">长距离来车：发完来车后有工作人员联系</text>
+    </view>
+
+    <!-- 底部留空 -->
+    <view class="ui-bottom-space"></view>
+  </view>
+
+  <!-- 底部固定白框：新增两个按钮（其他结构不动） -->
+  <view class="ui-bottom-fixed">
+    <view class="ui-bottom-bar">
+
+      <!-- ===================== -->
+      <!-- A) 司机加入：成为接车司机 -->
+      <!-- ===================== -->
+
+      <button wx:if="{{isOwner}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        无法接自己的求车
+      </button>
+
+      <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        已被其他司机接单
+      </button>
+
+      <button wx:elif="{{acceptedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        你已成为该路线司机
+      </button>
+
+      <button wx:elif="{{joinedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        你已作为乘客加入，无法接单
+      </button>
+
+      <button wx:else
+              class="ui-primary-btn"
+              bindtap="acceptAsDriver"
+              disabled="{{submittingDriver}}"
+              loading="{{submittingDriver}}">
+        {{ submittingDriver ? '接单中…' : '司机加入：成为接车司机' }}
+      </button>
+
+
+      <!-- 两个按钮之间留一点点间距（不改全局排版，局部内联最稳） -->
+      <view style="height: 16rpx;"></view>
+
+
+      <!-- ===================== -->
+      <!-- B) 乘客加入：成为拼车乘客 -->
+      <!-- ===================== -->
+
+      <button wx:if="{{isOwner}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        无法加入自己创建的路线
+      </button>
+
+      <button wx:elif="{{acceptedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        你已是该路线司机，无法加入
+      </button>
+
+      <button wx:elif="{{isClosed}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        该路线已结束
+      </button>
+
+      <button wx:elif="{{isFull && !joinedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        该路线已满员
+      </button>
+
+      <button wx:elif="{{joinedByMe}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        你已加入该路线
+      </button>
+
+      <button wx:else
+              class="ui-primary-btn"
+              bindtap="joinAsPassenger"
+              disabled="{{submittingPassenger}}"
+              loading="{{submittingPassenger}}">
+        {{ submittingPassenger ? '加入中…' : '乘客加入：成为拼车乘客' }}
+      </button>
+
+    </view>
+  </view>
+
+</view>

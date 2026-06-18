@@ -1,0 +1,274 @@
+.page{
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #F6EFE8;
+}
+
+/* 顶部导航 */
+.nav-bar{
+  width: 100%;
+  background-color: #EE9C73;
+}
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon{
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 900;
+  color: #111;
+}
+
+.content{
+  flex: 1;
+  padding: 18rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+/* Seller card */
+.seller-card{
+  border: 2rpx solid rgba(0,0,0,0.12);
+  border-radius: 18rpx;
+  padding: 18rpx;
+  background:#fff;
+}
+.seller-top{
+  display: flex;
+  align-items: center;
+}
+.avatar{
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 999rpx;
+  background:#f6f6f6;
+}
+.seller-info{
+  margin-left: 18rpx;
+}
+.row{
+  font-size: 28rpx;
+  line-height: 1.7;
+}
+.k{ font-weight: 900; color:#111; }
+.v{ color:#111; font-weight: 700; }
+
+.bio-editor{ margin-top: 12rpx; }
+.bio-textarea{
+  width: 100%;
+  min-height: 56rpx;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.70);
+  font-weight: 700;
+  line-height: 1.4;
+}
+.bio-tip{
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: rgba(0,0,0,0.35);
+  font-weight: 700;
+}
+
+.divider{
+  margin: 18rpx 0;
+  height: 2rpx;
+  background: rgba(0,0,0,0.10);
+}
+.section-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color:#111;
+  margin-bottom: 12rpx;
+}
+
+/* Grid */
+.goods-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+}
+.goods-card{
+  position: relative;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  border-radius: 14rpx;
+  overflow:hidden;
+  background:#fff;
+}
+.thumb{
+  width: 100%;
+  height: 180rpx;
+  background:#f6f6f6;
+}
+.goods-label{
+  padding: 12rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+  color:#111;
+}
+
+/* Add card */
+.add-card{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.add-inner{
+  height: 240rpx;
+  width: 100%;
+  display:flex;
+  flex-direction: column;
+  align-items:center;
+  justify-content:center;
+}
+.add-plus{
+  width: 90rpx;
+  height: 90rpx;
+  border-radius: 18rpx;
+  border: 2rpx solid rgba(0,0,0,0.20);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 60rpx;
+  font-weight: 900;
+  color:#EE9C73;
+}
+.add-text{
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+  color:#EE9C73;
+}
+
+.empty{
+  margin-top: 30rpx;
+  text-align:center;
+  color: rgba(0,0,0,0.45);
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+/* 给底部固定栏留空间 */
+.bottom-space{
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+/* Bottom fixed */
+.bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: #ffffff;
+  border-top: 2rpx solid rgba(0,0,0,0.08);
+  box-sizing: border-box;
+}
+.bottom-bar{
+  height: 130rpx;
+  padding: 0 22rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 非管理按钮 */
+.manage-btn{
+  width: 100%;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #EE9C73;
+  color: #fff;
+  font-size: 34rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
+}
+
+/* ✅ 勾选框 */
+.select-box{
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid rgba(0,0,0,0.25);
+  background: rgba(255,255,255,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.select-box.on{
+  border-color: rgba(238,156,115,0.95);
+  background: rgba(238,156,115,0.95);
+}
+.select-box .check{
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+/* ✅ 管理模式底部：全选/删除 */
+.manage-actions{
+  width: 100%;
+  display: flex;
+  gap: 18rpx;
+}
+.manage-left{
+  flex: 1;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  border: 2rpx solid rgba(0,0,0,0.14);
+  color: #111;
+  font-size: 32rpx;
+  font-weight: 900;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.manage-right{
+  flex: 1;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #E54D42;
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 900;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
+}
+.manage-right.disabled{
+  opacity: 0.45;
+}
+.manage-exit{
+  flex: 1;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  border: 2rpx solid rgba(0,0,0,0.14);
+  color: rgba(0,0,0,0.65);
+  font-size: 32rpx;
+  font-weight: 900;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}

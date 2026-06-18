@@ -1,0 +1,115 @@
+.page{ height:100vh; background:#fff; }
+
+/* nav */
+.nav-bar{ background:#fff; border-bottom:2rpx solid rgba(0,0,0,0.10); }
+.nav-content{ height:44px; display:flex; align-items:center; padding:0 22rpx; }
+.nav-left{ width:90rpx; font-size:44rpx; font-weight:900; color:#111; }
+.nav-title{ flex:1; text-align:center; font-size:34rpx; font-weight:900; color:#111; }
+.nav-right{ width:90rpx; }
+
+/* tabs */
+.tabs{
+  display:flex;
+  gap: 28rpx;
+  padding: 18rpx 22rpx 10rpx 22rpx;
+  box-sizing:border-box;
+}
+.tab{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.55);
+  padding-bottom: 8rpx;
+}
+.tab.active{
+  color:#111;
+  border-bottom: 6rpx solid #111;
+}
+
+.content{
+  height: calc(100vh - 44px - 56rpx);
+  padding: 6rpx 22rpx 0 22rpx;
+  box-sizing:border-box;
+}
+
+.coupon-card{
+  display:flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border: 2rpx solid rgba(0,0,0,0.12);
+  border-radius: 14rpx;
+  padding: 16rpx;
+  margin-bottom: 16rpx;
+  background:#fff;
+}
+
+.left{ flex: 1; padding-right: 12rpx; }
+.tags{ display:flex; gap: 10rpx; margin-bottom: 10rpx; }
+.tag{
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  font-weight: 900;
+  color:#fff;
+}
+.tag.red{ background:#e24b3a; }
+.tag.yellow{ background:#f2c94c; color:#111; }
+
+.title{
+  font-size: 26rpx;
+  font-weight: 900;
+  color:#111;
+  margin-bottom: 6rpx;
+}
+.expire{
+  font-size: 22rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.45);
+}
+
+.right{
+  width: 190rpx;
+  display:flex;
+  flex-direction: column;
+  align-items:flex-end;
+  gap: 8rpx;
+}
+.discount{
+  font-size: 34rpx;
+  font-weight: 900;
+  color:#e24b3a;
+}
+.note{
+  font-size: 22rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.45);
+}
+.use-btn{
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  background:#f2c94c;
+  color:#111;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.empty{
+  padding: 80rpx 0;
+  text-align:center;
+  color: rgba(0,0,0,0.45);
+  font-size: 26rpx;
+  font-weight: 700;
+}
+.bottom-space{ height: 40rpx; }
+
+.nav-left{
+  width: 80rpx;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.nav-back{
+  width: 42rpx;
+  height: 42rpx;
+}

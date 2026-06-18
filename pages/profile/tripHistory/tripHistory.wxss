@@ -1,0 +1,148 @@
+page {
+  background-color: #f5f5f5;
+}
+
+/* 整页容器 */
+.container {
+  padding: 20rpx 20rpx 40rpx 20rpx;
+  box-sizing: border-box;
+}
+
+/* 顶部标题：居中 “历史行程” */
+.page-title {
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #222;
+  margin-bottom: 20rpx;
+}
+
+/* 加载 / 空状态提示 */
+.state-text {
+  text-align: center;
+  margin-top: 80rpx;
+  font-size: 26rpx;
+  color: #888;
+}
+
+/* 行程卡片 */
+.trip-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05);
+  padding: 20rpx 24rpx;
+  margin: 8rpx 20rpx 20rpx;
+}
+
+.trip-main-row {
+  display: flex;
+  align-items: center;
+}
+
+.place-text-left,
+.place-text-right {
+  flex: 1;
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #111;
+}
+
+.place-text-left { text-align: left; }
+.place-text-right { text-align: right; }
+
+.arrow-text {
+  width: 80rpx;
+  text-align: center;
+  font-size: 32rpx;
+  margin: 0;
+}
+
+.trip-sub-row {
+  margin-top: 12rpx;
+  display: flex;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #666;
+}
+
+.trip-sub-row2 {
+  margin-top: 8rpx;
+  display: flex;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #666;
+}
+
+.seat-text {
+  color: #ff8c00;
+}
+
+.price-text {
+  color: #333;
+}
+
+.status-text {
+  color: #999;
+}
+
+
+/* 顶部 角色 + 状态 行 */
+.meta-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+  font-size: 26rpx;
+  color: #555;
+}
+
+.meta-role {
+  font-weight: 600;
+}
+
+.meta-status {
+  font-size: 24rpx;
+  color: #07c160; /* 绿色“已完成”效果，可以按需改 */
+}
+
+/* 顶部导航栏 */
+.header { 
+  display:flex; 
+  align-items:center; 
+  height:80rpx; 
+  padding:0 20rpx; 
+}
+.back-icon {
+  width: 50rpx;   /* 改这里就能放大 */
+  height: 50rpx;  /* 改这里就能放大 */
+}
+.title { 
+  flex:1; 
+  text-align:center; 
+  font-size:40rpx; 
+  font-weight:bold; 
+}
+
+.nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+}
+
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+

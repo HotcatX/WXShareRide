@@ -1,0 +1,95 @@
+<view class="page">
+
+<!-- 顶部导航栏（自定义） -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" mode="aspectFit" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="container">
+
+  <!-- 头图 -->
+  <view class="hero-card">
+    <!-- 头图：云端海报 -->
+    <view class="hero-card">
+      <image
+        class="hero-img"
+        src="{{posterImg}}"
+        mode="widthFix"
+        wx:if="{{posterImg}}"
+      />
+      <view class="hero-img-placeholder" wx:else>
+        <text class="placeholder-text">海报加载中…</text>
+      </view>
+
+      <view class="hero-info">
+        <text class="hero-top">{{event.headerTop}}</text>
+        <text class="hero-title">{{event.title}}</text>
+      </view>
+    </view>
+
+    <!-- <view class="hero-info">
+      <text class="hero-top">{{event.headerTop}}</text>
+      <text class="hero-title">{{event.title}}</text>
+      <text class="hero-subtitle">{{event.subtitle}}</text>
+    </view> -->
+  </view>
+
+  <!-- 详细信息 -->
+  <view class="card">
+    <view class="card-title">{{event.detailTitle}}</view>
+
+    <view class="tick-row">
+      <text class="tick">✓</text>
+      <text class="tick-text">{{event.detailLine1}}</text>
+    </view>
+
+    <view class="tick-row">
+      <text class="tick">✓</text>
+      <text class="tick-text">{{event.detailLine2}}</text>
+    </view>
+
+    <view class="tick-row">
+      <text class="tick">✓</text>
+      <text class="tick-text">{{event.detailLine3}}</text>
+    </view>
+
+    <view class="info-row address-row">
+      <text class="info-label">地址</text>
+      <view class="address-right">
+        <text class="info-value address-text">{{event.address}}</text>
+        <view class="copy-mini" bindtap="copyAddress">复制</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 优惠凭证（图片版） -->
+  <view class="card">
+    <view class="card-title">优惠凭证</view>
+
+    <view class="coupon-img-box" wx:if="{{couponImg}}">
+      <image class="coupon-img" src="{{couponImg}}" mode="widthFix" />
+    </view>
+
+    <view class="coupon-placeholder" wx:else>
+      <text class="placeholder-text">未生成优惠券</text>
+    </view>
+
+    <view class="btn-row">
+      <button class="btn primary" bindtap="generateCoupon">生成优惠券</button>
+      <button class="btn" bindtap="saveCoupon" disabled="{{!couponImg}}">保存到本机</button>
+    </view>
+
+    <button class="btn danger" wx:if="{{couponImg}}" bindtap="clearCoupon">
+      清除本地优惠券
+    </button>
+
+  </view>
+
+  <!-- 隐藏 Canvas -->
+  <canvas canvas-id="couponCanvasEdge" class="coupon-canvas"></canvas>
+
+</view>
+</view>

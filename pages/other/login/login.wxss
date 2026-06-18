@@ -1,0 +1,105 @@
+/* 整体容器 */
+.login-container {
+  position: relative;
+  height: 100vh;
+  background-color: #ffffff;
+  padding: 0 80rpx;
+  box-sizing: border-box;
+}
+
+/* 标题区域：真正完全居中对齐 */
+.title-area {
+  position: absolute;
+  top: 140rpx;
+  left: 50%;
+  transform: translateX(-50%);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 主标题 */
+.title {
+  font-size: 60rpx;
+  font-weight: 700;
+  color: #111111;
+  margin-bottom: 20rpx;
+  text-align: center;
+}
+
+/* 副标题 */
+.subtitle {
+  font-size: 32rpx;
+  color: #666666;
+  text-align: center;
+}
+
+/* 按钮区：整体垂直居中 */
+.btn-area {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 微信登录按钮 */
+.login-btn {
+  width: 80%;
+  background-color: #1aad19;
+  color: #ffffff;
+  border-radius: 50rpx;
+  padding: 30rpx 0;
+  font-size: 36rpx;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 12rpx 24rpx rgba(26, 173, 25, 0.25);
+}
+
+.login-btn:active {
+  background-color: #179e16;
+}
+
+/* 游客身份查看：蓝紫色 */
+.guest-btn {
+  width: 80%;
+  margin-top: 100rpx;
+
+  /* 蓝紫色主色 */
+  background: linear-gradient(90deg, #4f7dff, #7a4dff);
+  color: #ffffff;
+
+  border-radius: 50rpx;
+  padding: 28rpx 0;
+  font-size: 34rpx;
+  font-weight: 500;
+  text-align: center;
+
+  box-shadow: 0 12rpx 24rpx rgba(90, 90, 255, 0.22);
+}
+
+.guest-btn:active {
+  opacity: 0.92;
+}
+
+/* disabled 时弱化 */
+.login-btn[disabled],
+.guest-btn[disabled] {
+  opacity: 0.6;
+}
+
+/* Toast 提示（如你后续有用到） */
+.toast {
+  position: absolute;
+  bottom: 80rpx;
+  width: 100%;
+  text-align: center;
+  color: #ff4d4f;
+  font-size: 30rpx;
+}
+

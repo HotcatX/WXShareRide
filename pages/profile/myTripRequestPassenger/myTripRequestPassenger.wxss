@@ -1,0 +1,493 @@
+/* pages/xxx/xxx.wxss（本页） */
+
+page{
+  background: #F6EFE8;
+}
+
+.ui-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #F6EFE8;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部导航（保持你原来） */
+.nav-bar{
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon{
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* 加载态 */
+.state-text{
+  flex: 1;
+  text-align: center;
+  margin-top: 80rpx;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+/* 滚动区 */
+.ui-scroll{
+  flex: 1;
+  min-height: 0;
+  padding: 22rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+}
+
+/* 同款白卡 */
+.ui-card{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 22rpx;
+  box-sizing: border-box;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  margin-top: 18rpx;
+}
+
+/* 乘客卡做个轻强调（可选） */
+.ui-card-accent{
+  border: 2rpx solid rgba(238,156,115,0.18);
+}
+
+/* 提示卡 */
+.ui-notice{
+  border: 2rpx solid rgba(238,156,115,0.28);
+  background: rgba(238,156,115,0.10);
+  box-shadow: none;
+}
+.notice-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.70);
+  margin-bottom: 8rpx;
+}
+.notice-text{
+  font-size: 24rpx;
+  font-weight: 700;
+  color: rgba(0,0,0,0.55);
+  line-height: 1.6;
+}
+
+/* 底部留空 */
+.ui-bottom-space{
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+/* 底部固定白框 */
+.ui-bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+.ui-bottom-bar{
+  background: #fff;
+  height: 160rpx;
+  box-sizing: border-box;
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ui-bottom-inner{
+  width: 93%;
+  display: flex;
+  gap: 18rpx;
+}
+.ui-bottom-btn{
+  flex: 1;
+  height: 96rpx;
+  line-height: 96rpx;
+  border-radius: 999rpx;
+  font-size: 34rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.10);
+}
+.ui-bottom-btn::after{ border: none; }
+
+/* 左：军绿色 */
+.ui-secondary-btn{
+  background: #9CB06A;
+  color: #fff;
+  border: none;
+}
+
+/* 右：橙色（你之前二手交易主色） */
+.ui-primary-btn{
+  background: #EE9C73;
+  color: #fff;
+  border: none;
+}
+
+/* 如果未来需要禁用态（可复用） */
+.ui-btn-disabled{
+  background: #f0f0f0 !important;
+  color: #9a9a9a !important;
+  box-shadow:
+    inset 0 4rpx 6rpx rgba(0,0,0,0.12),
+    inset 0 -4rpx 6rpx rgba(255,255,255,0.8) !important;
+}
+
+/* ===== 卡片内排版（统一） ===== */
+.card-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.75);
+  margin-bottom: 16rpx;
+}
+
+.route-row{
+  display: flex;
+  align-items: center;
+}
+.route-text-left,
+.route-text-right{
+  flex: 1;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.78);
+}
+.route-text-left{ text-align: left; }
+.route-text-right{ text-align: right; }
+.route-arrow{
+  width: 80rpx;
+  font-size: 34rpx;
+  font-weight: 900;
+  text-align: center;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+.time-seat-row{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.time-text,
+.seat-text{
+  font-size: 30rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.60);
+}
+
+/* 第三行：参考价格 */
+.price-row{
+  margin-top: 20rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.price-text-combined{
+  font-size: 34rpx;
+  line-height: 40rpx;
+  color: #FE814B;          /* 与二手交易“红标题”同一体系 */
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+
+/* 司机信息 */
+.driver-header{
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.driver-avatar{
+  width: 90rpx;
+  height: 90rpx;
+  border-radius: 50%;
+  margin-right: 24rpx;
+}
+.driver-name-box{ flex: 1; }
+.driver-name{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.78);
+}
+
+/* info-row */
+.info-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.label{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.45);
+  margin-right: 16rpx;
+}
+.value{
+  flex: 1;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.70);
+  margin-right: 16rpx;
+}
+.wechat-row,
+.phone-row,
+.zelle-row{
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+/* 复制按钮：中性灰胶囊 */
+.copy-btn{
+  padding: 0 18rpx;
+  font-size: 22rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  border-radius: 999rpx;
+  background: rgba(0,0,0,0.06);
+  color: rgba(0,0,0,0.65);
+  margin-left: auto;
+}
+.copy-btn::after{ border: none; }
+
+/* 剔除叉号 */
+.kick-icon{
+  margin-left: 10rpx;
+  font-size: 32rpx;
+  color: #f44336;
+  line-height: 48rpx;   /* 对齐 copy-btn */
+  padding: 0 6rpx;
+}
+
+/* 已加入乘客列表 */
+.empty-tip{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.45);
+  padding: 6rpx 0 10rpx;
+}
+
+.passenger-item{
+  display: flex;
+  align-items: flex-start;
+  padding: 14rpx 0;
+  border-top: 2rpx solid rgba(0,0,0,0.06);
+}
+.passenger-item:first-child{ border-top: none; }
+
+/* =========================
+   乘客卡片（统一为 Grid 版）
+   ========================= */
+
+   .passenger-item{
+    display: flex;
+    align-items: flex-start;
+    padding: 16rpx 0;
+    border-top: 2rpx solid rgba(0,0,0,0.06);
+    gap: 18rpx;
+  }
+  .passenger-item:first-child{ border-top: none; }
+  
+  /* 左侧：头像上 + 名字下 */
+  .passenger-left{
+    width: 128rpx;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  
+  .passenger-avatar{
+    width: 92rpx;
+    height: 92rpx;
+    border-radius: 50%;
+  }
+  
+  .passenger-name{
+    margin-top: 10rpx;
+    font-size: 24rpx;
+    font-weight: 900;
+    color: rgba(0,0,0,0.78);
+    text-align: center;
+  
+    width: 128rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* 右侧：三行容器 */
+  .passenger-right{
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12rpx;
+  }
+  
+  /* Grid 三列：label / value / button */
+  .pgrid{
+    --label-w: 96rpx;
+    --btn-w: 102rpx;
+    --btn-h: 36rpx;
+  
+    display: grid;
+    grid-template-columns: var(--label-w) 1fr var(--btn-w);
+    column-gap: 6rpx;
+    align-items: center;
+    min-width: 0;
+    min-height: 36rpx;
+  }
+  
+  /* 地址行顶部对齐，值可两行 */
+  .pgrid--addr{ align-items: start; }
+  
+  .pgrid-label{
+    font-size: 24rpx;
+    font-weight: 800;
+    color: rgba(0,0,0,0.45);
+    line-height: 34rpx;
+    text-align: right;
+  }
+  
+  .pgrid-value{
+    min-width: 0;
+    font-size: 24rpx;
+    font-weight: 800;
+    color: rgba(0,0,0,0.70);
+    line-height: 34rpx;
+  
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* 地址允许两行 */
+  .pgrid-value--addr{
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* 占位：保证三行按钮列对齐 */
+  .pgrid-btn-placeholder{
+    height: var(--btn-h);
+  }
+  
+  /* 复制按钮（同款绿） */
+  .copy-pill{
+    width: var(--btn-w);
+    height: var(--btn-h);
+    border-radius: 999rpx;
+  
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  
+    font-size: 20rpx;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff;
+    background: #9CB06A;
+  
+    justify-self: end;
+    align-self: center;
+  }
+  
+  /* 剔除按钮（同尺寸，橙色） */
+  .kick-pill{
+    width: var(--btn-w);
+    height: var(--btn-h);
+    border-radius: 999rpx;
+  
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  
+    font-size: 20rpx;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff;
+    background: #FE814B;
+  
+    justify-self: end;
+    align-self: center;
+  }
+  
+  /* 司机信息卡：左侧绿条（同 myTripDetailPassenger） */
+.ui-card-left-green{
+  border-left: 6rpx solid #9CB06A;
+}
+
+/* 头像 + 名字一行（同款） */
+.dprofile{
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 6rpx 0 14rpx;
+}
+
+.dprofile-avatar{
+  width: 92rpx;
+  height: 92rpx;
+  border-radius: 50%;
+}
+
+.dprofile-name{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.78);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 司机剔除 ✕：放在头像姓名行右侧 */
+.kick-x{
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #f44336;
+  background: rgba(244,67,54,0.08);
+}
+
+/* 司机信息用 pgrid：加分割线更像“逐行” */
+.ui-card-left-green .pgrid{
+  padding: 10rpx 0;
+  border-top: 2rpx solid rgba(0,0,0,0.06);
+}
+
+.ui-card-left-green .pgrid:first-of-type{
+  border-top: none;
+}
+

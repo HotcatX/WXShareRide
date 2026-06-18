@@ -1,0 +1,303 @@
+/* pages/home/carpoolRequestDetail/carpoolRequestDetail.wxss */
+
+page{
+  background: #F6EFE8;
+}
+
+.ui-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #F6EFE8;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部导航（保持你原来） */
+.nav-bar{
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon{
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* 加载态 */
+.state-text{
+  flex: 1;
+  text-align: center;
+  margin-top: 80rpx;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+/* 同款白卡 */
+.ui-card{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 18rpx;
+  box-sizing: border-box;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  margin-top: 18rpx;
+}
+
+/* toast：统一轻提示条（滚动区内，不遮挡） */
+.ui-toast{
+  margin-top: 12rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  background: rgba(0,0,0,0.04);
+  border: 2rpx solid rgba(0,0,0,0.06);
+}
+.ui-toast-icon{
+  font-size: 26rpx;
+  font-weight: 900;
+}
+.ui-toast-text{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.60);
+}
+.ui-toast.success{
+  background: rgba(156,176,106,0.14);
+  border-color: rgba(156,176,106,0.28);
+}
+.ui-toast.warn{
+  background: rgba(254,129,75,0.14);
+  border-color: rgba(254,129,75,0.26);
+}
+.ui-toast.error{
+  background: rgba(229,75,59,0.12);
+  border-color: rgba(229,75,59,0.24);
+}
+
+/* 底部留空 */
+.ui-bottom-space{
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+/* 底部固定白框 */
+.ui-bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+.ui-bottom-bar{
+  background: #fff;
+  height: 160rpx;
+  box-sizing: border-box;
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 主按钮：军绿色 */
+.ui-primary-btn{
+  width: 93%;
+  height: 96rpx;
+  line-height: 96rpx;
+  border-radius: 999rpx;
+  background: #9CB06A;   /* ✅ 你指定的军绿色 */
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.10);
+}
+.ui-primary-btn::after{ border: none; }
+
+/* 禁用态：灰色 + 内凹阴影 */
+.ui-primary-btn--disabled{
+  background: #f0f0f0 !important;
+  color: #9a9a9a !important;
+  box-shadow:
+    inset 0 4rpx 6rpx rgba(0,0,0,0.12),
+    inset 0 -4rpx 6rpx rgba(255,255,255,0.8) !important;
+}
+
+/* ===== 卡片内排版（保留结构但统一字体权重/颜色） ===== */
+.card-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.75);
+  margin-bottom: 16rpx;
+}
+
+.route-row{
+  display: flex;
+  align-items: center;
+}
+.route-text-left,
+.route-text-right{
+  flex: 1;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.78);
+}
+.route-text-left{ text-align: left; }
+.route-text-right{ text-align: right; }
+.route-arrow{
+  width: 80rpx;
+  font-size: 34rpx;
+  font-weight: 900;
+  text-align: center;
+  line-height: 40rpx;
+  color: rgba(0,0,0,0.45);
+}
+
+.time-seat-row{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.time-text,
+.seat-text{
+  font-size: 30rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.60);
+}
+
+.price-row{
+  margin-top: 20rpx;
+  display: flex;
+  justify-content: center;
+}
+.price-text-combined{
+  font-size: 34rpx;
+  line-height: 40rpx;
+  color: #E54B3B;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.info-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.value{
+  flex: 1;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.70);
+}
+/* ===== 三个提示框样式（仅 carpoolRequestDetail 使用） ===== */
+.ui-tip-title,
+.ui-tip-line,
+.ui-note-title,
+.ui-note-line{
+  display: block;
+}
+
+.ui-tip-title{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #FE814B;
+  margin-bottom: 10rpx;
+}
+.ui-tip-line{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: #FE814B;
+  line-height: 1.55;
+}
+
+.ui-note-title{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.42);
+  margin-bottom: 10rpx;
+}
+.ui-note-line{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.48);
+  line-height: 1.55;
+}
+/* ✅ 让拼车提示框 = 原来的求车提示框(ui-tip-strong) 的尺寸与配色 */
+.ui-tip-carpool{
+  margin-top: 18rpx;             /* 需要更贴近就改 10rpx / 更松就 24rpx */
+  padding: 18rpx 20rpx 20rpx 20rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
+  border: 3rpx solid #FE814B;
+  box-sizing: border-box;
+  box-shadow: none;              /* 跟 ui-tip-strong 一样：无阴影 */
+}
+
+.ui-tip-carpool-title{
+  display: block;
+  font-size: 28rpx;
+  font-weight: 900;
+  color: #FE814B;
+  margin-bottom: 10rpx;
+}
+
+.ui-tip-carpool-line{
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #FE814B;
+  line-height: 1.45;
+}
+/* ✅ 让“提示”框 = 求车页面 ui-tip-strong 的尺寸与配色 */
+.ui-tip-card{
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx 20rpx 20rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
+
+  border: 3rpx solid #FE814B;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* ✅ 让“注意事项”框也统一成同样外观（如果你也想变成橙框） */
+/* .ui-note-card{
+  margin-top: 18rpx;
+  padding: 18rpx 20rpx 20rpx 20rpx;
+  border-radius: 22rpx;
+  background: #ffffff;
+
+  border: 3rpx solid #FE814B;
+  box-sizing: border-box;
+  width: 100%;
+} */
+
+/* ✅ 同步字体颜色到橙色（你要“颜色也变一下”）
+.ui-tip-title,
+.ui-tip-line{
+  color: #FE814B;
+} */
+/* ✅ 只让这两个提示框突破父容器左右 padding（默认按 22rpx 计算） */
+.ui-scroll{
+  flex: 1;
+  min-height: 0;
+  padding: 22rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+}

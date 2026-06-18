@@ -1,0 +1,139 @@
+<!-- pages/profile/myRequestDetailDriver/myRequestDetailDriver.wxml -->
+
+<view class="ui-page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<!-- 加载中 -->
+<view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+<!-- 内容主体：统一使用 scroll-view -->
+<view
+  wx:else
+  class="ui-scroll"
+>
+
+
+  <!-- 顶部卡片：地点/时间/已加入人数 -->
+  <view class="ui-card">
+    <view class="route-row">
+      <text class="route-text-left">{{fromText || '出发地未设置'}}</text>
+      <text class="route-arrow">→</text>
+      <text class="route-text-right">{{toText || '目的地未设置'}}</text>
+    </view>
+
+    <view class="time-seat-row">
+      <text class="time-text">{{dateText}} {{weekdayText}} {{timeText}}</text>
+      <text class="seat-text">已加入 {{trip.passengerCount || 0}} 人</text>
+    </view>
+  </view>
+
+  <!-- ✅ 行李信息 -->
+  <!-- <view class="ui-card">
+    <text class="card-title">行李信息</text>
+    <view class="info-row">
+      <text class="label">大件行李</text>
+      <text class="value">{{largeLuggageCount}} 件</text>
+    </view>
+  </view> -->
+
+  <!-- ========= 已加入乘客（只有司机本人可见） ========= -->
+  <view wx:if="{{isMyRequest}}" class="ui-card">
+    <text class="card-title">乘客信息</text>
+
+    <view wx:if="{{!passengers || passengers.length === 0}}" class="empty-tip">
+      暂无乘客加入
+    </view>
+
+    <block wx:else>
+      <block wx:for="{{passengers}}" wx:key="_openid" wx:for-item="p">
+        <view class="passenger-item">
+
+          <!-- 左侧：头像上 + 名字下 -->
+          <view class="passenger-left">
+            <image class="passenger-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" />
+            <text class="passenger-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+          </view>
+
+          <!-- 右侧：三行强制对齐（grid） -->
+          <view class="passenger-right">
+
+            <!-- 地址：无按钮，占位一格 -->
+            <view class="pgrid pgrid--addr">
+              <text class="pgrid-label">地址：</text>
+              <text class="pgrid-value pgrid-value--addr">{{p.address || '未填写'}}</text>
+              <view class="pgrid-btn-placeholder"></view>
+            </view>
+
+            <!-- 微信：按钮与值强制对齐 -->
+            <view class="pgrid">
+              <text class="pgrid-label">微信：</text>
+              <text class="pgrid-value">{{p.wechatID || '未填写'}}</text>
+                <view
+                  wx:if="{{p.wechatID}}"
+                  class="copy-pill"
+                  data-wechat="{{p.wechatID}}"
+                  bindtap="copyPassengerWechat"
+                >
+                  复制
+                </view>
+              <view wx:else class="pgrid-btn-placeholder"></view>
+            </view>
+
+            <!-- 手机：按钮与值强制对齐 -->
+            <view class="pgrid">
+              <text class="pgrid-label">手机：</text>
+              <text class="pgrid-value">{{p.phone || '未填写'}}</text>
+
+                <view
+                  wx:if="{{p.phone}}"
+                  class="copy-pill"
+                  data-phone="{{p.phone}}"
+                  bindtap="onCopyPhone"
+                >
+                  复制
+                </view>
+
+              <view wx:else class="pgrid-btn-placeholder"></view>
+            </view>
+
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+
+  <!-- 不是本路线司机提示 -->
+  <view wx:else class="ui-card ui-notice">
+    <text class="notice-title">温馨提示</text>
+    <text class="notice-text">你尚未成为该求车路线的司机，因此不展示乘客信息。</text>
+  </view>
+
+  <!-- Fort Lee 提示 -->
+  <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
+    <text class="notice-title">温馨提示</text>
+    <text class="notice-text">
+      Fort Lee 核心区域仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。
+    </text>
+  </view>
+
+  <!-- 给底部固定按钮留空 -->
+  <view class="ui-bottom-space"></view>
+</view>
+
+<!-- 底部按钮（只有退出） -->
+<view class="ui-bottom-fixed" wx:if="{{isMyRequest}}">
+  <view class="ui-bottom-bar ui-bottom-bar--one">
+    <button class="ui-danger-btn" bindtap="onQuitRequest">
+      退出路线
+    </button>
+  </view>
+</view>
+
+</view>

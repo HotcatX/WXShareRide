@@ -1,0 +1,153 @@
+<!-- pages/home/driverCarpoolTemplate/driverCarpoolTemplate.wxml -->
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="ui-page">
+  <scroll-view class="ui-scroll" scroll-y>
+
+    <!-- 顶部：出发地/目的地 + 星期几/时间 + 载客数 -->
+    <view class="ui-card">
+      <!-- 第一行：出发地 / 目的地 -->
+      <view class="route-row">
+        <view class="route-item">
+          <picker
+            mode="selector"
+            range="{{departureAddresses}}"
+            data-type="departure"
+            bindchange="onAddressSelect"
+            disabled="{{loadingDepartureAddrs}}"
+          >
+            <view class="route-line">
+              <text class="route-line-text {{ departureAddress ? 'route-filled' : 'route-placeholder' }}">
+                {{ loadingDepartureAddrs ? '出发地加载中…' : (departureAddress || '选择出发地') }}
+              </text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="route-arrow">
+          <text class="route-arrow-icon">➔</text>
+        </view>
+
+        <view class="route-item">
+          <picker
+            mode="selector"
+            range="{{arrivalAddresses}}"
+            data-type="destination"
+            bindchange="onAddressSelect"
+            disabled="{{loadingArrivalAddrs}}"
+          >
+            <view class="route-line">
+              <text class="route-line-text {{ destinationAddress ? 'route-filled' : 'route-placeholder' }}">
+                {{ loadingArrivalAddrs ? '目的地加载中…' : (destinationAddress || '选择到达') }}
+              </text>
+            </view>
+          </picker>
+        </view>
+      </view>
+
+      <!-- 第二行：星期几 / 时间 -->
+      <view class="datetime-row">
+        <view class="route-item">
+          <picker mode="selector" range="{{weekdayOptions}}" value="{{weekdayIndex}}" bindchange="onWeekdayChange">
+            <view class="route-line">
+              <text class="route-line-text {{ weekdayText ? 'route-filled' : 'route-placeholder' }}">
+                {{ weekdayText || '选择星期几' }}
+              </text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="route-arrow route-arrow-empty"></view>
+
+        <view class="route-item">
+          <picker mode="time" bindchange="onTimeChange">
+            <view class="route-line">
+              <text class="route-line-text {{ departureTime ? 'route-filled' : 'route-placeholder' }}">
+                {{ departureTime || '选择时间' }}
+              </text>
+            </view>
+          </picker>
+        </view>
+      </view>
+
+      <!-- 第三行：载客数量 -->
+      <view class="passenger-inline-row">
+        <text class="passenger-label">载客数量（1-7）</text>
+        <input
+          class="passenger-input"
+          type="number"
+          value="{{passengerCount}}"
+          bindinput="onPassengerInput"
+        />
+      </view>
+    </view>
+
+    <!-- 中间：参考价格 + 车辆信息 + 备注 -->
+    <view class="ui-card">
+      <view class="field-row">
+        <text class="field-label">参考价格</text>
+        <input
+          class="field-input"
+          value="{{referencePrice}}"
+          bindinput="onReferencePriceInput"
+          placeholder="例如: 10🔪 / 11-13$ / 价格私议"
+        />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">车牌号</text>
+        <input class="field-input" value="{{carNumber}}" bindinput="onCarNumberInput" placeholder="请输入车牌号" />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">车辆品牌</text>
+        <input class="field-input" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="例如：Toyota / Honda" />
+      </view>
+
+      <view class="field-row">
+        <text class="field-label">车辆型号</text>
+        <input class="field-input" value="{{carModel}}" bindinput="onCarModelInput" placeholder="例如：RAV4 / Civic" />
+      </view>
+
+      <view class="field-row field-textarea">
+        <text class="field-label">备注</text>
+        <textarea
+          class="comment-textarea"
+          value="{{comment}}"
+          bindinput="onCommentInput"
+          placeholder="选填"
+          auto-height="true"
+          maxlength="100"
+        />
+      </view>
+    </view>
+
+    <!-- 是否公开 Zelle -->
+    <view class="ui-card zelle-card">
+      <checkbox-group bindchange="onZelleCheckboxChange">
+        <label class="zelle-label">
+          <checkbox value="showZelle" checked="{{showZelle}}" />
+          <text class="zelle-text">公开 Zelle 信息给拼车成功的乘客</text>
+        </label>
+      </checkbox-group>
+    </view>
+
+    <view class="ui-bottom-space"></view>
+  </scroll-view>
+
+  <!-- 底部固定按钮 -->
+  <view class="ui-bottom-fixed">
+    <view class="ui-bottom-bar">
+      <view class="ui-primary-btn {{submitting ? 'ui-primary-btn--disabled' : ''}}" bindtap="confirmTemplate">
+        {{ submitting ? '提交中…' : '保存出行模板' }}
+      </view>
+    </view>
+  </view>
+</view>

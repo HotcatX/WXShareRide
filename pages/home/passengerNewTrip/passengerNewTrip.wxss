@@ -1,0 +1,319 @@
+/* =========================
+   passengerNewTrip：二手交易同款 UI
+   ========================= */
+
+/* 页面骨架：米色背景 */
+.ui-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #F6EFE8;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 中间滚动区：同款边距 */
+.ui-scroll{
+  flex: 1;
+  min-height: 0;
+  padding: 22rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+}
+
+/* 白卡：同款圆角 + 阴影 */
+.ui-card{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 22rpx;
+  box-sizing: border-box;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  margin-top: 18rpx;
+}
+
+/* 底部留空：防遮挡 */
+.ui-bottom-space{
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+/* 底部固定容器 */
+.ui-bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
+/* 底部白色框：同款 */
+.ui-bottom-bar{
+  background: #fff;
+  height: 160rpx;
+  box-sizing: border-box;
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 主按钮：同款（用 button 也一致） */
+.ui-primary-btn{
+  width: 93%;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #9CB06A;
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
+  line-height: 96rpx;
+}
+
+/* 去掉 button 默认边框 */
+.ui-primary-btn::after{ border: none; }
+
+/* =========================
+   顶部导航（原样保留）
+   ========================= */
+.nav-bar{
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content{
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon{
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title{
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* =========================
+   路线区域内部排版：保留结构，向同款靠拢
+   ========================= */
+.route-row{
+  display: flex;
+  align-items: center;
+  padding-bottom: 6rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+.route-item{ flex: 1; }
+
+.route-arrow{
+  width: 80rpx;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.route-arrow-empty{ width: 80rpx; }
+
+.route-arrow-icon{
+  font-size: 34rpx;
+  color: rgba(0,0,0,0.75);
+  line-height: 34rpx;
+}
+
+.route-line{
+  padding: 10rpx 0;
+  display: flex;
+  align-items: center;
+}
+.route-line-text{
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.route-placeholder{ color: rgba(0,0,0,0.30); }
+.route-filled{ color: rgba(0,0,0,0.78); }
+
+/* 日期时间行 */
+.datetime-row{
+  display: flex;
+  align-items: center;
+  margin-top: 6rpx;
+  padding-bottom: 6rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+
+/* 人数/行李行 */
+.passenger-inline-row{
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.passenger-label{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.75);
+}
+.passenger-input{
+  width: 160rpx;
+  text-align: center;
+  border-radius: 999rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  padding: 6rpx 0;
+  font-size: 26rpx;
+  font-weight: 800;
+  background-color: #f7f8fa;
+}
+
+/* 表单行 */
+.field-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.field-label{
+  width: 140rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.75);
+}
+.field-input{
+  flex: 1;
+  border-radius: 12rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  padding: 8rpx 14rpx;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.80);
+  background-color: #f7f8fa;
+}
+
+.field-textarea{ align-items: flex-start; }
+.comment-textarea{
+  flex: 1;
+  min-height: 90rpx;
+  max-height: 380rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  font-size: 26rpx;
+  background-color: #f7f8fa;
+}
+
+/* ✅ 两卡片之间的提示框（轻量，不用白卡） */
+.ui-tip{
+  margin-top: 26rpx;                 /* ✅ 增大与上方信息输入框的间距 */
+  padding: 10rpx 18rpx 12rpx 18rpx;  /* ✅ 减小顶部padding，让文字更贴近上边框 */
+  border-radius: 18rpx;
+  background: rgba(238,156,115,0.12);
+  border: 2rpx solid rgba(238,156,115,0.28);
+}
+
+.ui-tip-text{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.65);
+  line-height: 1.35;                 /* ✅ 略收紧行高，视觉更紧凑 */
+}
+
+/* 只读外观可选：更像展示，不像可输入（你已有也行） */
+.passenger-input--readonly{
+  background-color: #f7f8fa;
+  color: rgba(0,0,0,0.78);
+}
+
+/* ✅ 只加宽“价格”输入框 */
+.passenger-input--price{
+  width: 220rpx;     /* 原来 160rpx，这里更宽，向左增长更明显 */
+}
+
+/* =========================
+   强提示框（红色重点提示，图示款）
+   ========================= */
+
+   .ui-tip-strong{
+    margin-top: 32rpx;                      /* 与上方卡片拉开距离 */
+    padding: 18rpx 20rpx 20rpx 20rpx;
+    border-radius: 22rpx;
+    background: #ffffff;
+    border: 3rpx solid #FE814B;
+    box-sizing: border-box;
+  }
+  
+  /* “提示：”标题 */
+  .ui-tip-title{
+    display: block;
+    font-size: 28rpx;
+    font-weight: 900;
+    color: #FE814B;
+    margin-bottom: 10rpx;
+  }
+  
+  /* 内容区 */
+  .ui-tip-content{
+    display: flex;
+    flex-direction: column;
+    gap: 6rpx;
+  }
+  
+  /* 每一行提示 */
+  .ui-tip-line{
+    font-size: 26rpx;
+    font-weight: 700;
+    color: #FE814B;
+    line-height: 1.45;
+  }
+  
+
+
+
+/* =========================
+   拼车选项 + 红色提示框
+   ========================= */
+
+   .ui-carpool-section{
+    margin-top: 22rpx;
+  }
+  
+  .ui-carpool-check{
+    display: flex;
+    align-items: center;
+    gap: 14rpx;
+    padding: 10rpx 8rpx 14rpx 8rpx;
+  }
+  
+  .ui-carpool-text{
+    font-size: 32rpx;
+    font-weight: 800;
+    color: rgba(0,0,0,0.80);
+  }
+  
+  /* 红色提示框：白底圆角，红字（对齐你截图的风格） */
+  .ui-tip-carpool{
+    margin-top: 10rpx;
+    background: #fff;
+    border-radius: 26rpx;
+    padding: 22rpx 22rpx 24rpx 22rpx;
+    box-sizing: border-box;
+  }
+  
+  .ui-tip-carpool-title{
+    display: block;
+    font-size: 30rpx;
+    font-weight: 900;
+    color: #ff3b30;
+    margin-bottom: 10rpx;
+  }
+  
+  .ui-tip-carpool-line{
+    display: block;
+    font-size: 30rpx;
+    font-weight: 900;
+    color: #ff3b30;
+    line-height: 1.55;
+  }
+  

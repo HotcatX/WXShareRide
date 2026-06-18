@@ -1,0 +1,203 @@
+<view class="page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<!-- 可滚动内容 -->
+<view class="container">
+
+  <!-- 头像 + 昵称 -->
+  <view class="profile-header">
+    <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+      <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
+    </button>
+    <input
+      class="name-input"
+      placeholder="请输入昵称"
+      value="{{name}}"
+      data-field="name"
+      bindinput="onInput"
+    />
+  </view>
+
+  <!-- 微信号 & 手机号 -->
+  <view class="section-card">
+
+    <view class="form-item">
+      <text class="label">*微信号</text>
+      <input
+        class="input"
+        placeholder="必填，务必准确需添加好友"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{wechat}}"
+        data-field="wechat"
+        bindinput="onInput"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">所住公寓</text>
+      <input
+        class="input"
+        placeholder="选填，用于二手交易"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{address}}"
+        data-field="address"
+        bindinput="onInput"
+      />
+    </view>
+    
+    <!-- ✅ 所住区域（bigregion） -->
+    <view class="form-item">
+      <text class="label">所住区域</text>
+      <input
+        class="input"
+        value="{{bigregion}}"
+        placeholder="选填，用于二手区划分"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        disabled
+        bindtap="onChooseBigRegion"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">地区</text>
+      <picker
+        mode="selector"
+        range="{{regions}}"
+        value="{{regionIndex}}"
+        bindchange="onRegionChange"
+        class="picker"
+      >
+        <view class="picker-inner">
+          <text>{{regions[regionIndex]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <text class="label">手机号</text>
+      <input
+        class="input"
+        placeholder="选填，请输入手机号"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{phone}}"
+        data-field="phone"
+        bindinput="onInput"
+        type="number"
+      />
+    </view>
+  </view>
+
+  <!-- 司机填写 -->
+  <view class="section-title">司机填写</view>
+
+  <!-- Zelle 信息 -->
+  <view class="section-card">
+    <view class="form-item">
+      <text class="label">Zelle 姓名</text>
+      <input
+        class="input"
+        placeholder="用于收款核实"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{zelleName}}"
+        data-field="zelleName"
+        bindinput="onInput"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">Zelle 账号</text>
+      <input
+        class="input"
+        placeholder="转账邮箱或手机号"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{zelleAccount}}"
+        data-field="zelleAccount"
+        bindinput="onInput"
+      />
+    </view>
+  </view>
+
+  <!-- 车辆信息 -->
+  <view class="section-card">
+    <view class="form-item">
+      <text class="label">车牌号</text>
+      <input
+        class="input"
+        placeholder="例如 NJ ABC123"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{carNumber}}"
+        data-field="carNumber"
+        bindinput="onInput"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">车辆品牌</text>
+      <input
+        class="input"
+        placeholder="例如 Toyota, Honda"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{carBrand}}"
+        data-field="carBrand"
+        bindinput="onInput"
+      />
+    </view>
+
+    <view class="form-item">
+      <text class="label">车辆型号</text>
+      <input
+        class="input"
+        placeholder="例如 Camry, CR-V"
+        placeholder-style="color: rgba(0,0,0,0.35); font-size: 24rpx;"
+        value="{{carModel}}"
+        data-field="carModel"
+        bindinput="onInput"
+      />
+    </view>
+  </view>
+
+</view>
+
+<!-- 底部保存按钮 -->
+<view class="bottom-bar">
+  <button class="save-btn" bindtap="onComplete">保存修改</button>
+</view>
+
+<!-- ✅ bigregion 三列滚动选择器弹层（原样保留） -->
+<view wx:if="{{bigRegionPickerVisible}}" class="picker-mask" bindtap="onBigRegionPickerCancel"></view>
+
+<view wx:if="{{bigRegionPickerVisible}}" class="picker-panel">
+  <view class="picker-header">
+    <text class="picker-btn" bindtap="onBigRegionPickerCancel">取消</text>
+    <text class="picker-title">选择所住区域</text>
+    <text class="picker-btn ok" bindtap="onBigRegionPickerConfirm">确定</text>
+  </view>
+
+  <picker-view
+    class="picker-view"
+    indicator-style="height: 44px;"
+    value="{{bigRegionPickerValue}}"
+    bindchange="onBigRegionPickerChange"
+  >
+    <picker-view-column>
+      <view class="picker-item" wx:for="{{bigRegionCol1}}" wx:key="*this">{{item}}</view>
+    </picker-view-column>
+
+    <picker-view-column>
+      <view class="picker-item" wx:for="{{bigRegionCol2}}" wx:key="*this">{{item}}</view>
+    </picker-view-column>
+
+    <picker-view-column>
+      <view class="picker-item" wx:for="{{bigRegionCol3}}" wx:key="*this">{{item}}</view>
+    </picker-view-column>
+  </picker-view>
+</view>
+
+</view>

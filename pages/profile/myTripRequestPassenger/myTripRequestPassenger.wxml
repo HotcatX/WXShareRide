@@ -1,0 +1,232 @@
+<view class="page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="ui-page">
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <!-- 内容滚动 -->
+  <view
+  wx:else
+  class="ui-scroll"
+  >
+
+
+    <!-- 顶部路线卡片 -->
+    <view class="ui-card">
+      <!-- 第一行：出发地 → 目的地 -->
+      <view class="route-row">
+        <text class="route-text-left">{{fromText || '出发地未设置'}}</text>
+        <text class="route-arrow">→</text>
+        <text class="route-text-right">{{toText || '目的地未设置'}}</text>
+      </view>
+
+      <!-- 第二行：时间 + 已加入人数 -->
+      <view class="time-seat-row">
+        <text class="time-text">{{dateText}} {{weekdayText}} {{timeText}}</text>
+        <text class="seat-text">已加入 {{trip.passengerCount || 0}} 人</text>
+      </view>
+
+      <!-- 第三行：参考价格 -->
+      <view class="price-row">
+        <text class="price-text-combined">
+          参考价格：{{trip.referencePrice || '价格待定'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 司机信息（统一为：头像姓名 + pgrid 三列 + copy-pill） -->
+    <view wx:if="{{driverInfo}}" class="ui-card ui-card-left-green">
+      <text class="card-title">司机信息</text>
+
+      <!-- 头像 + 名字（单独一行） -->
+      <view class="dprofile">
+        <image
+          class="dprofile-avatar"
+          src="{{driverInfo.avatarUrl || defaultAvatarUrl}}"
+        />
+        <text class="dprofile-name">{{driverInfo.name || '未设置昵称'}}</text>
+
+        <!-- 剔除司机（kickMode） -->
+        <view
+          wx:if="{{kickMode}}"
+          class="kick-x"
+          bindtap="onKickDriver"
+        >✕</view>
+      </view>
+
+      <!-- 微信：复制 -->
+      <view class="pgrid">
+        <text class="pgrid-label">微信：</text>
+        <text class="pgrid-value">{{driverInfo.wechatID || '未填写'}}</text>
+
+        <view
+          wx:if="{{driverInfo.wechatID}}"
+          class="copy-pill"
+          data-text="{{driverInfo.wechatID}}"
+          bindtap="onCopyText"
+        >复制</view>
+        <view wx:else class="pgrid-btn-placeholder"></view>
+      </view>
+
+      <!-- 手机：复制 -->
+      <view class="pgrid">
+        <text class="pgrid-label">手机：</text>
+        <text class="pgrid-value">{{driverInfo.phone || '未填写'}}</text>
+
+        <view
+          wx:if="{{driverInfo.phone}}"
+          class="copy-pill"
+          data-text="{{driverInfo.phone}}"
+          bindtap="onCopyText"
+        >复制</view>
+        <view wx:else class="pgrid-btn-placeholder"></view>
+      </view>
+
+      <!-- 车牌：无按钮，占位 -->
+      <view class="pgrid">
+        <text class="pgrid-label">车牌：</text>
+        <text class="pgrid-value">{{driverInfo.carNumber || '未填写'}}</text>
+        <view class="pgrid-btn-placeholder"></view>
+      </view>
+
+      <!-- 车型：无按钮，占位 -->
+      <view class="pgrid">
+        <text class="pgrid-label">车型：</text>
+        <text class="pgrid-value">{{(driverInfo.carBrand || '') + ' ' + (driverInfo.carModel || '')}}</text>
+        <view class="pgrid-btn-placeholder"></view>
+      </view>
+
+      <!-- Zelle：复制 -->
+      <view class="pgrid">
+        <text class="pgrid-label">Zelle：</text>
+        <text class="pgrid-value">{{driverInfo.zelleAccount || '未填写'}}</text>
+
+        <view
+          wx:if="{{driverInfo.zelleAccount}}"
+          class="copy-pill"
+          data-text="{{driverInfo.zelleAccount}}"
+          bindtap="onCopyText"
+        >复制</view>
+        <view wx:else class="pgrid-btn-placeholder"></view>
+      </view>
+    </view>
+
+    <!-- 已加入乘客（不含自己） -->
+    <view class="ui-card ui-card-accent">
+      <text class="card-title">已加入乘客</text>
+
+      <view wx:if="{{!otherPassengers || otherPassengers.length === 0}}" class="empty-tip">
+        暂无其他乘客加入
+      </view>
+
+      <block wx:else>
+        <block wx:for="{{otherPassengers}}" wx:key="_openid" wx:for-item="p">
+
+          <view class="passenger-item">
+
+            <!-- 左侧：头像上 + 名字下（同原来 Grid 页面） -->
+            <view class="passenger-left">
+              <image class="passenger-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" />
+              <text class="passenger-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+            </view>
+
+            <!-- 右侧：三行强制对齐（grid） -->
+            <view class="passenger-right">
+
+              <!-- 地址：无复制按钮；如你想让 kickMode 出现在这里也可以 -->
+              <view class="pgrid pgrid--addr">
+                <text class="pgrid-label">地址：</text>
+                <text class="pgrid-value pgrid-value--addr">{{p.address || '未填写'}}</text>
+
+                <!-- 右侧：kickMode 显示剔除，否则占位 -->
+                <view
+                  wx:if="{{kickMode}}"
+                  class="kick-pill"
+                  data-openid="{{p._openid}}"
+                  bindtap="onKickPassenger"
+                >
+                  剔除
+                </view>
+                <view wx:else class="pgrid-btn-placeholder"></view>
+              </view>
+
+              <!-- 微信：复制按钮与值对齐 -->
+              <view class="pgrid">
+                <text class="pgrid-label">微信：</text>
+                <text class="pgrid-value">{{p.wechatID || '未填写'}}</text>
+
+                <view
+                  wx:if="{{p.wechatID}}"
+                  class="copy-pill"
+                  data-text="{{p.wechatID}}"
+                  bindtap="onCopyText"
+                >
+                  复制
+                </view>
+                <view wx:else class="pgrid-btn-placeholder"></view>
+              </view>
+
+              <!-- 手机：复制按钮与值对齐 -->
+              <view class="pgrid">
+                <text class="pgrid-label">手机：</text>
+                <text class="pgrid-value">{{p.phone || '未填写'}}</text>
+
+                <view
+                  wx:if="{{p.phone}}"
+                  class="copy-pill"
+                  data-text="{{p.phone}}"
+                  bindtap="onCopyText"
+                >
+                  复制
+                </view>
+                <view wx:else class="pgrid-btn-placeholder"></view>
+              </view>
+
+            </view>
+          </view>
+
+        </block>
+      </block>
+    </view>
+
+    <!-- Fort Lee 提示 -->
+    <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
+      <text class="notice-title">提示</text>
+      <text class="notice-text">
+        Fort Lee 核心区域仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。
+      </text>
+    </view>
+
+    <!-- 底部留空 -->
+    <view class="ui-bottom-space"></view>
+  </view>
+
+  <!-- 底部固定：左军绿 + 右橙色 -->
+  <view class="ui-bottom-fixed">
+    <view class="ui-bottom-bar">
+      <view class="ui-bottom-inner">
+        <button class="ui-bottom-btn ui-secondary-btn"
+                bindtap="toggleKickMode">
+          {{kickMode ? '完成剔除' : '剔除成员'}}
+        </button>
+
+        <button class="ui-bottom-btn ui-primary-btn"
+                bindtap="onQuitAndDelete">
+          退出并删除路线
+        </button>
+      </view>
+    </view>
+  </view>
+
+</view>
+</view>
+

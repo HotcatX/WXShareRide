@@ -1,0 +1,63 @@
+<view class="page">
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+
+    <!-- 返回按钮：与 driverNewTrip 一致 -->
+    <image
+      class="back-icon"
+      src="/images/back.png"
+      bindtap="onBack"
+    />
+
+    <text class="nav-title">我发布的</text>
+
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<scroll-view class="content" scroll-y="true">
+
+  <view class="filter-row">
+    <text class="filter-all">全部</text>
+  </view>
+
+  <view wx:if="{{list.length === 0}}" class="empty">
+    暂无记录
+  </view>
+
+  <view
+    class="row-card"
+    wx:for="{{list}}"
+    wx:key="id"
+    bindtap="onOpenDetail"
+    data-id="{{item.id}}"
+  >
+    <!-- 左侧小图 -->
+    <image class="thumb"
+           src="{{item.thumbUrl || item.imageFileID || '/images/market.png'}}"
+           mode="aspectFill"
+           lazy-load="true" />
+
+    <!-- 中间标题 -->
+    <view class="mid">
+      <view class="title">{{item.title}}</view>
+    </view>
+
+    <!-- 右侧价格 + 黄色联系按钮 -->
+    <view class="right">
+      <view class="price">¥{{item.price}}</view>
+
+      <view class="contact-btn"
+            catchtap="onCopyWechat"
+            data-wx="{{item.contactWechat}}">
+        {{type === 'sold' ? '联系买家' : '联系卖家'}}
+      </view>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</scroll-view>
+
+</view>

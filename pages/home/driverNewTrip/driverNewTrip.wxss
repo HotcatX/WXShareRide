@@ -1,0 +1,298 @@
+/* =========================
+   发车页面：套用二手交易 UI
+   ========================= */
+
+/* 页面同款米色背景 + 结构 */
+.ui-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #F6EFE8;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 可滚动内容区（同款边距） */
+.ui-scroll{
+  flex: 1;
+  min-height: 0;
+  padding: 22rpx 22rpx 0 22rpx;
+  box-sizing: border-box;
+}
+
+/* 卡片同款：圆角 + 阴影 */
+.ui-card{
+  background: #fff;
+  border-radius: 26rpx;
+  padding: 22rpx;
+  box-sizing: border-box;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  margin-top: 18rpx;
+}
+
+/* 底部占位（同款） */
+.ui-bottom-space{
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+/* 底部固定容器（同款） */
+.ui-bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
+/* 底部白色框（同款） */
+.ui-bottom-bar{
+  background: #fff;
+  height: 160rpx;
+  box-sizing: border-box;
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 底部按钮（同款） */
+.ui-primary-btn{
+  width: 93%;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #9CB06A;
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
+}
+
+/* 提交中弱化（可选） */
+.ui-primary-btn--disabled{
+  opacity: 0.75;
+}
+
+/* =========================
+   顶部导航栏（你原来是白色，这里不强制改；如需统一也可改米色/橙色）
+   ========================= */
+.nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon {
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* =========================
+   路线区域内部排版（保留你的布局，只微调边框颜色以贴近同款）
+   ========================= */
+
+/* 第一行：出发地 / 到达地 */
+.route-row{
+  display: flex;
+  align-items: center;
+  padding-bottom: 6rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+
+.route-item{ flex: 1; }
+
+/* 中间箭头 */
+.route-arrow{
+  width: 80rpx;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.route-arrow-empty{ width: 80rpx; }
+
+.route-arrow-icon{
+  font-size: 34rpx;
+  color: rgba(0,0,0,0.75);
+  line-height: 34rpx;
+}
+
+/* 每个条目 */
+.route-line{
+  padding: 10rpx 0;
+  display: flex;
+  align-items: center;
+}
+
+.route-line-text{
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.route-placeholder{ color: rgba(0,0,0,0.30); }
+.route-filled{ color: rgba(0,0,0,0.78); }
+
+/* 第二行：日期 / 时间 */
+.datetime-row{
+  display: flex;
+  align-items: center;
+  margin-top: 6rpx;
+  padding-bottom: 6rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+
+/* 第三行：载客数量 */
+.passenger-inline-row{
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.passenger-label{
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.75);
+}
+
+.passenger-input{
+  width: 160rpx;
+  text-align: center;
+  border-radius: 999rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  padding: 6rpx 0;
+  font-size: 26rpx;
+  font-weight: 800;
+  background-color: #f7f8fa;
+}
+
+/* =========================
+   表单区域：保持你的结构，外观向同款靠拢
+   ========================= */
+.field-row{
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.field-label{
+  width: 140rpx;
+  font-size: 26rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.75);
+}
+
+.field-input{
+  flex: 1;
+  border-radius: 12rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  padding: 8rpx 14rpx;
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.80);
+  background-color: #f7f8fa;
+}
+
+.field-textarea{ align-items: flex-start; }
+
+.comment-textarea{
+  flex: 1;
+  min-height: 90rpx;
+  max-height: 380rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid rgba(0,0,0,0.10);
+  font-size: 26rpx;
+  background-color: #f7f8fa;
+}
+
+/* Zelle 行（放在 ui-card 内） */
+.zelle-card{ padding: 18rpx 22rpx; }
+.zelle-label{
+  display: flex;
+  align-items: center;
+}
+.zelle-text{
+  margin-left: 12rpx;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.75);
+}
+
+/* ===== 常用模板标题：不包卡片，紧贴上一张卡片 ===== */
+.tpl-title-row{
+  margin: 8rpx 28rpx 0;  /* 上间距很小，紧挨着 Zelle 卡片 */
+}
+.tpl-title{
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #111;
+}
+
+/* 状态提示也要紧贴标题 */
+.tpl-state{
+  margin: 8rpx 28rpx 0;
+}
+
+/* 模板列表紧贴标题 */
+.tpl-list{
+  margin-top: 8rpx;
+}
+
+/* 复用“行程卡片”风格：如果你项目里没有 trip-card，就用下面的兜底 */
+.trip-card{
+  margin: 10rpx 28rpx 0;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 18rpx 18rpx;
+  box-shadow: 0 6rpx 20rpx rgba(0,0,0,0.06);
+}
+
+/* 一行布局：不换行 */
+.tpl-one-row{
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 各字段宽度与截断 */
+.tpl-week{
+  font-weight: 700;
+  color: #111;
+  flex: 0 0 auto;
+}
+.tpl-time{
+  color: #111;
+  flex: 0 0 auto;
+}
+.tpl-from{
+  color: #111;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tpl-arrow{
+  color: #111;
+  flex: 0 0 auto;
+}
+.tpl-to{
+  color: #111;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

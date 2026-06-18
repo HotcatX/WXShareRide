@@ -1,0 +1,248 @@
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="ui-page">
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <!-- 内容滚动 -->
+  <view
+  wx:else
+  class="ui-scroll"
+  scroll-y
+  enhanced="true"
+  show-scrollbar="false"
+>
+
+
+    <!-- 顶部横向提示条（保留，但做成统一提示条风格） -->
+    <view wx:if="{{toastVisible}}" class="ui-toast {{toastType}}">
+      <text class="ui-toast-icon">{{toastIcon}}</text>
+      <text class="ui-toast-text">{{toastText}}</text>
+    </view>
+
+    <!-- 顶部发车卡片 -->
+    <view class="ui-card">
+      <view class="route-row">
+        <text class="route-text-left">{{departAddress || '出发地未设置'}}</text>
+        <text class="route-arrow">→</text>
+        <text class="route-text-right">{{destAddress || '目的地未设置'}}</text>
+      </view>
+
+      <view class="time-seat-row">
+        <text class="time-text">{{formattedDepartTime || '时间待定'}}</text>
+        <text class="seat-text">余位 {{trip.availSeatNum || 0}}</text>
+      </view>
+
+      <view class="price-row">
+        <text class="price-text-combined">
+          出行价格：{{trip.referencePrice || '价格以司机最终确认为准'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 司机备注 -->
+    <view class="ui-card">
+      <text class="card-title">司机备注</text>
+      <view class="info-row">
+        <text class="value">{{trip.comment || '暂无司机备注'}}</text>
+      </view>
+    </view>
+
+    <!-- 车辆信息 -->
+    <view class="ui-card">
+      <text class="card-title">车辆信息</text>
+
+      <view wx:if="{{carBrandModel}}">
+        <view class="info-row">
+          <text class="value car-brand-model">{{carBrandModel}}</text>
+        </view>
+      </view>
+
+      <view wx:else class="info-row">
+        <text class="value weak-text">暂无车辆详细信息</text>
+      </view>
+    </view>
+
+    <!-- 司机信息 -->
+    <view wx:if="{{hasJoined && driverInfo}}" class="ui-card">
+      <text class="card-title">司机信息</text>
+
+      <!-- 头像 + 昵称 -->
+      <view class="driver-header">
+        <image class="driver-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" />
+        <view class="driver-name-box">
+          <text class="driver-name">
+            {{driverInfo.name || driverInfo.nickName || '未设置昵称'}}
+          </text>
+        </view>
+      </view>
+
+      <!-- 车牌号 -->
+      <view wx:if="{{driverInfo.carNumber}}" class="info-row">
+        <text class="label">车牌号</text>
+        <text class="value">{{driverInfo.carNumber}}</text>
+      </view>
+
+      <!-- 微信 -->
+      <view class="info-row wechat-row">
+        <text class="label">微信号</text>
+        <text class="value">{{driverInfo.wechatID || '司机未填写微信号'}}</text>
+
+        <button wx:if="{{driverInfo.wechatID}}"
+                class="copy-btn"
+                size="mini"
+                bindtap="copyWeChat">
+          点击复制
+        </button>
+      </view>
+
+      <!-- 手机号 -->
+      <view wx:if="{{driverInfo.phone}}" class="info-row phone-row">
+        <text class="label">手机号</text>
+        <text class="value">{{driverInfo.phone}}</text>
+
+        <button class="copy-btn"
+                size="mini"
+                bindtap="copyPhone">
+          点击复制
+        </button>
+      </view>
+
+      <!-- Zelle 分行 -->
+      <view wx:if="{{trip.zelle === 'yes' && driverInfo.zelleName && driverInfo.zelleAccount}}">
+        <view class="info-row zelle-row">
+          <text class="label">Zelle姓名</text>
+          <text class="value">{{driverInfo.zelleName}}</text>
+        </view>
+
+        <view class="info-row zelle-row">
+          <text class="label">Zelle账号</text>
+          <text class="value">{{driverInfo.zelleAccount}}</text>
+
+          <button class="copy-btn"
+                  size="mini"
+                  bindtap="copyZelle">
+            点击复制
+          </button>
+        </view>
+      </view>
+    </view>
+
+    <!-- 提示卡片 -->
+    <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
+      <text class="notice-title">提示</text>
+      <text class="notice-text">
+        Fort Lee 核心区域仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。
+      </text>
+    </view>
+
+    <!-- 乘客填写上下车点 -->
+<view class="ui-card">
+
+<!-- 上车点 -->
+<view class="pudo-row">
+  <text class="pudo-label">上车点</text>
+
+  <view class="pudo-input-wrap">
+    <input
+      class="pudo-input"
+      placeholder="如 Modern 800 / 主校区 / 私议"
+      value="{{pickupAddress}}"
+      bindfocus="onPickupFocus"
+      bindinput="onPickupInput"
+      maxlength="60"
+    />
+  </view>
+</view>
+
+<view wx:if="{{showPickupOptions}}" class="fav-tags">
+  <block wx:for="{{pickupSpotList}}" wx:key="*this">
+    <view class="fav-tag" bindtap="onPickupTagSelect" data-value="{{item}}">
+      {{item}}
+    </view>
+  </block>
+
+  <view class="fav-tag fav-tag--special" bindtap="onPickupTagSelect" data-value="私议">
+    私议
+  </view>
+</view>
+
+
+<!-- 下车点 -->
+<view class="pudo-row">
+  <text class="pudo-label">下车点</text>
+
+  <view class="pudo-input-wrap">
+    <input
+      class="pudo-input"
+      placeholder="如 2050 / 法学院 / 私议"
+      value="{{dropoffAddress}}"
+      bindfocus="onDropoffFocus"
+      bindinput="onDropoffInput"
+      maxlength="60"
+    />
+  </view>
+</view>
+
+<!-- 常用下车点标签（点输入框出现） -->
+<view wx:if="{{showDropoffOptions}}" class="fav-tags">
+  <block wx:for="{{dropoffSpotList}}" wx:key="*this">
+    <view class="fav-tag" bindtap="onDropoffTagSelect" data-value="{{item}}">
+      {{item}}
+    </view>
+  </block>
+
+  <!-- ✅ 固定追加：私议 -->
+  <view class="fav-tag fav-tag--special" bindtap="onDropoffTagSelect" data-value="私议">
+    私议
+  </view>
+</view>
+
+
+
+</view>
+
+
+    <!-- 给底部固定按钮留空 -->
+    <view class="ui-bottom-space"></view>
+  </view>
+
+  <!-- 底部固定按钮：同款白框 -->
+  <view class="ui-bottom-fixed">
+    <view class="ui-bottom-bar">
+
+      <button wx:if="{{isOwner}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        无法拼自己的路线
+      </button>
+
+      <button wx:elif="{{trip.status === 'full' || trip.availSeatNum <= 0}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        已满员
+      </button>
+
+      <button wx:elif="{{hasJoined}}" disabled="true"
+              class="ui-primary-btn ui-primary-btn--disabled">
+        已成功加入
+      </button>
+
+      <button wx:else
+              class="ui-primary-btn"
+              bindtap="joinCarpool"
+              disabled="{{submitting}}"
+              loading="{{submitting}}">
+        {{ submitting ? '加入路线中…' : '加入出行计划' }}
+      </button>
+
+    </view>
+  </view>
+
+</view>
+

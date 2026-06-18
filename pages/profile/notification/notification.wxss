@@ -1,0 +1,141 @@
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f5f5;
+}
+
+/* 顶部导航栏 */
+.nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+}
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+.back-icon {
+  width: 50rpx;
+  height: 50rpx;
+}
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* 内容区 */
+.content {
+  flex: 1;
+  padding: 20rpx 24rpx 40rpx;
+  box-sizing: border-box;
+}
+
+.state-text {
+  margin-top: 60rpx;
+  text-align: center;
+  color: #888;
+  font-size: 28rpx;
+}
+
+/* 消息卡片 */
+.msg-item {
+  background-color: #ffffff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 8rpx rgba(0,0,0,0.03);
+}
+
+.msg-unread {
+  border-left: 6rpx solid #ff4d4f;
+}
+
+.msg-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+
+.msg-title-left {
+  display: flex;
+  align-items: center;
+}
+
+.msg-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background-color: #ff4d4f;
+  margin-right: 12rpx;
+}
+
+.msg-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+.msg-time {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.msg-content {
+  font-size: 26rpx;
+  color: #555;
+  line-height: 1.6;
+  margin-top: 4rpx;
+}
+
+/* 顶部操作区：一键删除 + 一键已读 */
+.top-actions {
+  display: flex;
+  justify-content: space-between; /* 左右两端对齐，一个在左，一个在右 */
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+/* 右侧绿色按钮：全部标为已读（正常状态） */
+.clear-btn {
+  background-color: #ffffff;
+  color: #16b83f;
+  font-size: 26rpx;
+  padding: 0 28rpx;
+  height: 64rpx !important;
+  line-height: 64rpx !important;
+  border-radius: 32rpx;
+  border: 2rpx solid #16b83f;
+}
+.clear-btn:active {
+  background-color: #f3fff6;
+}
+
+/* 没有未读时，灰色禁用样式 */
+.clear-btn-disabled {
+  color: #cccccc !important;
+  border-color: #cccccc !important;
+  background-color: #f7f7f7 !important;
+}
+
+/* 左侧红色按钮：一键删除 */
+.delete-btn {
+  background-color: #ffffff;
+  color: #ff4d4f;              /* 字体红色 */
+  font-size: 26rpx;
+  padding: 0 28rpx;
+  height: 64rpx !important;
+  line-height: 64rpx !important;
+  border-radius: 32rpx;
+  border: 2rpx solid #ff4d4f;  /* 边框红色 */
+}
+.delete-btn:active {
+  background-color: #fff2f2;   /* 按下时淡红背景 */
+}

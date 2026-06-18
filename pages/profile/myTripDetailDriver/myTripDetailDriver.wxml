@@ -1,0 +1,157 @@
+<!-- pages/profile/myTripDetailDriver/myTripDetailDriver.wxml -->
+<view class="ui-page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<!-- 加载中 -->
+<view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+<!-- 内容主体：统一使用 scroll-view -->
+<scroll-view
+  wx:else
+  class="ui-scroll"
+  scroll-y
+  enhanced="true"
+  show-scrollbar="false"
+>
+
+  <!-- 顶部发车卡片 -->
+  <view class="ui-card">
+    <!-- 第一行：出发地 → 目的地 -->
+    <view class="route-row">
+      <text class="route-text-left">{{fromText || '出发地未设置'}}</text>
+      <text class="route-arrow">→</text>
+      <text class="route-text-right">{{toText || '目的地未设置'}}</text>
+    </view>
+
+    <!-- 第二行：时间 + 余位 -->
+    <view class="time-seat-row">
+      <text class="time-text">{{dateText}} {{weekdayText}} {{timeText}}</text>
+      <text class="seat-text">余位 {{trip.availSeatNum || 0}}</text>
+    </view>
+
+    <!-- 第三行：出行价格 -->
+    <view class="price-row">
+      <text class="price-text-combined">
+        出行价格：{{trip.referencePrice || '价格以司机最终确认为准'}}
+      </text>
+    </view>
+  </view>
+
+  <!-- 司机视角：显示所有乘客 -->
+  <view class="ui-card">
+    <text class="card-title">乘客信息</text>
+
+    <view wx:if="{{!passengers || passengers.length === 0}}" class="empty-text">
+      暂无乘客加入该路线
+    </view>
+
+    <block wx:else>
+      <!-- ✅ 用 index 做 key，避免 _openid 缺失导致不渲染 -->
+      <block wx:for="{{passengers}}" wx:key="index" wx:for-item="p" wx:for-index="index">
+
+        <view class="passenger-item">
+
+          <!-- 左侧：头像上 + 名字下 -->
+          <view class="passenger-left">
+            <image
+              class="passenger-avatar"
+              src="{{p.avatarUrl || 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'}}"
+            />
+            <text class="passenger-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+          </view>
+
+          <!-- 右侧：三行强制对齐（grid） -->
+          <view class="passenger-right">
+
+            <!-- 第一行：接送地（两行截断），右侧用于放“剔除”按钮或占位 -->
+            <view class="pgrid pgrid--addr">
+              <text class="pgrid-label">接送地：</text>
+              <view class="pgrid-value pgrid-value--addr">
+                {{(p.pickupAddress || '未填上车点') + ' / ' + (p.dropoffAddress || '未填下车点')}}
+              </view>
+
+              <!-- 剔除乘客：只在 kickMode 显示，否则占位保证对齐 -->
+              <view
+                wx:if="{{kickMode}}"
+                class="kick-pill"
+                data-openid="{{p._openid}}"
+                bindtap="onKickPassenger"
+              >
+                剔除
+              </view>
+              <view wx:else class="pgrid-btn-placeholder"></view>
+            </view>
+
+            <!-- 第二行：微信（复制按钮与值对齐） -->
+            <view class="pgrid">
+              <text class="pgrid-label">微信：</text>
+              <text class="pgrid-value">{{p.wechatID || '未填写'}}</text>
+
+              <view
+                wx:if="{{p.wechatID}}"
+                class="copy-pill"
+                data-text="{{p.wechatID}}"
+                bindtap="onCopyText"
+              >
+                复制
+              </view>
+              <view wx:else class="pgrid-btn-placeholder"></view>
+            </view>
+
+            <!-- 第三行：手机（复制按钮与值对齐） -->
+            <view class="pgrid">
+              <text class="pgrid-label">手机：</text>
+              <text class="pgrid-value">{{p.phone || '未填写'}}</text>
+
+              <view
+                wx:if="{{p.phone}}"
+                class="copy-pill"
+                data-text="{{p.phone}}"
+                bindtap="onCopyText"
+              >
+                复制
+              </view>
+              <view wx:else class="pgrid-btn-placeholder"></view>
+            </view>
+
+          </view>
+        </view>
+      </block>
+    </block>
+  </view>
+
+  <!-- 提示卡片（提示条风格） -->
+  <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
+    <text class="notice-title">提示</text>
+    <text class="notice-text">
+      Fort Lee 核心区域仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。
+    </text>
+  </view>
+
+  <!-- 给底部固定按钮留空 -->
+  <view class="ui-bottom-space"></view>
+</scroll-view>
+
+<!-- 底部固定白框：两个按钮 -->
+<view class="ui-bottom-fixed">
+  <view class="ui-bottom-bar ui-bottom-bar--two">
+
+    <button class="ui-secondary-btn" bindtap="toggleKickMode">
+      {{kickMode ? '完成剔除' : '剔除乘客'}}
+    </button>
+
+    <button class="ui-danger-btn" bindtap="onDeleteOrQuit">
+      删除路线
+    </button>
+
+  </view>
+</view>
+
+</view>

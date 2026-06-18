@@ -1,0 +1,9 @@
+{
+  "name": "getAddressList",
+  "version": "1.0.0",
+  "description": "获取发车地与目的地列表",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

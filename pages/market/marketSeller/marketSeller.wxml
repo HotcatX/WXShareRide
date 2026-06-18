@@ -1,0 +1,75 @@
+<view class="page">
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
+    <text class="nav-title">TA发布的</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<scroll-view class="content" scroll-y="true">
+
+  <!-- 卖家信息卡 -->
+  <view class="seller-card">
+    <view class="avatar-wrap">
+      <!-- 有头像就显示头像 -->
+      <image
+        wx:if="{{seller.avatarDisplay}}"
+        class="avatar-img"
+        src="{{seller.avatarDisplay}}"
+        mode="aspectFill"
+      />
+      <!-- 没头像就 fallback -->
+      <view wx:else class="avatar-fallback">🏃</view>
+    </view>
+
+    <view class="seller-info">
+      <view class="row"><text class="k">昵称：</text><text class="v">{{seller.name}}</text></view>
+      <view class="row"><text class="k">所住公寓：</text><text class="v">{{seller.apartment || '未填写'}}</text></view>
+      <view class="row"><text class="k">所住区域：</text><text class="v">{{seller.region || '未填写'}}</text></view>
+    </view>
+  </view>
+
+  <view class="bio">
+    {{seller.bio || '这个家伙很神秘，没有写个人简介。'}}
+  </view>
+
+  <view class="divider"></view>
+
+  <view class="section-title">正在出售 ing……</view>
+
+  <!-- 卖家商品 -->
+  <view class="goods-grid">
+    <view class="goods-card"
+          wx:for="{{goods}}"
+          wx:key="id"
+          bindtap="onOpenGood"
+          data-id="{{item.id}}">
+      <image class="thumb"
+             src="{{item.thumbUrl || item.imageFileID || '/images/market.png'}}"
+             mode="aspectFill" />
+      <view class="goods-label">{{item.title}} ¥{{item.price}}</view>
+    </view>
+  </view>
+
+  <view class="empty" wx:if="{{goods.length === 0}}">
+    暂无在售商品
+  </view>
+
+  <view class="bottom-space"></view>
+</scroll-view>
+
+<!-- 底部固定按钮 -->
+<!-- 底部固定按钮（米色底框 + 居中按钮 + 阴影） -->
+<view class="bottom-fixed">
+  <view class="bottom-bar">
+    <view class="contact-btn" bindtap="onCopyContact">
+      {{seller.wechatID ? '复制微信号' : (seller.phone ? '复制手机号' : '无联系方式')}}
+    </view>
+  </view>
+</view>
+
+
+</view>

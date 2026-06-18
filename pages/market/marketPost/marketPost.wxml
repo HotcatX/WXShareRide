@@ -1,0 +1,185 @@
+<view class="page">
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
+    <text class="nav-title">{{isEdit ? '编辑商品' : '发布闲置'}}</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<!-- 内容区（取消 scroll-view，使用页面默认滚动） -->
+<view class="content">
+
+<!-- ✅ 卡片 1：图片 + 标题 + 描述 + 常用描述语 -->
+<view class="card">
+  <!-- 图片+说明 -->
+  <view class="top-block">
+    <view class="img-uploader" bindtap="onChooseImage">
+      <image wx:if="{{image}}" class="img" src="{{image}}" mode="aspectFill" />
+      <view wx:else class="img-placeholder">
+        <text class="ph1">+ 添加优质</text>
+        <text class="ph2">商品更受人~</text>
+      </view>
+      <view wx:if="{{imageUploading}}" class="image-upload-mask" catchtap="noop">
+        <view class="upload-progress-ring" style="background: conic-gradient(#ffffff {{imageUploadProgressDeg}}deg, rgba(255,255,255,0.22) 0deg);">
+          <view class="upload-progress-core">{{imageUploadProgress}}%</view>
+        </view>
+        <text class="upload-progress-text">{{imageUploadText}}</text>
+      </view>
+    </view>
+
+    <input
+      class="title-input"
+      value="{{title}}"
+      placeholder="商品名称（必填）"
+      placeholder-class="title-ph"
+      bindinput="onTitleInput"
+    />
+
+    <textarea
+      class="desc"
+      value="{{desc}}"
+      placeholder="描述一下商品品牌、货品来源……"
+      placeholder-class="desc-ph"
+      auto-height
+      maxlength="500"
+      bindinput="onDescInput"
+    />
+  </view>
+
+  <!-- 常用描述语 -->
+  <view class="quick-wrap">
+    <view class="quick-title">添加常用描述语</view>
+    <view class="chips">
+      <view
+        class="chip"
+        wx:for="{{quickPhrases}}"
+        wx:key="*this"
+        data-text="{{item}}"
+        bindtap="onTapPhrase"
+      >
+        {{item}}
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- ✅ 卡片 2：类型/价格/新旧/位置 -->
+<view class="card">
+  <view class="form">
+    <picker
+      mode="selector"
+      range="{{categoryOptions}}"
+      value="{{categoryIndex}}"
+      bindchange="onCategoryPickerChange"
+    >
+      <view class="row">
+        <view class="label">类型</view>
+        <view class="right">
+          <text class="value">{{category || "—"}}</text>
+          <text class="arrow">›</text>
+        </view>
+      </view>
+    </picker>
+
+    <view class="row price-row">
+      <view class="label">价格</view>
+      <view class="right">
+        <text class="yuan">$</text>
+        <input
+          class="price-input"
+          value="{{price}}"
+          placeholder="0.00"
+          placeholder-class="price-ph"
+          keyboard-type="number"
+          bindinput="onPriceInput"
+        />
+        <text class="arrow">›</text>
+      </view>
+    </view>
+
+    <view class="row" bindtap="onChooseCondition">
+      <view class="label">新旧程度</view>
+      <view class="right">
+        <text class="value">{{condition}}</text>
+        <text class="arrow">›</text>
+      </view>
+    </view>
+
+    <view class="location-block">
+      <view class="location-title-row">
+        <view class="label">所在位置</view>
+        <text wx:if="{{locationSaved}}" class="location-saved">已保存</text>
+      </view>
+
+      <view class="location-mode-row">
+        <view
+          class="location-mode-btn {{locationMode === 'current' ? 'active' : ''}}"
+          bindtap="onUseCurrentLocation"
+        >
+          {{locating ? '定位中...' : '使用当前定位'}}
+        </view>
+        <view
+          class="location-mode-btn {{locationMode === 'manual' ? 'active' : ''}}"
+          bindtap="onSelectManualLocation"
+        >
+          手动选择
+        </view>
+      </view>
+
+      <view wx:if="{{locationMode === 'current'}}" class="location-current-card" bindtap="onUseCurrentLocation">
+        <text class="location-current-label">{{locationInput || '点击获取当前位置'}}</text>
+        <text class="location-current-sub">会保存地点名和经纬度，后续可用于附近商品</text>
+      </view>
+
+      <view wx:else class="location-picker-wrap">
+        <picker
+          mode="multiSelector"
+          range="{{regionPickerColumns}}"
+          value="{{regionPickerValue}}"
+          bindcolumnchange="onRegionPickerColumnChange"
+          bindchange="onRegionPickerChange"
+        >
+          <view class="location-picker-row">
+            <text class="location-picker-value {{locationInput ? '' : 'is-placeholder'}}">{{locationInput || '请选择 NJ / NY 区域'}}</text>
+            <text class="arrow">›</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="location-actions">
+        <text wx:if="{{locationInput}}" class="location-save" bindtap="onSaveLocation">保存住处</text>
+        <text wx:if="{{locationInput}}" class="location-clear" bindtap="onClearLocation">清空</text>
+      </view>
+
+      <view class="location-hint">
+        住处保存后，下次发布会自动填写。也可以每次改成新的取货位置。
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- 给底部固定发布按钮留空 -->
+<view class="bottom-space"></view>
+</view>
+
+<!-- 底部固定：发布/保存 -->
+<view class="bottom-fixed">
+  <view class="bottom-bar">
+    <view
+      class="submit {{submitting ? 'submit--disabled' : ''}}"
+      bindtap="onSubmit"
+      hover-class="{{submitting ? '' : 'submit--hover'}}"
+    >
+      {{submitting ? (isEdit ? '保存中…' : '发布中…') : (isEdit ? '保存修改' : '发布')}}
+    </view>
+  </view>
+</view>
+
+<!-- ✅ 隐藏 canvas：生成缩略图用（不影响UI） -->
+<canvas canvas-id="mainCompressCanvas" style="position:fixed;left:-9999px;top:-9999px;width:1280px;height:1280px;"></canvas>
+<canvas canvas-id="thumbCanvas" style="position:fixed;left:-9999px;top:-9999px;width:300px;height:300px;"></canvas>
+
+</view>

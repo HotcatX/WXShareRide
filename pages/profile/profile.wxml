@@ -1,0 +1,133 @@
+<view class="page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="container">
+
+  <!-- Header：头像 + 昵称/登录按钮 + 金币 + 右侧三个入口 -->
+  <view class="header">
+    <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
+
+    <view class="header-mid">
+      <!-- ✅ 登录态：显示昵称；未登录：显示一键登录按钮 -->
+      <block wx:if="{{isLoggedIn}}">
+        <text class="name">{{ name || '微信用户' }}</text>
+      </block>
+      <block wx:else>
+        <view class="login-btn" bindtap="onTapLoginBtn">
+          <text class="login-btn-text">一键登录</text>
+        </view>
+      </block>
+
+      <view class="points-badge" bindtap="goCoinBalance">
+        <text class="points-text">金币余额: {{coins}}</text>
+      </view>
+    </view>
+
+    <view class="header-actions">
+      <view class="action" bindtap="goCoupon">
+        <image class="action-icon-img" src="/images/icon_coupon.png" mode="aspectFit" />
+        <text class="action-text">卡券</text>
+      </view>
+
+      <view class="action" bindtap="goFeedback">
+        <image class="action-icon-img" src="/images/icon_feedback.png" mode="aspectFit" />
+        <text class="action-text">反馈</text>
+      </view>
+
+      <view class="action" bindtap="goEditProfile">
+        <image class="action-icon-img" src="/images/icon_setting.png" mode="aspectFit" />
+        <text class="action-text">设置</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 信息卡片 -->
+  <view class="card info-card">
+    <view class="info-row">
+      <text class="info-label">微信号</text>
+      <text class="info-value">{{ isLoggedIn ? (wechatID || '未填写') : '未登录' }}</text>
+    </view>
+    <view class="divider"></view>
+
+    <view class="info-row">
+      <text class="info-label">所住公寓</text>
+      <text class="info-value">{{ isLoggedIn ? (apartment || '未填写') : '未登录' }}</text>
+    </view>
+    <view class="divider"></view>
+
+    <view class="info-row">
+      <text class="info-label">所住区域</text>
+      <text class="info-value">{{ isLoggedIn ? (region || '无') : '未登录' }}</text>
+    </view>
+  </view>
+
+  <!-- 我的出行 -->
+  <view class="card section-card">
+    <text class="section-title">我的出行</text>
+
+    <view class="grid">
+      <view class="grid-item" bindtap="goTripHistory">
+        <view class="grid-icon-wrap">
+          <image class="grid-icon-img" src="/images/icon_history.png" mode="aspectFit" />
+        </view>
+        <text class="grid-text">历史行程</text>
+      </view>
+
+      <view class="grid-item" bindtap="goCarpoolTemplate">
+        <view class="grid-icon-wrap">
+          <image class="grid-icon-img" src="/images/icon_template.png" mode="aspectFit" />
+        </view>
+        <text class="grid-text">出行模板</text>
+      </view>
+
+      <view class="grid-item" bindtap="goNotification">
+        <view class="grid-icon-wrap badge-container">
+          <image class="grid-icon-img" src="/images/icon_message.png" mode="aspectFit" />
+          <view wx:if="{{unreadCount > 0}}" class="badge-dot">
+            <text class="badge-number">{{ unreadCount > 99 ? '99+' : unreadCount }}</text>
+          </view>
+        </view>
+        <text class="grid-text">消息提醒</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 我的交易 -->
+  <view class="card section-card">
+    <text class="section-title">我的交易</text>
+
+    <view class="grid">
+      <view class="grid-item" bindtap="goSold">
+        <view class="grid-icon-wrap">
+          <image class="grid-icon-img" src="/images/icon_sold.png" mode="aspectFit" />
+        </view>
+        <text class="grid-text">我卖出的</text>
+      </view>
+
+      <view class="grid-item" bindtap="goBought">
+        <view class="grid-icon-wrap">
+          <image class="grid-icon-img" src="/images/icon_bought.png" mode="aspectFit" />
+        </view>
+        <text class="grid-text">我买到的</text>
+      </view>
+
+      <view class="grid-item" bindtap="goPublished">
+        <view class="grid-icon-wrap badge-container">
+          <image class="grid-icon-img" src="/images/icon_publish.png" mode="aspectFit" />
+          <view wx:if="{{walletUnreadCount > 0}}" class="badge-dot">
+            <text class="badge-number">{{ walletUnreadCount > 99 ? '99+' : walletUnreadCount }}</text>
+          </view>
+        </view>
+        <text class="grid-text">我发布的</text>
+      </view>
+    </view>
+  </view>
+
+</view>
+</view>

@@ -1,0 +1,63 @@
+<view class="page">
+
+<!-- 顶部导航栏 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<!-- 内容区 -->
+<view scroll-y class="content">
+
+  <!-- 顶部操作区：一键删除 + 一键已读 -->
+  <!-- 只要有消息，就显示顶部操作区 -->
+  <view class="top-actions" wx:if="{{!loading && list.length > 0}}">
+    <!-- 左侧：一键删除所有消息 -->
+    <button class="delete-btn" size="mini" bindtap="onDeleteAll">
+      一键删除
+    </button>
+
+    <!-- 右侧：全部标为已读（始终显示，但可禁用） -->
+    <button
+      class="clear-btn {{unreadCount <= 0 ? 'clear-btn-disabled' : ''}}"
+      size="mini"
+      bindtap="onMarkAllRead"
+      disabled="{{unreadCount <= 0}}"
+    >
+      全部标为已读
+    </button>
+  </view>
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <!-- 无消息 -->
+  <view wx:if="{{!loading && list.length === 0}}" class="state-text">
+    暂无消息通知
+  </view>
+
+  <!-- 消息列表 -->
+  <block wx:for="{{list}}" wx:key="_id">
+    <view class="msg-item {{item.read ? '' : 'msg-unread'}}"
+          data-id="{{item._id}}"
+          data-index="{{index}}"
+          bindtap="onTapItem">
+      <view class="msg-header">
+        <view class="msg-title-left">
+          <text wx:if="{{!item.read}}" class="msg-dot"></text>
+          <text class="msg-title">{{item.title}}</text>
+        </view>
+        <text class="msg-time">{{item.createdAtText}}</text>
+      </view>
+      <view class="msg-content">
+        {{item.content}}
+      </view>
+    </view>
+  </block>
+
+</view>
+
+</view>
+

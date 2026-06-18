@@ -1,0 +1,84 @@
+<!-- pages/home/driverPickupDetail/driverPickupDetail.wxml -->
+
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<view class="ui-page">
+
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <!-- 内容区（不滚动） -->
+  <view
+    wx:else
+    class="ui-scroll"
+  >
+
+    <!-- 顶部卡片：路线 -->
+    <view class="ui-card">
+      <!-- 第一行：出发地 → 目的地 -->
+      <view class="route-row">
+        <text class="route-text-left">{{departAddress || '出发地未设置'}}</text>
+        <text class="route-arrow">→</text>
+        <text class="route-text-right">{{destAddress || '目的地未设置'}}</text>
+      </view>
+
+      <!-- 第二行：时间 + 人数 -->
+      <view class="time-seat-row">
+        <text class="time-text">{{formattedDepartTime || '时间待定'}}</text>
+        <text class="seat-text">人数 {{request.passengerCount || 1}}</text>
+      </view>
+
+      <!-- 第三行：参考价格 -->
+      <view class="price-row">
+        <text class="price-text-combined">
+          参考价格：{{request.referencePrice || '价格待定'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 给底部固定按钮留空 -->
+    <view class="ui-bottom-space"></view>
+
+  </view>
+
+
+  <!-- 底部固定按钮（同款白框 + 同款按钮） -->
+  <view class="ui-bottom-fixed">
+    <view class="ui-bottom-bar">
+
+      <!-- 各种禁用态：统一用同款按钮但置灰 -->
+      <button wx:if="{{isOwner}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
+        无法接自己的求车
+      </button>
+
+      <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
+        已被其他司机接单
+      </button>
+
+      <button wx:elif="{{acceptedByMe}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
+        你已成为该路线司机
+      </button>
+
+      <button wx:elif="{{joinedAsPassenger}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
+        你已作为乘客加入，无法接单
+      </button>
+
+      <button
+        wx:else
+        class="ui-primary-btn"
+        bindtap="acceptAsDriver"
+        disabled="{{submitting}}"
+        loading="{{submitting}}"
+      >
+        {{ submitting ? '接单中…' : '成为该路线司机' }}
+      </button>
+
+    </view>
+  </view>
+
+</view>

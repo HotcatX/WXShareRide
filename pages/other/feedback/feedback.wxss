@@ -1,0 +1,305 @@
+/***************
+ * 页面容器与标题
+ ***************/
+ .container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 80rpx;           /* 顶部白色留白 */
+  padding: 0 40rpx;
+  box-sizing: border-box;
+  width: 100%;
+}
+.title {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+}
+.divider {
+  width: 100%;
+  height: 1px;
+  background-color: #e5e5e5;
+  margin: 20rpx 0;
+  border-radius: 1px;
+}
+
+/***************
+ * 灰色表单区
+ ***************/
+.form-area {
+  width: 100%;
+  background-color: #f8f8f8;
+  padding: 40rpx 30rpx;
+  border-radius: 16rpx;
+  box-sizing: border-box;
+}
+.form-item { margin-bottom: 30rpx; }
+.label {
+  display: block;
+  font-size: 28rpx;
+  color: #333;
+  margin-bottom: 12rpx;
+}
+
+/***************
+ * 输入控件
+ ***************/
+.input-box {
+  width: 100%;
+  height: 90rpx;
+  padding: 0 20rpx;
+  background: #fff;
+  border: 1px solid #e6e6ea;
+  border-radius: 10rpx;
+  font-size: 30rpx;
+  box-sizing: border-box;
+}
+.placeholder { color: #b7b8c3; }
+
+/* 手机号一行左右排布 */
+.phone-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+.picker-box {
+  min-width: 220rpx;            /* 地区选择框宽度 */
+  padding: 0 20rpx;
+  height: 90rpx;
+  line-height: 90rpx;
+  background: #fff;
+  border: 1px solid #e6e6ea;
+  border-radius: 10rpx;
+  font-size: 28rpx;
+  text-align: center;
+  box-sizing: border-box;
+}
+.flex-1 { flex: 1; }
+
+/* 多行文本 */
+.textarea-box {
+  width: 100%;
+  min-height: 220rpx;
+  padding: 16rpx 20rpx;
+  background: #fff;
+  border: 1px solid #e6e6ea;
+  border-radius: 10rpx;
+  font-size: 30rpx;
+  box-sizing: border-box;
+}
+
+/***************
+ * 按钮
+ ***************/
+.btn-group {
+  margin-top: 20rpx;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.save-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: #07c160;     /* 微信绿，与图二一致 */
+  color: #fff;
+  border-radius: 10rpx;
+  font-size: 32rpx;
+}
+.save-btn:active { opacity: 0.9; }
+
+/***************
+ * 整页容器
+ ***************/
+ .container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;     /* 左对齐所有内容 */
+  margin-top: 50rpx;           /* 页面顶部留白 */
+  padding: 0 40rpx;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.title {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+  text-align: center;   /* 新增：文字居中 */
+  width: 100%;          /* 确保占满容器宽度 */
+}
+
+/****************
+ * 分隔线样式（与文字左边对齐）
+ ****************/
+ .divider {
+  width: 100%;                /* 占满容器宽度，但遵守 container 的左右 padding */
+  height: 1px;                /* 细线厚度 */
+  background-color: #e5e5e5;  /* 淡灰色线条 */
+  margin: 20px 0 20px 0;      /* 上下间距：标题和“地区”之间 */
+  border-radius: 1px;         /* 可选：让线头更柔和 */
+}
+
+
+/****************
+ * 表单通用布局
+ ****************/
+.form-item {
+  margin-bottom: 20px;         /* 🔸调大表单项间距（原 24 → 36） */
+}
+
+.label {
+  display: block;
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 10px;         /* 标签与输入框间距略加宽 */
+}
+
+/*************************
+ * Picker 的可视展示容器
+ *************************/
+.picker-display {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 12px 12px;
+  font-size: 16px;
+  color: #222;
+  box-sizing: border-box;
+}
+
+/****************
+ * 输入框样式
+ ****************/
+.input {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 10px;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+/****************
+ * 辅助提示文案
+ ****************/
+.hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+/****************
+ * 按钮区域
+ ****************/
+.btn-group {
+  margin-top: 5px;           /* 输入框与“保存修改”之间的距离 */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;         /* 按钮居中 */
+}
+
+/* 主按钮（保存修改） */
+.save-btn {
+  width: 100%;
+  margin-bottom: 14px;         /* 主按钮与返回按钮间距微调 */
+  background: #07c160;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 16px;
+  height: 44px;                /* 保证触控面积统一 */
+  line-height: 44px;
+  text-align: center;
+}
+
+/* 副按钮（不保存并退出） */
+.back-btn {
+  width: 100%;
+  border-radius: 10px;
+  height: 44px;
+  line-height: 44px;
+  text-align: center;
+  font-size: 16px;
+}
+
+/****************
+ * 点击反馈
+ ****************/
+.save-btn:active,
+.back-btn:active {
+  opacity: 0.9;
+}
+
+/* 顶部导航栏 */
+.header { 
+  display:flex; 
+  align-items:center; 
+  height:80rpx; 
+  padding:0 20rpx; 
+}
+.back-icon {
+  width: 50rpx;   /* 改这里就能放大 */
+  height: 50rpx;  /* 改这里就能放大 */
+}
+.title { 
+  flex:1; 
+  text-align:center; 
+  font-size:40rpx; 
+  font-weight:bold; 
+}
+
+.nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+}
+
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+.toast-bar {
+  position: fixed;
+  top: 120rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 16rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  z-index: 999;
+  font-size: 26rpx;
+  line-height: 1.4;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.3);
+}
+
+.toast-icon {
+  margin-right: 12rpx;
+  font-size: 30rpx;
+}
+
+.toast-text {
+  flex: 1;
+  word-break: break-all;
+}

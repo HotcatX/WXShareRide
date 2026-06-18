@@ -1,0 +1,119 @@
+<view class="page">
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
+    <text class="nav-title">我的商品</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<!-- 内容区 -->
+<view class="content">
+
+  <!-- 个人信息卡 -->
+  <view class="seller-card">
+    <view class="seller-top">
+      <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
+      <view class="seller-info">
+        <view class="row"><text class="k">昵称：</text><text class="v">{{name || '—'}}</text></view>
+        <view class="row"><text class="k">微信：</text><text class="v">{{wechatID || '—'}}</text></view>
+        <view class="row"><text class="k">地区：</text><text class="v">{{region || '—'}}</text></view>
+        <view class="row"><text class="k">公寓：</text><text class="v">{{apartment || '—'}}</text></view>
+      </view>
+    </view>
+
+    <!-- 简介编辑 -->
+    <view class="bio-editor">
+      <textarea
+        class="bio-textarea"
+        value="{{bio}}"
+        placeholder="写一句个人介绍（可选）"
+        placeholder-class="bio"
+        auto-height
+        maxlength="120"
+        bindinput="onBioInput"
+        bindblur="onBioBlur"
+      />
+    </view>
+  </view>
+
+  <view class="divider"></view>
+  <view class="section-title">我发布的宝贝</view>
+
+  <!-- 空态 -->
+  <view wx:if="{{!goods || goods.length===0}}" class="empty">你还没有发布商品</view>
+
+  <!-- ✅ 商品网格（支持管理模式多选） -->
+  <view class="goods-grid" wx:else>
+    <view
+      class="goods-card"
+      wx:for="{{goods}}"
+      wx:key="id"
+      bindtap="onOpenGood"
+      data-id="{{item.id}}"
+    >
+      <image class="thumb"
+             src="{{item.thumbUrl || item.imageFileID || '/images/market.png'}}"
+             mode="aspectFill"
+             lazy-load="true" />
+
+      <!-- ✅ 多选勾选框（管理模式才显示） -->
+      <view wx:if="{{manageMode}}"
+            class="select-box {{selectedMap[item.id] ? 'on' : ''}}"
+            catchtap="onToggleSelect"
+            data-id="{{item.id}}">
+        <text wx:if="{{selectedMap[item.id]}}" class="check">✓</text>
+      </view>
+
+      <view class="goods-label">{{item.title}} ${{item.price}}</view>
+    </view>
+
+    <!-- 添加宝贝 -->
+    <view class="goods-card add-card" bindtap="onAddGood">
+      <view class="add-inner">
+        <view class="add-plus">＋</view>
+        <view class="add-text">添加宝贝</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 给底部固定栏留空间 -->
+  <view class="bottom-space"></view>
+
+</view>
+
+<!-- 底部固定 -->
+<view class="bottom-fixed">
+  <view class="bottom-bar">
+
+    <!-- ✅ 管理模式：退出 + 全选 + 删除 -->
+    <view wx:if="{{manageMode}}" class="manage-actions">
+
+      <!-- 退出多选管理模式 -->
+      <view class="manage-exit" bindtap="onToggleManage">
+        退出
+      </view>
+
+      <view class="manage-left" bindtap="onToggleSelectAll">
+        {{allSelected ? '取消全选' : '全选'}}
+      </view>
+
+      <view class="manage-right {{selectedCount>0 ? '' : 'disabled'}}"
+            bindtap="onDeleteSelected">
+        删除（已选{{selectedCount}}）
+      </view>
+
+    </view>
+
+
+    <!-- ✅ 非管理模式：进入管理 -->
+    <view wx:else class="manage-btn" bindtap="onToggleManage">
+      一键管理我的宝贝
+    </view>
+
+  </view>
+</view>
+
+</view>

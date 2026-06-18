@@ -1,0 +1,262 @@
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f7f7f7;
+  overflow: hidden;          /* ✅ 禁止整页滚动 */
+}
+
+/* 顶部导航栏 */
+.back-icon {
+  width: 50rpx;
+  height: 50rpx;
+}
+
+.nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+}
+
+.nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+}
+
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+/* 中间内容区域（可滚动） */
+.container {
+  flex: 1;
+  padding: 20rpx 40rpx 20rpx;
+  box-sizing: border-box;
+}
+
+/* 头像 + 昵称区域，距离缩小 */
+.profile-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 30rpx 0 24rpx;
+}
+
+.avatar-btn {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar {
+  width: 180rpx;
+  height: 180rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  background-color: #eee;
+}
+
+.name-input {
+  margin-top: 5rpx;
+  width: 400rpx;
+  text-align: center;
+  font-size: 32rpx;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid #ddd;
+}
+
+/* 卡片区块 */
+.section-card {
+  background-color: #ffffff;
+  border-radius: 20rpx;
+  padding: 10rpx 20rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.05);
+}
+
+/* 表单项 */
+.form-item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.form-item:last-child {
+  border-bottom: none;
+}
+
+.label {
+  min-width: 220rpx;
+  font-size: 28rpx;
+  color: #333;
+  white-space: nowrap;
+}
+
+.input {
+  flex: 1;
+  font-size: 28rpx;
+  text-align: right;
+}
+
+/* 必填提示 */
+.required-tip {
+  display: block;
+  margin: 0 20rpx 16rpx;
+  font-size: 22rpx;
+  color: #ff4d4f;
+}
+
+/* 区块标题（如：司机填写） */
+.section-title {
+  margin: 6rpx 6rpx 16rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #111;
+}
+
+/* picker */
+.picker {
+  flex: 1;
+}
+
+.picker-inner {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.picker-inner text {
+  text-align: right;
+}
+
+/* 底部保存按钮：贴在底部，不参与滚动 */
+.bottom-bar {
+  padding: 10rpx 40rpx 30rpx;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  box-shadow: 0 -4rpx 10rpx rgba(0, 0, 0, 0.04);
+  flex-shrink: 0;
+}
+
+.save-btn {
+  width: 100%;
+  font-size: 30rpx;
+  border-radius: 24rpx;
+  background-color: #07c160;
+  color: #fff;
+}
+
+/* 去掉 button 默认边框 */
+button::after {
+  border: none;
+}
+
+/* ====== bigregion 三级联动选择器弹层（原样保留） ====== */
+.picker-mask{
+  position: fixed;
+  left:0; right:0; top:0; bottom:0;
+  background: rgba(0,0,0,0.35);
+  z-index: 10000;
+}
+
+.picker-panel{
+  position: fixed;
+  left:0; right:0;
+  bottom: 0;
+  background: #fff;
+  border-top-left-radius: 22rpx;
+  border-top-right-radius: 22rpx;
+  z-index: 10001;
+  overflow: hidden;
+}
+
+.picker-header{
+  height: 92rpx;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  padding: 0 22rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+  box-sizing:border-box;
+}
+
+.picker-title{
+  font-size: 30rpx;
+  font-weight: 900;
+  color:#111;
+}
+
+.picker-btn{
+  font-size: 28rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.55);
+}
+
+.picker-btn.ok{
+  color: #EE9C73;
+}
+
+.picker-view{
+  height: 520rpx;
+}
+
+.picker-item{
+  height: 88rpx;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 32rpx;
+  font-weight: 800;
+  color:#111;
+}
+
+/* ✅ bigregion 显示区：保持与其它行一致（同一行 + 统一字号） */
+.picker-display{
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12rpx;
+}
+
+.picker-text{
+  font-size: 28rpx;
+  color: #111;
+}
+
+.picker-text.placeholder{
+  color: rgba(0,0,0,0.35);
+}
+/* ✅ 地区 picker 显示文字：统一成 input 的观感 */
+.form-item .picker-inner {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+
+  font-size: 28rpx;
+  color: #111;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.form-item .picker-inner text {
+  font-size: 28rpx;
+  color: #111;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: right;
+}

@@ -1,0 +1,108 @@
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+ <view class="nav-content">
+ <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+ <text class="nav-title">{{pageTitle}}</text>
+ </view>
+ </view>
+ 
+ <view class="container">
+ 
+<!-- 顶部筛选栏：出发地 + 目的地 + 时间 -->
+<view class="filter-bar">
+  <!-- 左：出发地筛选 -->
+  <view class="filter-item">
+    <picker
+      mode="selector"
+      range="{{fromFilterOptions}}"
+      value="{{fromFilterIndex < 0 ? 0 : fromFilterIndex}}"
+      bindchange="onFromFilterChange"
+    >
+      <view class="filter-pill">
+        {{ fromFilterIndex < 0 ? '选择出发地' : fromFilterOptions[fromFilterIndex] }}
+      </view>
+    </picker>
+  </view>
+
+  <!-- 空隙 -->
+  <view class="filter-spacer"></view>
+
+  <!-- 中：目的地筛选 -->
+  <view class="filter-item">
+    <picker
+      mode="selector"
+      range="{{toFilterOptions}}"
+      value="{{toFilterIndex < 0 ? 0 : toFilterIndex}}"
+      bindchange="onToFilterChange"
+    >
+      <view class="filter-pill">
+        {{ toFilterIndex < 0 ? '选择目的地' : toFilterOptions[toFilterIndex] }}
+      </view>
+    </picker>
+  </view>
+
+  <!-- 空隙 -->
+  <view class="filter-spacer"></view>
+
+  <!-- 右：时间筛选 -->
+  <view class="filter-item">
+    <picker
+      mode="selector"
+      range="{{timeFilterOptions}}"
+      value="{{timeFilterIndex < 0 ? 0 : timeFilterIndex}}"
+      bindchange="onTimeFilterChange"
+    >
+      <view class="filter-pill">
+        {{ timeFilterIndex < 0 ? '选择时间' : timeFilterOptions[timeFilterIndex] }}
+      </view>
+    </picker>
+  </view>
+
+  <text class="filter-reset" bindtap="onResetFilter">重置</text>
+</view>
+
+ 
+ 
+ 
+ <!-- 加载中 -->
+ <view wx:if="{{loading}}" class="state-text">
+ 正在加载路线...
+ </view>
+ 
+ <!-- 无数据 -->
+ <view wx:elif="{{!carpoolList || carpoolList.length === 0}}" class="state-text">
+ 暂无可选路线路线
+ </view>
+ 
+ <!-- 有数据时的列表 -->
+ <block wx:else>
+ <block wx:for="{{carpoolList}}" wx:for-item="trip" wx:key="_id">
+ 
+ <!-- 日期小标题（例如：2025-10-08 周三） -->
+ <view wx:if="{{trip._showDateDivider}}" class="date-header">
+ <text class="date-header-text">{{trip._dateLabel}}</text>
+ </view>
+ 
+ <!-- 行程卡片 -->
+ <view class="trip-card" bindtap="goTripDetail" data-id="{{trip._id}}">
+ <!-- 第一行：出发地 -> 目的地 -->
+ <view class="trip-main-row">
+ <text class="place-text-left">{{trip._fromAddress}}</text>
+ <text class="arrow-text">→</text>
+ <text class="place-text-right">{{trip._toAddress}}</text>
+ </view>
+ 
+ <!-- 第二行：时间 + 剩余座位 -->
+ <view class="trip-sub-row">
+ <text class="time-text">{{trip._timeLabel}}</text>
+ <text class="seat-text">剩余座位：{{trip.availSeatNum}}</text>
+ </view>
+ </view>
+ </block>
+ </block>
+ 
+ 
+ <!-- 轻提示 -->
+ <view class="toast" wx:if="{{showToast}}">
+ {{toastText}}
+ </view>
+ </view>

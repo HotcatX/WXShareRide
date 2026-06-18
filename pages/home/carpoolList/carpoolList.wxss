@@ -1,0 +1,257 @@
+/* pages/home/carpoolList/carpoolList.wxss */
+
+/* =========================
+   基础背景/容器（以 carpool 的米色为准，避免露白）
+   ========================= */
+   page {
+    background: #F6F1ED;
+  }
+  
+  /* 容器设成米色，避免局部滚动区域露白 */
+  .container {
+    min-height: 100vh;
+    background: #F6F1ED;
+  }
+  
+  /* =========================
+     顶部导航栏（两份一致，保留一套）
+     ========================= */
+  .nav-bar {
+    width: 100%;
+    background-color: #ffffff;
+  }
+  
+  .nav-content {
+    height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 20rpx;
+    position: relative;
+  }
+  
+  .back-icon {
+    width: 50rpx;
+    height: 50rpx;
+  }
+  
+  .nav-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 34rpx;
+    font-weight: 600;
+    color: #111;
+  }
+  
+  /* （你旧文件里有 .header/.title，carpoolList.wxml 不用它们，
+     但为了“保留原样式体系”也可以留着，不影响） */
+  .header {
+    display: flex;
+    align-items: center;
+    height: 80rpx;
+    padding: 0 20rpx;
+  }
+  .title {
+    flex: 1;
+    text-align: center;
+    font-size: 40rpx;
+    font-weight: bold;
+  }
+  
+  /* =========================
+     顶部筛选栏（保留原布局）
+     ========================= */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    padding: 16rpx 24rpx;
+    background-color: #ffffff;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 24rpx;
+  }
+  
+  /* 让三个 picker 横向排布 */
+  .filter-bar picker {
+    flex: 1;
+  }
+  
+  .filter-item {
+    flex: 1;
+  }
+  
+  /* 中间空隙 */
+  .filter-spacer {
+    width: 24rpx;
+  }
+  
+  /* 筛选按钮外观 */
+  .filter-pill {
+    padding: 8rpx 16rpx;
+    border-radius: 999rpx;
+    background-color: #f5f5f5;
+    text-align: center;
+  }
+  
+  /* 重置按钮：加粗 + 阴影（两页一致） */
+  .filter-reset {
+    margin-left: 16rpx;
+    font-size: 26rpx;
+    font-weight: 800;
+    color: #ff0000;
+    text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.25);
+  }
+  
+  /* =========================
+     加载/空态文案（两页一致）
+     ========================= */
+  .state-text {
+    padding: 40rpx 24rpx;
+    color: #666;
+    font-size: 28rpx;
+    text-align: center;
+  }
+  
+  /* =========================
+     日期小标题
+     ========================= */
+  .date-header {
+    padding: 24rpx 24rpx 8rpx;
+  }
+  
+  .date-header-text {
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #333;
+  }
+  
+  /* =========================
+     行程卡片：保持原排版
+     ========================= */
+  .trip-card {
+    background: #ffffff;
+    border-radius: 16rpx;
+    box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05);
+    padding: 20rpx 24rpx;
+    margin: 8rpx 20rpx 20rpx;
+  }
+  
+  /* 第一行：出发地 -> 目的地 */
+  .trip-main-row {
+    display: flex;
+    align-items: center;
+  }
+  
+  .place-text-left,
+  .place-text-right {
+    flex: 1;
+    font-size: 30rpx;
+    font-weight: 500;
+    color: #111;
+  }
+  
+  .place-text-left {
+    text-align: left;
+  }
+  
+  .place-text-right {
+    text-align: right;
+  }
+  
+  /* 中间箭头 */
+  .arrow-text {
+    width: 80rpx;
+    text-align: center;
+    font-size: 32rpx;
+    margin: 0;
+  }
+  
+  /* 第二行：时间 + 右侧信息（座位/人数） */
+  .trip-sub-row {
+    margin-top: 12rpx;
+    display: flex;
+    justify-content: space-between;
+    font-size: 26rpx;
+    color: #666;
+  }
+  
+  /* 如果你未来打开第三行，这个也保留 */
+  .trip-sub-row2 {
+    margin-top: 8rpx;
+    display: flex;
+    justify-content: space-between;
+    font-size: 26rpx;
+    color: #666;
+  }
+  
+  /* 右侧高亮文字（两页原来都是橙色） */
+  .seat-text {
+    color: #ff8c00;
+  }
+  
+  .price-text {
+    color: #333;
+  }
+  
+  .status-text {
+    color: #999;
+  }
+  
+  /* =========================
+     ✅ 拼车/求车不同标签：左侧色条（不改变原排版）
+     - WXML: 在 trip-card 内插入 left-tag 视图即可
+     ========================= */
+  .trip-card--tag {
+    position: relative;  /* 给绝对定位色条一个参照 */
+    overflow: hidden;    /* 防止色条溢出卡片圆角 */
+  }
+  
+  /* 左侧色条：不占布局 */
+  .left-tag {
+    position: absolute;
+    left: 0;
+    top: 18rpx;
+    bottom: 18rpx;
+    width: 10rpx;
+    border-radius: 999rpx;
+  }
+  
+  /* Carpool：鲜橙 */
+  .left-tag--orange {
+    background: #FE814B;
+  }
+  
+  /* CarpoolRequest：蓝色 */
+  .left-tag--blue {
+    background: #2F80ED;
+  }
+  
+  /* =========================
+     横排 Toast（两页一致，保留）
+     ========================= */
+  .toast-bar {
+    position: fixed;
+    top: 120rpx;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 80%;
+    padding: 16rpx 24rpx;
+    border-radius: 999rpx;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    z-index: 999;
+    font-size: 26rpx;
+    line-height: 1.4;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.3);
+  }
+  
+  .toast-icon {
+    margin-right: 12rpx;
+    font-size: 30rpx;
+  }
+  
+  .toast-text {
+    flex: 1;
+    word-break: break-all;
+  }

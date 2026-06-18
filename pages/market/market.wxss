@@ -1,0 +1,421 @@
+/* 整页不滚动 */
+.page{
+  height: 100vh;
+  overflow: hidden;
+  background: #f7efe9; /* ✅ 尽量对齐新稿的浅米色背景 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部导航 */
+.nav-bar{
+  background: #f2a073; /* ✅ 新稿顶部橙色 */
+  border-bottom: none;
+}
+.nav-content{
+  height: 44px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+}
+.nav-title{
+  font-size: 34rpx;
+  font-weight: 600;
+  color:#111;
+}
+.nav-left,.nav-right{
+  position:absolute;
+  top:0;
+  height:44px;
+  display:flex;
+  align-items:center;
+  width:90rpx;
+}
+.nav-left{
+  left: 22rpx;
+  font-size: 44rpx;
+  font-weight: 800;
+}
+.nav-right{ right:22rpx; }
+
+/* 搜索 */
+.search-row{
+  padding: 18rpx 22rpx 16rpx 22rpx;
+  background: #f7efe9; /* ✅ 搜索区跟顶部同色 */
+}
+.search-box{
+  height: 70rpx;
+  border: 3rpx solid #f2a073; /* ✅ 橙色描边 */
+  border-radius: 999rpx;
+  display:flex;
+  align-items:center;
+  padding: 0 10rpx 0 18rpx;
+  box-sizing:border-box;
+  background: transparent;   /* ✅ 不要白底，露出浅米色 */
+}
+.search-input{ flex:1; height:70rpx; font-size:26rpx; }
+.ph{ color: rgba(0,0,0,0.35); }
+.search-btn{
+  height:52rpx;
+  padding:0 22rpx;
+  border-radius:999rpx;
+  background:#f2a073;
+  color:#111;
+  font-weight:800;
+  font-size:26rpx;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* 顶部筛选条：区域/分类放左侧，右侧接「我的商品」 */
+.filter-row{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  padding: 14rpx 22rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.10);
+  background:#f7efe9;
+}
+
+.filter-left-group{
+  display:flex;
+  align-items:center;
+  gap: 14rpx;
+}
+
+.filter-left{
+  font-size: 34rpx;
+  font-weight: 900;
+  color:#111;
+}
+
+.filter-arrow{
+  font-size: 28rpx;
+  color: rgba(0,0,0,0.55);
+}
+
+.filter-region{
+  display:flex;
+  align-items:center;
+  gap: 8rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 14rpx;
+  background: rgba(0,0,0,0.06);
+}
+
+.region-text{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.70);
+}
+.region-caret{
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.35);
+}
+
+.my-btn{
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 205, 120, 0.9);
+  color:#111;
+  font-size: 26rpx;
+  font-weight: 900;
+}
+
+/* 主体占剩余空间 */
+.main{
+  flex:1;
+  display:flex;
+  min-height:0;
+}
+
+/* 左侧分类 */
+.left{
+  width: 170rpx;
+  border-right: 2rpx solid rgba(0,0,0,0.10);
+  min-height:0;
+  background: #f3e9e1;
+}
+.cat-scroll{
+  height:100%;
+  padding: 10rpx 10rpx 0 10rpx;
+  box-sizing:border-box;
+}
+.cat-item{
+  height: 78rpx;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin: 0;
+  border-bottom: 2rpx solid rgba(0,0,0,0.10);
+  font-size: 30rpx;
+  font-weight: 800;
+  color:#111;
+  text-align:center;
+}
+.cat-item.active{
+  color: #f2a073;
+}
+.cat-item:first-child{
+  border-top: 2rpx solid rgba(0,0,0,0.10);
+}
+.line-placeholder{
+  height: 36rpx;
+  margin: 14rpx 0;
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+
+/* 右侧商品区：唯一滚动 */
+.right{
+  flex:1;
+  min-height:0;
+}
+.goods-scroll{
+  height:100%;
+  padding: 16rpx 18rpx 0 18rpx;
+  box-sizing:border-box;
+  background: #f7efe9;
+}
+
+/* 商品格子 */
+.grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+.card-img{
+  border: 2rpx solid rgba(0,0,0,0.08);
+  border-radius: 22rpx;
+  overflow: hidden;
+  background: #fff;
+  display:flex;
+  flex-direction: column;
+}
+.goods-label{
+  padding: 12rpx;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: #111;
+  background: #fbeee7;
+}
+.thumb{
+  width: 100%;
+  height: 180rpx;
+  background: #f6f6f6;
+}
+
+.view-more{
+  text-align:center;
+  margin: 16rpx 0 10rpx 0;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: rgba(0,0,0,0.35);
+}
+.caret{ font-size: 26rpx; }
+
+/* 给底部固定区留空间（很关键，不然会挡住最后几行） */
+.bottom-spacer{
+  height: 200rpx;
+}
+
+
+/* 底部固定：只保留「卖闲置」 */
+.bottom-fixed{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(10rpx); /* ✅ 更贴近 tabbar 上方 */
+  background: transparent;
+  border-top: none;
+  padding: 0 22rpx;
+  box-sizing:border-box;
+  z-index: 9999;
+}
+
+.sell-btn{
+  margin: 0;
+  width:100%;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background:#f2a073;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#fff;
+  font-size: 34rpx;
+  font-weight: 900;
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25); 
+}
+
+/* 左侧分类 */
+.left{
+  width: 170rpx;
+  border-right: 2rpx solid rgba(0,0,0,0.10);
+  background: #f3e9e1;
+
+  display: flex;           /* ✅ 关键 */
+  flex-direction: column;  /* ✅ 关键 */
+  min-height: 0;           /* ✅ 关键 */
+}
+
+.cat-scroll{
+  flex: 1;                 /* ✅ 关键：不要只靠 height:100% */
+  min-height: 0;
+  padding: 10rpx 10rpx 0 10rpx;
+  box-sizing:border-box;
+}
+
+/* 右侧商品区：唯一滚动 */
+.right{
+  flex:1;
+  display:flex;            /* ✅ 关键 */
+  flex-direction:column;   /* ✅ 关键 */
+  min-height:0;            /* ✅ 关键 */
+}
+
+.goods-scroll{
+  flex:1;                  /* ✅ 关键：让它吃满剩余高度 */
+  min-height:0;
+  padding: 16rpx 18rpx 0 18rpx;
+  box-sizing:border-box;
+  background: #f7efe9;
+}
+
+/* =========================
+   ✅ 只新增：地区三列 picker 弹层样式（rp- 前缀，绝不影响其它）
+   ========================= */
+.rp-mask{
+  position: fixed;
+  left:0; right:0; top:0; bottom:0;
+  background: rgba(0,0,0,0.35);
+  z-index: 10000;
+}
+
+.rp-panel{
+  position: fixed;
+  left:0; right:0;
+  bottom: 0;
+  background: #fff;
+  border-top-left-radius: 22rpx;
+  border-top-right-radius: 22rpx;
+  z-index: 10001;
+  padding-bottom: calc(18rpx + env(safe-area-inset-bottom));
+}
+
+.rp-header{
+  height: 96rpx;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  padding: 0 24rpx;
+  border-bottom: 2rpx solid rgba(0,0,0,0.06);
+}
+
+.rp-title{
+  font-size: 30rpx;
+  font-weight: 900;
+  color:#111;
+}
+
+.rp-btn{
+  font-size: 28rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.55);
+  padding: 18rpx 8rpx;
+}
+
+.rp-btn.ok{
+  color:#f2a073;
+}
+
+.rp-picker{
+  height: 520rpx;
+}
+
+.rp-item{
+  height: 88rpx;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 32rpx;
+  font-weight: 800;
+  color:#111;
+}
+.sort-btn{
+  display:flex;
+  align-items:center;
+  margin-left:10rpx;
+  padding:6rpx 12rpx;
+  border-radius:16rpx;
+  background:#f3f3f3;
+  font-size:26rpx;
+  color:#333;
+}
+.sort-icon{
+  margin-left:6rpx;
+  font-size:24rpx;
+  opacity:0.8;
+}
+.filter-left-group{
+  display:flex;
+  align-items:center;
+  gap: 10rpx;              /* 让区域和价格靠更近 */
+}
+
+.filter-pill{
+  display:flex;
+  align-items:center;
+  gap: 8rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 14rpx;
+  background: rgba(0,0,0,0.06);
+}
+
+.pill-text{
+  font-size: 30rpx;
+  font-weight: 900;
+  color: rgba(0,0,0,0.70);
+}
+
+.pill-caret{
+  font-size: 26rpx;
+  color: rgba(0,0,0,0.35);
+}
+/* 让“区域/价格”这种 pill 永远一行并且高度一致 */
+.filter-left-group{
+  flex-wrap: nowrap;
+}
+
+.filter-region{
+  height: 56rpx;
+  padding: 0 18rpx;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  flex-wrap: nowrap;
+}
+
+.region-text{
+  white-space: nowrap;
+  line-height: 56rpx;     /* 关键：高度对齐 */
+}
+
+.region-caret{
+  line-height: 56rpx;     /* 关键：caret 垂直对齐 */
+}
+.filter-pill{
+  display: inline-flex;
+  align-items: center;
+  height: 56rpx;
+  padding: 0 18rpx;
+  box-sizing: border-box;
+}
+
+.pill-text{
+  white-space: nowrap;
+  line-height: 56rpx;
+}

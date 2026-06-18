@@ -1,0 +1,206 @@
+/* 顶部导航栏 */
+.header { 
+  display:flex; 
+  align-items:center; 
+  height:80rpx; 
+  padding:0 20rpx; 
+  }
+  .back-icon {
+  width: 50rpx; /* 改这里就能放大 */
+  height: 50rpx; /* 改这里就能放大 */
+  }
+  .title { 
+  flex:1; 
+  text-align:center; 
+  font-size:40rpx; 
+  font-weight:bold; 
+  }
+  
+  .nav-bar {
+  width: 100%;
+  background-color: #ffffff;
+  }
+  
+  .nav-content {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  position: relative;
+  }
+  
+  .nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #111;
+  }
+  
+  /* ========= 自定义横排 Toast ========= */
+  .toast-bar {
+  position: fixed;
+  top: 120rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 16rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  z-index: 999;
+  font-size: 26rpx;
+  line-height: 1.4;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.3);
+  }
+  
+  .toast-icon {
+  margin-right: 12rpx;
+  font-size: 30rpx;
+  }
+  
+  .toast-text {
+  flex: 1;
+  word-break: break-all;
+  }
+  
+  /* 让两个 picker 横向排布，各占一部分宽度 */
+  .filter-bar picker {
+  flex: 1;
+  }
+  
+  /* 地址和时间之间的空白，用来把两个按钮拉开一点 */
+  .filter-spacer {
+  width: 20rpx;
+  }
+  
+  /* 按钮样式 */
+  .filter-pill {
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background-color: #f5f5f5;
+  text-align: center;
+  }
+  
+  /* 重置按钮靠右 */
+  .filter-reset {
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  color: #fe0000;
+  }
+  
+  /* 顶部筛选栏：一行，左右两个按钮 */
+  .filter-bar {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 24rpx;
+  background-color: #ffffff;
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 24rpx;
+  }
+  
+  /* 每个筛选按钮外层容器参与 flex 分配 */
+  .filter-item {
+  flex: 1;
+  }
+  
+  /* 中间空隙 */
+  .filter-spacer {
+  width: 24rpx;
+  }
+  
+  /* 按钮外观 */
+  .filter-pill {
+  padding: 8rpx 16rpx;
+  border-radius: 999rpx;
+  background-color: #f5f5f5;
+  text-align: center;
+  }
+  
+  /* 重置靠右 */
+  .filter-reset {
+    margin-left: 16rpx;
+    font-size: 26rpx;          /* 稍微大一点更像按钮 */
+    font-weight: 800;          /* ✅ 加粗 */
+    color: #fe0000;
+    text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.25); /* ✅ 字体阴影 */
+  }
+  
+  /* 日期小标题：例如 2025-10-08 周三 */
+  .date-header {
+  padding: 24rpx 24rpx 8rpx;
+  }
+  
+  .date-header-text {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #333;
+  }
+  
+  /* 行程卡片：两行 */
+  .trip-card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05);
+  padding: 20rpx 24rpx;
+  margin: 8rpx 20rpx 20rpx;
+  }
+  
+  /* 第一行：出发地 -> 目的地 */
+  .trip-main-row {
+  display: flex;
+  align-items: center; /* ⭐ 垂直方向居中 */
+  /* 不再用 space-between，交给左右两端的 flex 来撑开 */
+  }
+  
+  .place-text-left,
+  .place-text-right {
+  flex: 1; /* 左右各占一半宽度 */
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #111;
+  }
+  
+  .place-text-left {
+  text-align: left; /* 出发地靠左 */
+  }
+  
+  .place-text-right {
+  text-align: right; /* 目的地靠右 */
+  }
+  
+  /* 中间箭头列：固定宽度 + 居中对齐 */
+  .arrow-text {
+  width: 80rpx; /* ⭐ 给箭头一个固定宽度，所有卡片对齐 */
+  text-align: center; /* ⭐ 箭头水平居中 */
+  font-size: 32rpx;
+  margin: 0; /* 去掉原来的左右 margin，避免偏移 */
+  }
+  
+  
+  /* 第二行：时间 + 剩余座位 */
+  .trip-sub-row {
+  margin-top: 12rpx;
+  display: flex;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #666;
+  }
+  
+  
+  .seat-text {
+  color: #ff8c00;
+  }
+ 
+  page {
+    background: #F6F1ED;
+  }
+  
+  /* 容器也设成米色，避免局部滚动区域露白 */
+  .container {
+    min-height: 100vh;
+    background: #F6F1ED;
+  }

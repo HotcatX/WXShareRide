@@ -1,0 +1,88 @@
+<view class="page">
+
+<!-- 顶部自定义导航 -->
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
+    <text class="nav-title">二手交易</text>
+    <view class="nav-right"></view>
+  </view>
+</view>
+
+<view class="content">
+
+  <!-- 大图：多图轮播（优先 imgUrls） -->
+  <view class="img-wrap">
+    <swiper class="main-swiper" indicator-dots="{{imgUrls.length > 1}}" autoplay="false" circular="true">
+      <block wx:if="{{imgUrls.length > 0}}">
+        <block wx:for="{{imgUrls}}" wx:key="*this">
+          <swiper-item>
+            <image class="main-img" src="{{item}}" mode="aspectFill" />
+          </swiper-item>
+        </block>
+      </block>
+
+      <block wx:else>
+        <swiper-item>
+          <image class="main-img" src="{{imgUrl || item.imageFileID || '/images/market.png'}}" mode="aspectFill" />
+        </swiper-item>
+      </block>
+    </swiper>
+  </view>
+
+  <!-- 橙色信息卡 -->
+  <view class="info-card">
+    <view class="info-line">{{item.wantCount}}人想要 | {{item.viewCount}}人浏览</view>
+    <view class="info-line">新旧程度：{{item.condition}}</view>
+    <view class="info-line">价格：${{item.price}}</view>
+
+    <view class="post-date">
+      <text>发布时间</text>
+      <text class="date">{{item.postDate}}</text>
+    </view>
+  </view>
+
+  <!-- 品牌 + 商品名称 -->
+  <view class="brand-row">
+    <view class="brand-badge">志远共享</view>
+    <text class="product-title">{{item.title}}</text>
+  </view>
+
+  <!-- 描述框 -->
+  <view class="desc-box">
+    <view class="desc-title">描述：</view>
+    <view class="desc-text">{{item.desc}}</view>
+  </view>
+
+  <!-- 两个按钮 -->
+  <view class="mini-actions" wx:if="{{isOwner}}">
+    <view class="mini-btn" bindtap="onViewSellerOther">查看卖家其他二手</view>
+    <view class="mini-btn" bindtap="onPickupInfo"> 地点：{{item.pickup}}</view>
+  </view>
+
+  <view class="mini-actions" wx:else>
+    <view class="mini-btn" bindtap="onViewSellerOther">查看卖家其他二手</view>
+    <view class="mini-btn" bindtap="onPickupInfo"> 地点：{{item.pickup}}</view>
+  </view>
+
+  <!-- 给底部固定按钮留空间 -->
+  <view class="bottom-space"></view>
+</view>
+
+<!-- 底部固定 -->
+<view class="bottom-fixed">
+  <view class="bottom-bar">
+    <block wx:if="{{isOwner}}">
+      <view class="owner-bar">
+        <view class="owner-btn" bindtap="onEditItem">编辑</view>
+        <view class="owner-btn danger" bindtap="onDeleteItem">删除</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="contact-btn" bindtap="onContactBuy">联系购买</view>
+    </block>
+  </view>
+</view>
+
+</view>

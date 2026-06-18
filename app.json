@@ -1,0 +1,88 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/other/login/login",
+    "pages/profile/profile",
+    "pages/home/driverNewTrip/driverNewTrip",
+    "pages/home/newTrip/newTrip",
+    "pages/home/requestDetail/requestDetail",
+    "pages/home/driverPickupList/driverPickupList",
+    "pages/home/driverPickupDetail/driverPickupDetail",
+    "pages/home/carpoolRequest/carpoolRequest",
+    "pages/home/carpoolRequestDetail/carpoolRequestDetail",
+    "pages/home/carpool/carpool",
+    "pages/home/carpoolList/carpoolList",
+    "pages/home/CarpoolTemplateList/CarpoolTemplateList",
+    "pages/home/driverCarpoolTemplate/driverCarpoolTemplate",
+    "pages/other/feedback/feedback",
+    "pages/profile/editInfo/editInfo",
+    "pages/profile/addInfo/addInfo",
+    "pages/home/tripDetail/tripDetail",
+    "pages/profile/tripHistory/tripHistory",
+    "pages/profile/myTripDetailDriver/myTripDetailDriver",
+    "pages/profile/myRequestDetailDriver/myRequestDetailDriver",
+    "pages/profile/myTripRequestPassenger/myTripRequestPassenger",
+    "pages/profile/myTripDetailPassenger/myTripDetailPassenger",
+    "pages/profile/notification/notification",
+    "pages/other/restaurant/restaurant",
+    "pages/other/edgegolf/edgegolf",
+    "pages/home/passengerNewTrip/passengerNewTrip",
+    "pages/other/AdLashAtelier/lashatelier",
+    "pages/other/xiaochuandian/xiaochuandian",
+    "pages/market/market",
+    "pages/market/marketDetail/marketDetail",
+    "pages/market/marketPost/marketPost",
+    "pages/market/marketSeller/marketSeller",
+    "pages/market/marketMy/marketMy",
+    "pages/market/marketTrade/marketTrade",
+    "pages/profile/coinBalance/coinBalance",
+    "pages/profile/coupon/coupon",
+    "pages/profile/couponUse/couponUse",
+    "pages/profile/travelAchievement/travelAchievement",
+    "pages/other/chuantianxia/chuantianxia",
+    "pages/other/greenDragon/greenDragon"
+
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#fff",
+    "navigationBarTitleText": "出行小程序"
+  },
+  "__usePrivacyCheck__": true,
+  "entryPagePath": "pages/home/home",
+  "tabBar": {
+    "color": "#8A8A8A",
+    "selectedColor": "#1F1F1F",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "主页",
+        "iconPath": "images/home.png",
+        "selectedIconPath": "images/home_press.png"
+      },
+      {
+        "pagePath": "pages/market/market",
+        "text": "二手",
+        "iconPath": "images/market.png",
+        "selectedIconPath": "images/market_press.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "images/profile.png",
+        "selectedIconPath": "images/profile_press.png"
+      }
+    ]
+  },
+  
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于发布二手商品时填写取货位置"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseLocation"
+  ],
+  "cloud": true
+}

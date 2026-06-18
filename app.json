@@ -75,14 +75,5 @@
       }
     ]
   },
-  
-  "permission": {
-    "scope.userLocation": {
-      "desc": "用于发布二手商品时填写取货位置"
-    }
-  },
-  "requiredPrivateInfos": [
-    "chooseLocation"
-  ],
   "cloud": true
 }

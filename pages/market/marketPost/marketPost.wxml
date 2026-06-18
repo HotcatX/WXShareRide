@@ -120,7 +120,7 @@
           class="location-mode-btn {{locationMode === 'current' ? 'active' : ''}}"
           bindtap="onUseCurrentLocation"
         >
-          {{locating ? '定位中...' : '使用当前定位'}}
+          位置功能测试中
         </view>
         <view
           class="location-mode-btn {{locationMode === 'manual' ? 'active' : ''}}"
@@ -131,8 +131,8 @@
       </view>
 
       <view wx:if="{{locationMode === 'current'}}" class="location-current-card" bindtap="onUseCurrentLocation">
-        <text class="location-current-label">{{locationInput || '点击获取当前位置'}}</text>
-        <text class="location-current-sub">会保存地点名和经纬度，后续可用于附近商品</text>
+        <text class="location-current-label">位置功能测试中</text>
+        <text class="location-current-sub">暂时请使用手动选择填写取货位置</text>
       </view>
 
       <view wx:else class="location-picker-wrap">

@@ -282,7 +282,6 @@ Page({
     location: {},
     locationMode: "manual",
     locationSaved: false,
-    locating: false,
     regionPickerValue: [0, 0, 0],
     regionPickerColumns: buildRegionPickerColumns([0, 0, 0]),
 
@@ -323,7 +322,7 @@ Page({
         region: saved.displayName,
         locationInput: saved.displayName,
         location: buildLocationMeta(saved.displayName, saved),
-        locationMode: saved.mode === "current" || saved.source === "current" ? "current" : "manual",
+        locationMode: "manual",
         locationSaved: true,
         regionPickerValue,
         regionPickerColumns: buildRegionPickerColumns(regionPickerValue)
@@ -650,124 +649,14 @@ Page({
     this._saveLocationToStorage(true)
   },
 
-  _ensurePrivacyAuth() {
-    return new Promise((resolve, reject) => {
-      if (typeof wx.requirePrivacyAuthorize !== "function") {
-        resolve()
-        return
-      }
-
-      wx.requirePrivacyAuthorize({
-        success: resolve,
-        fail: reject
-      })
-    })
-  },
-
-  _ensureLocationAuth() {
-    return new Promise((resolve, reject) => {
-      wx.getSetting({
-        success: (settingRes) => {
-          const auth = settingRes.authSetting || {}
-          if (auth["scope.userLocation"] === true) {
-            resolve()
-            return
-          }
-
-          if (auth["scope.userLocation"] === false) {
-            wx.showModal({
-              title: "需要位置权限",
-              content: "请在设置中允许使用位置信息，才能自动填写当前位置。",
-              cancelText: "手动选择",
-              confirmText: "去设置",
-              success: (modalRes) => {
-                if (!modalRes.confirm) {
-                  reject(new Error("user choose manual input"))
-                  return
-                }
-
-                wx.openSetting({
-                  success: (openRes) => {
-                    const openedAuth = openRes.authSetting || {}
-                    if (openedAuth["scope.userLocation"]) resolve()
-                    else reject(new Error("location permission denied"))
-                  },
-                  fail: reject
-                })
-              },
-              fail: reject
-            })
-            return
-          }
-
-          wx.authorize({
-            scope: "scope.userLocation",
-            success: resolve,
-            fail: reject
-          })
-        },
-        fail: reject
-      })
-    })
-  },
-
   onUseCurrentLocation() {
-    if (this.data.locating) return
-    this.setData({ locating: true })
-
-    this._ensurePrivacyAuth()
-      .then(() => this._ensureLocationAuth())
-      .then(() => new Promise((resolve, reject) => {
-        wx.chooseLocation({
-          success: resolve,
-          fail: reject
-        })
-      }))
-      .then((res) => {
-        const name = normalizeLocationText(res.name)
-        const address = normalizeLocationText(res.address)
-        const displayName = name || address || "当前位置"
-        const detail = address && address !== displayName ? `${displayName} · ${address}` : displayName
-        const location = buildLocationMeta(detail, {
-          name,
-          address,
-          lat: res.latitude,
-          lng: res.longitude,
-          source: "current"
-        })
-
-        wx.setStorageSync(MARKET_SAVED_LOCATION_KEY, {
-          ...location,
-          displayName: detail,
-          mode: "current",
-          savedAt: Date.now()
-        })
-
-        this.setData({
-          region: detail,
-          locationInput: detail,
-          location,
-          locationMode: "current",
-          locationSaved: true
-        })
-
-        wx.showToast({ title: "定位已填写", icon: "success" })
-      })
-      .catch((err) => {
-        const msg = String(err && err.errMsg ? err.errMsg : err && err.message ? err.message : "")
-        this.setData({ locationMode: "manual" })
-        if (msg.includes("cancel") || msg.includes("manual input")) return
-        console.error("[marketPost] choose location failed:", err)
-        wx.showModal({
-          title: "定位失败",
-          content: "功能测试，暂不可用",
-          showCancel: false,
-          confirmText: "知道了"
-        })
-      })
-      .finally(() => {
-        this.setData({ locating: false })
-      })
+    this.setData({ locationMode: "manual" })
+    wx.showModal({
+      title: "位置功能测试中",
+      content: "当前位置功能暂时作为占位展示，请先使用手动选择填写取货位置。",
+      showCancel: false,
+      confirmText: "知道了"
+    })
   },
 
   onTapPhrase(e) {

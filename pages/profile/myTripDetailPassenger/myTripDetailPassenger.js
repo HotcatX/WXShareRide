@@ -64,8 +64,25 @@ Page({
   },
 
   async callUpdateStatusesSafely() {
-    try { await wx.cloud.callFunction({ name: 'updateCarpoolStatus' }) } catch (e) {}
-    try { await wx.cloud.callFunction({ name: 'updateCarpoolRequestStatus' }) } catch (e) {}
+    const { tripId, sourceType } = this.data
+    if (!tripId) return
+
+    if (sourceType === 'request') {
+      try {
+        await wx.cloud.callFunction({
+          name: 'updateCarpoolRequestStatus',
+          data: { ids: [tripId] }
+        })
+      } catch (e) {}
+      return
+    }
+
+    try {
+      await wx.cloud.callFunction({
+        name: 'updateCarpoolStatus',
+        data: { ids: [tripId] }
+      })
+    } catch (e) {}
   },
 
   async getMyOpenid() {
@@ -125,7 +142,6 @@ Page({
   // ========== 主加载：先 Carpool，失败 fallback CarpoolRequest ==========
   async loadTripDetail(tripId) {
     this.setData({ loading: true })
-    wx.showLoading({ title: '加载中...' })
 
     try {
       // ---- A) 先查 Carpool ----
@@ -140,7 +156,6 @@ Page({
         : null
 
       if (carpoolTrip) {
-        wx.hideLoading()
         await this.applyCarpoolTrip(carpoolTrip)
         return
       }
@@ -150,8 +165,6 @@ Page({
         name: 'getCarpoolRequestDetail',
         data: { id: tripId }
       })
-
-      wx.hideLoading()
 
       const rr = reqRes && reqRes.result ? reqRes.result : null
       const reqOk = !!(rr && (rr.ok || rr.success))
@@ -165,7 +178,6 @@ Page({
 
       await this.applyRequestTrip(reqTrip, rr)
     } catch (e) {
-      wx.hideLoading()
       console.error('loadTripDetail error:', e)
       wx.showToast({ title: '加载失败', icon: 'none' })
       this.setData({ loading: false })
@@ -372,13 +384,11 @@ Page({
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyTripDetailPassenger',
             data: { tripId }
           })
-          wx.hideLoading()
 
           if (res.result && res.result.ok) {
             await this.callUpdateStatusesSafely()
@@ -388,7 +398,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
-          wx.hideLoading()
           console.error('quitTrip error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }

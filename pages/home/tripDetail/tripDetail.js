@@ -1,5 +1,6 @@
 // pages/home/tripDetail/tripDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
+const DETAIL_REFRESH_INTERVAL = 30 * 1000
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -147,8 +148,6 @@ Page({
     this.setData({ tripId })
     await this.loadTripDetail(tripId)
 
-    this.loadUserSpots()
-
   },
 
 
@@ -164,7 +163,9 @@ Page({
 
     // ✅ 登录/完善资料回来后，静默刷新一下按钮状态（hasJoined/isOwner）
     const { tripId } = this.data
-    if (tripId) this.loadTripDetail(tripId, { silent: true })
+    if (!tripId || this.data.loading) return
+    if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
+    this.loadTripDetail(tripId, { silent: true })
   },
 
   onPickupFocus() {
@@ -270,7 +271,7 @@ Page({
   // =========================
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) wx.showLoading({ title: '加载中...' })
+    if (!silent) this.setData({ loading: true })
 
     try {
       const res = await wx.cloud.callFunction({
@@ -279,7 +280,6 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
-        if (!silent) wx.hideLoading()
         this.showToastBar('加载失败', 'error')
         this.setData({ loading: false })
         return
@@ -290,7 +290,6 @@ Page({
         : res.result.data
 
       if (!trip) {
-        if (!silent) wx.hideLoading()
         this.showToastBar('未找到该路线', 'warn')
         this.setData({ loading: false })
         return
@@ -307,33 +306,11 @@ Page({
         }
       }
 
-      let driverInfo = null
-      if (trip._openid) {
-        try {
-          const userRes = await wx.cloud.callFunction({
-            name: 'getUserInfoByOpenids',
-            data: { openids: [trip._openid] }
-          })
-          if (userRes.result && userRes.result.ok) {
-            const list = userRes.result.data || []
-            if (list.length > 0) driverInfo = list[0]
-          }
-        } catch (e) {
-          console.error('tripDetail 查询司机信息失败：', e)
-        }
-      }
-
       let departAddress = ''
       let destAddress = ''
       let formattedDepartTime = ''
 
       let carBrandModel = ''
-      if (driverInfo) {
-        const parts = []
-        if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
-        if (driverInfo.carModel) parts.push(driverInfo.carModel)
-        carBrandModel = parts.join(' ')
-      }
 
       if (Array.isArray(trip.departures) && trip.departures.length > 0) {
         const d = trip.departures[0]
@@ -357,7 +334,7 @@ Page({
         trip,
         hasJoined,
         isOwner,
-        driverInfo,
+        driverInfo: null,
         departAddress,
         destAddress,
         formattedDepartTime,
@@ -365,13 +342,44 @@ Page({
         showFortLeeCoreTip,
         loading: false
       })
+      this._lastDetailLoadedAt = Date.now()
 
-      if (!silent) wx.hideLoading()
+      if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
     } catch (err) {
-      if (!silent) wx.hideLoading()
       this.showToastBar('网络异常', 'error')
       console.error('请求错误:', err)
       this.setData({ loading: false })
+    }
+  },
+
+  async loadDriverInfo(driverOpenid, id) {
+    if (!driverOpenid) return
+
+    try {
+      const userRes = await wx.cloud.callFunction({
+        name: 'getUserInfoByOpenids',
+        data: { openids: [driverOpenid] }
+      })
+
+      if (!userRes.result || !userRes.result.ok) return
+
+      const list = userRes.result.data || []
+      const driverInfo = list[0] || null
+      if (!driverInfo) return
+
+      const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
+      if (id && currentId && id !== currentId) return
+
+      const parts = []
+      if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
+      if (driverInfo.carModel) parts.push(driverInfo.carModel)
+
+      this.setData({
+        driverInfo,
+        carBrandModel: parts.join(' ')
+      })
+    } catch (e) {
+      console.error('tripDetail 查询司机信息失败：', e)
     }
   },
 
@@ -410,12 +418,10 @@ Page({
     if (!this.ensureLoginBeforeJoin()) return
 
     this.setData({ submitting: true })
-    wx.showLoading({ title: '正在加入...' })
 
     try {
       const openid = wx.getStorageSync('openid') || ''
       if (!openid) {
-        wx.hideLoading()
         wx.showToast({ title: '请先登录', icon: 'none' })
         return
       }
@@ -426,7 +432,6 @@ Page({
 
       // 已登录但资料不存在：引导 addInfo
       if (!list.length) {
-        wx.hideLoading()
         const id = tripId || (trip && trip._id) || ''
         const pendingUrl = `/pages/home/tripDetail/tripDetail?id=${id}`
         wx.setStorageSync('pendingPage', { url: pendingUrl })
@@ -440,7 +445,6 @@ Page({
       
       // ✅ 微信号校验（只拦截，不跳转）
       if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {
-        wx.hideLoading()
         wx.showToast({
           title: '请先在个人中心填写微信号',
           icon: 'none'
@@ -473,7 +477,6 @@ Page({
 
       const cResult = carpoolRes.result || {}
       if (!cResult.success) {
-        wx.hideLoading()
         wx.showToast({ title: cResult.msg || '加入路线失败', icon: 'none' })
         return
       }
@@ -484,7 +487,6 @@ Page({
         data: { action: 'afterJoinTripPassenger', tripId: trip._id }
       })
 
-      wx.hideLoading()
       const r = userTripRes.result || {}
       const ok = r.ok === true || r.success === true || r.code === 0
       if (!ok) {
@@ -494,7 +496,10 @@ Page({
 
       // 刷新 Carpool 状态（失败忽略）
       try {
-        await wx.cloud.callFunction({ name: 'updateCarpoolStatus' })
+        await wx.cloud.callFunction({
+          name: 'updateCarpoolStatus',
+          data: { ids: [trip._id] }
+        })
       } catch (e) {
         console.warn('updateCarpoolStatus failed:', e)
       }
@@ -510,7 +515,6 @@ Page({
         prevPage.loadCarpoolList()
       }
     } catch (err) {
-      wx.hideLoading()
       console.error('joinCarpool error:', err)
       wx.showToast({ title: '请求失败，请稍后重试', icon: 'none' })
     } finally {

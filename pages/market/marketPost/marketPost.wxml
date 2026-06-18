@@ -11,6 +11,7 @@
 
 <!-- 内容区（取消 scroll-view，使用页面默认滚动） -->
 <view class="content">
+<view wx:if="{{editLoading}}" class="inline-loading">正在加载商品...</view>
 
 <!-- ✅ 卡片 1：图片 + 标题 + 描述 + 常用描述语 -->
 <view class="card">

@@ -111,7 +111,7 @@ async function callUpdateCarpoolStatus(tripId) {
   try {
     await cloud.callFunction({
       name: 'updateCarpoolStatus',
-      data: { tripId }
+      data: { ids: [tripId] }
     })
     console.log('[callUpdateCarpoolStatus] 已触发 updateCarpoolStatus tripId=', tripId)
   } catch (e) {

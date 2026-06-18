@@ -132,7 +132,6 @@ Page({
 
   async loadRequestDetail(requestId) {
     this.setData({ loading: true })
-    wx.showLoading({ title: '加载中...' })
 
     try {
       // 1) 读 CarpoolRequest 详情
@@ -140,7 +139,6 @@ Page({
         name: 'getCarpoolRequestDetail',
         data: { id: requestId }
       })
-      wx.hideLoading()
 
       const rr = res && res.result ? res.result : null
       const ok = !!(rr && (rr.ok || rr.success))
@@ -254,7 +252,6 @@ Page({
         loading: false
       })
     } catch (e) {
-      wx.hideLoading()
       console.error('loadRequestDetail error:', e)
       wx.showToast({ title: '加载失败', icon: 'none' })
       this.setData({ loading: false })
@@ -310,13 +307,11 @@ Page({
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyRequestDetailCreate',
             data: { requestId, action: 'kickDriver' }
           })
-          wx.hideLoading()
           if (res.result && res.result.ok) {
             wx.showToast({ title: '已剔除', icon: 'success' })
             await this.loadRequestDetail(requestId)
@@ -324,7 +319,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e) {
-          wx.hideLoading()
           console.error(e)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
@@ -346,7 +340,6 @@ Page({
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyRequestDetailCreate',
@@ -354,7 +347,6 @@ Page({
           })
           console.log('res.result=', res.result)
 
-          wx.hideLoading()
           if (res.result && res.result.ok) {
             wx.showToast({ title: '已剔除', icon: 'success' })
             await this.loadRequestDetail(requestId)
@@ -362,7 +354,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e) {
-          wx.hideLoading()
           console.error(e)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
@@ -382,14 +373,12 @@ Page({
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyRequestDetailCreate',
             data: { requestId, action: 'creatorQuitAndDelete' }
           })
 
-          wx.hideLoading()
 
           const result = res && res.result ? res.result : {}
           console.log('[Delete] res.result =', result)
@@ -419,7 +408,6 @@ Page({
             showCancel: false
           })
         } catch (e) {
-          wx.hideLoading()
           console.error(e)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }

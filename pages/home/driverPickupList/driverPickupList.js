@@ -1,4 +1,8 @@
 // pages/home/driverPickupList/driverPickupList.js
+const LIST_REFRESH_INTERVAL = 30 * 1000;
+const STATUS_REFRESH_KEY = "driverPickupListStatusRefreshAtV1";
+const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000;
+
 Page({
   data: {
     requestList: [],
@@ -34,8 +38,9 @@ Page({
     enableToLinkage: true
   },
 
-  // 防止 onLoad + onShow 或多次下拉导致重复刷新
-  _refreshing: false,
+  _listLoadingPromise: null,
+  _lastListLoadedAt: 0,
+  _statusRefreshing: false,
 
   async onLoad() {
     const info = wx.getSystemInfoSync();
@@ -61,15 +66,16 @@ Page({
       menus: ['shareAppMessage', 'shareTimeline']
     })
 
-    // ✅ 先加载筛选项（读取 Request 版地点库）
-    await this.loadAddressFilterOptionsFromDB();
-
-    // 再刷新状态 + 拉取列表
-    this.refreshStatusAndReload();
+    this.loadRequestList({ showLoading: true }).then(() => {
+      setTimeout(() => this.loadAddressFilterOptionsFromDB(), 200);
+      setTimeout(() => this.refreshStatusInBackground(false), 800);
+    });
   },
 
   onShow() {
-    this.refreshStatusAndReload();
+    if (!this._lastListLoadedAt) return;
+    if (Date.now() - this._lastListLoadedAt < LIST_REFRESH_INTERVAL) return;
+    this.loadRequestList({ showLoading: false });
   },
 
   goBack() {
@@ -161,24 +167,39 @@ Page({
   // =========================
   // 列表刷新逻辑
   // =========================
-  async refreshStatusAndReload() {
-    if (this._refreshing) return;
-    this._refreshing = true;
+  async refreshStatusAndReload(forceStatusRefresh = true) {
+    await this.loadRequestList({ showLoading: !this._lastListLoadedAt });
+    this.refreshStatusInBackground(forceStatusRefresh);
+  },
 
-    try {
-      this.setData({ loading: true });
-      wx.showLoading({ title: "刷新中..." });
+  refreshStatusInBackground(force = false) {
+    if (this._statusRefreshing) return;
 
-      await wx.cloud.callFunction({ name: "updateCarpoolRequestStatus" });
-      await this.loadRequestList();
-    } catch (e) {
-      console.error("refreshStatusAndReload error:", e);
-      wx.showToast({ title: "刷新失败", icon: "none" });
-      this.setData({ loading: false });
-    } finally {
-      wx.hideLoading();
-      this._refreshing = false;
-    }
+    const lastRefreshAt = Number(wx.getStorageSync(STATUS_REFRESH_KEY) || 0);
+    if (!force && Date.now() - lastRefreshAt < STATUS_REFRESH_INTERVAL) return;
+
+    const ids = (this.data.originalRequestList || [])
+      .map(item => item && item._id)
+      .filter(Boolean)
+      .slice(0, 100);
+    if (!ids.length) return;
+
+    this._statusRefreshing = true;
+    wx.cloud
+      .callFunction({ name: "updateCarpoolRequestStatus", data: { ids } })
+      .then((res) => {
+        wx.setStorageSync(STATUS_REFRESH_KEY, Date.now());
+        const updated = Number(res && res.result && res.result.totalUpdatedCarpoolRequest || 0);
+        if (updated > 0) {
+          this.loadRequestList({ showLoading: false });
+        }
+      })
+      .catch((e) => {
+        console.warn("updateCarpoolRequestStatus background error:", e);
+      })
+      .finally(() => {
+        this._statusRefreshing = false;
+      });
   },
 
   getFirstDeparture(trip) {
@@ -246,8 +267,21 @@ Page({
     return list;
   },
 
-  async loadRequestList() {
+  async loadRequestList(options = {}) {
+    if (this._listLoadingPromise) return this._listLoadingPromise;
+
+    this._listLoadingPromise = this._loadRequestListImpl(options).finally(() => {
+      this._listLoadingPromise = null;
+    });
+
+    return this._listLoadingPromise;
+  },
+
+  async _loadRequestListImpl(options = {}) {
+    const showLoading = options.showLoading !== false && !this._lastListLoadedAt;
     try {
+      if (showLoading) this.setData({ loading: true });
+
       const res = await wx.cloud.callFunction({ name: "getCarpoolRequestList" });
 
       if (res.result && res.result.success) {
@@ -269,6 +303,7 @@ Page({
           requestList: decorated,
           loading: false
         });
+        this._lastListLoadedAt = Date.now();
 
         // ✅ 初始不选时，不联动、不强制改变 toIndex
         if (this.data.fromFilterIndex >= 0) {

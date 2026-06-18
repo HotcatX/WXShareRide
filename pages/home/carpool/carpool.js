@@ -1,4 +1,8 @@
 // pages/home/carpool/carpool.js
+const LIST_REFRESH_INTERVAL = 30 * 1000;
+const STATUS_REFRESH_KEY = "carpoolPageStatusRefreshAtV1";
+const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000;
+
 Page({
   data: {
     carpoolList: [],
@@ -26,6 +30,10 @@ Page({
     tomorrowDateStr: ""
   },
 
+  _listLoadingPromise: null,
+  _lastListLoadedAt: 0,
+  _statusRefreshing: false,
+
   async onLoad() {
     const info = wx.getSystemInfoSync();
     this.setData({ statusBarHeight: info.statusBarHeight });
@@ -44,22 +52,23 @@ Page({
       tomorrowDateStr: fmt(tomorrow)
     });
 
-    // ✅ 读取 Departure / Arrival
-    await this.loadFromToOptionsFromDB();
-
-    // 加载列表
-    this.loadCarpoolList();
-
     // ✅ 开启“发送给朋友/分享到朋友圈”
     wx.showShareMenu({
       withShareTicket: true,
       menus: ['shareAppMessage', 'shareTimeline']
     })
 
+    this.loadCarpoolList({ showLoading: true }).then(() => {
+      setTimeout(() => this.loadFromToOptionsFromDB(), 200);
+      setTimeout(() => this.refreshStatusInBackground(false), 800);
+    });
+
   },
 
   onShow() {
-    this.refreshStatusAndLoadList();
+    if (!this._lastListLoadedAt) return;
+    if (Date.now() - this._lastListLoadedAt < LIST_REFRESH_INTERVAL) return;
+    this.loadCarpoolList({ showLoading: false });
   },
 
   goBack() {
@@ -149,16 +158,39 @@ Page({
   // =========================
   // 状态刷新
   // =========================
-  refreshStatusAndLoadList() {
-    wx.showLoading({ title: "更新中..." });
+  async refreshStatusAndLoadList(forceStatusRefresh = true) {
+    await this.loadCarpoolList({ showLoading: !this._lastListLoadedAt });
+    this.refreshStatusInBackground(forceStatusRefresh);
+  },
+
+  refreshStatusInBackground(force = false) {
+    if (this._statusRefreshing) return;
+
+    const lastRefreshAt = Number(wx.getStorageSync(STATUS_REFRESH_KEY) || 0);
+    if (!force && Date.now() - lastRefreshAt < STATUS_REFRESH_INTERVAL) return;
+
+    const ids = (this.data.originalCarpoolList || [])
+      .map(item => item && item._id)
+      .filter(Boolean)
+      .slice(0, 100);
+    if (!ids.length) return;
+
+    this._statusRefreshing = true;
     wx.cloud
-      .callFunction({ name: "updateCarpoolStatus" })
-      .then(() => this.loadCarpoolList())
-      .catch((err) => {
-        console.error("updateCarpoolStatus error:", err);
-        return this.loadCarpoolList();
+      .callFunction({ name: "updateCarpoolStatus", data: { ids } })
+      .then((res) => {
+        wx.setStorageSync(STATUS_REFRESH_KEY, Date.now());
+        const updated = Number(res && res.result && res.result.totalUpdatedCarpool || 0);
+        if (updated > 0) {
+          this.loadCarpoolList({ showLoading: false });
+        }
       })
-      .finally(() => wx.hideLoading());
+      .catch((err) => {
+        console.warn("updateCarpoolStatus background error:", err);
+      })
+      .finally(() => {
+        this._statusRefreshing = false;
+      });
   },
 
   getFirstDeparture(trip) {
@@ -204,11 +236,22 @@ Page({
     return list;
   },
 
-  async loadCarpoolList() {
+  async loadCarpoolList(options = {}) {
+    if (this._listLoadingPromise) return this._listLoadingPromise;
+
+    this._listLoadingPromise = this._loadCarpoolListImpl(options).finally(() => {
+      this._listLoadingPromise = null;
+    });
+
+    return this._listLoadingPromise;
+  },
+
+  async _loadCarpoolListImpl(options = {}) {
+    const showLoading = options.showLoading !== false && !this._lastListLoadedAt;
     try {
-      wx.showLoading({ title: "加载路线中..." });
+      if (showLoading) this.setData({ loading: true });
+
       const res = await wx.cloud.callFunction({ name: "getCarpoolList" });
-      wx.hideLoading();
 
       if (res.result && res.result.success) {
         const list = res.result.data || [];
@@ -229,6 +272,7 @@ Page({
           carpoolList: decorated,
           loading: false
         });
+        this._lastListLoadedAt = Date.now();
 
         // 初始未选：不联动、不强制改变 toIndex
         if (this.data.fromFilterIndex >= 0) {

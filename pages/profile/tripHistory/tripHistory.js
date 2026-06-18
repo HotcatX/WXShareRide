@@ -108,7 +108,6 @@ Page({
   // =========================
   async loadHistoryTrips() {
     this.setData({ loading: true })
-    wx.showLoading({ title: '加载历史行程...' })
 
     try {
       const res = await wx.cloud.callFunction({ name: 'getMyTripHistory' })
@@ -135,7 +134,6 @@ Page({
       wx.showToast({ title: '历史行程加载失败', icon: 'none' })
     } finally {
       this.setData({ loading: false })
-      wx.hideLoading()
     }
   },
 

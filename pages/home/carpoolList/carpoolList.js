@@ -1,11 +1,13 @@
 // pages/home/carpoolList/carpoolList.js
-const LIST_FETCH_LIMIT = 80
+const LIST_FETCH_LIMIT = 40
 const LIST_REFRESH_INTERVAL = 30 * 1000
 const OPTION_CACHE_KEY = "carpoolListFilterOptionsV1"
 const OPTION_CACHE_TTL = 24 * 60 * 60 * 1000
 const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
 const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
+const LIST_CACHE_KEY = "carpoolListDataV1"
+const LIST_CACHE_TTL = 2 * 60 * 1000
 
 const DEFAULT_FROM_PLACES = [
   "Manhattan",
@@ -112,9 +114,9 @@ Page({
     }, () => {
       this.applyShareFilters(false, () => {
         this.loadBothLists({ showLoading: true }).then(() => {
-          this.refreshStatusInBackground(false)
+          setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
+          setTimeout(() => this.refreshStatusInBackground(false), 800)
         })
-        this.loadFromToOptionsFromDBMerged()
       })
     })
   },
@@ -166,6 +168,42 @@ Page({
       })
     } catch (e) {
       console.warn("cacheFilterOptions failed", e)
+    }
+  },
+
+  restoreCachedLists() {
+    try {
+      const cached = wx.getStorageSync(LIST_CACHE_KEY)
+      if (!cached || !cached.savedAt) return false
+      if (Date.now() - Number(cached.savedAt) > LIST_CACHE_TTL) return false
+
+      const carpoolList = Array.isArray(cached.carpoolList) ? cached.carpoolList : []
+      const requestList = Array.isArray(cached.requestList) ? cached.requestList : []
+      if (!carpoolList.length && !requestList.length) return false
+
+      this.setData({
+        originalCarpoolList: carpoolList,
+        originalRequestList: requestList,
+        loading: false,
+        hasLoadedOnce: true
+      }, () => this.applyAllFiltersAndGroup())
+
+      this._loadedOnceAt = Number(cached.savedAt) || Date.now()
+      return true
+    } catch (e) {
+      return false
+    }
+  },
+
+  cacheLoadedLists(carpoolList, requestList) {
+    try {
+      wx.setStorageSync(LIST_CACHE_KEY, {
+        savedAt: Date.now(),
+        carpoolList: Array.isArray(carpoolList) ? carpoolList : [],
+        requestList: Array.isArray(requestList) ? requestList : []
+      })
+    } catch (e) {
+      console.warn("cacheLoadedLists failed", e)
     }
   },
 
@@ -330,9 +368,37 @@ Page({
     this._statusRefreshing = true
     wx.setStorageSync(STATUS_REFRESH_KEY, now)
 
+    const carpoolIds = (this.data.originalCarpoolList || [])
+      .map(item => item && item._id)
+      .filter(Boolean)
+      .slice(0, 100)
+    const requestIds = (this.data.originalRequestList || [])
+      .map(item => item && item._id)
+      .filter(Boolean)
+      .slice(0, 100)
+    const tasks = []
+
+    if (carpoolIds.length) {
+      tasks.push(wx.cloud.callFunction({
+        name: "updateCarpoolStatus",
+        data: { ids: carpoolIds }
+      }))
+    }
+
+    if (requestIds.length) {
+      tasks.push(wx.cloud.callFunction({
+        name: "updateCarpoolRequestStatus",
+        data: { ids: requestIds }
+      }))
+    }
+
+    if (!tasks.length) {
+      this._statusRefreshing = false
+      return Promise.resolve()
+    }
+
     return Promise.allSettled([
-      wx.cloud.callFunction({ name: "updateCarpoolStatus" }),
-      wx.cloud.callFunction({ name: "updateCarpoolRequestStatus" })
+      ...tasks
     ]).then((results) => {
       const updatedCount = results.reduce((sum, item) => {
         if (!item || item.status !== "fulfilled") return sum
@@ -453,7 +519,11 @@ Page({
   async loadBothLists(options = {}) {
     if (this._listLoadingPromise) return this._listLoadingPromise
 
-    const showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
+    let showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
+    if (showLoading && this.restoreCachedLists()) {
+      showLoading = false
+    }
+
     if (showLoading) {
       this.setData({
         loading: true,
@@ -473,27 +543,60 @@ Page({
   },
 
   async _loadBothListsImpl(showLoading) {
+    const listCalls = [
+      {
+        key: "carpool",
+        name: "getCarpoolList",
+        data: { limit: LIST_FETCH_LIMIT, quick: true },
+        collection: "Carpool"
+      },
+      {
+        key: "request",
+        name: "getCarpoolRequestList",
+        data: { limit: LIST_FETCH_LIMIT, quick: true },
+        collection: "CarpoolRequest"
+      }
+    ]
+
     try {
-      const [carpoolRes, requestRes] = await Promise.all([
-        wx.cloud.callFunction({
-          name: "getCarpoolList",
-          data: { limit: LIST_FETCH_LIMIT, quick: true }
-        }),
-        wx.cloud.callFunction({
-          name: "getCarpoolRequestList",
-          data: { limit: LIST_FETCH_LIMIT, quick: true }
+      const results = await Promise.allSettled(
+        listCalls.map(item => this.fetchListFast(item))
+      )
+
+      const failed = []
+      const getResultData = (index) => {
+        const meta = listCalls[index]
+        const item = results[index]
+
+        if (!item || item.status !== "fulfilled") {
+          failed.push({
+            name: meta.name,
+            reason: item && item.reason ? item.reason : "load failed"
+          })
+          return []
+        }
+
+        return Array.isArray(item.value && item.value.data) ? item.value.data : []
+      }
+
+      const carpoolList = getResultData(0)
+      const requestList = getResultData(1)
+
+      if (failed.length) {
+        console.warn("loadBothLists partial failure:", failed)
+      }
+
+      if (failed.length === listCalls.length) {
+        if (showLoading) wx.showToast({ title: "加载失败", icon: "none" })
+        this.setData({
+          loading: false,
+          hasLoadedOnce: true,
+          originalCarpoolList: [],
+          originalRequestList: [],
+          dayGroups: []
         })
-      ])
-
-      const carpoolList =
-        (carpoolRes.result && carpoolRes.result.success)
-          ? (carpoolRes.result.data || [])
-          : []
-
-      const requestList =
-        (requestRes.result && requestRes.result.success)
-          ? (requestRes.result.data || [])
-          : []
+        return
+      }
 
       carpoolList.sort((a, b) => this.sortByDateTime(a, b))
       requestList.sort((a, b) => this.sortByDateTime(a, b))
@@ -514,6 +617,7 @@ Page({
       })
 
       this._loadedOnceAt = Date.now()
+      this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
       this.applyAllFiltersAndGroup()
     } catch (err) {
       console.error("loadBothLists error:", err)
@@ -523,6 +627,77 @@ Page({
         hasLoadedOnce: true
       })
     }
+  },
+
+  fetchListFast(meta) {
+    const sources = [
+      this.fetchListFromDB(meta),
+      this.fetchListFromCloud(meta)
+    ]
+
+    return new Promise((resolve, reject) => {
+      const errors = []
+      let settled = false
+
+      const finish = (source, data) => {
+        if (settled) return
+        settled = true
+        if (source !== "db") {
+          console.warn(`${meta.name} direct DB was slower or failed; using cloud function result`)
+        }
+        resolve({ source, data: Array.isArray(data) ? data : [] })
+      }
+
+      const fail = (source, err) => {
+        errors.push({ source, err })
+        if (!settled && errors.length === sources.length) {
+          settled = true
+          reject(errors)
+        }
+      }
+
+      sources.forEach((promise, index) => {
+        const source = index === 0 ? "db" : "cloud"
+        promise.then(data => finish(source, data)).catch(err => fail(source, err))
+      })
+    })
+  },
+
+  async fetchListFromDB(meta) {
+    const db = wx.cloud.database()
+    const _ = db.command
+    const res = await db.collection(meta.collection)
+      .where({
+        status: _.in(["open", "full"])
+      })
+      .field({
+        _id: true,
+        status: true,
+        departures: true,
+        destinations: true,
+        availSeatNum: true,
+        passengerCount: true,
+        requestPassengerCount: true,
+        createdAt: true
+      })
+      .limit(LIST_FETCH_LIMIT)
+      .get()
+
+    return Array.isArray(res.data) ? res.data : []
+  },
+
+  async fetchListFromCloud(meta) {
+    const res = await wx.cloud.callFunction({
+      name: meta.name,
+      data: meta.data
+    })
+
+    const result = res && res.result ? res.result : {}
+    if (!result.success) {
+      throw new Error(result.errorMsg || result.error || `${meta.name} success=false`)
+    }
+
+    return Array.isArray(result.data) ? result.data : []
   },
 
   // =========================

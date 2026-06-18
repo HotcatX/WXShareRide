@@ -18,11 +18,11 @@ exports.main = async (event = {}, context) => {
     const limit = getLimit(event)
     const quick = event.quick !== false
 
+    // 页面会按出发时间重新排序，这里不按 createdAt 排序，避免缺少组合索引时拖慢首屏。
     let query = db.collection('Carpool')
       .where({
         status: _.in(['open', 'full'])   // ← ⭐ 同时查 open + full
       })
-      .orderBy('createdAt', 'desc')
 
     if (quick) {
       query = query.field({

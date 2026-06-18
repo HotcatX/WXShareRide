@@ -159,7 +159,6 @@ Page({
     const toDeleteGoods = goods.filter(g => ids.includes(g.id))
 
     try {
-      wx.showLoading({ title: '删除中...' })
 
       // 1) 尝试批量删云存储文件（失败不影响）
       const fileIds = []
@@ -210,7 +209,6 @@ Page({
       console.error(err)
       wx.showToast({ title: '删除失败（无权限/规则限制）', icon: 'none' })
     } finally {
-      wx.hideLoading()
     }
   },
 

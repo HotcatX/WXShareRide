@@ -41,7 +41,7 @@ function formatDateCNNoYear(dateStr) {
   return `${m}月${d}日`
 }
 
-// 给 tripData 补齐 home 常用字段（参照 getMyRequestList 的兼容写法）
+// 给 tripData 补齐 home 常用字段
 function normalizeTripData(raw = {}, source) {
   const dep0 = Array.isArray(raw.departures) && raw.departures.length ? raw.departures[0] : (raw.departure || {})
   const dest0 = Array.isArray(raw.destinations) && raw.destinations.length ? raw.destinations[0] : (raw.destination || {})

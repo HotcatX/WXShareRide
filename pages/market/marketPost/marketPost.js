@@ -254,6 +254,7 @@ Page({
     // ✅ 编辑模式
     isEdit: false,
     editId: '',
+    editLoading: false,
 
     // ✅ 改：image 仅用于预览（临时路径）
     image: "",
@@ -374,7 +375,7 @@ Page({
     }
 
     try {
-      wx.showLoading({ title: '加载中...' })
+      this.setData({ editLoading: true })
       const db = wx.cloud.database()
       const res = await db.collection('market_goods').doc(id).get()
       const x = res?.data || {}
@@ -432,7 +433,7 @@ Page({
       console.error(e)
       wx.showToast({ title: '加载失败', icon: 'none' })
     } finally {
-      wx.hideLoading()
+      this.setData({ editLoading: false })
     }
   },
 

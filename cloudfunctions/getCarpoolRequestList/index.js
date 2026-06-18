@@ -16,18 +16,11 @@ exports.main = async (event = {}, context) => {
     const limit = getLimit(event)
     const quick = event.quick !== false
 
-    // ✅ 新规则：只要 status != close/past 就展示
-    // 同时兼容老数据：没有 status 字段的也展示（避免历史数据“消失”）
-    const cond = _.or([
-      { status: _.nin(['close', 'past']) },
-      { status: _.exists(false) },
-      { status: '' },
-      { status: null }
-    ])
-
+    // 页面会按出发时间重新排序；这里只取仍可展示的状态，避免复杂 or/nin + orderBy 查询超时。
     let query = db.collection('CarpoolRequest')
-      .where(cond)
-      .orderBy('createdAt', 'desc')
+      .where({
+        status: _.in(['open', 'full'])
+      })
 
     if (quick) {
       query = query.field({
@@ -52,4 +45,3 @@ exports.main = async (event = {}, context) => {
     return { success: false, errorMsg: '读取 CarpoolRequest 失败' }
   }
 }
-

@@ -39,7 +39,6 @@ Page({
     const { avatarUrl } = e.detail || {}
     if (!avatarUrl) return
 
-    wx.showLoading({ title: '上传头像中…', mask: true })
 
     try {
       const extMatch = avatarUrl.match(/\.(\w+)$/)
@@ -59,7 +58,6 @@ Page({
       console.error('上传头像失败：', err)
       wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
     } finally {
-      wx.hideLoading()
     }
   },
 

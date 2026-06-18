@@ -56,9 +56,14 @@ Page({
   },
 
   async callUpdateCarpoolRequestStatusSafely() {
-    // 如果你项目里已有 updateCarpoolRequestStatus，可在退出后顺便刷新状态；没有也不影响主流程
+    const { requestId } = this.data
+    if (!requestId) return
+
     try {
-      await wx.cloud.callFunction({ name: 'updateCarpoolRequestStatus' })
+      await wx.cloud.callFunction({
+        name: 'updateCarpoolRequestStatus',
+        data: { ids: [requestId] }
+      })
     } catch (e) {
       console.warn('updateCarpoolRequestStatus 调用失败（不阻断主流程）：', e)
     }
@@ -101,7 +106,6 @@ Page({
 
   async loadRequestDetail(requestId) {
     this.setData({ loading: true })
-    wx.showLoading({ title: '加载中...' })
 
     try {
       // 1) 读 CarpoolRequest 详情
@@ -109,7 +113,6 @@ Page({
         name: 'getCarpoolRequestDetail',
         data: { id: requestId }
       })
-      wx.hideLoading()
 
       // 兼容：有的函数返回 {success:true,data:[...]}，有的返回 {ok:true,data:...}
       const rawResult = res && res.result ? res.result : null
@@ -203,7 +206,6 @@ Page({
         loading: false
       })
     } catch (e) {
-      wx.hideLoading()
       console.error('loadRequestDetail error:', e)
       wx.showToast({ title: '加载失败', icon: 'none' })
       this.setData({ loading: false })
@@ -248,7 +250,6 @@ Page({
       success: async (r) => {
         if (!r.confirm) return
 
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyRequestDetailDriver',
@@ -267,7 +268,6 @@ Page({
             return
           }
 
-          wx.hideLoading()
 
           if (res.result && res.result.ok) {
             await this.callUpdateCarpoolRequestStatusSafely()
@@ -277,7 +277,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
-          wx.hideLoading()
           console.error('quitRequest error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }

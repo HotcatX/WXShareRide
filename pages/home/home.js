@@ -525,18 +525,25 @@ Page({
   // 未读数
   // =========================
   loadUnreadCount() {
+    const openid = wx.getStorageSync('openid')
+    const isGuest = wx.getStorageSync('isGuest')
+
+    wx.removeTabBarBadge({ index: 1 })
+
+    if (!openid || isGuest) {
+      wx.removeTabBarBadge({ index: 2 })
+      return Promise.resolve()
+    }
+
     const db = wx.cloud.database()
     return db.collection('Notifications')
       .where({
-        _openid: '{openid}', // TODO：后续改成真实 openid
+        _openid: openid,
         read: false
       })
       .count()
       .then(res => {
         const count = res.total || 0
-
-        // ✅ 先清理 market（防止历史残留）
-        wx.removeTabBarBadge({ index: 1 })
 
         if (count > 0) {
           // ✅ profile = index 2

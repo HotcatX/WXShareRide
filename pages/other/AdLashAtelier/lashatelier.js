@@ -83,7 +83,6 @@ Page({
     if (!fileID) return
 
     try {
-      wx.showLoading({ title: "保存中..." })
       const downloadRes = await this.downloadFromCloud(fileID)
       await this.saveImageToAlbumWithPermission(downloadRes.tempFilePath)
       wx.showToast({ title: "已保存到相册", icon: "success" })
@@ -91,7 +90,6 @@ Page({
       console.error("保存海报失败：", e)
       wx.showToast({ title: "保存失败（可能未授权）", icon: "none" })
     } finally {
-      wx.hideLoading()
     }
   },
 

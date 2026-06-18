@@ -75,7 +75,6 @@ Page({
     if (this.data.sellerWechat) return this.data.sellerWechat
   
     try {
-      wx.showLoading({ title: "获取微信号..." })
   
       const res = await wx.cloud.callFunction({
         name: "getUserInfoByOpenids",
@@ -95,7 +94,6 @@ Page({
       console.error(e)
       return ""
     } finally {
-      wx.hideLoading()
     }
   },  
 
@@ -232,7 +230,6 @@ Page({
     if (!ok) return
 
     try {
-      wx.showLoading({ title: '删除中...' })
 
       // 1) 先删云存储图片（失败也不影响删除文档）
       const fileIds = [
@@ -258,7 +255,6 @@ Page({
       console.error(e)
       wx.showToast({ title: '删除失败', icon: 'none' })
     } finally {
-      wx.hideLoading()
     }
   },
 

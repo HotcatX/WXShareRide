@@ -1,5 +1,6 @@
 // pages/home/carpoolRequestDetail/carpoolRequestDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
+const DETAIL_REFRESH_INTERVAL = 30 * 1000
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -109,7 +110,9 @@ Page({
     this.setData({ myOpenid })
 
     const { tripId } = this.data
-    if (tripId) this.loadTripDetail(tripId, { silent: true })
+    if (!tripId || this.data.loading) return
+    if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
+    this.loadTripDetail(tripId, { silent: true })
   },
 
   async onPullDownRefresh() {
@@ -161,15 +164,13 @@ Page({
    */
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) wx.showLoading({ title: '加载中...' })
+    if (!silent) this.setData({ loading: true })
 
     try {
       const res = await wx.cloud.callFunction({
         name: 'getCarpoolRequestDetail',
         data: { id }
       })
-
-      if (!silent) wx.hideLoading()
 
       if (!res.result || !res.result.success) {
         this.showToast('加载失败', 'none')
@@ -256,8 +257,8 @@ Page({
 
         loading: false
       })
+      this._lastDetailLoadedAt = Date.now()
     } catch (err) {
-      if (!silent) wx.hideLoading()
       console.error('loadTripDetail error:', err)
       this.showToast('网络异常', 'none')
       this.setData({ loading: false })
@@ -312,19 +313,20 @@ Page({
     }
 
     this.setData({ submitting: true })
-    wx.showLoading({ title: '加入中...' })
 
     try {
       const ret = await wx.cloud.callFunction({
         name: 'joinCarpoolRequest',
         data: { requestId: tripId }
       })
-      wx.hideLoading()
 
       if (ret.result && ret.result.success) {
         // ✅ 2) 加入成功后刷新状态（失败忽略）
         try {
-          await wx.cloud.callFunction({ name: 'updateCarpoolRequestStatus' })
+          await wx.cloud.callFunction({
+            name: 'updateCarpoolRequestStatus',
+            data: { ids: [tripId] }
+          })
         } catch (e) {}
 
         // ✅ 3) 不展示任何成员信息，直接回首页
@@ -338,7 +340,6 @@ Page({
       const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '加入失败'
       this.showToast(msg, 'none')
     } catch (e) {
-      wx.hideLoading()
       console.error('joinCarpoolRequest error:', e)
       this.showToast('加入失败', 'none')
     } finally {

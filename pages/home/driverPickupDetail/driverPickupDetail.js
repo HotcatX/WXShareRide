@@ -1,5 +1,6 @@
 // pages/home/driverPickupDetail/driverPickupDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
+const DETAIL_REFRESH_INTERVAL = 30 * 1000
 
 function getWeekdayStr(dateStr) {
   if (!dateStr) return ''
@@ -95,7 +96,9 @@ Page({
 
     // ✅ 若已有 requestId，刷新详情（让按钮状态正确）
     const { requestId } = this.data
-    if (requestId) this.loadRequestDetail(requestId, { silent: true })
+    if (!requestId || this.data.loading) return
+    if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
+    this.loadRequestDetail(requestId, { silent: true })
   },
 
   async onPullDownRefresh() {
@@ -138,15 +141,13 @@ Page({
   // 读取 CarpoolRequest 详情
   async loadRequestDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) wx.showLoading({ title: '加载中...' })
+    if (!silent) this.setData({ loading: true })
 
     try {
       const res = await wx.cloud.callFunction({
         name: 'getCarpoolRequestDetail',
         data: { id }
       })
-
-      if (!silent) wx.hideLoading()
 
       if (!res.result || !res.result.success) {
         wx.showToast({ title: '加载失败', icon: 'none' })
@@ -222,8 +223,8 @@ Page({
         passengerList,
         loading: false
       })
+      this._lastDetailLoadedAt = Date.now()
     } catch (err) {
-      if (!silent) wx.hideLoading()
       console.error('loadRequestDetail error:', err)
       wx.showToast({ title: '网络异常', icon: 'none' })
       this.setData({ loading: false })
@@ -280,7 +281,6 @@ Page({
     }
 
     this.setData({ submitting: true })
-    wx.showLoading({ title: '接单中...' })
 
     try {
       const ret = await wx.cloud.callFunction({
@@ -288,12 +288,14 @@ Page({
         data: { requestId }
       })
 
-      wx.hideLoading()
 
       if (ret.result && ret.result.success) {
         // ✅ 接单成功后刷新 CarpoolRequest（失败忽略）
         try {
-          await wx.cloud.callFunction({ name: 'updateCarpoolRequestStatus' })
+          await wx.cloud.callFunction({
+            name: 'updateCarpoolRequestStatus',
+            data: { ids: [requestId] }
+          })
         } catch (e) {
           console.warn('updateCarpoolRequestStatus failed:', e)
         }
@@ -312,7 +314,6 @@ Page({
       }, 1200)
 
     } catch (e) {
-      wx.hideLoading()
       console.error('acceptAsDriver error:', e)
       wx.showToast({ title: '接单失败', icon: 'none' })
     } finally {

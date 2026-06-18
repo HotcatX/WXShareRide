@@ -53,7 +53,6 @@ Page({
   async onLoginTap() {
     if (this.data.logging) return
     this.setData({ logging: true })
-    wx.showLoading({ title: '正在登录...' })
 
     try {
       const cloudRes = await wx.cloud.callFunction({ name: 'login', data: {} })
@@ -82,7 +81,6 @@ Page({
       }
 
       if (!completed) {
-        wx.hideLoading()
         // 不清 pendingPage：addInfo 保存后需要回跳
         wx.removeStorageSync('postLoginAction')
         wx.navigateTo({ url: '/pages/profile/addInfo/addInfo?from=login' })
@@ -91,7 +89,6 @@ Page({
 
 
       // 已完成资料或不要求完善：回跳
-      wx.hideLoading()
 
       const returnUrl = (action && action.returnUrl) ? String(action.returnUrl) : ''
       wx.removeStorageSync('postLoginAction')
@@ -108,7 +105,6 @@ Page({
       }
       wx.switchTab({ url: '/pages/home/home' })
     } catch (e) {
-      wx.hideLoading()
       wx.showToast({ title: e.message || '登录失败', icon: 'none' })
     } finally {
       this.setData({ logging: false })

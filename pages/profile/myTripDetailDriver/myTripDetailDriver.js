@@ -49,8 +49,14 @@ Page({
   },
 
   async callUpdateCarpoolStatusSafely() {
+    const { tripId } = this.data
+    if (!tripId) return
+
     try {
-      await wx.cloud.callFunction({ name: 'updateCarpoolStatus' })
+      await wx.cloud.callFunction({
+        name: 'updateCarpoolStatus',
+        data: { ids: [tripId] }
+      })
     } catch (e) {
       console.warn('updateCarpoolStatus 调用失败（不阻断主流程）：', e)
     }
@@ -92,8 +98,7 @@ Page({
   // ✅ 关键改动：不再 callFunction(getCarpoolDetail)，改为直接读 Carpool
   async loadTripDetail(tripId) {
     this.setData({ loading: true })
-    wx.showLoading({ title: '加载中...' })
-  
+
     const db = wx.cloud.database()
     const _ = db.command
   
@@ -123,8 +128,6 @@ Page({
   
         trip = (whereRes && whereRes.data && whereRes.data.length > 0) ? whereRes.data[0] : null
       }
-  
-      wx.hideLoading()
   
       // 3) 读不到就直接退出（关键：避免 trip.passengers 报错）
       if (!trip) {
@@ -217,7 +220,6 @@ Page({
       })
 
     } catch (e) {
-      wx.hideLoading()
       console.error('loadTripDetail error:', e)
       wx.showToast({ title: '加载失败', icon: 'none' })
       this.setData({ loading: false })
@@ -257,13 +259,11 @@ Page({
       success: async (r) => {
         if (!r.confirm) return
 
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyTripDetailDriver',
             data: { tripId, action: 'kickPassenger', targetOpenid }
           })
-          wx.hideLoading()
 
           if (res.result && res.result.ok) {
             await this.callUpdateCarpoolStatusSafely()
@@ -273,7 +273,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
-          wx.hideLoading()
           console.error('kickPassenger error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
@@ -292,13 +291,11 @@ Page({
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
-        wx.showLoading({ title: '处理中...' })
         try {
           const res = await wx.cloud.callFunction({
             name: 'editMyTripDetailDriver',
             data: { tripId }
           })
-          wx.hideLoading()
 
           if (res.result && res.result.ok) {
             await this.callUpdateCarpoolStatusSafely()
@@ -308,7 +305,6 @@ Page({
             wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
-          wx.hideLoading()
           console.error('deleteTrip error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }

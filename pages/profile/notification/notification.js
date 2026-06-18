@@ -24,31 +24,42 @@ Page({
     wx.navigateBack({ delta: 1 })
   },
 
-  // 下拉刷新（可选）
-  // 下拉刷新触发
-async onPullDownRefresh() {
-  try {
-    await this.refreshMyTrips();   // 复用你的刷新函数
-  } catch (e) {
-    console.error('onPullDownRefresh error', e);
-  } finally {
-    wx.stopPullDownRefresh();      // 停止刷新动画
-  }
-},
+  // 下拉刷新
+  async onPullDownRefresh() {
+    try {
+      await this.loadList()
+    } catch (e) {
+      console.error('onPullDownRefresh error', e)
+    } finally {
+      wx.stopPullDownRefresh()
+    }
+  },
 
 
   /**
    * 读取 Notifications 集合中的消息
-   * ⭐ 只读取当前用户 (_openid = {openid}) 的通知
+   * 只读取当前用户的通知
    */
   async loadList() {
     this.setData({ loading: true })
+    const openid = wx.getStorageSync('openid')
+
+    if (!openid) {
+      this.setData({
+        list: [],
+        loading: false,
+        unreadCount: 0
+      })
+      this.updateTabBarBadge(0)
+      return
+    }
+
     const db = wx.cloud.database()
 
     try {
       const res = await db.collection('Notifications')
         .where({
-          _openid: '{openid}'       // 只查“我自己的消息”
+          _openid: openid
         })
         .orderBy('createdAt', 'desc')
         .get()
@@ -144,14 +155,22 @@ async onPullDownRefresh() {
     // 虽然按钮 disabled 了，这里加一道保险
     if (this.data.unreadCount <= 0) return
 
+    const openid = wx.getStorageSync('openid')
+    if (!openid) {
+      wx.showToast({
+        title: '请先登录',
+        icon: 'none'
+      })
+      return
+    }
+
     const db = wx.cloud.database()
 
-    wx.showLoading({ title: '处理中...', mask: true })
 
     try {
       await db.collection('Notifications')
         .where({
-          _openid: '{openid}',
+          _openid: openid,
           read: false
         })
         .update({
@@ -184,7 +203,6 @@ async onPullDownRefresh() {
         icon: 'none'
       })
     } finally {
-      wx.hideLoading()
     }
   },
 
@@ -200,7 +218,6 @@ async onPullDownRefresh() {
       success: async (res) => {
         if (!res.confirm) return
 
-        wx.showLoading({ title: '处理中...', mask: true })
 
         try {
           // 调用云函数，删除当前用户在 Notifications 集合下的所有记录
@@ -232,7 +249,6 @@ async onPullDownRefresh() {
             icon: 'none'
           })
         } finally {
-          wx.hideLoading()
         }
       }
     })
@@ -250,12 +266,11 @@ async onPullDownRefresh() {
 
   /**
    * 更新底部 tabBar 角标
-   * index = 1 假设是“个人中心”人像图标
    */
   updateTabBarBadge(count) {
     if (typeof wx.setTabBarBadge !== 'function') return
 
-    const index = 1  // ⚠️ 若你的“个人中心”不是第二个 tab，请改这里
+    const index = 2
 
     if (count > 0) {
       wx.setTabBarBadge({

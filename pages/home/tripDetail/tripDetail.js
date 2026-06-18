@@ -1,4 +1,5 @@
 // pages/home/tripDetail/tripDetail.js
+const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
@@ -134,6 +135,13 @@ Page({
   },
 
   async onLoad(options) {
+    trackEvent("page_view", {
+      module: "carpool",
+      action: "view",
+      source: "trip_detail",
+      routeType: "carpool"
+    })
+
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -363,6 +371,7 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
+    const startedAt = createTimer()
     const { silent = false } = options
     if (!silent) this.setData({ loading: true })
 
@@ -379,6 +388,13 @@ Page({
         }
         this.showToastBar('加载失败', 'error')
         this.setData({ loading: false })
+        trackDuration("carpool_detail_load", startedAt, {
+          module: "carpool",
+          action: "load",
+          routeType: "carpool",
+          result: "fail",
+          errorCode: "success_false"
+        })
         return
       }
 
@@ -393,11 +409,24 @@ Page({
         }
         this.showToastBar('未找到该路线', 'warn')
         this.setData({ loading: false })
+        trackDuration("carpool_detail_load", startedAt, {
+          module: "carpool",
+          action: "load",
+          routeType: "carpool",
+          result: "fail",
+          errorCode: "empty"
+        })
         return
       }
 
       this.applyTripData(trip, id)
       if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
+      trackDuration("carpool_detail_load", startedAt, {
+        module: "carpool",
+        action: "load",
+        routeType: "carpool",
+        result: "success"
+      })
     } catch (err) {
       if (this.data.trip) {
         console.warn('getCarpoolDetail error after preview:', err)
@@ -406,6 +435,13 @@ Page({
       this.showToastBar('网络异常', 'error')
       console.error('请求错误:', err)
       this.setData({ loading: false })
+      trackDuration("carpool_detail_load", startedAt, {
+        module: "carpool",
+        action: "load",
+        routeType: "carpool",
+        result: "fail",
+        errorCode: err && (err.errMsg || err.message) ? String(err.errMsg || err.message).slice(0, 80) : "unknown"
+      })
     }
   },
 
@@ -462,6 +498,12 @@ Page({
       return
     }
     if (submitting) return
+
+    trackEvent("carpool_join_click", {
+      module: "carpool",
+      action: "click",
+      routeType: "carpool"
+    })
 
     // ✅ 0) 必填校验：必须填上车点 + 下车点
     const p = String(pickupAddress || '').trim()
@@ -535,6 +577,13 @@ Page({
       const cResult = carpoolRes.result || {}
       if (!cResult.success) {
         wx.showToast({ title: cResult.msg || '加入路线失败', icon: 'none' })
+        trackEvent("carpool_join_fail", {
+          module: "carpool",
+          action: "join",
+          routeType: "carpool",
+          result: "fail",
+          errorCode: cResult.msg || "addCarpoolDetail_fail"
+        })
         return
       }
 
@@ -548,6 +597,13 @@ Page({
       const ok = r.ok === true || r.success === true || r.code === 0
       if (!ok) {
         wx.showToast({ title: r.errorMsg || '加入失败，请重试', icon: 'none', duration: 2000 })
+        trackEvent("carpool_join_fail", {
+          module: "carpool",
+          action: "join",
+          routeType: "carpool",
+          result: "fail",
+          errorCode: r.errorMsg || "updateUserJoinTrip_fail"
+        })
         return
       }
 
@@ -563,6 +619,12 @@ Page({
 
       wx.showToast({ title: '加入出行计划成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
+      trackEvent("carpool_join_success", {
+        module: "carpool",
+        action: "join",
+        routeType: "carpool",
+        result: "success"
+      })
 
       await this.loadTripDetail(trip._id, { silent: true })
 
@@ -574,6 +636,13 @@ Page({
     } catch (err) {
       console.error('joinCarpool error:', err)
       wx.showToast({ title: '请求失败，请稍后重试', icon: 'none' })
+      trackEvent("carpool_join_fail", {
+        module: "carpool",
+        action: "join",
+        routeType: "carpool",
+        result: "fail",
+        errorCode: err && (err.errMsg || err.message) ? String(err.errMsg || err.message).slice(0, 80) : "unknown"
+      })
     } finally {
       this.setData({ submitting: false })
     }

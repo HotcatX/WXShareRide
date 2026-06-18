@@ -1,3 +1,4 @@
+const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const MARKET_SAVED_LOCATION_KEY = "market_post_saved_location_v1"
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
@@ -298,6 +299,13 @@ Page({
   },
 
   onLoad(options) {
+    trackEvent("market_post_start", {
+      module: "market",
+      action: "view",
+      source: "market_post",
+      result: "start"
+    })
+
     const sys = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
 
@@ -490,6 +498,13 @@ Page({
       return
     }
 
+    const startedAt = createTimer()
+    trackEvent("market_image_upload_start", {
+      module: "market",
+      action: "upload",
+      imageCount: 1
+    })
+
     try {
       const res = await wx.chooseMedia({
         count: 1,
@@ -565,6 +580,12 @@ Page({
       })
 
       wx.showToast({ title: "上传成功", icon: "success" })
+      trackDuration("market_image_upload_done", startedAt, {
+        module: "market",
+        action: "upload",
+        result: "success",
+        imageCount: 1
+      })
       setTimeout(() => {
         if (this.data.imageFileID === fileID) {
           this.setData({ imageUploading: false })
@@ -573,6 +594,13 @@ Page({
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "选择/上传失败", icon: "none" })
+      trackDuration("market_image_upload_fail", startedAt, {
+        module: "market",
+        action: "upload",
+        result: "fail",
+        imageCount: 1,
+        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
+      })
       this.setData({ imageUploading: false })
     }
   },
@@ -690,6 +718,7 @@ onChooseCondition() {
   async onSubmit() {
     if (!this.ensureLoginBeforePost()) return
     if (this.data.submitting) return
+    const startedAt = createTimer()
 
     const {
       image,
@@ -710,6 +739,13 @@ onChooseCondition() {
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
     if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
     if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
+
+    trackEvent("market_publish_click", {
+      module: "market",
+      action: this.data.isEdit ? "edit" : "publish",
+      category,
+      region
+    })
 
     this.setData({ submitting: true })
     this._saveLocationToStorage(false)
@@ -743,10 +779,26 @@ onChooseCondition() {
         const ur = updRes?.result || {}
         if (!ur.ok) {
           wx.showToast({ title: ur.error || "保存失败", icon: "none" })
+          trackDuration("market_publish_fail", startedAt, {
+            module: "market",
+            action: "edit",
+            result: "fail",
+            category,
+            region,
+            errorCode: ur.error || "updateMarketItem_fail"
+          })
           return
         }
 
         wx.showToast({ title: "已保存", icon: "success" })
+        trackDuration("market_publish_success", startedAt, {
+          module: "market",
+          action: "edit",
+          result: "success",
+          category,
+          region,
+          imageCount: 1
+        })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
         return
       }
@@ -770,6 +822,14 @@ onChooseCondition() {
       const r = checkRes?.result || {}
       if (r.ok === false) {
         wx.showToast({ title: r.message || "发布失败", icon: "none" })
+        trackDuration("market_publish_fail", startedAt, {
+          module: "market",
+          action: "publish",
+          result: "fail",
+          category,
+          region,
+          errorCode: r.message || "createMarketItem_fail"
+        })
         return
       }
 
@@ -870,10 +930,26 @@ const createdId = r.itemId || r.id || r.docId || r._id || ""
       }
 
       wx.showToast({ title: this.data.isEdit ? "已保存" : "已提交", icon: "success" })
+      trackDuration("market_publish_success", startedAt, {
+        module: "market",
+        action: this.data.isEdit ? "edit" : "publish",
+        result: "success",
+        category,
+        region,
+        imageCount: 1
+      })
       setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "发布失败", icon: "none" })
+      trackDuration("market_publish_fail", startedAt, {
+        module: "market",
+        action: this.data.isEdit ? "edit" : "publish",
+        result: "fail",
+        category,
+        region,
+        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
+      })
     } finally {
       this.setData({ submitting: false })
     }

@@ -1,4 +1,5 @@
 // pages/market/marketDetail/marketDetail.js
+const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const LOGIN_PAGE = '/pages/other/login/login'
 
 Page({
@@ -98,6 +99,12 @@ Page({
   },  
 
   onLoad(options) {
+    trackEvent("page_view", {
+      module: "market",
+      action: "view",
+      source: "market_detail"
+    })
+
     const sys = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
 
@@ -148,6 +155,7 @@ Page({
   },
 
   async fetchDetail(id) {
+    const startedAt = createTimer()
     try {
       const db = wx.cloud.database()
       const res = await db.collection("market_goods").doc(id).get()
@@ -184,9 +192,22 @@ Page({
       })
 
       await this._buildTempUrls(x)
+      trackDuration("market_detail_load", startedAt, {
+        module: "market",
+        action: "load",
+        result: "success",
+        category: x.category || "",
+        region: x.region || ""
+      })
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "获取详情失败", icon: "none" })
+      trackDuration("market_detail_load", startedAt, {
+        module: "market",
+        action: "load",
+        result: "fail",
+        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
+      })
     }
   },
 
@@ -306,6 +327,12 @@ Page({
 
   async onContactSeller() {
     if (!this.ensureLoginBeforeContact()) return
+    trackEvent("market_contact_seller_click", {
+      module: "market",
+      action: "contact",
+      category: this.data.item && this.data.item.category ? this.data.item.category : "",
+      region: this.data.item && this.data.item.region ? this.data.item.region : ""
+    })
 
     const openid = this.data.item?._openid
     if (!openid) {

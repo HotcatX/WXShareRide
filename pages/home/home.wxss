@@ -31,7 +31,7 @@ page{
 
 /* 左侧区域：放登录按钮；固定宽度保证标题永远绝对居中 */
 .nav-left{
-  width: 260rpx;                 
+  width: 260rpx;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -238,99 +238,123 @@ page{
   opacity: 0.9;
 }
 
-/* ========= 更新日志占位 ========= */
-.update-log-section{
+/* ========= 社区数据 ========= */
+.community-stats-section{
   margin-top: 30rpx;
 }
 
-.update-log-head{
+.community-stats-head{
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   margin: 6rpx 4rpx 12rpx;
 }
 
-.update-log-title{
+.community-stats-title{
   font-size: 30rpx;
   font-weight: 800;
   color: #111;
 }
 
-.update-log-card{
-  min-height: 210rpx;
-  border-radius: 26rpx;
-  padding: 28rpx 30rpx;
-  background: #fff;
+.community-stats-card{
+  min-height: 238rpx;
+  border-radius: 24rpx;
+  padding: 30rpx;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fbf2 100%);
   box-sizing: border-box;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
+  gap: 24rpx;
   box-shadow: 0 10rpx 24rpx rgba(0,0,0,0.08);
 }
 
-.update-log-card:active{
-  transform: scale(0.99);
-  opacity: 0.92;
-}
-
-.update-log-card-main{
+.community-stats-main{
   flex: 1;
   min-width: 0;
-}
-
-.update-log-row{
   display: flex;
-  align-items: center;
-  gap: 14rpx;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.update-log-card-title{
-  font-size: 34rpx;
-  font-weight: 800;
-  color: #111;
-}
-
-.update-log-badge{
-  padding: 4rpx 12rpx;
-  border-radius: 999rpx;
-  background: #179E16;
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: 600;
-}
-
-.update-log-subtitle{
-  display: block;
-  margin-top: 10rpx;
-  color: #666;
+.community-stats-label{
   font-size: 24rpx;
+  color: #5d6948;
+  font-weight: 700;
 }
 
-.update-log-list{
-  margin-top: 16rpx;
+.community-stats-number-row{
+  margin-top: 6rpx;
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10rpx;
 }
 
-.update-log-item{
-  max-width: 100%;
-  padding: 8rpx 12rpx;
-  border-radius: 999rpx;
-  background: #f3f6ef;
-  color: #2d3a24;
-  font-size: 22rpx;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.community-stats-number{
+  font-size: 62rpx;
+  line-height: 1;
+  font-weight: 900;
+  color: #111;
 }
 
-.update-log-arrow{
-  margin-left: 20rpx;
-  color: #999;
-  font-size: 52rpx;
-  line-height: 1;
+.community-stats-unit{
+  margin-bottom: 6rpx;
+  font-size: 24rpx;
+  font-weight: 800;
+  color: #6f7e52;
+}
+
+.community-stats-subtitle{
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #7a7a7a;
+  line-height: 1.35;
+}
+
+.community-stats-grid{
+  width: 268rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.community-stat-chip{
+  width: 100%;
+  min-height: 84rpx;
+  padding: 12rpx;
+  border-radius: 16rpx;
+  background: rgba(159, 183, 106, 0.13);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.community-stat-chip--wide{
+  width: 100%;
+}
+
+.community-stat-value{
+  font-size: 22rpx;
+  font-weight: 800;
+  color: #253018;
+  line-height: 1.2;
+}
+
+.community-stat-name{
+  margin-top: 6rpx;
+  font-size: 18rpx;
+  color: #7d8568;
+  line-height: 1.2;
+}
+
+.home-refresh-tip{
+  display: block;
+  margin: 24rpx 0 0;
+  text-align: center;
+  font-size: 22rpx;
+  color: rgba(0,0,0,0.36);
+  line-height: 1.4;
 }
 
 /* ========= 可选：全局加载遮罩（保留） ========= */

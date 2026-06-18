@@ -134,25 +134,31 @@
 
   </view>
 
-  <view class="update-log-section">
-    <view class="update-log-head">
-      <text class="update-log-title">更新日志</text>
+  <view class="community-stats-section">
+    <view class="community-stats-head">
+      <text class="community-stats-title">社区数据</text>
     </view>
 
-    <view class="update-log-card" bindtap="showUpdateLog">
-      <view class="update-log-card-main">
-        <view class="update-log-row">
-          <text class="update-log-card-title">{{updateLogPreview.title}}</text>
-          <text class="update-log-badge">{{updateLogPreview.badge}}</text>
+    <view class="community-stats-card">
+      <view class="community-stats-main">
+        <text class="community-stats-label">累计已服务</text>
+        <view class="community-stats-number-row">
+          <text class="community-stats-number">{{publicStats.servedTripsText}}</text>
+          <text wx:if="{{publicStats.hasServedTrips}}" class="community-stats-unit">人次</text>
         </view>
-        <text class="update-log-subtitle">{{updateLogPreview.subtitle}}</text>
-        <view class="update-log-list">
-          <block wx:for="{{updateLogPreview.items}}" wx:key="*this">
-            <text class="update-log-item">{{item}}</text>
-          </block>
+        <text class="community-stats-subtitle">成功拼车</text>
+      </view>
+      <view class="community-stats-grid">
+        <view class="community-stat-chip community-stat-chip--wide">
+          <text class="community-stat-value">{{publicStats.coverageText}}</text>
+          <text class="community-stat-name">当前覆盖地区</text>
+        </view>
+        <view class="community-stat-chip community-stat-chip--wide">
+          <text class="community-stat-value">{{publicStats.lastSyncText}}</text>
+          <text class="community-stat-name">上一次同步时间</text>
         </view>
       </view>
-      <text class="update-log-arrow">›</text>
     </view>
   </view>
+  <text class="home-refresh-tip">下拉同步路线</text>
 </view>

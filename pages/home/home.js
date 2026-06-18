@@ -1,4 +1,5 @@
 // pages/home/home.js
+const { createTimer, trackDuration, trackEvent } = require("../../utils/analytics")
 
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
@@ -75,6 +76,31 @@ function formatDateCNNoYear(dateStr) {
   const d = Number(parts[2])
   if (!m || !d) return ''
   return `${m}月${d}日`
+}
+
+function formatStatNumber(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) return 'N/A'
+  return String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+function formatSyncAgo(syncedAt) {
+  const ts = Number(syncedAt || 0)
+  const diffSeconds = ts ? Math.max(0, Math.floor((Date.now() - ts) / 1000)) : 0
+  return `${diffSeconds} 秒前`
+}
+
+function normalizePublicStats(raw = {}, syncedAt = Date.now()) {
+  const hasServedTrips = raw.servedTrips !== undefined && raw.servedTrips !== null && raw.servedTrips !== ''
+  const servedTrips = hasServedTrips ? Number(raw.servedTrips) : null
+  return {
+    servedTrips,
+    servedTripsText: formatStatNumber(servedTrips),
+    hasServedTrips: servedTrips !== null && Number.isFinite(servedTrips),
+    coverageText: raw.coverageText || 'NY / NJ',
+    lastSyncAt: syncedAt,
+    lastSyncText: formatSyncAgo(syncedAt)
+  }
 }
 
 // 统一把 trip 原始结构包装成 home 卡片可用结构
@@ -185,12 +211,7 @@ Page({
     statusBarHeight: 80,
     pageTitle: '纽约生活',
 
-    updateLogPreview: {
-      title: '更新日志',
-      subtitle: '查看最近优化内容',
-      badge: 'NEW',
-      items: ['优化了首页加载速度', '修复二手页配置提示']
-    },
+    publicStats: normalizePublicStats(),
 
     isLoggedIn: false,
 
@@ -202,6 +223,7 @@ Page({
   _refreshPromise: null,
   _statusRefreshPromise: null,
   _lastRefreshAt: 0,
+  _publicStatsTimer: null,
 
   // =========================
   // 合并后的两块：计算 show + scrollable
@@ -243,6 +265,7 @@ Page({
 
   async onPullDownRefresh() {
     try {
+      await this.loadPublicStats()
       await this.refreshHomeData(true)
       await this.loadUnreadCount()
     } catch (e) {
@@ -253,6 +276,12 @@ Page({
   },
 
   onLoad() {
+    trackEvent("page_view", {
+      module: "home",
+      action: "view",
+      source: "home"
+    })
+
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -261,12 +290,22 @@ Page({
     this.loadUnreadCount()
 
     this.syncLoginState()
+    this.loadPublicStats()
   },
 
   onShow() {
     this.syncLoginState()
+    this.startPublicStatsTicker()
     this.refreshHomeData(false)
     this.loadUnreadCount()
+  },
+
+  onHide() {
+    this.stopPublicStatsTicker()
+  },
+
+  onUnload() {
+    this.stopPublicStatsTicker()
   },
 
   syncLoginState() {
@@ -329,13 +368,48 @@ Page({
     wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}` })
   },
 
-  showUpdateLog() {
-    wx.showModal({
-      title: '更新日志',
-      content: '本次更新：\n1. 优化首页加载速度，减少进入页面时的等待。\n2. 修复二手页配置。',
-      showCancel: false,
-      confirmText: '知道了'
-    })
+  async loadPublicStats() {
+    const startedAt = createTimer()
+    try {
+      const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
+      const data = res && res.result && res.result.data ? res.result.data : {}
+      this.setData({ publicStats: normalizePublicStats(data) })
+      this.startPublicStatsTicker()
+      trackDuration("home_sync", startedAt, {
+        module: "home",
+        action: "sync",
+        result: "success"
+      })
+    } catch (e) {
+      console.warn('[home] loadPublicStats failed:', e)
+      trackDuration("home_sync", startedAt, {
+        module: "home",
+        action: "sync",
+        result: "fail",
+        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
+      })
+    }
+  },
+
+  startPublicStatsTicker() {
+    this.stopPublicStatsTicker()
+    this.updatePublicStatsSyncText()
+    this._publicStatsTimer = setInterval(() => {
+      this.updatePublicStatsSyncText()
+    }, 1000)
+  },
+
+  stopPublicStatsTicker() {
+    if (!this._publicStatsTimer) return
+    clearInterval(this._publicStatsTimer)
+    this._publicStatsTimer = null
+  },
+
+  updatePublicStatsSyncText() {
+    const stats = this.data.publicStats || {}
+    const lastSyncText = formatSyncAgo(stats.lastSyncAt)
+    if (stats.lastSyncText === lastSyncText) return
+    this.setData({ 'publicStats.lastSyncText': lastSyncText })
   },
 
   // =========================
@@ -368,6 +442,7 @@ Page({
   },
 
   async loadHomeTripLists() {
+    const startedAt = createTimer()
     await Promise.allSettled([
       this.loadDriverHomeTrips(),
       this.loadPassengerHomeTrips(),
@@ -385,6 +460,13 @@ Page({
 
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
+    })
+
+    trackDuration("home_trip_load", startedAt, {
+      module: "home",
+      action: "load",
+      result: "success",
+      listCount: createTrips.length + joinTrips.length
     })
   },
 

@@ -1,4 +1,6 @@
 // 与 marketPost 保持一致：分类顺序固定
+const { createTimer, trackDuration, trackEvent } = require("../../utils/analytics")
+
 const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "其他"]
 
 // ====== Performance / Cache ======
@@ -111,6 +113,12 @@ Page({
   },
 
   onLoad() {
+    trackEvent("page_view", {
+      module: "market",
+      action: "view",
+      source: "market_list"
+    })
+
     this.setData({ statusBarHeight: this._getStatusBarHeight() })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
@@ -149,6 +157,12 @@ Page({
   },
 
   async onSearch() {
+    trackEvent("market_search_submit", {
+      module: "market",
+      action: "search",
+      result: "submit"
+    })
+
     // 搜索：按当前 keyword + category + region 重新拉第一页
     this.setData({
       allGoods: [],
@@ -163,6 +177,13 @@ Page({
 
   async onSelectCat(e) {
     const cat = e.currentTarget.dataset.cat
+    trackEvent("market_filter_click", {
+      module: "market",
+      action: "filter",
+      filterName: "category",
+      filterValue: cat || "全部"
+    })
+
     // 切类目：云端 where(category=xxx) + 分页拉取
     this.setData({
       activeCategory: cat || "全部",
@@ -179,6 +200,11 @@ Page({
   onTapItem(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
+    trackEvent("market_detail_load", {
+      module: "market",
+      action: "click",
+      source: "market_list"
+    })
     wx.navigateTo({ url: `/pages/market/marketDetail/marketDetail?id=${id}` })
   },
 
@@ -386,6 +412,7 @@ Page({
 
   // ====== 重点修复：按【当前筛选条件】在云端分页拉取 ======
   async _fetchFirstPage() {
+    const startedAt = createTimer()
     try {
       this.setData({ isLoadingGoods: true })
 
@@ -412,8 +439,24 @@ Page({
       this.initRegionsFromGoods()
       // 云端已筛选，这里只做排序 + 前端切片展示。图片临时链接后台补，不能阻塞首屏。
       this.applyFilters(true)
+      trackDuration("market_list_load", startedAt, {
+        module: "market",
+        action: "load",
+        result: "success",
+        category: this.data.activeCategory || "全部",
+        region: this.data.activeRegion || "全部",
+        listCount: rows.length
+      })
     } catch (e) {
       console.error(e)
+      trackDuration("market_list_load", startedAt, {
+        module: "market",
+        action: "load",
+        result: "fail",
+        category: this.data.activeCategory || "全部",
+        region: this.data.activeRegion || "全部",
+        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
+      })
     } finally {
       this.setData({ isLoadingGoods: false })
     }

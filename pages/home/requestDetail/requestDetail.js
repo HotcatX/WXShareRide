@@ -52,6 +52,7 @@ Page({
     pageTitle: '路线详情',
 
     loading: true,
+    loadError: '',
 
     // 两个按钮独立 submitting（避免一个按钮 loading 影响另一个）
     submittingDriver: false,
@@ -103,8 +104,7 @@ Page({
 
     const id = (options && options.id) || ''
     if (!id) {
-      wx.showToast({ title: '缺少记录ID', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('缺少路线ID')
       return
     }
 
@@ -153,6 +153,28 @@ Page({
   // 系统 toast（简单）
   showToast(text, icon = 'none', duration = 1800) {
     wx.showToast({ title: text, icon, duration })
+  },
+
+  setLoadError(message) {
+    this.setData({
+      loading: false,
+      loadError: message || '加载失败',
+      trip: null,
+      departAddress: '',
+      destAddress: '',
+      formattedDepartTime: '',
+      seatLeft: 0,
+      ownerOpenid: '',
+      driverOpenid: '',
+      isOwner: false,
+      joinedByMe: false,
+      isFull: false,
+      isClosed: true,
+      isAccepted: false,
+      acceptedByMe: false,
+      submittingDriver: false,
+      submittingPassenger: false
+    })
   },
 
   // 顶部条 toast（如果你想用 ui-toast 这一套）
@@ -304,6 +326,7 @@ Page({
       isAccepted,
       acceptedByMe,
 
+      loadError: '',
       loading: false
     })
 
@@ -314,7 +337,7 @@ Page({
   async loadTripDetail(id, options = {}) {
     const startedAt = createTimer()
     const { silent = false } = options
-    if (!silent) this.setData({ loading: true })
+    if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
       const res = await wx.cloud.callFunction({
@@ -323,12 +346,12 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
-        if (this.data.trip) {
+        if (this.data.trip && !(res.result && res.result.notFound)) {
           console.warn('getCarpoolRequestDetail failed after preview:', res.result)
           return
         }
-        this.showToast('加载失败', 'none')
-        this.setData({ loading: false })
+        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+        this.setLoadError(msg)
         trackDuration("carpool_detail_load", startedAt, {
           module: "carpool",
           action: "load",
@@ -341,12 +364,7 @@ Page({
 
       const trip = res.result.data
       if (!trip) {
-        if (this.data.trip) {
-          console.warn('getCarpoolRequestDetail returned empty after preview')
-          return
-        }
-        this.showToast('未找到该路线', 'none')
-        this.setData({ loading: false })
+        this.setLoadError('该求车路线不存在或已被删除')
         trackDuration("carpool_detail_load", startedAt, {
           module: "carpool",
           action: "load",
@@ -370,8 +388,7 @@ Page({
         return
       }
       console.error('loadTripDetail error:', err)
-      this.showToast('网络异常', 'none')
-      this.setData({ loading: false })
+      this.setLoadError('网络异常，请稍后重试')
       trackDuration("carpool_detail_load", startedAt, {
         module: "carpool",
         action: "load",

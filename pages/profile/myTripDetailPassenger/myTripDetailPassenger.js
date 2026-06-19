@@ -5,6 +5,7 @@ Page({
     pageTitle: '路线详情',
 
     loading: true,
+    loadError: '',
     tripId: '',
     trip: null,
 
@@ -79,14 +80,30 @@ Page({
     else wx.switchTab({ url: '/pages/home/home' })
   },
 
+  setLoadError(message) {
+    this.setData({
+      loading: false,
+      loadError: message || '加载失败',
+      trip: null,
+      fromText: '',
+      toText: '',
+      dateText: '',
+      weekdayText: '',
+      timeText: '',
+      driverInfo: null,
+      otherPassengers: [],
+      passengerList: [],
+      showFortLeeCoreTip: false
+    })
+  },
+
   async onLoad(options) {
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const tripId = (options && (options.tripId || options.id)) || ''
     if (!tripId) {
-      wx.showToast({ title: '缺少路线ID', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('缺少路线ID')
       return
     }
     this.setData({ tripId })
@@ -119,7 +136,7 @@ Page({
 
   // ========== 主加载：先 Carpool，失败 fallback CarpoolRequest ==========
   async loadTripDetail(tripId) {
-    this.setData({ loading: true })
+    this.setData({ loading: true, loadError: '' })
 
     try {
       // ---- A) 先查 Carpool ----
@@ -149,16 +166,14 @@ Page({
       const reqTrip = reqOk ? (Array.isArray(rr.data) ? rr.data[0] : rr.data) : null
 
       if (!reqTrip) {
-        wx.showToast({ title: '未找到该路线', icon: 'none' })
-        this.setData({ loading: false })
+        this.setLoadError((rr && (rr.errorMsg || rr.msg)) || '该路线不存在或已被删除')
         return
       }
 
       await this.applyRequestTrip(reqTrip, rr)
     } catch (e) {
       console.error('loadTripDetail error:', e)
-      wx.showToast({ title: '加载失败', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('加载失败，请稍后重试')
     }
   },
 
@@ -217,6 +232,7 @@ Page({
       weekdayText,
       timeText,
       showFortLeeCoreTip,
+      loadError: '',
       loading: false
     })
   },
@@ -320,6 +336,7 @@ Page({
       weekdayText,
       timeText,
       showFortLeeCoreTip,
+      loadError: '',
       loading: false
     })
   },

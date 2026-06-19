@@ -14,6 +14,11 @@
   <!-- 加载中 -->
   <view wx:if="{{loading}}" class="state-text">正在加载...</view>
 
+  <view wx:elif="{{loadError}}" class="state-card">
+    <text class="state-title">{{loadError}}</text>
+    <button class="state-action-btn" bindtap="goBack">返回</button>
+  </view>
+
   <!-- 内容主体：滚动 -->
   <scroll-view
   wx:else
@@ -214,7 +219,7 @@
   </scroll-view>
 
   <!-- 底部固定：退出路线 -->
-  <view class="ui-bottom-fixed">
+  <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
     <view class="ui-bottom-bar">
       <button class="ui-submit-btn ui-primary-btn" bindtap="onDeleteOrQuit">
         退出路线

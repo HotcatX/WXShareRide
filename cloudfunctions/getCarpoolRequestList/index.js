@@ -6,6 +6,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const COLLECTION = 'CarpoolRequest'
 const VISIBLE_STATUSES = ['open', 'full']
+const LIST_EXPIRE_GRACE = 30 * 60 * 1000
 
 function getLimit(event) {
   const n = Number(event && event.limit)
@@ -22,6 +23,10 @@ function applyQuickFields(query, quick) {
     destinations: true,
     passengerCount: true,
     requestPassengerCount: true,
+    departureAtMs: true,
+    latestDepartureAtMs: true,
+    firstDepartureDate: true,
+    firstDepartureTime: true,
     createdAt: true
   })
 }
@@ -51,12 +56,21 @@ async function readList(query, errors, label) {
 }
 
 exports.main = async (event = {}) => {
+  const _ = db.command
   const limit = getLimit(event)
   const quick = event.quick !== false
   const errors = []
+  const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
 
   try {
     const orderedQueries = [
+      ...VISIBLE_STATUSES.map(status => applyQuickFields(
+        db.collection(COLLECTION)
+          .where({ status, departureAtMs: _.gte(minDepartureAtMs) })
+          .orderBy('departureAtMs', 'asc')
+          .limit(limit),
+        quick
+      )),
       ...VISIBLE_STATUSES.map(status => applyQuickFields(
         db.collection(COLLECTION)
           .where({ status })

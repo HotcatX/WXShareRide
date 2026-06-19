@@ -49,6 +49,7 @@ Page({
     pageTitle: '路线详情',
 
     loading: true,
+    loadError: '',
     submitting: false,
 
     tripId: '',
@@ -85,8 +86,7 @@ Page({
 
     const id = (options && options.id) || ''
     if (!id) {
-      wx.showToast({ title: '缺少记录ID', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('缺少路线ID')
       return
     }
 
@@ -135,6 +135,27 @@ Page({
     wx.showToast({ title: text, icon, duration })
   },
 
+  setLoadError(message) {
+    this.setData({
+      loading: false,
+      loadError: message || '加载失败',
+      trip: null,
+      departAddress: '',
+      destAddress: '',
+      formattedDepartTime: '',
+      seatLeft: 0,
+      ownerOpenid: '',
+      driverOpenid: '',
+      isOwner: false,
+      joinedByMe: false,
+      isFull: false,
+      isClosed: true,
+      isDriver: false,
+      driverInfo: null,
+      passengerList: []
+    })
+  },
+
   // =========================
   // ✅ 登录+完善资料拦截（仅在“加入”动作触发）
   // =========================
@@ -164,7 +185,7 @@ Page({
    */
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) this.setData({ loading: true })
+    if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
       const res = await wx.cloud.callFunction({
@@ -173,15 +194,14 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
-        this.showToast('加载失败', 'none')
-        this.setData({ loading: false })
+        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+        this.setLoadError(msg)
         return
       }
 
       const trip = res.result.data
       if (!trip) {
-        this.showToast('未找到该路线', 'none')
-        this.setData({ loading: false })
+        this.setLoadError('该求车路线不存在或已被删除')
         return
       }
 
@@ -256,13 +276,13 @@ Page({
         driverInfo: null,
         passengerList: [],
 
+        loadError: '',
         loading: false
       })
       this._lastDetailLoadedAt = Date.now()
     } catch (err) {
       console.error('loadTripDetail error:', err)
-      this.showToast('网络异常', 'none')
-      this.setData({ loading: false })
+      this.setLoadError('网络异常，请稍后重试')
     }
   },
 

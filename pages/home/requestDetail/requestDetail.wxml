@@ -13,6 +13,11 @@
   <!-- 加载中 -->
   <view wx:if="{{loading}}" class="state-text">正在加载...</view>
 
+  <view wx:elif="{{loadError}}" class="state-card">
+    <text class="state-title">{{loadError}}</text>
+    <button class="state-action-btn" bindtap="goBack">返回</button>
+  </view>
+
   <!-- 内容滚动 -->
   <view wx:else class="ui-scroll">
 
@@ -69,7 +74,7 @@
   </view>
 
   <!-- 底部固定白框：新增两个按钮（其他结构不动） -->
-  <view class="ui-bottom-fixed">
+  <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
     <view class="ui-bottom-bar">
 
       <!-- ===================== -->

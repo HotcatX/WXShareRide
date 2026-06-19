@@ -46,6 +46,35 @@ page{
   font-size: 26rpx;
   color: rgba(0,0,0,0.45);
 }
+.state-card{
+  margin: 80rpx 22rpx 0 22rpx;
+  padding: 40rpx 28rpx;
+  box-sizing: border-box;
+  background: #fff;
+  border-radius: 26rpx;
+  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
+  text-align: center;
+}
+.state-title{
+  display: block;
+  font-size: 28rpx;
+  font-weight: 900;
+  line-height: 1.5;
+  color: rgba(0,0,0,0.68);
+}
+.state-action-btn{
+  width: 240rpx;
+  height: 72rpx;
+  line-height: 72rpx;
+  margin-top: 28rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  background: #9CB06A;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+.state-action-btn::after{ border: none; }
 
 /* 内容滚动区 */
 .ui-scroll{

@@ -7,31 +7,89 @@ const _ = db.command
 const PUBLIC_STATS_COLLECTION = 'PublicStats'
 const PUBLIC_STATS_DOC_ID = 'home'
 const MAX_SERVED_DELTA = 5
+const TRIP_TIME_ZONE = 'America/New_York'
 
-// 纽约时间偏移（非夏令时 -5；如需夏令时可改 -4）
-const TZ_OFFSET_HOURS = -5
+function getZonedParts(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TRIP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
 
-function makeDate(dateStr, timeStr) {
-  if (!dateStr || !timeStr) return null
+  const map = {}
+  parts.forEach(part => {
+    if (part.type !== 'literal') map[part.type] = Number(part.value)
+  })
 
-  const [y, m, d] = String(dateStr).split('-').map(Number)
-  const [hh, mm] = String(timeStr).split(':').map(Number)
-
-  // 本地时间 = UTC + offset => UTC = 本地时间 - offset
-  const utcMs = Date.UTC(y, m - 1, d, hh - TZ_OFFSET_HOURS, mm, 0)
-  const dt = new Date(utcMs)
-  if (isNaN(dt.getTime())) return null
-  return dt
+  return {
+    year: map.year,
+    month: map.month,
+    day: map.day,
+    hour: map.hour,
+    minute: map.minute,
+    second: map.second
+  }
 }
 
-function getLatestDeparture(departures = []) {
-  let latest = null
-  departures.forEach(d => {
-    const dt = makeDate(d.date, d.time)
-    if (!dt) return
-    if (!latest || dt > latest) latest = dt
-  })
-  return latest
+function getTimeZoneOffsetMs(date) {
+  const p = getZonedParts(date)
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second || 0) - date.getTime()
+}
+
+function parseTripTimeMs(dateStr, timeStr) {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim())
+  const timeMatch = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || '').trim())
+  if (!dateMatch || !timeMatch) return null
+
+  const y = Number(dateMatch[1])
+  const m = Number(dateMatch[2])
+  const d = Number(dateMatch[3])
+  const hh = Number(timeMatch[1])
+  const mm = Number(timeMatch[2])
+  if (m < 1 || m > 12 || d < 1 || d > 31 || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
+
+  const localAsUtcMs = Date.UTC(y, m - 1, d, hh, mm, 0)
+  let utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(localAsUtcMs))
+  utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(utcMs))
+  return Number.isFinite(utcMs) ? utcMs : null
+}
+
+function buildDepartureMeta(departures = []) {
+  const parsed = (Array.isArray(departures) ? departures : [])
+    .map(item => {
+      const ms = parseTripTimeMs(item && item.date, item && item.time)
+      return ms ? {
+        ms,
+        date: String(item.date || ''),
+        time: String(item.time || '')
+      } : null
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.ms - b.ms)
+
+  if (!parsed.length) return {}
+  const first = parsed[0]
+  const latest = parsed[parsed.length - 1]
+  return {
+    departureAtMs: first.ms,
+    latestDepartureAtMs: latest.ms,
+    firstDepartureDate: first.date,
+    firstDepartureTime: first.time
+  }
+}
+
+function getLatestDeparture(doc = {}) {
+  const savedMs = Number(doc.latestDepartureAtMs || doc.departureAtMs)
+  if (Number.isFinite(savedMs) && savedMs > 0) return new Date(savedMs)
+
+  const meta = buildDepartureMeta(doc.departures || [])
+  const metaMs = Number(meta.latestDepartureAtMs || meta.departureAtMs)
+  return Number.isFinite(metaMs) && metaMs > 0 ? new Date(metaMs) : null
 }
 
 function normalizeIds(ids) {
@@ -174,7 +232,7 @@ async function updatePastAndCount(collection, id, doc, updateData, source) {
 
 // Carpool 状态计算：时间优先，其次座位
 function computeCarpoolStatus(doc, now) {
-  const latest = getLatestDeparture(doc.departures || [])
+  const latest = getLatestDeparture(doc)
   if (!latest) return { ok: false, reason: 'no-valid-time', latest: null, newStatus: null }
 
   const diffMs = now.getTime() - latest.getTime()
@@ -202,6 +260,7 @@ async function updateCarpoolDocs(list, now) {
 
   list.forEach(doc => {
     const _id = doc._id
+    const departureMeta = buildDepartureMeta(doc.departures || [])
     const result = computeCarpoolStatus(doc, now)
 
     if (!result.ok) {
@@ -227,11 +286,18 @@ async function updateCarpoolDocs(list, now) {
       newStatus
     })
 
-    if (newStatus === oldStatus) return
+    const shouldUpdateMeta = Object.keys(departureMeta).some(key => doc[key] !== departureMeta[key])
+    const shouldUpdateStatus = doc.status !== newStatus
+    if (!shouldUpdateStatus && !shouldUpdateMeta) return
 
-    const updateData = { status: newStatus, updatedAt: now }
+    const updateData = {
+      ...departureMeta,
+      updatedAt: now
+    }
+    if (shouldUpdateStatus) updateData.status = newStatus
+    const shouldCountPast = oldStatus !== 'past' && newStatus === 'past'
     updateTasks.push(
-      newStatus === 'past'
+      shouldCountPast
         ? updatePastAndCount(collName, _id, doc, updateData, 'updateCarpoolStatus')
         : db.collection(collName).doc(_id).update({ data: updateData }).then(() => ({ updated: true }))
     )

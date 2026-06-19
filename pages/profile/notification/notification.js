@@ -62,6 +62,7 @@ Page({
           _openid: openid
         })
         .orderBy('createdAt', 'desc')
+        .limit(100)
         .get()
 
       const rawList = res.data || []

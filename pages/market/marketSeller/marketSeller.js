@@ -200,7 +200,7 @@ Page({
   _isVisibleMarketDoc(x) {
     if (!x) return false
     const status = String(x.status || "online").toLowerCase()
-    if (status === "deleted" || status === "offline" || status === "expired") return false
+    if (status === "deleted" || status === "offline" || status === "expired" || status === "sold") return false
     const expireTime = Number(x.expireTime) || 0
     if (expireTime && expireTime <= Date.now()) return false
     return true

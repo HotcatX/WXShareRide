@@ -13,6 +13,11 @@
 <!-- 加载中 -->
 <view wx:if="{{loading}}" class="state-text">正在加载...</view>
 
+<view wx:elif="{{loadError}}" class="state-card">
+  <text class="state-title">{{loadError}}</text>
+  <button class="state-action-btn" bindtap="goBack">返回</button>
+</view>
+
 <!-- 内容主体：统一使用 scroll-view -->
 <view
   wx:else
@@ -128,7 +133,7 @@
 </view>
 
 <!-- 底部按钮（只有退出） -->
-<view class="ui-bottom-fixed" wx:if="{{isMyRequest}}">
+<view class="ui-bottom-fixed" wx:if="{{isMyRequest && !loading && !loadError}}">
   <view class="ui-bottom-bar ui-bottom-bar--one">
     <button class="ui-danger-btn" bindtap="onQuitRequest">
       退出路线

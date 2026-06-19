@@ -428,7 +428,7 @@ Page({
         weekdayText,              // "周一"...
         departureTime,            // "HH:mm"
 
-        passengerCount,
+        passengerCount: this.safeSeat(passengerCount),
         referencePrice,
         comment: comment || "",
 

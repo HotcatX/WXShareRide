@@ -108,6 +108,11 @@ exports.main = async (event, context) => {
     // 1) 读取 userInfo
     const userRes = await db.collection('userInfo')
       .where({ _openid: openid })
+      .field({
+        _id: true,
+        tripPassengerCreate: true,
+        tripPassenger: true
+      })
       .limit(1)
       .get()
 

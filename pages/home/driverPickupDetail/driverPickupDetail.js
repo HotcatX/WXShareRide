@@ -37,6 +37,7 @@ Page({
     pageTitle: '司机接人',
 
     loading: true,
+    loadError: '',
     submitting: false,
 
     requestId: '',
@@ -67,8 +68,7 @@ Page({
 
     const id = (options && options.id) || ''
     if (!id) {
-      wx.showToast({ title: '缺少记录ID', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('缺少路线ID')
       return
     }
 
@@ -116,6 +116,24 @@ Page({
     else wx.switchTab({ url: '/pages/home/home' })
   },
 
+  setLoadError(message) {
+    this.setData({
+      loading: false,
+      loadError: message || '加载失败',
+      request: null,
+      departAddress: '',
+      destAddress: '',
+      formattedDepartTime: '',
+      passengerList: [],
+      requestOwnerOpenid: '',
+      isOwner: false,
+      isAccepted: false,
+      acceptedByMe: false,
+      joinedAsPassenger: false,
+      submitting: false
+    })
+  },
+
   // =========================
   // ✅ 登录拦截：接单前强制登录 + 强制完善资料（仅本页触发）
   // =========================
@@ -141,7 +159,7 @@ Page({
   // 读取 CarpoolRequest 详情
   async loadRequestDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) this.setData({ loading: true })
+    if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
       const res = await wx.cloud.callFunction({
@@ -150,15 +168,14 @@ Page({
       })
 
       if (!res.result || !res.result.success) {
-        wx.showToast({ title: '加载失败', icon: 'none' })
-        this.setData({ loading: false })
+        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+        this.setLoadError(msg)
         return
       }
 
       const request = res.result.data
       if (!request) {
-        wx.showToast({ title: '未找到该记录', icon: 'none' })
-        this.setData({ loading: false })
+        this.setLoadError('该求车路线不存在或已被删除')
         return
       }
 
@@ -221,13 +238,13 @@ Page({
         acceptedByMe,
 
         passengerList,
+        loadError: '',
         loading: false
       })
       this._lastDetailLoadedAt = Date.now()
     } catch (err) {
       console.error('loadRequestDetail error:', err)
-      wx.showToast({ title: '网络异常', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('网络异常，请稍后重试')
     }
   },
 

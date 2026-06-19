@@ -6,6 +6,7 @@ Page({
     pageTitle: '求车详情',
 
     loading: true,
+    loadError: '',
     requestId: '',
     trip: null,
 
@@ -61,6 +62,23 @@ Page({
     else wx.switchTab({ url: '/pages/home/home' })
   },
 
+  setLoadError(message) {
+    this.setData({
+      loading: false,
+      loadError: message || '加载失败',
+      trip: null,
+      fromText: '',
+      toText: '',
+      dateText: '',
+      weekdayText: '',
+      timeText: '',
+      largeLuggageCount: 0,
+      passengers: [],
+      isMyRequest: false,
+      showFortLeeCoreTip: false
+    })
+  },
+
   async onLoad(options) {
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
@@ -77,6 +95,11 @@ Page({
 
     this.setData({ requestId })
 
+    if (!requestId) {
+      this.setLoadError('缺少路线ID')
+      return
+    }
+
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     await this.loadRequestDetail(requestId)
@@ -91,7 +114,7 @@ Page({
   },
 
   async loadRequestDetail(requestId) {
-    this.setData({ loading: true })
+    this.setData({ loading: true, loadError: '' })
 
     try {
       // 1) 读 CarpoolRequest 详情
@@ -104,15 +127,13 @@ Page({
       const rawResult = res && res.result ? res.result : null
       const success = !!(rawResult && (rawResult.success || rawResult.ok))
       if (!success) {
-        wx.showToast({ title: (rawResult && (rawResult.errorMsg || rawResult.msg)) || '加载失败', icon: 'none' })
-        this.setData({ loading: false })
+        this.setLoadError((rawResult && (rawResult.errorMsg || rawResult.msg)) || '加载失败')
         return
       }
 
       const trip = Array.isArray(rawResult.data) ? rawResult.data[0] : rawResult.data
       if (!trip) {
-        wx.showToast({ title: '未找到该路线', icon: 'none' })
-        this.setData({ loading: false })
+        this.setLoadError('该求车路线不存在或已被删除')
         return
       }
 
@@ -189,12 +210,12 @@ Page({
         isMyRequest,
         passengers,
 
+        loadError: '',
         loading: false
       })
     } catch (e) {
       console.error('loadRequestDetail error:', e)
-      wx.showToast({ title: '加载失败', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('加载失败，请稍后重试')
     }
   },
 

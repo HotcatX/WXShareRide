@@ -7,22 +7,57 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
-// 纽约时间（UTC-5）
-const TZ_OFFSET_HOURS = -5
+const TRIP_TIME_ZONE = 'America/New_York'
+
+function getZonedParts(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TRIP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
+
+  const map = {}
+  parts.forEach(part => {
+    if (part.type !== 'literal') map[part.type] = Number(part.value)
+  })
+
+  return {
+    year: map.year,
+    month: map.month,
+    day: map.day,
+    hour: map.hour,
+    minute: map.minute,
+    second: map.second
+  }
+}
+
+function getTimeZoneOffsetMs(date) {
+  const p = getZonedParts(date)
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second || 0) - date.getTime()
+}
 
 function makeDate(dateStr, timeStr) {
-  if (!dateStr || !timeStr) return null
-  const parts1 = String(dateStr).split('-').map(Number)
-  const parts2 = String(timeStr).split(':').map(Number)
-  if (parts1.length !== 3 || parts2.length < 2) return null
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim())
+  const timeMatch = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || '').trim())
+  if (!dateMatch || !timeMatch) return null
 
-  const [y, m, d] = parts1
-  const [hh, mm] = parts2
+  const y = Number(dateMatch[1])
+  const m = Number(dateMatch[2])
+  const d = Number(dateMatch[3])
+  const hh = Number(timeMatch[1])
+  const mm = Number(timeMatch[2])
+  if (m < 1 || m > 12 || d < 1 || d > 31 || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
 
-  const utcMs = Date.UTC(y, m - 1, d, hh - TZ_OFFSET_HOURS, mm, 0)
+  const localAsUtcMs = Date.UTC(y, m - 1, d, hh, mm, 0)
+  let utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(localAsUtcMs))
+  utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(utcMs))
   const dt = new Date(utcMs)
-  if (isNaN(dt.getTime())) return null
-  return dt
+  return isNaN(dt.getTime()) ? null : dt
 }
 
 function getFirstDeparture(departures = []) {
@@ -80,7 +115,17 @@ exports.main = async (event, context) => {
   const sixHoursMs = 6 * 60 * 60 * 1000
 
   const userInfoColl = db.collection('userInfo')
-  const ures = await userInfoColl.where({ _openid: openid }).limit(1).get()
+  const ures = await userInfoColl
+    .where({ _openid: openid })
+    .field({
+      _id: true,
+      tripDriver: true,
+      tripDriverJoin: true,
+      tripDriverHistory: true,
+      tripDriverJoinHistory: true
+    })
+    .limit(1)
+    .get()
   if (!ures.data || !ures.data.length) {
     return { ok: true, userInfoMsg: '当前用户没有 userInfo 文档', moved: 0, requestUpdated: 0, carpoolUpdated: 0 }
   }

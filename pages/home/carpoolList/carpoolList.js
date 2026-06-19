@@ -443,12 +443,21 @@ Page({
   },
 
   getTripTimestamp(trip) {
+    const savedMs = Number(trip && trip.departureAtMs)
+    if (Number.isFinite(savedMs) && savedMs > 0) return savedMs
+
     const dep = this.getFirstDeparture(trip)
     if (!dep || !dep.date || !dep.time) return Number.MAX_SAFE_INTEGER
 
     const dt = new Date(`${dep.date}T${dep.time}`)
     const ts = dt.getTime()
     return Number.isNaN(ts) ? Number.MAX_SAFE_INTEGER : ts
+  },
+
+  getTripExpireTimestamp(trip) {
+    const savedMs = Number(trip && (trip.latestDepartureAtMs || trip.departureAtMs))
+    if (Number.isFinite(savedMs) && savedMs > 0) return savedMs
+    return this.getTripTimestamp(trip)
   },
 
   sortByDateTime(a, b) {
@@ -522,7 +531,7 @@ Page({
     const status = this.normalizeTripStatus(trip.status)
     if (status === "past") return false
 
-    const ts = this.getTripTimestamp(trip)
+    const ts = this.getTripExpireTimestamp(trip)
     if (!ts || ts === Number.MAX_SAFE_INTEGER) return false
 
     return ts + TRIP_EXPIRE_GRACE >= Date.now()
@@ -707,7 +716,9 @@ Page({
 
   async fetchListFromDB(meta) {
     const db = wx.cloud.database()
+    const _ = db.command
     const statuses = ["open", "full"]
+    const minDepartureAtMs = Date.now() - TRIP_EXPIRE_GRACE
 
     const applyFields = query => query.field({
       _id: true,
@@ -717,10 +728,17 @@ Page({
       availSeatNum: true,
       passengerCount: true,
       requestPassengerCount: true,
+      departureAtMs: true,
+      latestDepartureAtMs: true,
+      firstDepartureDate: true,
+      firstDepartureTime: true,
       createdAt: true
     }).limit(LIST_FETCH_LIMIT)
 
     const orderedQueries = [
+      ...statuses.map(status => applyFields(db.collection(meta.collection)
+        .where({ status, departureAtMs: _.gte(minDepartureAtMs) })
+        .orderBy("departureAtMs", "asc"))),
       ...statuses.map(status => applyFields(db.collection(meta.collection)
         .where({ status })
         .orderBy("createdAt", "desc"))),

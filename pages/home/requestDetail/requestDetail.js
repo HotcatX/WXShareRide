@@ -431,14 +431,6 @@ Page({
       })
 
       if (ret.result && ret.result.success) {
-        // 加入成功后刷新状态（失败忽略）
-        try {
-          await wx.cloud.callFunction({
-            name: 'updateCarpoolRequestStatus',
-            data: { ids: [tripId] }
-          })
-        } catch (e) {}
-
         this.showToast('加入成功', 'success', 1200)
         trackEvent("carpool_join_success", {
           module: "carpool",
@@ -529,14 +521,6 @@ Page({
 
 
       if (ret.result && ret.result.success) {
-        // 接单成功后刷新（失败忽略）
-        try {
-          await wx.cloud.callFunction({
-            name: 'updateCarpoolRequestStatus',
-            data: { ids: [tripId] }
-          })
-        } catch (e) {}
-
         this.showToast('接单成功', 'success', 1200)
         trackEvent("carpool_accept_success", {
           module: "carpool",

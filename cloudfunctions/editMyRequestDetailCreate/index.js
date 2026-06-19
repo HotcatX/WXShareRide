@@ -213,15 +213,13 @@ exports.main = (event, context) => {
         // 1) 清创建者 tripPassengerCreate
         return forceRemoveIdFromArrayField(creator, 'tripPassengerCreate', requestId)
           .then((r1) => { if (!r1.ok) warnings.push({ step: 'creator_tripPassengerCreate', openid: creator, reason: r1.reason }) })
-          // 2) 清所有乘客 tripPassenger（串行，避免并发过多）
+          // 2) 清所有乘客 tripPassenger
           .then(() => {
-            let p = Promise.resolve()
-            uniqPassengers.forEach((op) => {
-              p = p.then(() => forceRemoveIdFromArrayField(op, 'tripPassenger', requestId).then((r2) => {
+            return Promise.all(uniqPassengers.map((op) => {
+              return forceRemoveIdFromArrayField(op, 'tripPassenger', requestId).then((r2) => {
                 if (!r2.ok) warnings.push({ step: 'passenger_tripPassenger', openid: op, reason: r2.reason })
-              }))
-            })
-            return p
+              })
+            }))
           })
           // 3) 清司机 tripDriverJoin
           .then(() => {
@@ -236,15 +234,13 @@ exports.main = (event, context) => {
             return stillHas(creator, 'tripPassengerCreate', requestId).then((hasC) => {
               if (hasC) remain.push({ openid: creator, field: 'tripPassengerCreate' })
 
-              let p = Promise.resolve()
-              uniqPassengers.forEach((op) => {
-                p = p.then(() => stillHas(op, 'tripPassenger', requestId).then((hasP) => {
+              return Promise.all(uniqPassengers.map((op) => {
+                return stillHas(op, 'tripPassenger', requestId).then((hasP) => {
                   if (hasP) remain.push({ openid: op, field: 'tripPassenger' })
-                }))
-              })
-
-              return p.then(() => {
+                })
+              })).then(() => {
                 if (!driver) return Promise.resolve(remain)
+
                 return stillHas(driver, 'tripDriverJoin', requestId).then((hasD) => {
                   if (hasD) remain.push({ openid: driver, field: 'tripDriverJoin' })
                   return remain

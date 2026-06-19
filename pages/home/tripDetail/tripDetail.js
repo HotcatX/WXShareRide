@@ -552,10 +552,6 @@ Page({
         return
       }
       
-      // ✅ 继续原有逻辑
-      userInfo.pickupAddress = p
-      userInfo.dropoffAddress = d      
-
       // ✅ 2) 把乘客的上车点/下车点附加到本次加入的乘客记录里
       //     （云函数 addCarpoolDetail 需要把这两个字段写入 passengers[] 的那一条记录）
       userInfo.pickupAddress = p
@@ -605,16 +601,6 @@ Page({
           errorCode: r.errorMsg || "updateUserJoinTrip_fail"
         })
         return
-      }
-
-      // 刷新 Carpool 状态（失败忽略）
-      try {
-        await wx.cloud.callFunction({
-          name: 'updateCarpoolStatus',
-          data: { ids: [trip._id] }
-        })
-      } catch (e) {
-        console.warn('updateCarpoolStatus failed:', e)
       }
 
       wx.showToast({ title: '加入出行计划成功', icon: 'success', duration: 2000 })

@@ -70,7 +70,7 @@ Page({
       const pendingUrl = (pending && pending.url) ? String(pending.url) : ''
 
       // 强制完善资料的触发条件：
-      // 1) 明确要求（你 driverNewTrip 已写 type=requireProfile）
+      // 1) 明确要求补全资料
       // 2) （可选）有 pendingUrl 也视为业务触发
       // ✅ 微信登录后：强制检查一次资料是否完成（最符合你“新用户必须补资料”的要求）
       let completed = false
@@ -129,4 +129,3 @@ Page({
     wx.navigateTo({ url: '/pages/other/privacy/privacy' })
   }
 })
-

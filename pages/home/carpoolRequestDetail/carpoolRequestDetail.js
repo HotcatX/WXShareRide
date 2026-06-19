@@ -269,8 +269,7 @@ Page({
   // ✅ 乘客加入 CarpoolRequest
   // 变更：
   // 1) 未登录 -> login + 必要时 addInfo
-  // 2) 加入成功后调用 updateCarpoolRequestStatus 刷新
-  // 3) 不显示司机/其他乘客，成功后直接跳首页
+  // 2) 不显示司机/其他乘客，成功后直接跳首页
   // =========================
   async joinAsPassenger() {
     const { tripId, submitting, isOwner, joinedByMe, isFull, isClosed, isDriver, trip } = this.data
@@ -321,15 +320,7 @@ Page({
       })
 
       if (ret.result && ret.result.success) {
-        // ✅ 2) 加入成功后刷新状态（失败忽略）
-        try {
-          await wx.cloud.callFunction({
-            name: 'updateCarpoolRequestStatus',
-            data: { ids: [tripId] }
-          })
-        } catch (e) {}
-
-        // ✅ 3) 不展示任何成员信息，直接回首页
+        // ✅ 不展示任何成员信息，直接回首页
         this.showToast('加入成功', 'success', 1200)
         setTimeout(() => {
           wx.switchTab({ url: '/pages/home/home' })

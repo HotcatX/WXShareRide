@@ -63,28 +63,6 @@ Page({
     return keys.some(k => s.includes(k))
   },
 
-  async callUpdateStatusesSafely() {
-    const { tripId, sourceType } = this.data
-    if (!tripId) return
-
-    if (sourceType === 'request') {
-      try {
-        await wx.cloud.callFunction({
-          name: 'updateCarpoolRequestStatus',
-          data: { ids: [tripId] }
-        })
-      } catch (e) {}
-      return
-    }
-
-    try {
-      await wx.cloud.callFunction({
-        name: 'updateCarpoolStatus',
-        data: { ids: [tripId] }
-      })
-    } catch (e) {}
-  },
-
   async getMyOpenid() {
     try {
       const res = await wx.cloud.callFunction({ name: 'login' })
@@ -391,7 +369,6 @@ Page({
           })
 
           if (res.result && res.result.ok) {
-            await this.callUpdateStatusesSafely()
             wx.showToast({ title: '已退出路线', icon: 'success' })
             setTimeout(() => this.goBack(), 500)
           } else {
@@ -418,7 +395,7 @@ Page({
       }
     }
   
-    // ✅ CarpoolRequest：分享指向 driverPickupList
+    // 乘客求车记录分享指向接单详情
     return {
       title,
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${tripId}`

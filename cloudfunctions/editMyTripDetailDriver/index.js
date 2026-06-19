@@ -103,23 +103,6 @@ async function removeTripFromUserInfo(openidToClean, tripId, fieldName) {
   })
 }
 
-/**
- * 可选：在云函数内触发 updateCarpoolStatus（即使页面漏调用，也尽量不出错）
- */
-async function callUpdateCarpoolStatus(tripId) {
-  if (!tripId) return
-  try {
-    await cloud.callFunction({
-      name: 'updateCarpoolStatus',
-      data: { ids: [tripId] }
-    })
-    console.log('[callUpdateCarpoolStatus] 已触发 updateCarpoolStatus tripId=', tripId)
-  } catch (e) {
-    // 不阻断主流程（避免 updateCarpoolStatus 不存在导致整个操作失败）
-    console.warn('[callUpdateCarpoolStatus] 触发失败（不影响主流程）：', e && e.message ? e.message : e)
-  }
-}
-
 exports.main = async (event, context) => {
   const wxContext = cloud.getWXContext()
   const driverOpenid = wxContext.OPENID
@@ -140,12 +123,18 @@ exports.main = async (event, context) => {
       const carpoolDoc = carpoolRes.data || {}
 
       // 1) Carpool 中移除该乘客，并把可用座位 +1
+      const kickUpdateData = {
+        passengers: _.pull({ _openid: targetOpenid }),
+        availSeatNum: _.inc(1),
+        updatedAt: new Date()
+      }
+      const curStatus = String(carpoolDoc.status || '')
+      if (curStatus !== 'past' && curStatus !== 'close') {
+        kickUpdateData.status = 'open'
+      }
+
       await db.collection('Carpool').doc(tripId).update({
-        data: {
-          passengers: _.pull({ _openid: targetOpenid }),
-          availSeatNum: _.inc(1),
-          updatedAt: new Date()
-        }
+        data: kickUpdateData
       })
 
       // 2) 乘客 MyTrips 删除
@@ -169,9 +158,6 @@ exports.main = async (event, context) => {
         tripId,
         { role: 'passenger', driverOpenid }
       )
-
-      // 5) 触发状态刷新（可选兜底）
-      await callUpdateCarpoolStatus(tripId)
 
       console.log('【editMyTripDetailDriver】已剔除乘客:', targetOpenid, 'from trip:', tripId)
       return { ok: true, action: 'kick_passenger' }
@@ -206,30 +192,32 @@ exports.main = async (event, context) => {
     await db.collection('Carpool').doc(tripId).remove()
     console.log('【editMyTripDetailDriver】已删除 Carpool 记录:', tripId)
 
-    // 2) 删除司机 MyTrips 中对应 trip
-    await removeTripFromMyTrips(driverOpenid, tripId)
+    // 2) 清理司机和乘客关联数据。路线已删除，后续清理失败不应阻断主结果。
+    const cleanupTasks = [
+      removeTripFromMyTrips(driverOpenid, tripId),
+      removeTripFromUserInfo(driverOpenid, tripId, 'tripDriver'),
+      ...passengerOpenids.map(pid => Promise.all([
+        removeTripFromMyTrips(pid, tripId),
+        removeTripFromUserInfo(pid, tripId, 'tripPassenger'),
+        sendNotification(
+          pid,
+          'DRIVER_DELETE',
+          '行程已被司机取消',
+          `${dateStr} ${timeStr} ${routeStr} 的行程已被司机取消`,
+          tripId,
+          { role: 'passenger', driverOpenid }
+        )
+      ]))
+    ]
 
-    // 3) 删除司机 userInfo.tripDriver 中 tripId
-    await removeTripFromUserInfo(driverOpenid, tripId, 'tripDriver')
-
-    // 4) 清理所有乘客 MyTrips + userInfo，并发通知
-    for (const pid of passengerOpenids) {
-      await removeTripFromMyTrips(pid, tripId)
-      await removeTripFromUserInfo(pid, tripId, 'tripPassenger')
-
-      await sendNotification(
-        pid,
-        'DRIVER_DELETE',
-        '行程已被司机取消',
-        `${dateStr} ${timeStr} ${routeStr} 的行程已被司机取消`,
-        tripId,
-        { role: 'passenger', driverOpenid }
-      )
+    const cleanupResults = await Promise.all(cleanupTasks.map(task => task
+      .then(() => ({ ok: true }))
+      .catch(reason => ({ ok: false, reason }))
+    ))
+    const cleanupFailed = cleanupResults.filter(r => !r.ok)
+    if (cleanupFailed.length > 0) {
+      console.warn('【editMyTripDetailDriver】路线已删除，但部分关联清理失败:', cleanupFailed.map(r => r.reason && r.reason.message ? r.reason.message : r.reason))
     }
-
-    // 5) 删除后一般无需刷新该 trip 的 Carpool 状态（因为 doc 已不存在）
-    // 但为了保持一致性（以及你可能在状态函数里清理关联字段），仍可尝试触发（失败不影响）
-    await callUpdateCarpoolStatus(tripId)
 
     return { ok: true, action: 'delete_trip_as_driver' }
   } catch (e) {

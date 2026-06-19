@@ -450,7 +450,7 @@ Page({
         return
       }
 
-      // （可选）同步更新 userInfo 的车辆信息/自定义价格逻辑：沿用你 driverNewTrip 的习惯
+      // （可选）同步更新 userInfo 的车辆信息/自定义价格逻辑
       // 不影响模板保存：失败也不回滚模板
       try {
         const updatePayload = {

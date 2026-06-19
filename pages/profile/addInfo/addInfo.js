@@ -131,7 +131,7 @@ Page({
       const prev2 = len >= 3 ? pages[len - 3] : null
     
       // ✅ 关键修复：如果栈是 [某页面 -> login -> addInfo]，保存后直接回退 2 层，清掉 login
-      // 典型：driverNewTrip(触发登录) -> login -> addInfo
+      // 典型：业务页触发登录 -> login -> addInfo
       if (prev && prev.route === 'pages/other/login/login' && prev2) {
         wx.removeStorageSync('pendingPage')
         wx.removeStorageSync('postLoginAction')

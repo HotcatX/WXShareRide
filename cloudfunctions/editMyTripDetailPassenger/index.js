@@ -110,10 +110,15 @@ exports.main = async (event, context) => {
         if (typeof carpool.availSeatNum === 'number') {
           updateData.availSeatNum = carpool.availSeatNum + 1
         }
+        const curStatus = String(carpool.status || '')
+        if (curStatus !== 'past' && curStatus !== 'close') {
+          updateData.status = 'open'
+        }
       }
 
       const keys = Object.keys(updateData)
       if (keys.length > 0) {
+        updateData.updatedAt = new Date()
         await carpoolRef.update({ data: updateData })
       }
 
@@ -193,9 +198,16 @@ exports.main = async (event, context) => {
     if (removedReq && typeof req.passengerCount === 'number') {
       updateReq.passengerCount = Math.max(0, req.passengerCount - 1)
     }
+    if (removedReq) {
+      const curStatus = String(req.status || '')
+      if (curStatus !== 'past' && curStatus !== 'close') {
+        updateReq.status = 'open'
+      }
+    }
 
     const reqKeys = Object.keys(updateReq)
     if (reqKeys.length > 0) {
+      updateReq.updatedAt = new Date()
       await requestRef.update({ data: updateReq })
     }
 

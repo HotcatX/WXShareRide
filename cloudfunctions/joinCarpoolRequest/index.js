@@ -77,6 +77,7 @@ exports.main = async (event, context) => {
           data: {
             passengerID: _.addToSet(passengerOpenid),
             passengerCount: nextCount,
+            status: nextCount >= MAX_PASSENGERS ? 'full' : 'open',
             updatedAt: new Date()
           }
         })
@@ -182,5 +183,4 @@ exports.main = async (event, context) => {
     return { success: false, errorMsg: msg ? `加入失败：${msg}` : '系统错误，加入失败' }
   }
 }
-
 

@@ -20,7 +20,7 @@ Page({
     departureDate: "",
     departureTime: "",
 
-    // ====== 司机模式字段（来自 driverNewTrip） ======
+    // ====== 司机模式字段 ======
     passengerCount: 1,
     passengerCountInput: "4",
 
@@ -35,7 +35,7 @@ Page({
     templates: [],
     loadingTemplates: false,
 
-    // ====== 乘客模式字段（来自 passengerNewTrip） ======
+    // ====== 乘客模式字段 ======
     // 注意：乘客也用 referencePrice 展示，但不可编辑（WXML 用 readonly view）
     priceLocked: true,
     acceptCarpool: false
@@ -108,7 +108,7 @@ Page({
     return !!openid
   },
 
-  // 司机：创建前拦截（来自 driverNewTrip）
+  // 司机：创建前拦截
   ensureLoginBeforeCreate_driver() {
     if (this.isLoggedIn()) return true
 
@@ -122,7 +122,7 @@ Page({
     return false
   },
 
-  // 乘客：创建前拦截（来自 passengerNewTrip）
+  // 乘客：创建前拦截
   ensureLoginBeforeCreate_passenger() {
     if (this.isLoggedIn()) return true
 
@@ -301,7 +301,7 @@ Page({
   },
 
   // -------------------------
-  // 乘客：人数输入（1-4，来自 passengerNewTrip）
+  // 乘客：人数输入（1-4）
   // -------------------------
   onPassengerInputPassenger(e) {
     const num = parseInt(e.detail.value, 10)
@@ -315,7 +315,7 @@ Page({
   },
 
   // -------------------------
-  // 乘客：查 Request_Price（来自 passengerNewTrip）
+  // 乘客：查 Request_Price
   // -------------------------
   async updateReferencePriceFromRequestPrice() {
     const dep = (this.data.departureAddress || "").trim()
@@ -342,7 +342,7 @@ Page({
   },
 
   // -------------------------
-  // 司机：默认参考价（来自 driverNewTrip）
+  // 司机：默认参考价
   // -------------------------
   updateReferencePrice_driver() {
     const dep = this.data.departureAddress
@@ -378,7 +378,7 @@ Page({
   },
 
   // -------------------------
-  // 司机：模板（来自 driverNewTrip，保持同表 CarpoolTemplate）
+  // 司机：模板（保持同表 CarpoolTemplate）
   // -------------------------
   loadTemplatesIfNeeded() {
     if (this.data.mode !== "driver") return
@@ -479,7 +479,7 @@ Page({
   },
 
   // =========================
-  // 司机：confirmTrip / submitTrip（来自 driverNewTrip）
+  // 司机：confirmTrip / submitTrip
   // =========================
   driver_confirmTrip() {
     const seat = parseInt(this.data.passengerCountInput, 10)
@@ -512,7 +512,7 @@ Page({
       return
     }
 
-    // 微信号校验（保持 driverNewTrip 行为）
+    // 微信号校验
     if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {
       wx.showToast({ title: "请先在个人中心填写微信号", icon: "none", duration: 2000 })
       return
@@ -647,7 +647,7 @@ Page({
   },
 
   // =========================
-  // 乘客：confirmTrip / submitRequest（来自 passengerNewTrip）
+  // 乘客：confirmTrip / submitRequest
   // =========================
   passenger_confirmTrip() {
     if (this.data.submitting) return

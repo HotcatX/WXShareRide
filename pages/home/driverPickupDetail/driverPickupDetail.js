@@ -290,16 +290,6 @@ Page({
 
 
       if (ret.result && ret.result.success) {
-        // ✅ 接单成功后刷新 CarpoolRequest（失败忽略）
-        try {
-          await wx.cloud.callFunction({
-            name: 'updateCarpoolRequestStatus',
-            data: { ids: [requestId] }
-          })
-        } catch (e) {
-          console.warn('updateCarpoolRequestStatus failed:', e)
-        }
-      
         wx.showToast({ title: '接单成功', icon: 'success', duration: 1200 })
         setTimeout(() => {
           wx.switchTab({ url: '/pages/home/home' })

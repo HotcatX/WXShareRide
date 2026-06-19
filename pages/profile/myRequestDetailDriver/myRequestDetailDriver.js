@@ -55,20 +55,6 @@ Page({
     return keys.some(k => s.includes(k))
   },
 
-  async callUpdateCarpoolRequestStatusSafely() {
-    const { requestId } = this.data
-    if (!requestId) return
-
-    try {
-      await wx.cloud.callFunction({
-        name: 'updateCarpoolRequestStatus',
-        data: { ids: [requestId] }
-      })
-    } catch (e) {
-      console.warn('updateCarpoolRequestStatus 调用失败（不阻断主流程）：', e)
-    }
-  },
-
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
@@ -270,7 +256,6 @@ Page({
 
 
           if (res.result && res.result.ok) {
-            await this.callUpdateCarpoolRequestStatusSafely()
             wx.showToast({ title: '已退出', icon: 'success' })
             setTimeout(() => this.goBack(), 500)
           } else {

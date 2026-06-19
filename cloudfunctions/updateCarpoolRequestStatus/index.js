@@ -58,7 +58,7 @@ function getTargetIds(event = {}) {
 // 规则：
 // - diffMs > 6h => close
 // - diffMs > 0  => past （不管原来 open/full）
-// - diffMs <= 0 => 未到发车时间：passengerCount > 4 => full，否则 open
+// - diffMs <= 0 => 未到发车时间：passengerCount >= 4 => full，否则 open
 function computeCarpoolRequestStatus(doc, now, thresholdMs) {
   const latest = getLatestDeparture(doc.departures || [])
   if (!latest) return { ok: false, reason: 'no-valid-time', latest: null, newStatus: null }
@@ -73,7 +73,7 @@ function computeCarpoolRequestStatus(doc, now, thresholdMs) {
     newStatus = 'past'
   } else {
     const passengerCount = Number(doc.passengerCount || 0)
-    newStatus = (passengerCount > 4) ? 'full' : 'open'
+    newStatus = (passengerCount >= 4) ? 'full' : 'open'
   }
 
   return { ok: true, latest, diffMs, oldStatus, newStatus }

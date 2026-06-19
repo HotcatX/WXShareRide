@@ -4,7 +4,7 @@
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
 
-    <!-- 返回按钮：与 driverNewTrip 一致 -->
+    <!-- 返回按钮 -->
     <image
       class="back-icon"
       src="/images/back.png"

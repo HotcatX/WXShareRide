@@ -3,7 +3,7 @@
     <text class="title">隐私政策</text>
     <text class="updated">最近更新：{{updatedAt}}</text>
     <text class="intro">
-      本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和使用统计中如何收集、使用、存储和保护你的信息。
+      本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和服务运营中如何收集、使用、存储和保护你的信息。
     </text>
     <button class="contract-btn" bindtap="openWechatPrivacyContract">查看微信隐私保护指引</button>
   </view>

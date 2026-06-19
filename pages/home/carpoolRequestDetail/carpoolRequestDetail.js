@@ -188,8 +188,8 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id }
+        name: 'getTripDetail',
+        data: { type: 'request', id }
       })
 
       if (!res.result || !res.result.success) {
@@ -335,8 +335,8 @@ Page({
 
     try {
       const ret = await wx.cloud.callFunction({
-        name: 'joinCarpoolRequest',
-        data: { requestId: tripId }
+        name: 'joinTrip',
+        data: { type: 'request', requestId: tripId }
       })
 
       if (ret.result && ret.result.success) {
@@ -351,7 +351,7 @@ Page({
       const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '加入失败'
       this.showToast(msg, 'none')
     } catch (e) {
-      console.error('joinCarpoolRequest error:', e)
+      console.error('joinTrip request error:', e)
       this.showToast('加入失败', 'none')
     } finally {
       this.setData({ submitting: false })

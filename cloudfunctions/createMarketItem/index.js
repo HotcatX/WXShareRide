@@ -126,6 +126,17 @@ function marketFileDocId(fileID) {
   return crypto.createHash("sha1").update(String(fileID)).digest("hex")
 }
 
+function normalizeClientRequestId(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80)
+}
+
+function buildIdempotentGoodsId(openid, clientRequestId) {
+  const requestId = normalizeClientRequestId(clientRequestId)
+  if (!openid || !requestId) return ""
+  const hash = crypto.createHash("sha1").update(`${openid}:${requestId}`).digest("hex")
+  return `market_${hash}`
+}
+
 async function attachMarketFiles(files, goodsId, openid) {
   if (!files.length || !goodsId || !openid) return
   const col = db.collection(MARKET_FILES_COLLECTION)
@@ -217,6 +228,7 @@ function buildPickupWindow(event = {}) {
 
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
+  if (!OPENID) return { ok: false, message: "not logged in" }
 
   const {
     title,
@@ -252,40 +264,56 @@ exports.main = async (event, context) => {
 
   const now = new Date()
   const postDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+  const clientRequestId = normalizeClientRequestId(event && event.clientRequestId)
+  const idempotentGoodsId = buildIdempotentGoodsId(OPENID, clientRequestId)
 
-  const res = await db.collection("market_goods").add({
-    data: {
-      title: String(title).trim(),
-      price: priceNum,
-      category,
-      region,
-      location: saveLocation,
-      condition: condition || "99新",
-      desc: desc || "",
-      imageFileID: firstImageFileID,
-      thumbFileID: firstThumbFileID,
-      imageFileIDs: uniqFileIDs([firstImageFileID, ...(Array.isArray(imageFileIDs) ? imageFileIDs : [])]),
-      thumbFileIDs: uniqFileIDs([firstThumbFileID, ...(Array.isArray(thumbFileIDs) ? thumbFileIDs : [])]),
-      hasImage: !!firstImageFileID,
-      pickupStartDate: pickupWindow.pickupStartDate,
-      pickupEndDate: pickupWindow.pickupEndDate,
-      pickupRangeText: pickupWindow.pickupRangeText,
-      expireTime: pickupWindow.expireTime,
-      expiresAtText: pickupWindow.expiresAtText,
+  const goodsData = {
+    title: String(title).trim(),
+    price: priceNum,
+    category,
+    region,
+    location: saveLocation,
+    condition: condition || "99新",
+    desc: desc || "",
+    imageFileID: firstImageFileID,
+    thumbFileID: firstThumbFileID,
+    imageFileIDs: uniqFileIDs([firstImageFileID, ...(Array.isArray(imageFileIDs) ? imageFileIDs : [])]),
+    thumbFileIDs: uniqFileIDs([firstThumbFileID, ...(Array.isArray(thumbFileIDs) ? thumbFileIDs : [])]),
+    hasImage: !!firstImageFileID,
+    pickupStartDate: pickupWindow.pickupStartDate,
+    pickupEndDate: pickupWindow.pickupEndDate,
+    pickupRangeText: pickupWindow.pickupRangeText,
+    expireTime: pickupWindow.expireTime,
+    expiresAtText: pickupWindow.expiresAtText,
 
-      wantCount: 0,
-      viewCount: 0,
+    wantCount: 0,
+    viewCount: 0,
 
-      postDate,
-      createTime: db.serverDate(),
-      updateTime: db.serverDate(),
-      status: "online",
-      _openid: OPENID
+    postDate,
+    createTime: db.serverDate(),
+    updateTime: db.serverDate(),
+    status: "online",
+    clientRequestId,
+    _openid: OPENID
+  }
+
+  let goodsId = ""
+  if (idempotentGoodsId) {
+    const existing = await db.collection("market_goods").doc(idempotentGoodsId).get().catch(() => null)
+    if (existing && existing.data && existing.data._openid === OPENID) {
+      await attachMarketFiles(files, idempotentGoodsId, OPENID)
+      return { ok: true, id: idempotentGoodsId, itemId: idempotentGoodsId, status: existing.data.status || "online", deduped: true }
     }
-  })
 
-  await attachMarketFiles(files, res._id, OPENID)
+    await db.collection("market_goods").doc(idempotentGoodsId).set({ data: goodsData })
+    goodsId = idempotentGoodsId
+  } else {
+    const res = await db.collection("market_goods").add({ data: goodsData })
+    goodsId = res._id
+  }
+
+  await attachMarketFiles(files, goodsId, OPENID)
 
   // 兼容：前端可能读 id / itemId
-  return { ok: true, id: res._id, itemId: res._id, status: "online" }
+  return { ok: true, id: goodsId, itemId: goodsId, status: "online" }
 }

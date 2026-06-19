@@ -1,7 +1,16 @@
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
+const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const defaultAvatarUrl =
   'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+
+function getMarketGoodsChangedAt() {
+  try {
+    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
+  } catch (e) {
+    return 0
+  }
+}
 
 Page({
   data: {
@@ -34,7 +43,17 @@ Page({
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
+    this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
 
+    this.loadUserInfo().then(() => {
+      this.fetchMyGoods()
+    })
+  },
+
+  onShow() {
+    const changedAt = getMarketGoodsChangedAt()
+    if (!changedAt || changedAt === this._lastHandledGoodsChangeAt) return
+    this._lastHandledGoodsChangeAt = changedAt
     this.loadUserInfo().then(() => {
       this.fetchMyGoods()
     })

@@ -149,8 +149,8 @@ Page({
     try {
       if (sourceType === 'request') {
         const reqRes = await wx.cloud.callFunction({
-          name: 'getCarpoolRequestDetail',
-          data: { id: tripId }
+          name: 'getTripDetail',
+          data: { type: 'request', id: tripId }
         })
 
         const rr = reqRes && reqRes.result ? reqRes.result : null
@@ -167,8 +167,8 @@ Page({
       }
 
       const carpoolRes = await wx.cloud.callFunction({
-        name: 'getCarpoolDetail',
-        data: { id: tripId }
+        name: 'getTripDetail',
+        data: { type: 'carpool', id: tripId }
       })
 
       const carpoolOk = !!(carpoolRes.result && carpoolRes.result.success)

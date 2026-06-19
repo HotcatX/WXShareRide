@@ -384,37 +384,20 @@ Page({
       .map(item => item && item._id)
       .filter(Boolean)
       .slice(0, 100)
-    const tasks = []
-
-    if (carpoolIds.length) {
-      tasks.push(wx.cloud.callFunction({
-        name: "updateCarpoolStatus",
-        data: { ids: carpoolIds }
-      }))
-    }
-
-    if (requestIds.length) {
-      tasks.push(wx.cloud.callFunction({
-        name: "updateCarpoolRequestStatus",
-        data: { ids: requestIds }
-      }))
-    }
-
-    if (!tasks.length) {
+    if (!carpoolIds.length && !requestIds.length) {
       this._statusRefreshing = false
       return Promise.resolve()
     }
 
-    return Promise.allSettled([
-      ...tasks
-    ]).then((results) => {
-      const updatedCount = results.reduce((sum, item) => {
-        if (!item || item.status !== "fulfilled") return sum
-        const result = item.value && item.value.result ? item.value.result : {}
-        return sum +
-          Number(result.totalUpdatedCarpool || 0) +
-          Number(result.totalUpdatedCarpoolRequest || 0)
-      }, 0)
+    return wx.cloud.callFunction({
+      name: "syncTripStatus",
+      data: { type: "all", carpoolIds, requestIds }
+    }).then((res) => {
+      const result = res && res.result ? res.result : {}
+      const updatedCount = Number(result.totalUpdated || 0) || (
+        Number(result.totalUpdatedCarpool || 0) +
+        Number(result.totalUpdatedCarpoolRequest || 0)
+      )
 
       if (updatedCount > 0) {
         return this.loadBothLists({ showLoading: false })
@@ -566,51 +549,16 @@ Page({
 
   async _loadBothListsImpl(showLoading) {
     const startedAt = createTimer()
-    const listCalls = [
-      {
-        key: "carpool",
-        name: "getCarpoolList",
-        data: { limit: LIST_FETCH_LIMIT, quick: true },
-        collection: "Carpool"
-      },
-      {
-        key: "request",
-        name: "getCarpoolRequestList",
-        data: { limit: LIST_FETCH_LIMIT, quick: true },
-        collection: "CarpoolRequest"
-      }
-    ]
-
     try {
-      const results = await Promise.allSettled(
-        listCalls.map(item => this.fetchListFast(item))
-      )
+      const res = await wx.cloud.callFunction({
+        name: "getTripList",
+        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true }
+      })
+      const result = res && res.result ? res.result : {}
 
-      const failed = []
-      const getResultData = (index) => {
-        const meta = listCalls[index]
-        const item = results[index]
-
-        if (!item || item.status !== "fulfilled") {
-          failed.push({
-            name: meta.name,
-            reason: item && item.reason ? item.reason : "load failed"
-          })
-          return []
-        }
-
-        return Array.isArray(item.value && item.value.data) ? item.value.data : []
-      }
-
-      const carpoolList = getResultData(0)
-      const requestList = getResultData(1)
-
-      if (failed.length) {
-      }
-
-      if (failed.length === listCalls.length) {
+      if (!result.success) {
         if (showLoading) {
-          showDataError("加载失败", failed[0] && failed[0].reason, "拼车列表加载失败，请稍后重试。")
+          showDataError("加载失败", result.errorMsg || "load failed", "拼车列表加载失败，请稍后重试。")
         }
         this.setData({
           loading: false,
@@ -623,10 +571,14 @@ Page({
           module: "carpool",
           action: "load",
           result: "fail",
-          failCount: failed.length
+          failCount: 1
         })
         return
       }
+
+      const data = result.data || {}
+      const carpoolList = Array.isArray(data.carpool) ? data.carpool : []
+      const requestList = Array.isArray(data.request) ? data.request : []
 
       carpoolList.sort((a, b) => this.sortByDateTime(a, b))
       requestList.sort((a, b) => this.sortByDateTime(a, b))
@@ -652,10 +604,10 @@ Page({
       trackDuration("carpool_list_load", startedAt, {
         module: "carpool",
         action: "load",
-        result: failed.length ? "partial" : "success",
+        result: "success",
         carpoolCount: decoratedCarpool.length,
         requestCount: decoratedRequest.length,
-        failCount: failed.length
+        failCount: 0
       })
     } catch (err) {
       console.error("loadBothLists error:", err)

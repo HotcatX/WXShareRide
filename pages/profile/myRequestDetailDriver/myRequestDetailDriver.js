@@ -119,8 +119,8 @@ Page({
     try {
       // 1) 读 CarpoolRequest 详情
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id: requestId }
+        name: 'getTripDetail',
+        data: { type: 'request', id: requestId }
       })
 
       // 兼容：有的函数返回 {success:true,data:[...]}，有的返回 {ok:true,data:...}

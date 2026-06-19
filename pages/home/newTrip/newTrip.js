@@ -577,32 +577,18 @@ Page({
       const departures = [{ address: departureAddress, date: departureDate, time: departureTime }]
       const destinations = [{ address: destinationAddress }]
 
-      const carpoolRes = await wx.cloud.callFunction({
-        name: "addCarpoolList",
-        data: {
-          driverID: userInfo._id,
-          departures,
-          destinations,
-          passengerCount,
-          availSeatNum: passengerCount,
-          status: "open",
-          passengers: [],
-          referencePrice,
-          comment,
-          zelle: showZelle ? "yes" : "no"
-        }
-      })
-
-      if (!carpoolRes?.result?.success || !carpoolRes?.result?.id) {
-        this.showError("路线创建失败，请重试")
-        return
-      }
-
-      const tripId = carpoolRes.result.id
-
-      const updatePayload = {
-        action: "afterCreateTrip",
-        tripId,
+      const createPayload = {
+        type: "carpool",
+        driverID: userInfo._id,
+        departures,
+        destinations,
+        passengerCount,
+        availSeatNum: passengerCount,
+        status: "open",
+        passengers: [],
+        referencePrice,
+        comment,
+        zelle: showZelle ? "yes" : "no",
         carNumber,
         carBrand,
         carModel
@@ -617,17 +603,17 @@ Page({
       const hasNonCore = departureAddress === FL_NONCORE || destinationAddress === FL_NONCORE
 
       if (hasColumbia && hasNonCore && referencePrice && referencePrice.trim()) {
-        updatePayload.customPrice = { fortLeeNonCore: referencePrice }
+        createPayload.customPrice = { fortLeeNonCore: referencePrice }
       } else if (hasColumbia && hasCore && referencePrice && referencePrice.trim()) {
-        updatePayload.customPrice = { fortLeeCore: referencePrice }
+        createPayload.customPrice = { fortLeeCore: referencePrice }
       }
 
-      const updateRes = await wx.cloud.callFunction({
-        name: "updateUserCreateTrip",
-        data: updatePayload
+      const createRes = await wx.cloud.callFunction({
+        name: "createTrip",
+        data: createPayload
       })
 
-      if (!updateRes?.result?.ok) {
+      if (!createRes?.result?.success || !createRes?.result?.id) {
         this.showError("路线创建失败，请重试")
         return
       }
@@ -712,8 +698,9 @@ Page({
       }
 
       const createRes = await wx.cloud.callFunction({
-        name: "addCarpoolRequest",
+        name: "createTrip",
         data: {
+          type: "request",
           departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
           destinations: [{ address: destinationAddress }],
           passengerCount,

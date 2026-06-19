@@ -161,8 +161,8 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id }
+        name: 'getTripDetail',
+        data: { type: 'request', id }
       })
 
       if (!res.result || !res.result.success) {

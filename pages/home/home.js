@@ -187,12 +187,12 @@ function wrapTripForCard(raw, opts = {}) {
 Page({
   data: {
     // ✅ 司机数据（保留原结构，兼容云函数返回）
-    driverCreateTrips: [], // getDriverHomeTripList.createList -> Carpool
-    driverJoinTrips: [],   // getDriverHomeTripList.joinList   -> CarpoolRequest
+    driverCreateTrips: [],
+    driverJoinTrips: [],
 
     // ✅ 乘客数据（保留原结构，兼容云函数返回）
-    passengerCreateTrips: [], // getPassengerHomeTripList.createList -> CarpoolRequest
-    passengerTrips: [],       // getPassengerHomeTripList.joinList   -> Carpool/CarpoolRequest
+    passengerCreateTrips: [],
+    passengerTrips: [],
 
     // ✅ 合并后的两块：创建路线 / 加入路线
     createTrips: [],
@@ -443,19 +443,76 @@ Page({
 
   async loadHomeTripLists() {
     const startedAt = createTimer()
-    await Promise.allSettled([
-      this.loadDriverHomeTrips(),
-      this.loadPassengerHomeTrips(),
-    ])
+    const res = await wx.cloud.callFunction({ name: 'getHomeTripList' })
+    const ok = !!(res && res.result && res.result.ok)
+    if (!ok) {
+      const result = res && res.result ? res.result : {}
+      throw new Error(result.errorMsg || '获取首页行程失败')
+    }
+    const data = ok ? (res.result.data || {}) : {}
+    const driver = data.driver || {}
+    const passenger = data.passenger || {}
+
+    const driverCreateList = Array.isArray(driver.createList) ? driver.createList : []
+    const driverJoinList = Array.isArray(driver.joinList) ? driver.joinList : []
+    const passengerCreateList = Array.isArray(passenger.createList) ? passenger.createList : []
+    const passengerJoinList = Array.isArray(passenger.joinList) ? passenger.joinList : []
+
+    const driverCreateTrips = sortByDepartTimeAsc(
+      driverCreateList.map((item, idx) =>
+        wrapTripForCard(item.tripData || item, {
+          role: item.role || 'driverCreate',
+          from: item.from || 'Carpool',
+          idx
+        })
+      )
+    )
+
+    const driverJoinTrips = sortByDepartTimeAsc(
+      driverJoinList.map((item, idx) =>
+        wrapTripForCard(item.tripData || item, {
+          role: item.role || 'driverJoin',
+          from: item.from || 'CarpoolRequest',
+          idx
+        })
+      )
+    )
+
+    const passengerCreateTrips = sortByDepartTimeAsc(
+      passengerCreateList.map((item, idx) =>
+        wrapTripForCard(item.tripData || item, {
+          role: item.role || 'passengerCreate',
+          from: item.from || 'CarpoolRequest',
+          idx
+        })
+      )
+    )
+
+    const passengerTrips = sortByDepartTimeAsc(
+      passengerJoinList.map((item, idx) =>
+        wrapTripForCard(item.tripData || item, {
+          role: item.role || 'passenger',
+          from: item.from || 'Carpool',
+          idx
+        })
+      )
+    )
+
+    this.setData({
+      driverCreateTrips,
+      driverJoinTrips,
+      passengerCreateTrips,
+      passengerTrips
+    })
 
     const createTrips = sortByDepartTimeAsc([
-      ...(this.data.driverCreateTrips || []),
-      ...(this.data.passengerCreateTrips || []),
+      ...driverCreateTrips,
+      ...passengerCreateTrips,
     ])
 
     const joinTrips = sortByDepartTimeAsc([
-      ...(this.data.driverJoinTrips || []),
-      ...(this.data.passengerTrips || []),
+      ...driverJoinTrips,
+      ...passengerTrips,
     ])
 
     this.setData({ createTrips, joinTrips }, () => {
@@ -481,18 +538,13 @@ Page({
 
     wx.setStorageSync(HOME_STATUS_REFRESH_KEY, now)
 
-    this._statusRefreshPromise = Promise.allSettled([
-      wx.cloud.callFunction({ name: 'updateMyTripStatusDriver' }),
-      wx.cloud.callFunction({ name: 'updateMyTripStatusPassenger' }),
-    ]).then((results) => {
-      const changedCount = results.reduce((sum, item) => {
-        if (!item || item.status !== 'fulfilled') return sum
-        const result = item.value && item.value.result ? item.value.result : {}
-        return sum +
-          Number(result.moved || 0) +
-          Number(result.requestUpdated || 0) +
-          Number(result.carpoolUpdated || 0)
-      }, 0)
+    this._statusRefreshPromise = wx.cloud.callFunction({ name: 'syncMyTripStatus' }).then((res) => {
+      const result = res && res.result ? res.result : {}
+      const changedCount =
+        Number(result.moved || 0) +
+        Number(result.movedTotal || 0) +
+        Number(result.requestUpdated || 0) +
+        Number(result.carpoolUpdated || 0)
 
       if (changedCount > 0) {
         return this.loadHomeTripLists()
@@ -504,85 +556,6 @@ Page({
     })
 
     return this._statusRefreshPromise
-  },
-
-  // =========================
-  // 司机：getDriverHomeTripList
-  // =========================
-  async loadDriverHomeTrips() {
-    try {
-      const res = await wx.cloud.callFunction({ name: 'getDriverHomeTripList' })
-      const ok = !!(res && res.result && res.result.ok)
-      const data = ok ? (res.result.data || {}) : {}
-
-      const createList = Array.isArray(data.createList) ? data.createList : []
-      const joinList = Array.isArray(data.joinList) ? data.joinList : []
-
-      const driverCreateTrips = sortByDepartTimeAsc(
-        createList.map((item, idx) =>
-          wrapTripForCard(item.tripData || item, {
-            role: item.role || 'driverCreate',
-            from: item.from || 'Carpool',
-            idx
-          })
-        )
-      )
-
-      const driverJoinTrips = sortByDepartTimeAsc(
-        joinList.map((item, idx) =>
-          wrapTripForCard(item.tripData || item, {
-            role: item.role || 'driverJoin',
-            from: item.from || 'CarpoolRequest',
-            idx
-          })
-        )
-      )
-
-      // 注意：这里只更新原始两块，不在这里 recompute（合并后再 recompute）
-      this.setData({ driverCreateTrips, driverJoinTrips })
-    } catch (e) {
-      console.error('loadDriverHomeTrips error', e)
-    }
-  },
-
-  // =========================
-  // 乘客：getPassengerHomeTripList
-  // =========================
-  async loadPassengerHomeTrips() {
-    try {
-      const res = await wx.cloud.callFunction({ name: 'getPassengerHomeTripList' })
-      const ok = !!(res && res.result && res.result.ok)
-      const data = ok ? (res.result.data || {}) : {}
-
-      const createList = Array.isArray(data.createList) ? data.createList : []
-      const joinList = Array.isArray(data.joinList) ? data.joinList : []
-
-      const passengerCreateTrips = sortByDepartTimeAsc(
-        createList.map((item, idx) =>
-          wrapTripForCard(item.tripData || item, {
-            role: item.role || 'passengerCreate',
-            from: item.from || 'CarpoolRequest',
-            idx
-          })
-        )
-      )
-
-      const passengerTrips = sortByDepartTimeAsc(
-        joinList.map((item, idx) =>
-          wrapTripForCard(item.tripData || item, {
-            // 沿用原默认角色，跳转时按 item.from 决定详情来源。
-            role: item.role || 'passenger',
-            from: item.from || 'Carpool',
-            idx
-          })
-        )
-      )
-
-      // 注意：这里只更新原始两块，不在这里 recompute（合并后再 recompute）
-      this.setData({ passengerCreateTrips, passengerTrips })
-    } catch (e) {
-      console.error('loadPassengerHomeTrips error', e)
-    }
   },
 
   // =========================

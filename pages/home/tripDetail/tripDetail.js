@@ -374,8 +374,8 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolDetail',
-        data: { id }
+        name: 'getTripDetail',
+        data: { type: 'carpool', id }
       })
 
       if (!res.result || !res.result.success) {
@@ -546,15 +546,13 @@ Page({
         return
       }
 
-      // ✅ 2) 把乘客的上车点/下车点附加到本次加入的乘客记录里
-      //     （云函数 addCarpoolDetail 需要把这两个字段写入 passengers[] 的那一条记录）
       userInfo.pickupAddress = p
       userInfo.dropoffAddress = d
 
-      // ✅ 3) 更新 Carpool 乘客列表（由云函数写入）
-      const carpoolRes = await wx.cloud.callFunction({
-        name: 'addCarpoolDetail',
+      const joinRes = await wx.cloud.callFunction({
+        name: 'joinTrip',
         data: {
+          type: 'carpool',
           tripId: trip._id,
           passengerInfo: {
             ...userInfo,
@@ -564,35 +562,15 @@ Page({
         }
       })
 
-      const cResult = carpoolRes.result || {}
+      const cResult = joinRes.result || {}
       if (!cResult.success) {
-        wx.showToast({ title: cResult.msg || '加入路线失败', icon: 'none' })
+        wx.showToast({ title: cResult.errorMsg || cResult.msg || '加入路线失败', icon: 'none' })
         trackEvent("carpool_join_fail", {
           module: "carpool",
           action: "join",
           routeType: "carpool",
           result: "fail",
-          errorCode: cResult.msg || "addCarpoolDetail_fail"
-        })
-        return
-      }
-
-      // ② 写入 userInfo.tripPassenger
-      const userTripRes = await wx.cloud.callFunction({
-        name: 'updateUserJoinTrip',
-        data: { action: 'afterJoinTripPassenger', tripId: trip._id }
-      })
-
-      const r = userTripRes.result || {}
-      const ok = r.ok === true || r.success === true || r.code === 0
-      if (!ok) {
-        wx.showToast({ title: r.errorMsg || '加入失败，请重试', icon: 'none', duration: 2000 })
-        trackEvent("carpool_join_fail", {
-          module: "carpool",
-          action: "join",
-          routeType: "carpool",
-          result: "fail",
-          errorCode: r.errorMsg || "updateUserJoinTrip_fail"
+          errorCode: cResult.errorMsg || cResult.msg || "joinTrip_fail"
         })
         return
       }

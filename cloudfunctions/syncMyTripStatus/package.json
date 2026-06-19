@@ -1,8 +1,8 @@
 {
-  "name": "cleanupMarketGoodsOnce",
+  "name": "syncMyTripStatus",
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
-    "wx-server-sdk": "latest"
+    "wx-server-sdk": "~3.0.1"
   }
 }

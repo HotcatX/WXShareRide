@@ -5,7 +5,18 @@ const MARKET_MAIN_CANVAS_QUALITY = 0.78
 const MARKET_THUMB_CANVAS_QUALITY = 0.72
 const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_DEFAULT_PICKUP_DAYS = 14
+const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const { showDataError } = require("../../../utils/error")
+
+function createSubmitRequestId() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function markMarketGoodsChanged() {
+  try {
+    wx.setStorageSync(MARKET_REFRESH_KEY, Date.now())
+  } catch (e) {}
+}
 
 // ========== 图片压缩（上传前压缩，压缩失败使用原图，保证不出错） ==========
 function compressForUpload(srcPath, quality = 70) {
@@ -735,8 +746,8 @@ onChooseCondition() {
 
   // ========== 提交：发布 / 编辑 ==========
   async onSubmit() {
+    if (this._submitInFlight || this.data.submitting) return
     if (!this.ensureLoginBeforePost()) return
-    if (this.data.submitting) return
 
     const {
       imageFileID,
@@ -760,25 +771,30 @@ onChooseCondition() {
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
     if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
 
-    const profile = await this._getMyUserInfo()
-    if (!profile) return
-    const profileUpdates = this.data.isEdit
-      ? { profileWechatID: normalizeLocationText(profile.wechatID) }
-      : this._applyProfileToForm(profile)
-    if (this.data.isEdit) this.setData(profileUpdates)
-    if (!normalizeLocationText(profile.wechatID)) {
-      this._promptEditProfile("请先填写微信号", "发布闲置前需要在个人资料里填写微信号，方便买家联系。")
-      return
-    }
-
-    const region = normalizeLocationText(profileUpdates.locationInput || this.data.locationInput || this.data.region)
-    const location = buildLocationMeta(region, profileUpdates.location || this.data.location || {})
-    if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
-    if (!expireTime) return wx.showToast({ title: "请选择可取时间", icon: "none" })
-
+    this._submitInFlight = true
     this.setData({ submitting: true })
+    let keepSubmitLocked = false
 
     try {
+      const profile = await this._getMyUserInfo()
+      if (!profile) return
+      const profileUpdates = this.data.isEdit
+        ? { profileWechatID: normalizeLocationText(profile.wechatID) }
+        : this._applyProfileToForm(profile)
+      if (this.data.isEdit) this.setData(profileUpdates)
+      if (!normalizeLocationText(profile.wechatID)) {
+        this._promptEditProfile("请先填写微信号", "发布闲置前需要在个人资料里填写微信号，方便买家联系。")
+        return
+      }
+
+      const region = normalizeLocationText(profileUpdates.locationInput || this.data.locationInput || this.data.region)
+      const location = buildLocationMeta(region, profileUpdates.location || this.data.location || {})
+      if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
+      if (!expireTime) return wx.showToast({ title: "请选择可取时间", icon: "none" })
+
+      const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
+      this._activeSubmitRequestId = clientRequestId
+
       const payload = {
         title: String(title).trim(),
         price: Number(price || 0),
@@ -797,7 +813,8 @@ onChooseCondition() {
         pickupRangeText: pickupWindow.pickupRangeText,
         expireTime,
         expiresAtText: pickupWindow.pickupEndDate,
-        status: "online"
+        status: "online",
+        clientRequestId
       }
 
       if (this.data.isEdit && this.data.editId) {
@@ -812,6 +829,8 @@ onChooseCondition() {
           return
         }
 
+        markMarketGoodsChanged()
+        keepSubmitLocked = true
         wx.showToast({ title: "已保存", icon: "success" })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
         return
@@ -836,13 +855,18 @@ onChooseCondition() {
         ], createdId).catch(() => {})
       }
 
+      markMarketGoodsChanged()
+      keepSubmitLocked = true
       wx.showToast({ title: this.data.isEdit ? "已保存" : "已提交", icon: "success" })
       setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
     } catch (e) {
       console.error(e)
       showDataError("发布失败", e, "商品保存到数据库失败，请稍后重试。")
     } finally {
-      this.setData({ submitting: false })
+      if (!keepSubmitLocked) {
+        this._submitInFlight = false
+        this.setData({ submitting: false })
+      }
     }
   }
 })

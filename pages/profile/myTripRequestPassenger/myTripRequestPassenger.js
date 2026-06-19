@@ -152,8 +152,8 @@ Page({
     try {
       // 1) 读 CarpoolRequest 详情
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id: requestId }
+        name: 'getTripDetail',
+        data: { type: 'request', id: requestId }
       })
 
       const rr = res && res.result ? res.result : null

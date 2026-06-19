@@ -339,8 +339,8 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id }
+        name: 'getTripDetail',
+        data: { type: 'request', id }
       })
 
       if (!res.result || !res.result.success) {
@@ -396,7 +396,9 @@ Page({
   },
 
   // =========================
-  // ✅ 乘客加入（joinCarpoolRequest）
+  // =========================
+  // 乘客加入
+  // =========================
   // =========================
   async joinAsPassenger() {
     const {
@@ -440,8 +442,8 @@ Page({
 
     try {
       const ret = await wx.cloud.callFunction({
-        name: 'joinCarpoolRequest',
-        data: { requestId: tripId }
+        name: 'joinTrip',
+        data: { type: 'request', requestId: tripId }
       })
 
       if (ret.result && ret.result.success) {

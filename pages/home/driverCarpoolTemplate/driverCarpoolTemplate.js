@@ -473,7 +473,7 @@ Page({
           updatePayload.customPrice = { fortLeeCore: referencePrice }
         }
 
-        await wx.cloud.callFunction({ name: "updateUserCreateTrip", data: updatePayload })
+        await wx.cloud.callFunction({ name: "updateUser", data: updatePayload })
       } catch (e) {
       }
 

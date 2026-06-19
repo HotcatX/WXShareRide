@@ -6,6 +6,7 @@ const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子�
 // ====== Performance / Cache ======
 const GOODS_CACHE_KEY = "market_goods_list_cache_v4"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
+const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
 const MARKET_GOODS_LIST_FIELDS = {
@@ -64,6 +65,14 @@ function formatDistanceText(miles) {
   if (miles < 0.1) return "0.1 mi内"
   if (miles < 10) return `${miles.toFixed(1)} mi`
   return `${Math.round(miles)} mi`
+}
+
+function getMarketGoodsChangedAt() {
+  try {
+    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
+  } catch (e) {
+    return 0
+  }
 }
 
 // 云端分页：小程序端单次 get 实际上最多 20
@@ -190,6 +199,7 @@ Page({
 
     this._thumbUrlCache = wx.getStorageSync(THUMB_CACHE_KEY) || {}
     this._lastRefreshAt = 0
+    this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
 
     this.initCategoriesFromGoods()
     this.loadRegionTreeFromCloud()
@@ -205,6 +215,13 @@ Page({
 
   onShow() {
     this._loadMyLocationFromProfile()
+    const changedAt = getMarketGoodsChangedAt()
+    if (changedAt && changedAt !== this._lastHandledGoodsChangeAt) {
+      this._lastHandledGoodsChangeAt = changedAt
+      this._lastRefreshAt = 0
+      this._fetchFirstPage()
+      return
+    }
     this._maybeRefreshGoods(false)
   },
 

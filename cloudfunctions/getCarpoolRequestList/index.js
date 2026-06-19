@@ -109,12 +109,7 @@ exports.main = async (event = {}) => {
 
     return {
       success: true,
-      data,
-      debug: event.debug ? {
-        total: data.length,
-        rawCount: rows.length,
-        errors
-      } : undefined
+      data
     }
   } catch (e) {
     console.error('getCarpoolRequestList error:', e)

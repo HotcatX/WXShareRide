@@ -76,7 +76,6 @@ function bumpServedTrips(delta, source, tripId, collection) {
     }).then(() => true))
     .catch(() => db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data }).then(() => true))
     .catch((retryErr) => {
-      console.warn('[bumpServedTrips] 统计自增失败:', retryErr)
       return false
     })
 }
@@ -245,8 +244,7 @@ exports.main = (event, context) => {
         }).then(() => ret)
       }).catch((e) => ({
         ok: false,
-        errorMsg: '操作失败（kickDriver）',
-        debug: { errMsg: e && e.errMsg, message: e && e.message }
+        errorMsg: '操作失败（kickDriver）'
       }))
     }
 
@@ -282,16 +280,13 @@ exports.main = (event, context) => {
         }).then(() => ret)
       }).catch((e) => ({
         ok: false,
-        errorMsg: '操作失败（kickPassenger）',
-        debug: { errMsg: e && e.errMsg, message: e && e.message }
+        errorMsg: '操作失败（kickPassenger）'
       }))
     }
 
     // ====== creatorQuitAndDelete ======
     if (action === 'creatorQuitAndDelete') {
       const warnings = []
-
-      console.log('[creatorQuitAndDelete] requestId=', requestId, ' myOpenid=', myOpenid)
 
       // 再读一次最新路线
       return reqRef.get().then((latestSnap) => {
@@ -353,50 +348,38 @@ exports.main = (event, context) => {
                 }
               }
 
-              // 5) 删除 CarpoolRequest（硬诊断：删前存在性、删后存在性都回传前端）
+              // 5) 删除 CarpoolRequest
               return reqRef.get().then((beforeSnap) => {
                 const existsBefore = !!(beforeSnap && beforeSnap.data)
-
-                // 把关键诊断信息回传
-                const diag = {
-                  env: cloud.DYNAMIC_CURRENT_ENV || 'N/A',
-                  requestId,
-                  existsBefore
-                }
 
                 if (!existsBefore) {
                   return {
                     ok: false,
-                    errorMsg: '删除前校验失败：CarpoolRequest 文档不存在（requestId不对或环境不一致）',
-                    warnings,
-                    debug: diag
+                    errorMsg: '删除失败，该路线不存在',
+                    warnings
                   }
                 }
 
                 return reqRef.remove().then((delRes) => {
                   const removed = delRes && delRes.stats ? delRes.stats.removed : 0
-                  diag.removed = removed
 
                   if (removed !== 1) {
                     return {
                       ok: false,
-                      errorMsg: 'remove 已执行但 removed != 1（极可能 requestId 不对 / 文档并非该环境）',
-                      warnings,
-                      debug: { ...diag, delRes }
+                      errorMsg: '删除失败，请稍后重试',
+                      warnings
                     }
                   }
 
                   // 删除后再 get 一次确认
                   return reqRef.get().then((afterSnap) => {
                     const existsAfter = !!(afterSnap && afterSnap.data)
-                    diag.existsAfter = existsAfter
 
                     if (existsAfter) {
                       return {
                         ok: false,
-                        errorMsg: 'remove 显示删除成功，但删除后仍可读取到文档：请检查是否看错环境/集合',
-                        warnings,
-                        debug: diag
+                        errorMsg: '删除失败，请稍后重试',
+                        warnings
                       }
                     }
 
@@ -405,7 +388,6 @@ exports.main = (event, context) => {
                     const passengers2 = Array.isArray(latestReq.passengerID) ? latestReq.passengerID : []
                     const allTargets = uniq([driver2].concat(passengers2))
 
-                    // 默认不通知创建者本人；如你要通知创建者，把下面过滤条件去掉即可
                     const targets = allTargets.filter((x) => x && x !== myOpenid)
 
                     const t2 = buildRouteText(latestReq)
@@ -419,13 +401,10 @@ exports.main = (event, context) => {
                         by: myOpenid
                       }))
                     ).then(() => {
-                      return { ok: true, warnings, debug: diag }
+                      return { ok: true, warnings }
                     })
-                  }).catch((eAfter) => {
+                  }).catch(() => {
                     // 有时 get 会直接报 not found，也视为删除成功
-                    diag.existsAfter = false
-                    diag.getAfterErr = eAfter && (eAfter.errMsg || eAfter.message)
-
                     // ✅ 删除成功：通知所有人（司机 + 全部乘客）
                     const driver2 = latestReq.driverOpenid || latestReq.driverID || latestReq.driverId || ''
                     const passengers2 = Array.isArray(latestReq.passengerID) ? latestReq.passengerID : []
@@ -443,19 +422,14 @@ exports.main = (event, context) => {
                         by: myOpenid
                       }))
                     ).then(() => {
-                      return { ok: true, warnings, debug: diag }
+                      return { ok: true, warnings }
                     })
                   })
                 }).catch((eRemove) => {
                   return {
                     ok: false,
-                    errorMsg: 'remove 调用失败（可能权限/环境/集合问题）',
-                    warnings,
-                    debug: {
-                      ...diag,
-                      errMsg: eRemove && eRemove.errMsg,
-                      message: eRemove && eRemove.message
-                    }
+                    errorMsg: '删除失败，请稍后重试',
+                    warnings
                   }
                 })
               })
@@ -463,7 +437,7 @@ exports.main = (event, context) => {
           })
       }).catch((e) => {
         console.error('[creatorQuitAndDelete] error=', e)
-        return { ok: false, errorMsg: '操作失败（creatorQuitAndDelete）', debug: { errMsg: e && e.errMsg, message: e && e.message } }
+        return { ok: false, errorMsg: '操作失败（creatorQuitAndDelete）' }
       })
     }
 
@@ -475,7 +449,7 @@ exports.main = (event, context) => {
         servedStatsDelta: statsResult.delta || 0,
         servedStatsCounted: !!statsResult.counted
       }))
-        .catch((e) => ({ ok: false, errorMsg: '操作失败（creatorQuitAndClose）', debug: { errMsg: e && e.errMsg, message: e && e.message } }))
+        .catch(() => ({ ok: false, errorMsg: '操作失败（creatorQuitAndClose）' }))
     }
 
     return { ok: false, errorMsg: '不支持的 action' }
@@ -483,8 +457,7 @@ exports.main = (event, context) => {
     console.error('【editMyRequestDetailCreate】error:', e)
     return {
       ok: false,
-      errorMsg: '操作失败（云函数异常）',
-      debug: { errMsg: e && e.errMsg, message: e && e.message, stack: e && e.stack }
+      errorMsg: '操作失败（云函数异常）'
     }
   })
 }

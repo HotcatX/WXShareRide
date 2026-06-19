@@ -3,22 +3,21 @@
   background: #fff;
 }
 
-/* 顶部导航栏 */
-.header { 
-  display:flex; 
-  align-items:center; 
-  height:80rpx; 
-  padding:0 20rpx; 
+.header {
+  display:flex;
+  align-items:center;
+  height:80rpx;
+  padding:0 20rpx;
 }
 .back-icon {
   width: 50rpx;
   height: 50rpx;
 }
-.title { 
-  flex:1; 
-  text-align:center; 
-  font-size:40rpx; 
-  font-weight:bold; 
+.title {
+  flex:1;
+  text-align:center;
+  font-size:40rpx;
+  font-weight:bold;
 }
 
 .nav-bar {
@@ -43,14 +42,12 @@
   color: #111;
 }
 
-/* 内容 */
 .content{
   height: calc(100vh - 44px);
   padding: 18rpx 22rpx 0 22rpx;
   box-sizing: border-box;
 }
 
-/* 卖家卡 */
 .seller-card{
   display:flex;
   gap: 18rpx;
@@ -113,7 +110,6 @@
   margin-bottom: 12rpx;
 }
 
-/* 商品网格 */
 .goods-grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -161,7 +157,6 @@
   font-weight: 700;
 }
 
-/* 底部 */
 .bottom-space{ height: 140rpx; }
 
 .bottom-fixed{
@@ -188,28 +183,23 @@
 }
 .page{
   height: 100vh;
-  background: #F6EFE8; /* ✅ 米色 */
-}
+  background: #F6EFE8; }
 
 .nav-bar {
   width: 100%;
-  background-color: #EE9C73; /* ✅ 橙色 */
-}
+  background-color: #EE9C73; }
 
 .nav-title {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   font-size: 34rpx;
-  font-weight: 900; /* ✅ 加粗一致 */
-  color: #111;
+  font-weight: 900; color: #111;
 }
-/* ✅ 底部占位：避免内容被挡 */
 .bottom-space{
   height: calc(130rpx + env(safe-area-inset-bottom));
 }
 
-/* ✅ 底部固定：米色底框 + 安全区 */
 .bottom-fixed{
   position: fixed;
   left: 0;
@@ -217,17 +207,12 @@
   bottom: 0;
   z-index: 9999;
 
-  background: #ffffff; /* ✅ 框背景米色 */
-  /* padding-bottom: env(safe-area-inset-bottom); */
-
-  border-top: 2rpx solid rgba(0,0,0,0.08);
+  background: #ffffff; border-top: 2rpx solid rgba(0,0,0,0.08);
   box-sizing: border-box;
 }
 
-/* ✅ 框高度 130rpx，按钮居中 */
 .bottom-bar{
   height: 130rpx;
-  /* padding: 0 22rpx; */
   box-sizing: border-box;
 
   display: flex;
@@ -235,7 +220,6 @@
   justify-content: center;
 }
 
-/* ✅ 按钮：圆角 + 阴影（Figma 3/6/2，25%） */
 .contact-btn{
   width: 100%;
   height: 96rpx;

@@ -173,7 +173,6 @@ exports.main = async (event, context) => {
         )
       }
     } catch (notifyErr) {
-      console.warn('【joinCarpoolRequest】通知发送失败（不影响加入）:', notifyErr)
     }
 
     return result

@@ -6,22 +6,21 @@
   flex-direction: column;
 }
 
-/* 顶部导航栏 */
-.header { 
-  display:flex; 
-  align-items:center; 
-  height:80rpx; 
-  padding:0 20rpx; 
+.header {
+  display:flex;
+  align-items:center;
+  height:80rpx;
+  padding:0 20rpx;
 }
 .back-icon {
   width: 50rpx;
   height: 50rpx;
 }
-.title { 
-  flex:1; 
-  text-align:center; 
-  font-size:40rpx; 
-  font-weight:bold; 
+.title {
+  flex:1;
+  text-align:center;
+  font-size:40rpx;
+  font-weight:bold;
 }
 
 .nav-bar {
@@ -46,7 +45,6 @@
   color: #111;
 }
 
-/* 内容区 */
 .content{
   flex: 1;
   overflow: hidden;
@@ -54,7 +52,6 @@
   box-sizing: border-box;
 }
 
-/* 大图 */
 .img-wrap{
   width: 100%;
   height: 520rpx;
@@ -86,7 +83,6 @@
   word-break: break-all;
 }
 
-/* 信息卡 */
 .info-card{
   margin-top: 18rpx;
   background: #a6ad71;
@@ -132,7 +128,6 @@
   text-align: right;
 }
 
-/* 品牌 + 商品名称 */
 .brand-row{
   margin-top: 18rpx;
   display: flex;
@@ -159,7 +154,6 @@
   line-height: 1.2;
 }
 
-/* 描述 */
 .desc-box{
   margin-top: 18rpx;
   border: 2rpx solid rgba(0,0,0,0.18);
@@ -180,7 +174,6 @@
   line-height: 1.5;
 }
 
-/* 两个小按钮 */
 .mini-actions{
   margin-top: 18rpx;
   display:flex;
@@ -203,18 +196,15 @@
   box-sizing: border-box;
 }
 
-/* 危险按钮（删除） */
 .mini-btn.danger{
   border-color: rgba(229,77,66,0.45);
   color: #E54D42;
 }
 
-/* 底部固定按钮空间 */
 .bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* 底部固定 */
 .bottom-fixed{
   position: fixed;
   left: 0;
@@ -234,7 +224,6 @@
   justify-content: center;
 }
 
-/* 本人发布：底部编辑/删除 */
 .owner-bar{
   width: 98%;
   display: flex;
@@ -257,7 +246,6 @@
   background: #E54D42;
 }
 
-/* 非本人：联系购买 */
 .contact-btn{
   width: 98%;
   height: 96rpx;

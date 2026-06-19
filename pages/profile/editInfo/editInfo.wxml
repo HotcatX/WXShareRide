@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部导航栏 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -8,10 +7,8 @@
   </view>
 </view>
 
-<!-- 可滚动内容 -->
 <view class="container">
 
-  <!-- 头像 + 昵称 -->
   <view class="profile-header">
     <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
       <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
@@ -25,7 +22,6 @@
     />
   </view>
 
-  <!-- 微信号 & 手机号 -->
   <view class="section-card">
 
     <view class="form-item">
@@ -51,8 +47,15 @@
         bindinput="onInput"
       />
     </view>
-    
-    <!-- ✅ 所住区域（bigregion） -->
+
+    <view class="form-item" bindtap="onChooseLocation">
+      <text class="label">精确定位</text>
+      <view class="location-display">
+        <text class="location-text {{locationDisplay ? '' : 'placeholder'}}">{{locationDisplay || '地图选点，用于距离排序'}}</text>
+        <text class="location-arrow">›</text>
+      </view>
+    </view>
+
     <view class="form-item">
       <text class="label">所住区域</text>
       <input
@@ -94,10 +97,8 @@
     </view>
   </view>
 
-  <!-- 司机填写 -->
   <view class="section-title">司机填写</view>
 
-  <!-- Zelle 信息 -->
   <view class="section-card">
     <view class="form-item">
       <text class="label">Zelle 姓名</text>
@@ -124,7 +125,6 @@
     </view>
   </view>
 
-  <!-- 车辆信息 -->
   <view class="section-card">
     <view class="form-item">
       <text class="label">车牌号</text>
@@ -165,12 +165,10 @@
 
 </view>
 
-<!-- 底部保存按钮 -->
 <view class="bottom-bar">
   <button class="save-btn" bindtap="onComplete">保存修改</button>
 </view>
 
-<!-- ✅ bigregion 三列滚动选择器弹层（原样保留） -->
 <view wx:if="{{bigRegionPickerVisible}}" class="picker-mask" bindtap="onBigRegionPickerCancel"></view>
 
 <view wx:if="{{bigRegionPickerVisible}}" class="picker-panel">

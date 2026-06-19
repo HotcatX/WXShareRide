@@ -1,4 +1,11 @@
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
+const { showDataError } = require("../../../utils/error")
+
+function normalizeSourceType(raw) {
+  const value = String(raw || '').toLowerCase()
+  return value === 'request' || value === 'carpoolrequest' ? 'request' : 'carpool'
+}
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -106,16 +113,17 @@ Page({
       this.setLoadError('缺少路线ID')
       return
     }
-    this.setData({ tripId })
+    const sourceType = normalizeSourceType(options && (options.sourceType || options.type || options.from))
+    this.setData({ tripId, sourceType })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    await this.loadTripDetail(tripId)
+    await this.loadTripDetail(tripId, sourceType)
   },
 
   async onPullDownRefresh() {
     try {
-      await this.loadTripDetail(this.data.tripId)
+      await this.loadTripDetail(this.data.tripId, this.data.sourceType)
     } finally {
       wx.stopPullDownRefresh()
     }
@@ -132,14 +140,32 @@ Page({
       success: () => wx.showToast({ title: '已复制', icon: 'success' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })
-  },  
+  },
 
-  // ========== 主加载：先 Carpool，失败 fallback CarpoolRequest ==========
-  async loadTripDetail(tripId) {
+  // ========== 主加载：按入口来源读取 Carpool 或 CarpoolRequest ==========
+  async loadTripDetail(tripId, sourceType = this.data.sourceType) {
     this.setData({ loading: true, loadError: '' })
 
     try {
-      // ---- A) 先查 Carpool ----
+      if (sourceType === 'request') {
+        const reqRes = await wx.cloud.callFunction({
+          name: 'getCarpoolRequestDetail',
+          data: { id: tripId }
+        })
+
+        const rr = reqRes && reqRes.result ? reqRes.result : null
+        const reqOk = !!(rr && (rr.ok || rr.success))
+        const reqTrip = reqOk ? (Array.isArray(rr.data) ? rr.data[0] : rr.data) : null
+
+        if (!reqTrip) {
+          this.setLoadError((rr && (rr.errorMsg || rr.msg)) || '该路线不存在或已被删除')
+          return
+        }
+
+        await this.applyRequestTrip(reqTrip, rr)
+        return
+      }
+
       const carpoolRes = await wx.cloud.callFunction({
         name: 'getCarpoolDetail',
         data: { id: tripId }
@@ -155,24 +181,11 @@ Page({
         return
       }
 
-      // ---- B) fallback 查 CarpoolRequest ----
-      const reqRes = await wx.cloud.callFunction({
-        name: 'getCarpoolRequestDetail',
-        data: { id: tripId }
-      })
-
-      const rr = reqRes && reqRes.result ? reqRes.result : null
-      const reqOk = !!(rr && (rr.ok || rr.success))
-      const reqTrip = reqOk ? (Array.isArray(rr.data) ? rr.data[0] : rr.data) : null
-
-      if (!reqTrip) {
-        this.setLoadError((rr && (rr.errorMsg || rr.msg)) || '该路线不存在或已被删除')
-        return
-      }
-
-      await this.applyRequestTrip(reqTrip, rr)
+      const cr = carpoolRes && carpoolRes.result ? carpoolRes.result : null
+      this.setLoadError((cr && (cr.errorMsg || cr.msg)) || '该路线不存在或已被删除')
     } catch (e) {
       console.error('loadTripDetail error:', e)
+      showDataError('路线加载失败', e, '路线详情从数据库加载失败，请稍后重试。')
       this.setLoadError('加载失败，请稍后重试')
     }
   },
@@ -252,7 +265,7 @@ Page({
 
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
 
-    // 当前用户 openid：优先 rr.openid，否则 login 兜底
+    // 当前用户 openid：优先 rr.openid，否则调用 login 获取
     const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
 
     // 司机 openid：CarpoolRequest 常见 driverOpenid/driverID（兼容大小写）
@@ -291,9 +304,6 @@ Page({
       if (myOpenid && op === myOpenid) return false
       return true
     })
-
-    // 调试用：如果仍不对，打开这两行看云函数返回数量
-    // console.log('DEBUG filteredOpenids:', filteredOpenids, 'passengerCount:', trip.passengerCount)
 
     let otherPassengers = []
     if (filteredOpenids.length > 0) {
@@ -403,7 +413,7 @@ Page({
     const { tripId, fromText, toText, dateText, weekdayText, timeText, sourceType } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim() || '查看路线详情'
 
-  
+
     // ✅ Carpool：分享公共详情页 tripDetail
     if (sourceType === 'carpool') {
       return {
@@ -411,29 +421,29 @@ Page({
         path: `/pages/home/tripDetail/tripDetail?id=${tripId}`
       }
     }
-  
+
     // 乘客求车记录分享指向接单详情
     return {
       title,
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${tripId}`
     }
   },
-  
+
   onShareTimeline() {
     const { tripId, fromText, toText, dateText, weekdayText, timeText, sourceType } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
-  
+
     if (sourceType === 'carpool') {
       return {
         title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
         query: `id=${tripId}`
       }
     }
-  
+
     return {
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       query: `id=${tripId}`
     }
   }
-  
+
 })

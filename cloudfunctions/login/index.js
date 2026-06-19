@@ -9,15 +9,11 @@ exports.main = async (event, context) => {
   const wxContext = cloud.getWXContext()
   const openid = wxContext.OPENID
 
-  console.log('【login】openid =', openid)
-  console.log('【login】event =', event)
-
   if (!openid) {
     return { ok: false, errorMsg: '未获取到 openid' }
   }
 
   try {
-    // 1️⃣ 查询是否已有记录
     const queryRes = await userColl.where({ _openid: openid }).limit(1).get()
 
     let isNewUser = false
@@ -52,7 +48,6 @@ exports.main = async (event, context) => {
         }
       })
     } else {
-      // 老用户：只做必要的兜底更新
       const doc = queryRes.data[0]
       profileCompleted = !!doc.profileCompleted
 

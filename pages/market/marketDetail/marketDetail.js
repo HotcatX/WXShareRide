@@ -13,7 +13,6 @@ Page({
     // 兼容旧逻辑：保留 imgUrl
     imgUrl: "",
 
-    // ✅ 新增：多图 temp urls
     imgUrls: [],
 
     sellerWechat: ""
@@ -73,21 +72,21 @@ Page({
 
   async _getSellerWechatByOpenid(openid) {
     if (this.data.sellerWechat) return this.data.sellerWechat
-  
+
     try {
-  
+
       const res = await wx.cloud.callFunction({
         name: "getUserInfoByOpenids",
         data: { openids: [openid] }
       })
-  
+
       const row = res?.result?.data?.[0] || null
       const wechat =
         row?.wechatID ||
         row?.wechatId ||
         row?.wechat ||
         ""
-  
+
       this.setData({ sellerWechat: wechat })
       return wechat
     } catch (e) {
@@ -95,7 +94,7 @@ Page({
       return ""
     } finally {
     }
-  },  
+  },
 
   onLoad(options) {
     const sys = wx.getSystemInfoSync()
@@ -124,7 +123,7 @@ Page({
     this.setData({ myOpenid, isOwner })
   },
 
-  // ✅ 把 fileID 数组转 temp urls（优先 imageFileIDs，回退 imageFileID）
+  // ✅ 把 fileID 数组转 temp urls（优先 imageFileIDs，兼容 imageFileID）
   async _buildTempUrls(x) {
     const arr = Array.isArray(x.imageFileIDs) ? x.imageFileIDs.filter(Boolean) : []
     const fileIds = arr.length > 0
@@ -183,7 +182,6 @@ Page({
           expireTime: Number(x.expireTime) || 0,
           status: x.status || "online",
 
-          // 你原来的字段
           wantCount: x.wantCount || 0,
           viewCount: x.viewCount || 0,
           _openid: x._openid,
@@ -210,7 +208,6 @@ Page({
     const id = this.data.item?.id
     if (!id) return
 
-    // ✅ 约定：marketPost 支持携带 id 进入编辑模式（你那边若用别的参数名，改这里就行）
     wx.navigateTo({
       url: `/pages/market/marketPost/marketPost?id=${id}&mode=edit`
     })
@@ -263,13 +260,13 @@ Page({
       wx.navigateBack({ delta: 1 })
       return
     }
-  
+
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.switchTab({
       url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
     })
   },
-  
+
   onViewSellerOther() {
     if (!this.ensureLoginBeforeContact()) return
     const openid = this.data.item?._openid

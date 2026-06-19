@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部自定义导航 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="onBack" />
@@ -11,7 +10,6 @@
 
 <view class="content">
 
-  <!-- 大图：多图轮播（优先 imgUrls） -->
   <view class="img-wrap">
     <swiper class="main-swiper" indicator-dots="{{imgUrls.length > 1}}" autoplay="false" circular="true">
       <block wx:if="{{imgUrls.length > 0}}">
@@ -33,7 +31,6 @@
     </swiper>
   </view>
 
-  <!-- 橙色信息卡 -->
   <view class="info-card">
     <view class="info-line">{{item.wantCount}}人想要 | {{item.viewCount}}人浏览</view>
     <view class="info-line">新旧程度：{{item.condition}}</view>
@@ -50,19 +47,16 @@
     <text class="pickup-date">{{item.pickupRangeText || item.pickupEndDate}}</text>
   </view>
 
-  <!-- 品牌 + 商品名称 -->
   <view class="brand-row">
     <view class="brand-badge">志远共享</view>
     <text class="product-title">{{item.title}}</text>
   </view>
 
-  <!-- 描述框 -->
   <view class="desc-box">
     <view class="desc-title">描述：</view>
     <view class="desc-text">{{item.desc}}</view>
   </view>
 
-  <!-- 两个按钮 -->
   <view class="mini-actions" wx:if="{{isOwner}}">
     <view class="mini-btn" bindtap="onViewSellerOther">查看卖家其他二手</view>
     <view class="mini-btn" bindtap="onPickupInfo"> 地点：{{item.pickup}}</view>
@@ -73,11 +67,9 @@
     <view class="mini-btn" bindtap="onPickupInfo"> 地点：{{item.pickup}}</view>
   </view>
 
-  <!-- 给底部固定按钮留空间 -->
   <view class="bottom-space"></view>
 </view>
 
-<!-- 底部固定 -->
 <view class="bottom-fixed">
   <view class="bottom-bar">
     <block wx:if="{{isOwner}}">

@@ -221,15 +221,11 @@ Page({
 
 
         try {
-          // 调用云函数，删除当前用户在 Notifications 集合下的所有记录
           const callRes = await wx.cloud.callFunction({
             name: 'clearUserNotifications',
             data: {}
           })
 
-          console.log('clearUserNotifications result:', callRes)
-
-          // 本地列表清空
           this.setData({
             list: [],
             unreadCount: 0

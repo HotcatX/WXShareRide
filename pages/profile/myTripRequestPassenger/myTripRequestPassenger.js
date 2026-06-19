@@ -102,7 +102,6 @@ Page({
     this.setData({ kickMode: !this.data.kickMode })
   },
 
-  // ✅ 新增：通用复制（对应 WXML：bindtap="onCopyText" + data-text）
   // ✅ 放置位置：就在 toggleKickMode() 的下面
   onCopyText(e) {
     const text = (e.currentTarget.dataset && e.currentTarget.dataset.text) || ''
@@ -170,7 +169,7 @@ Page({
         return
       }
 
-      // ✅ myOpenid 必须可靠：云函数不返回则 login 兜底
+      // ✅ myOpenid 必须可靠：云函数不返回则调用 login 获取
       const myOpenid = rr.openid || (await this.getMyOpenid()) || ''
       const creatorOpenid = trip._openid || trip.creatorOpenid || trip.passengerOpenid || ''
 
@@ -360,7 +359,6 @@ Page({
             name: 'editMyRequestDetailCreate',
             data: { requestId, action: 'kickPassenger', targetOpenid }
           })
-          console.log('res.result=', res.result)
 
           if (res.result && res.result.ok) {
             wx.showToast({ title: '已剔除', icon: 'success' })
@@ -396,30 +394,17 @@ Page({
 
 
           const result = res && res.result ? res.result : {}
-          console.log('[Delete] res.result =', result)
 
-          // ✅ 强制读取云函数诊断字段（没有就当失败）
-          const dbg = result.debug || null
-          console.log('[Delete] debug =', dbg)
-
-          // ✅ 只有当 debug 证明删掉了，才提示成功
-          const reallyDeleted =
-            result.ok === true &&
-            dbg &&
-            dbg.existsBefore === true &&
-            dbg.removed === 1 &&
-            dbg.existsAfter === false
-
-          if (reallyDeleted) {
+          if (result.ok === true) {
             wx.showToast({ title: '已删除', icon: 'success' })
             setTimeout(() => this.goBack(), 500)
             return
           }
 
-          const msg = (result && result.errorMsg) || '删除未完成（请看 debug）'
+          const msg = (result && result.errorMsg) || '删除未完成，请稍后重试'
           wx.showModal({
             title: '删除未完成',
-            content: msg + '\n\n请查看控制台 debug 输出（env / requestId / existsBefore / removed / existsAfter）。',
+            content: msg,
             showCancel: false
           })
         } catch (e) {

@@ -10,22 +10,32 @@ function normalizeLocationText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 function buildLocationForSave(regionStr, location = {}) {
-  const displayName = normalizeLocationText(location.displayName || regionStr)
+  const displayName = normalizeLocationText(location.displayName || location.name || location.address || regionStr)
   if (!displayName) return {}
 
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
   const parts = displayName.split("/").map(s => s.trim()).filter(Boolean)
   return {
     displayName,
+    name: normalizeLocationText(location.name || displayName),
     buildingName: normalizeLocationText(location.buildingName || parts.slice(2).join(" / ")),
     city: normalizeLocationText(location.city || parts[1]),
     state: normalizeLocationText(location.state || parts[0]),
     zip: normalizeLocationText(location.zip),
     country: normalizeLocationText(location.country || "US"),
-    lat: typeof location.lat === "number" ? location.lat : null,
-    lng: typeof location.lng === "number" ? location.lng : null,
+    lat,
+    lng,
     address: normalizeLocationText(location.address),
-    source: normalizeLocationText(location.source || "manual")
+    source: normalizeLocationText(location.source || "manual"),
+    updatedAtMs: Date.now()
   }
 }
 
@@ -46,29 +56,31 @@ function parseRegion(regionStr) {
   return { bigregion, address }
 }
 
-async function upsertUserRegion(openid, regionStr) {
+async function upsertUserRegion(openid, regionStr, location = {}) {
   if (!openid || !regionStr) return
   const { bigregion, address } = parseRegion(regionStr)
-  if (!bigregion && !address) return
+  const saveLocation = buildLocationForSave(regionStr, location)
+  if (!bigregion && !address && !saveLocation.displayName) return
+
+  const updateData = {
+    bigregion,
+    address: saveLocation.address || address,
+    bigregionUpdatedAt: db.serverDate()
+  }
+  if (saveLocation.displayName) updateData.location = saveLocation
 
   try {
     const q = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
     const row = (q.data || [])[0]
     if (row && row._id) {
       await db.collection("userInfo").doc(row._id).update({
-        data: {
-          bigregion,
-          address,
-          bigregionUpdatedAt: db.serverDate()
-        }
+        data: updateData
       })
     } else {
       await db.collection("userInfo").add({
         data: {
           _openid: openid,
-          bigregion,
-          address,
-          bigregionUpdatedAt: db.serverDate(),
+          ...updateData,
           createTime: db.serverDate()
         }
       })
@@ -229,9 +241,9 @@ exports.main = async (event, context) => {
     return { ok: false, message: "invalid price" }
   }
 
-  // ✅ 发布时同步用户地址到 userInfo（失败不阻塞发布）
-  await upsertUserRegion(OPENID, region)
   const saveLocation = buildLocationForSave(region, location || {})
+  // ✅ 发布时同步用户地址到 userInfo（失败不阻塞发布）
+  await upsertUserRegion(OPENID, region, saveLocation)
   const pickupWindow = buildPickupWindow(event || {})
   if (!pickupWindow.ok) return { ok: false, message: pickupWindow.message }
   const files = collectMarketFiles({ imageFileID, thumbFileID, imageFileIDs, thumbFileIDs })

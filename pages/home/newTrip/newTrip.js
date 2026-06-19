@@ -1,3 +1,5 @@
+const { showDataError } = require("../../../utils/error")
+
 Page({
   data: {
     // ====== 顶部/通用 ======
@@ -75,8 +77,7 @@ Page({
   setMode(e) {
     const mode = e.currentTarget.dataset.mode
     if (!mode || mode === this.data.mode) return
-  
-    // 切换角色时：可选清空已选地址/价格，避免“司机地址”残留到乘客
+
     this.setData({
       mode,
       departureAddress: "",
@@ -86,18 +87,16 @@ Page({
     }, async () => {
       // ✅ 用“新 mode”去加载对应地址集合
       await this.loadAllAddresses()
-  
-      // 乘客模式：如果地址已选才需要刷新价格；这里你已清空地址，就不用强刷
-      // 若你不清空地址，也可以保留这句：
+
       if (mode === "passenger") {
         await this.updateReferencePriceFromRequestPrice()
       }
-  
+
       // 司机模式：加载模板
       this.loadTemplatesIfNeeded()
     })
   },
-  
+
   goBack() { wx.navigateBack() },
 
   // -------------------------
@@ -180,8 +179,7 @@ Page({
       })
     } catch (e) {
       console.error("loadUserInfo error:", e)
-      this.setData({ userInfo: null })
-      wx.showToast({ title: "获取用户信息失败", icon: "none" })
+      showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
     }
   },
 
@@ -209,7 +207,7 @@ Page({
     } catch (e) {
       console.error("loadAllAddresses error:", e)
       this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
-      this.showError("地址加载失败，请稍后重试")
+      showDataError("地址加载失败", e, "地址配置从数据库加载失败，请稍后重试。")
     }
   },
 
@@ -220,10 +218,10 @@ Page({
         data: { type }
       })
       if (res?.result?.success) return res.result.addressList || []
-      return []
+      throw new Error(res?.result?.errorMsg || res?.result?.message || "getAddressList 返回失败")
     } catch (e) {
       console.error("loadAddressList error:", e)
-      return []
+      throw e
     }
   },
 
@@ -337,7 +335,7 @@ Page({
       }
     } catch (err) {
       console.error("updateReferencePriceFromRequestPrice error:", err)
-      this.setData({ referencePrice: "请参考打车价格", priceLocked: true })
+      showDataError("价格加载失败", err, "参考价格从数据库加载失败，请稍后重试。")
     }
   },
 
@@ -411,8 +409,7 @@ Page({
       this.setData({ templates })
     } catch (e) {
       console.error("[loadTemplates] failed:", e)
-      wx.showToast({ title: "模板读取失败", icon: "none" })
-      this.setData({ templates: [] })
+      showDataError("模板加载失败", e, "出行模板从数据库加载失败，请稍后重试。")
     } finally {
       this.setData({ loadingTemplates: false })
     }

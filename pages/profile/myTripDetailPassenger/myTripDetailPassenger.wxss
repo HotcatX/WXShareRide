@@ -1,5 +1,3 @@
-/* pages/profile/myTripDetailPassenger/myTripDetailPassenger.wxss */
-
 page{
   background: #F6EFE8;
 }
@@ -12,7 +10,6 @@ page{
   flex-direction: column;
 }
 
-/* 顶部导航栏（保持你原来） */
 .nav-bar{
   width: 100%;
   background-color: #ffffff;
@@ -38,7 +35,6 @@ page{
   color: #111;
 }
 
-/* 加载态 */
 .state-text{
   flex: 1;
   text-align: center;
@@ -76,7 +72,6 @@ page{
 }
 .state-action-btn::after{ border: none; }
 
-/* 内容滚动区 */
 .ui-scroll{
   flex: 1;
   min-height: 0;
@@ -84,7 +79,6 @@ page{
   box-sizing: border-box;
 }
 
-/* 同款白色卡片 */
 .ui-card{
   background: #fff;
   border-radius: 26rpx;
@@ -94,17 +88,14 @@ page{
   margin-top: 18rpx;
 }
 
-/* 左侧强调条（司机信息：绿色） */
 .ui-card-left-green{
   border-left: 6rpx solid #9CB06A;
 }
 
-/* 乘客卡做个轻强调（可选） */
 .ui-card-accent{
   border: 2rpx solid rgba(238,156,115,0.18);
 }
 
-/* 提示卡 */
 .ui-notice{
   border: 2rpx solid rgba(238,156,115,0.28);
   background: rgba(238,156,115,0.10);
@@ -123,12 +114,10 @@ page{
   line-height: 1.6;
 }
 
-/* 底部留空 */
 .ui-bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* 底部固定白框（同二手交易） */
 .ui-bottom-fixed{
   position: fixed;
   left: 0;
@@ -146,7 +135,6 @@ page{
   justify-content: center;
 }
 
-/* 主按钮（同款） */
 .ui-submit-btn{
   width: 93%;
   height: 96rpx;
@@ -161,17 +149,14 @@ page{
 }
 .ui-submit-btn::after{ border: none; }
 
-/* 橙色主按钮 */
 .ui-primary-btn{
   background: #EE9C73;
 }
 
-/* 军绿色按钮（备用） */
 .ui-secondary-btn{
   background: #9CB06A;
 }
 
-/* ===== 卡片内布局（统一） ===== */
 .card-title{
   font-size: 28rpx;
   font-weight: 900;
@@ -179,7 +164,6 @@ page{
   margin-bottom: 16rpx;
 }
 
-/* 路线行 */
 .route-row{
   display: flex;
   align-items: center;
@@ -205,14 +189,12 @@ page{
 
 .price-text-combined{
   font-size: 34rpx;
-  line-height: 36rpx;     /* 可选：更紧凑 */
-  color: #E54B3B;
+  line-height: 36rpx;     color: #E54B3B;
   font-weight: 900;
   white-space: nowrap;
 }
 
 
-/* 司机区头部 */
 .driver-header{
   display: flex;
   align-items: center;
@@ -231,7 +213,6 @@ page{
   color: rgba(0,0,0,0.78);
 }
 
-/* info-row */
 .info-row{
   display: flex;
   align-items: center;
@@ -258,7 +239,6 @@ page{
   flex-wrap: nowrap;
 }
 
-/* 复制按钮：中性灰胶囊 */
 .copy-btn{
   padding: 0 18rpx;
   font-size: 22rpx;
@@ -271,7 +251,6 @@ page{
 }
 .copy-btn::after{ border: none; }
 
-/* 乘客列表 */
 .empty-tip,
 .empty-text{
   font-size: 26rpx;
@@ -281,11 +260,6 @@ page{
   text-align: center;
 }
 
-/* =========================
-   司机信息：逐行排列（同款 Grid + 同款 copy-pill）
-   ========================= */
-
-/* 头像 + 名字：单独一行 */
 .dprofile{
   display: flex;
   align-items: center;
@@ -305,7 +279,6 @@ page{
   color: rgba(0,0,0,0.78);
 }
 
-/* Grid 三列：label / value / button */
 .pgrid{
   --label-w: 96rpx;
   --btn-w: 102rpx;
@@ -319,13 +292,11 @@ page{
   min-width: 0;
   min-height: 36rpx;
 
-  padding: 8rpx 0;                 /* ✅ 行间距更“逐行” */
-  border-top: 2rpx solid rgba(0,0,0,0.06);
+  padding: 8rpx 0;                 border-top: 2rpx solid rgba(0,0,0,0.06);
 }
 
 .pgrid:first-of-type{
-  border-top: none;                /* 第一行不画线（紧跟头像行时也更干净） */
-}
+  border-top: none;                }
 
 .pgrid-label{
   font-size: 24rpx;
@@ -351,7 +322,6 @@ page{
   height: var(--btn-h);
 }
 
-/* 同款复制按钮 */
 .copy-pill{
   width: var(--btn-w);
   height: var(--btn-h);
@@ -371,11 +341,7 @@ page{
   align-self: center;
 }
 
-/* =========================
-   已加入乘客：统一为 Grid 版（同 myRequestDetailDriver）
-   ========================= */
-
-   .passenger-item{
+.passenger-item{
     display: flex;
     align-items: flex-start;
     padding: 16rpx 0;
@@ -383,8 +349,7 @@ page{
     gap: 18rpx;
   }
   .passenger-item:first-child{ border-top: none; }
-  
-  /* 左侧：头像上 + 名字下 */
+
   .passenger-left{
     width: 128rpx;
     display: flex;
@@ -392,27 +357,26 @@ page{
     align-items: center;
     flex-shrink: 0;
   }
-  
+
   .passenger-avatar{
     width: 92rpx;
     height: 92rpx;
     border-radius: 50%;
   }
-  
+
   .passenger-name{
     margin-top: 10rpx;
     font-size: 24rpx;
     font-weight: 900;
     color: rgba(0,0,0,0.78);
     text-align: center;
-  
+
     width: 128rpx;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
-  /* 右侧三行容器 */
+
   .passenger-right{
     flex: 1;
     min-width: 0;
@@ -420,19 +384,15 @@ page{
     flex-direction: column;
     gap: 12rpx;
   }
-  
-  /* 关键：本页如果你前面已经为“司机信息”定义了 pgrid 并带了 border/padding，
-     这里把乘客卡片内的 pgrid 重置为“干净版”，避免出现分割线。 */
+
   .passenger-right .pgrid{
     border-top: none !important;
     padding: 0 !important;
     min-height: 36rpx;
   }
-  
-  /* 地址行顶部对齐 */
+
   .pgrid--addr{ align-items: start; }
-  
-  /* 地址允许两行 */
+
   .pgrid-value--addr{
     white-space: normal;
     display: -webkit-box;
@@ -440,19 +400,15 @@ page{
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  
-/* ===== 顶部发车卡片：最终稳定版（只保留这一套） ===== */
 
 .ui-trip-top-card .time-seat-row{
   display: flex;
   justify-content: space-between;
-  align-items: center;      /* ✅ 现在对子元素是 view，必然居中一致 */
-  margin-top: 20rpx;
+  align-items: center;      margin-top: 20rpx;
   flex-wrap: nowrap;
   gap: 16rpx;
 }
 
-/* 左侧时间：可压缩省略号 */
 .ui-trip-top-card .time-text{
   flex: 1;
   min-width: 0;
@@ -469,7 +425,6 @@ page{
   text-overflow: ellipsis;
 }
 
-/* 右侧余位：不压缩 */
 .ui-trip-top-card .seat-text{
   flex-shrink: 0;
 
@@ -484,9 +439,7 @@ page{
   text-align: right;
 }
 
-/* 价格行：缩小间距 */
 .ui-trip-top-card .price-row{
-  margin-top: 6rpx;         /* ✅ 更紧凑 */
-  display: flex;
+  margin-top: 6rpx;         display: flex;
   justify-content: center;
 }

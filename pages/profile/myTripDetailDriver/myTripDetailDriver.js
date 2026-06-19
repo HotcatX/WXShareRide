@@ -1,4 +1,6 @@
 // pages/profile/myTripDetailDriver/myTripDetailDriver.js
+const { showDataError } = require("../../../utils/error")
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -56,8 +58,6 @@ Page({
   },
 
   async onLoad(options) {
-    console.log('myTripDetailDriver onLoad options =', options)
-
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -82,62 +82,34 @@ Page({
     }
   },
 
-  // ✅ 关键改动：不再 callFunction(getCarpoolDetail)，改为直接读 Carpool
   async loadTripDetail(tripId) {
     this.setData({ loading: true })
 
     const db = wx.cloud.database()
-    const _ = db.command
-  
+
     try {
-      console.log('[loadTripDetail] input tripId =', tripId)
-  
-      // 1) 优先按 docId 读取（tripId 必须是 Carpool 的 _id）
-      let trip = null
-      try {
-        const docRes = await db.collection('Carpool').doc(tripId).get()
-        trip = docRes && docRes.data ? docRes.data : null
-      } catch (e) {
-        console.warn('[loadTripDetail] doc get failed:', e)
-      }
-  
-      // 2) 兜底：如果传进来的不是 _id，则尝试用常见字段查一次
-      if (!trip) {
-        const whereRes = await db.collection('Carpool')
-          .where(
-            _.or([
-              { tripId: tripId },   // 如果你库里有 tripId 字段
-              { driverID: tripId }  // 如果你传的是 driverID
-            ])
-          )
-          .limit(1)
-          .get()
-  
-        trip = (whereRes && whereRes.data && whereRes.data.length > 0) ? whereRes.data[0] : null
-      }
-  
-      // 3) 读不到就直接退出（关键：避免 trip.passengers 报错）
+      const docRes = await db.collection('Carpool').doc(tripId).get()
+      const trip = docRes && docRes.data ? docRes.data : null
+
       if (!trip) {
         console.error('[loadTripDetail] NOT FOUND. tripId=', tripId)
         wx.showToast({ title: '未找到该路线（ID不匹配）', icon: 'none' })
         this.setData({ loading: false, trip: null, passengers: [] })
         return
       }
-  
-      console.log('[loadTripDetail] FOUND. _id=', trip._id, 'passengersLen=', Array.isArray(trip.passengers) ? trip.passengers.length : 'not array')
-  
+
       // ===== 解析抬头信息 =====
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
       const des0 = (trip.destinations && trip.destinations[0]) ? trip.destinations[0] : {}
-  
+
       const fromText = dep0.address || ''
       const toText = des0.address || ''
-  
+
       const rawDate = dep0.date || ''
       const weekdayText = this.getWeekdayCN(rawDate)
       const dateText = this.formatDateNoYear(rawDate)
       const timeText = dep0.time || ''
-  
+
       const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
       const rawStatus = String(trip.status || '').toLowerCase()
       const status = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
@@ -181,7 +153,7 @@ Page({
           pickupAddress: p.pickupAddress || p.pickUpAddress || '',
           dropoffAddress: p.dropoffAddress || p.dropOffAddress || '',
 
-          // ✅ 昵称/微信/手机：从 userInfo 补全（没有就用 passenger 自带的兜底）
+          // ✅ 昵称/微信/手机：从 userInfo 补全（没有就用 passenger 自带信息）
           name: u.name || u.nickName || p.name || p.nickName || '',
           nickName: u.nickName || p.nickName || '',
           wechatID: u.wechatID || p.wechatID || '',
@@ -194,8 +166,6 @@ Page({
           joinedAt: p.joinedAt || ''
         }
       })
-
-      console.log('[loadTripDetail] passengers merged =', passengers)
 
       this.setData({
         trip,
@@ -212,7 +182,7 @@ Page({
 
     } catch (e) {
       console.error('loadTripDetail error:', e)
-      wx.showToast({ title: '加载失败', icon: 'none' })
+      showDataError('路线加载失败', e, '路线详情从数据库加载失败，请稍后重试。')
       this.setData({ loading: false })
     }
   },

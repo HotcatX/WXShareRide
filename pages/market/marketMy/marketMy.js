@@ -1,4 +1,5 @@
 // pages/market/marketMy/marketMy.js
+const { showDataError } = require("../../../utils/error")
 const defaultAvatarUrl =
   'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 
@@ -64,7 +65,7 @@ Page({
       wx.navigateBack({ delta: 1 })
       return
     }
-  
+
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.switchTab({
       url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
@@ -186,7 +187,6 @@ Page({
         icon: failed.length ? 'none' : 'success'
       })
 
-      // 可选：删完自动退出管理模式
       // this.setData({ manageMode: false })
 
     } catch (err) {
@@ -200,7 +200,6 @@ Page({
   async onDeleteGood(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
-    // 你原来的单删逻辑保留即可（不用也没关系）
   },
 
   // ====== bio 保存逻辑保持不动 ======
@@ -222,20 +221,7 @@ Page({
       wx.showToast({ title: '已保存简介', icon: 'success' })
     } catch (err) {
       console.error('save bio failed', err)
-      try {
-        const openid = this.data.openid
-        if (openid) {
-          const db = wx.cloud.database()
-          await db.collection('userInfo').where({ _openid: openid }).update({ data: { bio } })
-          this.setData({ bioOriginal: bio })
-          wx.showToast({ title: '已保存简介', icon: 'success' })
-        } else {
-          wx.showToast({ title: '保存失败', icon: 'none' })
-        }
-      } catch (e2) {
-        console.error('save bio fallback failed', e2)
-        wx.showToast({ title: '保存失败', icon: 'none' })
-      }
+      showDataError('保存失败', err, '简介保存失败，请稍后重试。')
     } finally {
       this.setData({ isSavingBio: false })
     }
@@ -281,7 +267,7 @@ Page({
         },
         fail: (err) => {
           console.error('getUserInfo failed', err)
-          wx.showToast({ title: '加载用户信息失败', icon: 'none' })
+          showDataError('资料加载失败', err, '个人资料从数据库加载失败，请稍后重试。')
           resolve()
         }
       })
@@ -343,15 +329,13 @@ Page({
 
       this.setData({
         goods,
-        // 刷新列表时，顺手清空选择
         selectedMap: {},
         selectedCount: 0,
         allSelected: false
       })
     } catch (err) {
       console.error('fetchMyGoods failed', err)
-      wx.showToast({ title: '加载我的发布失败', icon: 'none' })
-      this.setData({ goods: [] })
+      showDataError('商品加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
     }
   },
 

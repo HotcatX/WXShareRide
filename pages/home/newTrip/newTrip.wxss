@@ -1,8 +1,3 @@
-/* =========================
-   newTrip：driver + passenger 合并（保留原排版）
-   ========================= */
-
-/* 页面同款米色背景 + 结构 */
 .ui-page{
   height: 100vh;
   overflow: hidden;
@@ -11,11 +6,6 @@
   flex-direction: column;
 }
 
-/* 中间内容区（同款边距）
-   注意：你在 newTrip.wxml 里没有用 ui-scroll 包住司机部分（乘客部分有）
-   为了兼容两种写法：建议 newTrip.wxml 把两套内容都包在 <view class="ui-scroll"> 里
-   如果不想改 wxml，也可以不影响显示，只是 padding 可能少一点
-*/
 .ui-scroll{
   flex: 1;
   min-height: 0;
@@ -23,7 +13,6 @@
   box-sizing: border-box;
 }
 
-/* 卡片同款：圆角 + 阴影 */
 .ui-card{
   background: #fff;
   border-radius: 26rpx;
@@ -33,12 +22,10 @@
   margin-top: 18rpx;
 }
 
-/* 底部占位（同款） */
 .ui-bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* 底部固定容器（同款） */
 .ui-bottom-fixed{
   position: fixed;
   left: 0;
@@ -47,7 +34,6 @@
   z-index: 9999;
 }
 
-/* 底部白色框（同款） */
 .ui-bottom-bar{
   background: #fff;
   height: 160rpx;
@@ -58,10 +44,6 @@
   justify-content: center;
 }
 
-/* 底部按钮（同款）
-   司机用 <view class="ui-primary-btn">，乘客用 <button class="ui-primary-btn">
-   所以 button 也要看起来一致
-*/
 .ui-primary-btn{
   width: 93%;
   height: 96rpx;
@@ -77,17 +59,12 @@
   line-height: 96rpx;
 }
 
-/* 去掉 button 默认边框 */
 .ui-primary-btn::after{ border: none; }
 
-/* 提交中弱化（司机 view 版用到） */
 .ui-primary-btn--disabled{
   opacity: 0.75;
 }
 
-/* =========================
-   顶部导航栏（两份相同，保留一份）
-   ========================= */
 .nav-bar {
   width: 100%;
   background-color: #ffffff;
@@ -112,14 +89,9 @@
   color: #111;
 }
 
-/* =========================
-   ✅ 顶部角色切换（newTrip 新增）
-   放在 nav-bar 下方，不破坏原结构
-   ========================= */
 .mode-switch-wrap{
   background: #F6EFE8;
-  padding: 16rpx 22rpx 0 22rpx; /* 跟 ui-scroll 左右一致 */
-  box-sizing: border-box;
+  padding: 16rpx 22rpx 0 22rpx; box-sizing: border-box;
 }
 
 .mode-switch{
@@ -141,14 +113,8 @@
 
 .mode-item.active{
   color: rgba(0,0,0,0.82);
-  background: rgba(156,176,106,0.18); /* 轻微绿底，贴合主色 */
-}
+  background: rgba(156,176,106,0.18); }
 
-/* =========================
-   路线区域内部排版（两份相同）
-   ========================= */
-
-/* 第一行：出发地 / 到达地 */
 .route-row{
   display: flex;
   align-items: center;
@@ -158,7 +124,6 @@
 
 .route-item{ flex: 1; }
 
-/* 中间箭头 */
 .route-arrow{
   width: 80rpx;
   display: flex;
@@ -173,7 +138,6 @@
   line-height: 34rpx;
 }
 
-/* 每个条目 */
 .route-line{
   padding: 10rpx 0;
   display: flex;
@@ -188,7 +152,6 @@
 .route-placeholder{ color: rgba(0,0,0,0.30); }
 .route-filled{ color: rgba(0,0,0,0.78); }
 
-/* 第二行：日期 / 时间 */
 .datetime-row{
   display: flex;
   align-items: center;
@@ -197,7 +160,6 @@
   border-bottom: 2rpx solid rgba(0,0,0,0.08);
 }
 
-/* 第三/四行：人数/价格等 inline 行 */
 .passenger-inline-row{
   margin-top: 16rpx;
   display: flex;
@@ -222,20 +184,15 @@
   background-color: #f7f8fa;
 }
 
-/* passenger：只读外观 */
 .passenger-input--readonly{
   background-color: #f7f8fa;
   color: rgba(0,0,0,0.78);
 }
 
-/* passenger：价格输入框加宽 */
 .passenger-input--price{
   width: 220rpx;
 }
 
-/* =========================
-   表单区域：driver 用（两份大同小异）
-   ========================= */
 .field-row{
   display: flex;
   align-items: center;
@@ -272,7 +229,6 @@
   background-color: #f7f8fa;
 }
 
-/* driver：Zelle 行 */
 .zelle-card{ padding: 18rpx 22rpx; }
 .zelle-label{
   display: flex;
@@ -285,9 +241,6 @@
   color: rgba(0,0,0,0.75);
 }
 
-/* =========================
-   driver：常用模板区域
-   ========================= */
 .tpl-title-row{
   margin: 8rpx 28rpx 0;
 }
@@ -303,7 +256,6 @@
   margin-top: 8rpx;
 }
 
-/* 兜底行程卡片 */
 .trip-card{
   margin: 10rpx 28rpx 0;
   background: #fff;
@@ -312,7 +264,6 @@
   box-shadow: 0 6rpx 20rpx rgba(0,0,0,0.06);
 }
 
-/* 模板一行布局 */
 .tpl-one-row{
   display: flex;
   align-items: center;
@@ -347,10 +298,6 @@
   text-overflow: ellipsis;
 }
 
-/* =========================
-   passenger：提示框/拼车说明（仅 passenger 页面出现）
-   ========================= */
-
 .ui-carpool-section{
   margin-top: 22rpx;
 }
@@ -368,7 +315,6 @@
   color: rgba(0,0,0,0.80);
 }
 
-/* 红色提示框：白底圆角，红字 */
 .ui-tip-carpool{
   margin-top: 10rpx;
   background: #fff;
@@ -393,7 +339,6 @@
   line-height: 1.55;
 }
 
-/* 强提示框（橙红色边框） */
 .ui-tip-strong{
   margin-top: 32rpx;
   padding: 18rpx 20rpx 20rpx 20rpx;

@@ -16,7 +16,6 @@ const VERSION = '2025-12-30-acceptCarpoolRequest-v4-notify-passengers'
  * @param {string} title    标题
  * @param {string} content  内容
  * @param {string} carpoolId 对应的 requestId
- * @param {object} extra    附加字段（可选）
  */
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
   if (!toOpenid) return
@@ -39,8 +38,6 @@ async function sendNotification(toOpenid, type, title, content, carpoolId, extra
 }
 
 exports.main = async (event, context) => {
-  console.log('acceptCarpoolRequest VERSION =', VERSION)
-
   const wxContext = cloud.getWXContext()
   const driverOpenid = wxContext.OPENID
 
@@ -178,7 +175,6 @@ exports.main = async (event, context) => {
         )
       }
     } catch (notifyErr) {
-      console.warn('【acceptCarpoolRequest】通知乘客失败（不影响接单）:', notifyErr)
     }
 
     return res
@@ -186,8 +182,7 @@ exports.main = async (event, context) => {
     console.error('acceptCarpoolRequest transaction error:', e)
     return {
       success: false,
-      errorMsg: '系统错误，接单失败',
-      debug: (e && (e.message || e.errMsg)) ? String(e.message || e.errMsg) : String(e)
+      errorMsg: '系统错误，接单失败'
     }
   }
 }

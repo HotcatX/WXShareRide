@@ -2,7 +2,6 @@
 // 作用：司机退出 CarpoolRequest（无事务版，兼容不支持 t.get 的环境）
 //
 // 1) 读取 CarpoolRequest 并校验当前 openid 是司机
-// 2) CarpoolRequest：清空 driverOpenid/driverID/driverId（仅清空存在字段）
 //    并在未 past 时 status -> open
 // 3) userInfo：从司机 tripDriverJoin 数组中移除该 requestId（尽力清理，不阻断主流程）
 
@@ -61,7 +60,6 @@ exports.main = async (event, context) => {
       return { ok: false, errorMsg: '你不是该路线司机，无法退出' }
     }
 
-    // 3) 生成更新对象：仅清空“存在的字段”，避免新增无用字段
     const next = {}
 
     if (Object.prototype.hasOwnProperty.call(req, 'driverOpenid')) next.driverOpenid = ''
@@ -120,7 +118,6 @@ exports.main = async (event, context) => {
         ))
     )
   } catch (e3) {
-    console.warn('【editMyRequestDetailDriver】发送乘客通知失败（不影响退出）:', e3)
   }
 
 
@@ -136,7 +133,6 @@ exports.main = async (event, context) => {
         })
       }
     } catch (e2) {
-      console.warn('【editMyRequestDetailDriver】tripDriverJoin 清理失败（不影响退出）:', e2)
     }
 
     return { ok: true }
@@ -144,8 +140,7 @@ exports.main = async (event, context) => {
     console.error('【editMyRequestDetailDriver】error:', e)
     return {
       ok: false,
-      errorMsg: '退出失败（云函数异常）',
-      debug: { errMsg: e && e.errMsg, message: e && e.message, stack: e && e.stack }
+      errorMsg: '退出失败（云函数异常）'
     }
   }
 }

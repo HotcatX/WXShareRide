@@ -65,7 +65,7 @@ Page({
     const time = dep0?.time || ''
     const label = `${date} ${time}`.trim()
 
-    // 兜底：兼容 Carpool / CarpoolRequest 可能存在的字段
+    // 兼容 Carpool / CarpoolRequest 可能存在的字段
     return (
       label ||
       trip?._timeLabel ||
@@ -79,14 +79,13 @@ Page({
   },
 
   _buildRoleLabel(trip) {
-    // 你云函数里建议返回 historyRole: driver_create | driver_join | passenger
     const r = trip?.historyRole || trip?.role || ''
 
     if (r === 'driver_create' || r === 'driver') return '角色：创建路线'
     if (r === 'driver_join') return '角色：加入路线'
     if (r === 'passenger') return '角色：乘客'
 
-    // 兜底：有些旧数据 role 可能是 passenger/driver
+    // 兼容有些旧数据 role 可能是 passenger/driver
     if (r === 'passenger') return '角色：乘客'
     return '角色：未知'
   },
@@ -111,7 +110,6 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({ name: 'getMyTripHistory' })
-      console.log('getMyTripHistory 调用结果：', res)
 
       if (res.result && res.result.ok) {
         const list = Array.isArray(res.result.data) ? res.result.data : []

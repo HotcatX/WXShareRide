@@ -1,4 +1,6 @@
 // pages/market/marketTrade/marketTrade.js
+const { showDataError } = require("../../../utils/error")
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -46,7 +48,7 @@ Page({
         },
         fail: (err) => {
           console.error('getUserInfo fail', err)
-          this.setData({ myOpenid: '' })
+          showDataError('资料加载失败', err, '个人资料从数据库加载失败，请稍后重试。')
           resolve()
         }
       })
@@ -59,10 +61,10 @@ Page({
       this.setData({ list: [] })
       return
     }
-  
+
     const db = wx.cloud.database()
     const _ = db.command
-  
+
     // ✅ sold：我=卖家；bought：我=买家
     let query = null
     if (this.data.type === 'sold') {
@@ -76,20 +78,20 @@ Page({
         { buyerOpenid: openid, isSold: true },
         { buyerOpenid: openid, sold: true },
         { buyerOpenid: openid, status: 'sold' },
-  
+
         { buyer_openid: openid, isSold: true },
         { buyer_openid: openid, sold: true },
         { buyer_openid: openid, status: 'sold' }
       ])
     }
-  
+
     try {
       const PAGE = 20
       const MAX_TOTAL = 1000
-  
+
       let rows = []
       let skip = 0
-  
+
       while (true) {
         const res = await db.collection('market_goods')
           .where(query)
@@ -97,15 +99,15 @@ Page({
           .skip(skip)
           .limit(PAGE)
           .get()
-  
+
         const batch = res.data || []
         rows = rows.concat(batch)
-  
+
         if (batch.length < PAGE) break
         skip += PAGE
         if (rows.length >= MAX_TOTAL) break
       }
-  
+
       // 先把列表基础字段整理好
       let list = rows.map(x => ({
         id: x._id,
@@ -115,37 +117,36 @@ Page({
         thumbFileID: x.thumbFileID || '',
         hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
         thumbUrl: '',
-  
+
         otherOpenid: (this.data.type === 'sold')
           ? (x.buyerOpenid || x.buyer_openid || '')
           : (x._openid || ''),
-  
+
         contactWechat: ''
       }))
-  
-      // 1) 图片：批量临时链接
+
+      // 1) 图片：批量获取访问链接
       const fileIDs = list.map(it => it.thumbFileID || it.imageFileID).filter(Boolean)
       if (fileIDs.length) {
         const urlMap = await this._batchGetTempUrl(fileIDs)
         list = list.map(it => ({ ...it, thumbUrl: urlMap[it.thumbFileID || it.imageFileID] || '' }))
       }
-  
+
       // 2) 微信号：批量通过 openid 查 userInfo.wechatID
       const otherOpenids = Array.from(new Set(list.map(it => it.otherOpenid).filter(Boolean)))
       if (otherOpenids.length) {
         const wxMap = await this._batchGetWechatByOpenids(otherOpenids)
         list = list.map(it => ({ ...it, contactWechat: wxMap[it.otherOpenid] || '' }))
       }
-  
+
       this.setData({ list })
     } catch (e) {
       console.error('fetchList error', e)
-      this.setData({ list: [] })
-      wx.showToast({ title: '加载失败', icon: 'none' })
+      showDataError('交易加载失败', e, '交易列表从数据库加载失败，请稍后重试。')
     }
-  },  
+  },
 
-  // ✅ 你原来用过的临时链接批量函数
+  // 批量获取图片访问链接
   async _batchGetTempUrl(fileIDs) {
     const uniq = Array.from(new Set(fileIDs))
     const map = {}

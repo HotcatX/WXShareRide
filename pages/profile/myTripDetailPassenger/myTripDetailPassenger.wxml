@@ -1,7 +1,5 @@
-<!-- pages/profile/myTripDetailPassenger/myTripDetailPassenger.wxml -->
 <view class="page">
 
-<!-- 顶部导航栏 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -11,7 +9,6 @@
 
 <view class="ui-page">
 
-  <!-- 加载中 -->
   <view wx:if="{{loading}}" class="state-text">正在加载...</view>
 
   <view wx:elif="{{loadError}}" class="state-card">
@@ -19,7 +16,6 @@
     <button class="state-action-btn" bindtap="goBack">返回</button>
   </view>
 
-  <!-- 内容主体：滚动 -->
   <scroll-view
   wx:else
   class="ui-scroll"
@@ -29,7 +25,6 @@
 >
 
 
-    <!-- 顶部发车卡片 -->
     <view class="ui-card ui-trip-top-card">
 
       <view class="route-row">
@@ -60,26 +55,22 @@
       </view>
     </view>
 
-    <!-- 司机信息（逐行排列 + 同款复制按钮对齐） -->
     <view class="ui-card ui-card-left-green">
       <text class="card-title">司机信息</text>
 
       <view wx:if="{{driverInfo}}">
 
-        <!-- 头像 + 名字（单独一行，不做左中右结构） -->
         <view class="dprofile">
           <image class="dprofile-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" />
           <text class="dprofile-name">{{driverInfo.name || '未设置昵称'}}</text>
         </view>
 
-        <!-- 车牌号：无按钮，占位 -->
         <view wx:if="{{driverInfo.carNumber}}" class="pgrid">
           <text class="pgrid-label">车牌：</text>
           <text class="pgrid-value">{{driverInfo.carNumber}}</text>
           <view class="pgrid-btn-placeholder"></view>
         </view>
 
-        <!-- 微信：有复制按钮 -->
         <view class="pgrid">
           <text class="pgrid-label">微信：</text>
           <text class="pgrid-value">{{driverInfo.wechatID || '未填写'}}</text>
@@ -95,7 +86,6 @@
           <view wx:else class="pgrid-btn-placeholder"></view>
         </view>
 
-        <!-- 手机：有复制按钮 -->
         <view class="pgrid">
           <text class="pgrid-label">手机：</text>
           <text class="pgrid-value">{{driverInfo.phone || '未填写'}}</text>
@@ -111,14 +101,12 @@
           <view wx:else class="pgrid-btn-placeholder"></view>
         </view>
 
-        <!-- Zelle 姓名：无按钮，占位 -->
         <view wx:if="{{driverInfo.zelleName}}" class="pgrid">
           <text class="pgrid-label">Zelle：</text>
           <text class="pgrid-value">{{driverInfo.zelleName}}</text>
           <view class="pgrid-btn-placeholder"></view>
         </view>
 
-        <!-- Zelle 账号：有复制按钮 -->
         <view wx:if="{{driverInfo.zelleAccount}}" class="pgrid">
           <text class="pgrid-label">账号：</text>
           <text class="pgrid-value">{{driverInfo.zelleAccount}}</text>
@@ -139,7 +127,6 @@
       </view>
     </view>
 
-    <!-- CarpoolRequest：已加入乘客（不含自己） -->
     <view wx:if="{{sourceType === 'request'}}" class="ui-card ui-card-accent">
       <text class="card-title">已加入乘客</text>
 
@@ -151,23 +138,19 @@
         <block wx:for="{{passengerList}}" wx:key="_openid" wx:for-item="p">
           <view class="passenger-item">
 
-            <!-- 左侧：头像上 + 名字下（同款） -->
             <view class="passenger-left">
               <image class="passenger-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" />
               <text class="passenger-name">{{p.name || p.nickName || '未设置昵称'}}</text>
             </view>
 
-            <!-- 右侧：三行 grid 对齐（同款） -->
             <view class="passenger-right">
 
-              <!-- 地址：无按钮，占位一格 -->
               <view class="pgrid pgrid--addr">
                 <text class="pgrid-label">地址：</text>
                 <text class="pgrid-value pgrid-value--addr">{{p.address || '未填写'}}</text>
                 <view class="pgrid-btn-placeholder"></view>
               </view>
 
-              <!-- 微信：复制按钮与值对齐 -->
               <view class="pgrid">
                 <text class="pgrid-label">微信：</text>
                 <text class="pgrid-value">{{p.wechatID || '未填写'}}</text>
@@ -183,7 +166,6 @@
                 <view wx:else class="pgrid-btn-placeholder"></view>
               </view>
 
-              <!-- 手机：复制按钮与值对齐 -->
               <view class="pgrid">
                 <text class="pgrid-label">手机：</text>
                 <text class="pgrid-value">{{p.phone || '未填写'}}</text>
@@ -206,7 +188,6 @@
       </block>
     </view>
 
-    <!-- 提示卡片 -->
     <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
       <text class="notice-title">提示</text>
       <text class="notice-text">
@@ -214,18 +195,15 @@
       </text>
     </view>
 
-    <!-- 给底部固定按钮留空 -->
     <view class="ui-bottom-space"></view>
   </scroll-view>
 
-  <!-- 底部固定：退出路线 -->
   <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
     <view class="ui-bottom-bar">
       <button class="ui-submit-btn ui-primary-btn" bindtap="onDeleteOrQuit">
         退出路线
       </button>
 
-      <!-- 如果你想“退出路线”用军绿色，把上面按钮的 ui-primary-btn 改成 ui-secondary-btn 即可 -->
     </view>
   </view>
 

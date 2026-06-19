@@ -1,5 +1,6 @@
 // pages/home/carpoolList/carpoolList.js
 const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
+const { showDataError } = require("../../../utils/error")
 
 const LIST_FETCH_LIMIT = 80
 const LIST_REFRESH_INTERVAL = 30 * 1000
@@ -176,7 +177,6 @@ Page({
         toPlaceList
       })
     } catch (e) {
-      console.warn("cacheFilterOptions failed", e)
     }
   },
 
@@ -212,7 +212,6 @@ Page({
         requestList: Array.isArray(requestList) ? requestList : []
       })
     } catch (e) {
-      console.warn("cacheLoadedLists failed", e)
     }
   },
 
@@ -422,7 +421,6 @@ Page({
       }
       return null
     }).catch((e) => {
-      console.warn("refreshStatusInBackground error:", e)
     }).finally(() => {
       this._statusRefreshing = false
     })
@@ -608,11 +606,12 @@ Page({
       const requestList = getResultData(1)
 
       if (failed.length) {
-        console.warn("loadBothLists partial failure:", failed)
       }
 
       if (failed.length === listCalls.length) {
-        if (showLoading) wx.showToast({ title: "加载失败", icon: "none" })
+        if (showLoading) {
+          showDataError("加载失败", failed[0] && failed[0].reason, "拼车列表加载失败，请稍后重试。")
+        }
         this.setData({
           loading: false,
           hasLoadedOnce: true,
@@ -660,7 +659,7 @@ Page({
       })
     } catch (err) {
       console.error("loadBothLists error:", err)
-      if (showLoading) wx.showToast({ title: "加载失败", icon: "none" })
+      if (showLoading) showDataError("加载失败", err, "拼车列表加载失败，请稍后重试。")
       this.setData({
         loading: false,
         hasLoadedOnce: true
@@ -674,110 +673,9 @@ Page({
     }
   },
 
-  fetchListFast(meta) {
-    const sources = [
-      this.fetchListFromDB(meta).then(data => ({ source: "db", data })),
-      this.fetchListFromCloud(meta).then(data => ({ source: "cloud", data }))
-    ]
-
-    return Promise.allSettled(sources).then(results => {
-      const errors = []
-      const map = new Map()
-      let sourceLabel = ""
-
-      results.forEach(item => {
-        if (!item || item.status !== "fulfilled") {
-          errors.push(item && item.reason ? item.reason : "load failed")
-          return
-        }
-
-        const value = item.value || {}
-        const list = Array.isArray(value.data) ? value.data : []
-        if (list.length) {
-          sourceLabel = sourceLabel ? `${sourceLabel}+${value.source}` : value.source
-        }
-
-        list.forEach(row => {
-          if (!row || !row._id) return
-          if (!map.has(row._id)) map.set(row._id, row)
-        })
-      })
-
-      if (!map.size && errors.length === results.length) {
-        return Promise.reject(errors)
-      }
-
-      return {
-        source: sourceLabel || "empty",
-        data: Array.from(map.values())
-      }
-    })
-  },
-
-  async fetchListFromDB(meta) {
-    const db = wx.cloud.database()
-    const _ = db.command
-    const statuses = ["open", "full"]
-    const minDepartureAtMs = Date.now() - TRIP_EXPIRE_GRACE
-
-    const applyFields = query => query.field({
-      _id: true,
-      status: true,
-      departures: true,
-      destinations: true,
-      availSeatNum: true,
-      passengerCount: true,
-      requestPassengerCount: true,
-      departureAtMs: true,
-      latestDepartureAtMs: true,
-      firstDepartureDate: true,
-      firstDepartureTime: true,
-      createdAt: true
-    }).limit(LIST_FETCH_LIMIT)
-
-    const orderedQueries = [
-      ...statuses.map(status => applyFields(db.collection(meta.collection)
-        .where({ status, departureAtMs: _.gte(minDepartureAtMs) })
-        .orderBy("departureAtMs", "asc"))),
-      ...statuses.map(status => applyFields(db.collection(meta.collection)
-        .where({ status })
-        .orderBy("createdAt", "desc"))),
-      applyFields(db.collection(meta.collection)
-        .orderBy("createdAt", "desc"))
-    ]
-
-    let results = await Promise.allSettled(orderedQueries.map(query => query.get()))
-    let successRows = results
-      .filter(item => item.status === "fulfilled")
-      .map(item => item.value && Array.isArray(item.value.data) ? item.value.data : [])
-
-    if (!successRows.length || !successRows.some(list => list.length)) {
-      const fallbackQueries = statuses.map(status => applyFields(db.collection(meta.collection)
-        .where({ status })))
-
-      results = await Promise.allSettled(fallbackQueries.map(query => query.get()))
-      successRows = results
-        .filter(item => item.status === "fulfilled")
-        .map(item => item.value && Array.isArray(item.value.data) ? item.value.data : [])
-    }
-
-    if (!successRows.length) {
-      const firstError = results.find(item => item.status === "rejected")
-      throw firstError ? firstError.reason : new Error(`${meta.collection} db query failed`)
-    }
-
-    const map = new Map()
-    successRows.forEach(list => {
-      list.forEach(item => {
-        if (!item || !item._id) return
-        if (!map.has(item._id)) map.set(item._id, item)
-      })
-    })
-
-    return Array.from(map.values()).filter(item => {
-      const status = this.normalizeTripStatus(item.status)
-      return status === "open" || status === "full"
-    })
+  async fetchListFast(meta) {
+    const data = await this.fetchListFromCloud(meta)
+    return { source: "cloud", data }
   },
 
   async fetchListFromCloud(meta) {
@@ -1126,7 +1024,6 @@ Page({
       try {
         wx.setStorageSync(DETAIL_PREVIEW_KEY, preview)
       } catch (e) {
-        console.warn("cache detail preview failed", e)
       }
     }
 
@@ -1153,7 +1050,6 @@ Page({
   },
 
   // =========================
-  // 新增：统一列表点击
   // 如果你的 wxml 改成遍历 group.items，就用这个
   // =========================
   goItemDetail(e) {

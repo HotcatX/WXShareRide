@@ -34,6 +34,14 @@
     "navigationBarTitleText": "出行小程序"
   },
   "__usePrivacyCheck__": true,
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于选择取货位置并计算二手商品距离"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseLocation"
+  ],
   "entryPagePath": "pages/home/home",
   "tabBar": {
     "color": "#8A8A8A",

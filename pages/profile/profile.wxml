@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部导航栏 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <text class="nav-title">{{pageTitle}}</text>
@@ -9,14 +8,12 @@
 
 <view class="container">
 
-  <!-- Header：头像 + 昵称/登录按钮 + 右侧入口 -->
   <view class="header">
-    <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
+    <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" bindtap="goEditProfile" />
 
     <view class="header-mid">
-      <!-- ✅ 登录态：显示昵称；未登录：显示一键登录按钮 -->
       <block wx:if="{{isLoggedIn}}">
-        <text class="name">{{ name || '微信用户' }}</text>
+        <text class="name" bindtap="goEditProfile">{{ name || '微信用户' }}</text>
       </block>
       <block wx:else>
         <view class="login-btn" bindtap="onTapLoginBtn">
@@ -38,27 +35,25 @@
     </view>
   </view>
 
-  <!-- 信息卡片 -->
   <view class="card info-card">
-    <view class="info-row">
+    <view class="info-row" bindtap="goEditProfile">
       <text class="info-label">微信号</text>
       <text class="info-value">{{ isLoggedIn ? (wechatID || '未填写') : '未登录' }}</text>
     </view>
     <view class="divider"></view>
 
-    <view class="info-row">
+    <view class="info-row" bindtap="goEditProfile">
       <text class="info-label">所住公寓</text>
       <text class="info-value">{{ isLoggedIn ? (apartment || '未填写') : '未登录' }}</text>
     </view>
     <view class="divider"></view>
 
-    <view class="info-row">
+    <view class="info-row" bindtap="goEditProfile">
       <text class="info-label">所住区域</text>
       <text class="info-value">{{ isLoggedIn ? (region || '无') : '未登录' }}</text>
     </view>
   </view>
 
-  <!-- 我的出行 -->
   <view class="card section-card">
     <text class="section-title">我的出行</text>
 
@@ -89,7 +84,6 @@
     </view>
   </view>
 
-  <!-- 我的交易 -->
   <view class="card section-card">
     <text class="section-title">我的交易</text>
 

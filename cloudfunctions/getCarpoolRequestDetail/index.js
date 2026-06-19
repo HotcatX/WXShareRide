@@ -24,7 +24,7 @@ exports.main = async (event, context) => {
     return {
       success: true,
       data: res.data || null,
-      openid: wxContext.OPENID // ✅ 关键：让前端能判断自己是不是该路线司机
+      openid: wxContext.OPENID
     }
   } catch (e) {
     console.error('getCarpoolRequestDetail error:', e)

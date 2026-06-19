@@ -1,4 +1,6 @@
 // pages/home/CarpoolTemplateList/CarpoolTemplateList.js
+const { showDataError } = require("../../../utils/error")
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -212,7 +214,6 @@ Page({
     }
   },
 
-  // ===================== 乘客：常用地址（新增） =====================
 
   async loadUserSpots() {
     // 未登录：只展示空态，不弹 toast（避免打扰）
@@ -246,9 +247,7 @@ Page({
       })
     } catch (e) {
       console.error("loadUserSpots error:", e)
-      // 不强 toast，避免页面噪音；需要你也可以打开
-      // wx.showToast({ title: "常用地址加载失败", icon: "none" })
-      this.setData({ pickupSpotList: [], dropoffSpotList: [] })
+      showDataError("常用地址加载失败", e, "常用地址从数据库加载失败，请稍后重试。")
     }
   },
 
@@ -367,12 +366,11 @@ Page({
     const next = !this.data.pickupDeleteMode
     this.setData({
       pickupDeleteMode: next,
-      // 进入删除模式时，建议关闭编辑态，避免冲突
       pickupEditing: next ? false : this.data.pickupEditing,
       pickupInput: next ? "" : this.data.pickupInput
     })
   },
-  
+
   toggleDropoffDeleteMode() {
     if (!this.isLoggedIn()) {
       wx.showToast({ title: "请先登录", icon: "none" })
@@ -385,42 +383,42 @@ Page({
       dropoffInput: next ? "" : this.data.dropoffInput
     })
   },
-  
+
   async onPickupTagTap(e) {
     if (!this.data.pickupDeleteMode) return
     const value = (e.currentTarget.dataset.value || "").trim()
     if (!value) return
     await this.removeSpotFromUserInfo("pickupSpot", value)
   },
-  
+
   async onDropoffTagTap(e) {
     if (!this.data.dropoffDeleteMode) return
     const value = (e.currentTarget.dataset.value || "").trim()
     if (!value) return
     await this.removeSpotFromUserInfo("dropoffSpot", value)
   },
-  
+
   async removeSpotFromUserInfo(field, value) {
     const db = wx.cloud.database()
     const _ = db.command
     const openid = wx.getStorageSync("openid") || ""
-  
+
     try {
       const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
       const info = (r && r.data && r.data[0]) ? r.data[0] : null
       if (!info || !info._id) return
-  
+
       // 从数组移除指定值
       await db.collection("userInfo").doc(info._id).update({
         data: {
           [field]: _.pull(value)
         }
       })
-  
+
       // 刷新列表
       await this.loadUserSpots()
       wx.showToast({ title: "已删除", icon: "success" })
-  
+
       // 如果删空了，自动退出删除模式，避免“完成”按钮还在
       if (field === "pickupSpot" && (!this.data.pickupSpotList || this.data.pickupSpotList.length === 0)) {
         this.setData({ pickupDeleteMode: false })
@@ -433,5 +431,5 @@ Page({
       wx.showToast({ title: "删除失败，请重试", icon: "none" })
     }
   },
-  
+
 })

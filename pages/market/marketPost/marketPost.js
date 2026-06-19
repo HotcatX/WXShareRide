@@ -1,4 +1,3 @@
-const MARKET_SAVED_LOCATION_KEY = "market_post_saved_location_v1"
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
 const MARKET_MAIN_IMAGE_MAX_SIDE = 1280
@@ -6,14 +5,15 @@ const MARKET_MAIN_CANVAS_QUALITY = 0.78
 const MARKET_THUMB_CANVAS_QUALITY = 0.72
 const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_DEFAULT_PICKUP_DAYS = 14
+const { showDataError } = require("../../../utils/error")
 
-// ========== 图片压缩（上传前压缩，失败自动回退原图，保证不出错） ==========
+// ========== 图片压缩（上传前压缩，压缩失败使用原图，保证不出错） ==========
 function compressForUpload(srcPath, quality = 70) {
   return new Promise(resolve => {
     if (!srcPath) return resolve(srcPath)
     wx.compressImage({
       src: srcPath,
-      quality, // 0~100，建议 60~80
+      quality,
       success: res => resolve(res.tempFilePath || srcPath),
       fail: () => resolve(srcPath)
     })
@@ -243,7 +243,6 @@ function registerUploadedMarketFiles(files, goodsId = "") {
       files: payload
     }
   }).catch(e => {
-    console.warn("[trackMarketFiles] ignored:", e)
   })
 }
 
@@ -274,6 +273,28 @@ function buildLocationMeta(displayName, source = {}) {
   }
 }
 
+function isEmptyProfileRegion(value) {
+  const parts = normalizeLocationText(value).split("/").map(s => s.trim()).filter(Boolean)
+  if (!parts.length) return true
+  return parts.every(part => part === "无" || part === "—")
+}
+
+function buildProfileLocationDisplay(user = {}) {
+  const bigregion = normalizeLocationText(user.bigregion)
+  const address = normalizeLocationText(user.address || user.location?.displayName)
+  const hasRegion = bigregion && !isEmptyProfileRegion(bigregion)
+
+  if (hasRegion) {
+    const regionParts = bigregion.split("/").map(s => s.trim()).filter(Boolean)
+    if (regionParts.length >= 3 || !address) return bigregion
+    if (address.includes("/")) return address
+    if (regionParts.includes(address)) return bigregion
+    return `${bigregion} / ${address}`
+  }
+
+  return address
+}
+
 // ========== 分类 / 常用语 / 新旧程度 ==========
 const CATEGORY_OPTIONS = [
  "家具", "厨具", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
@@ -285,75 +306,6 @@ const QUICK_PHRASES = [
   "搬家出闲置，急出"
 ]
 const CONDITION_OPTIONS = ["全新", "99新", "9新", "7新", "5新", "3新"]
-const MARKET_REGION_TREE = [
-  {
-    label: "NJ",
-    children: [
-      { label: "FL", children: ["Modern", "Fiat House"] },
-      { label: "JC", children: ["Newport", "Journal Sq", "Exchange Place"] }
-    ]
-  },
-  {
-    label: "NY",
-    children: [
-      { label: "上城", children: ["Inwood", "125St", "哥大步行楼", "96St"] },
-      { label: "中城", children: ["Times Sq", "42St", "34St"] },
-      { label: "下城", children: ["SoHo", "Chinatown", "Wall St"] },
-      { label: "LIC", children: ["Court Sq", "Hunters Point", "Queens Plaza"] }
-    ]
-  }
-]
-
-function clampIndex(value, length) {
-  const n = Number(value) || 0
-  if (n < 0) return 0
-  if (!length) return 0
-  return Math.min(n, length - 1)
-}
-
-function normalizeRegionPickerValue(value = [0, 0, 0]) {
-  const tree = MARKET_REGION_TREE
-  const v0 = clampIndex(value[0], tree.length)
-  const lv1 = tree[v0] || tree[0]
-  const v1 = clampIndex(value[1], (lv1.children || []).length)
-  const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0]
-  const v2 = clampIndex(value[2], (lv2?.children || []).length)
-  return [v0, v1, v2]
-}
-
-function buildRegionPickerColumns(value = [0, 0, 0]) {
-  const [v0, v1] = normalizeRegionPickerValue(value)
-  const lv1 = MARKET_REGION_TREE[v0] || MARKET_REGION_TREE[0]
-  const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0]
-  return [
-    MARKET_REGION_TREE.map(item => item.label),
-    (lv1.children || []).map(item => item.label),
-    (lv2?.children || []).filter(Boolean)
-  ]
-}
-
-function buildRegionNameFromPicker(value = [0, 0, 0]) {
-  const [v0, v1, v2] = normalizeRegionPickerValue(value)
-  const lv1 = MARKET_REGION_TREE[v0]
-  const lv2 = (lv1?.children || [])[v1]
-  const lv3 = (lv2?.children || [])[v2]
-  return [lv1?.label, lv2?.label, lv3].filter(Boolean).join(" / ")
-}
-
-function findRegionPickerValue(displayName) {
-  const parts = normalizeLocationText(displayName).split("/").map(s => s.trim()).filter(Boolean)
-  if (!parts.length) return [0, 0, 0]
-
-  const v0 = MARKET_REGION_TREE.findIndex(item => item.label === parts[0])
-  if (v0 < 0) return [0, 0, 0]
-
-  const lv1 = MARKET_REGION_TREE[v0]
-  const v1 = (lv1.children || []).findIndex(item => item.label === parts[1])
-  const safeV1 = v1 >= 0 ? v1 : 0
-  const lv2 = (lv1.children || [])[safeV1]
-  const v2 = (lv2?.children || []).findIndex(item => item === parts[2])
-  return [v0, safeV1, v2 >= 0 ? v2 : 0]
-}
 
 Page({
   data: {
@@ -364,12 +316,10 @@ Page({
     editId: '',
     editLoading: false,
 
-    // ✅ 改：image 仅用于预览（临时路径）
+    // image 仅用于预览（本地路径）
     image: "",
-    // ✅ 新增：imageFileID 专门用于提交（cloud:// fileID）
     imageFileID: "",
 
-    // ✅ 新增：多图 + 缩略图（不影响现有 UI：仍然只预览第一张）
     images: [],
     imageFileIDs: [],
     thumbFileID: "",
@@ -382,20 +332,17 @@ Page({
     title: "",
     desc: "",
 
-    category: "",
+    category: "其他",
     price: "",
     condition: "99新",
     region: "",
     locationInput: "",
     location: {},
-    locationMode: "manual",
-    locationSaved: false,
-    regionPickerValue: [0, 0, 0],
-    regionPickerColumns: buildRegionPickerColumns([0, 0, 0]),
     ...buildDefaultPickupWindow(),
 
     categoryOptions: CATEGORY_OPTIONS,
-    categoryIndex: -1,
+    categoryIndex: CATEGORY_OPTIONS.indexOf("其他"),
+    profileWechatID: "",
 
     quickPhrases: QUICK_PHRASES,
 
@@ -408,67 +355,63 @@ Page({
 
   onLoad(options) {
     const sys = wx.getSystemInfoSync()
-    this.setData({
-      statusBarHeight: sys.statusBarHeight || 0,
-      ...normalizePickupWindow(this.data.pickupStartDate, this.data.pickupEndDate)
-    })
-
-    this._applySavedLocation()
-
-    // ✅ 编辑模式：从 marketDetail 进入
     const id = options?.id || ''
     const mode = options?.mode || ''
     const isEdit = !!id && String(mode).toLowerCase() === 'edit'
-    if (isEdit) {
-      this.setData({ isEdit: true, editId: id })
-      this._loadExistingItem(id)
-    }
-  },
 
-  _applySavedLocation() {
-    try {
-      const saved = wx.getStorageSync(MARKET_SAVED_LOCATION_KEY)
-      if (!saved || !saved.displayName) return
-      const regionPickerValue = findRegionPickerValue(saved.displayName)
-      this.setData({
-        region: saved.displayName,
-        locationInput: saved.displayName,
-        location: buildLocationMeta(saved.displayName, saved),
-        locationMode: "manual",
-        locationSaved: true,
-        regionPickerValue,
-        regionPickerColumns: buildRegionPickerColumns(regionPickerValue)
-      })
-    } catch (e) {
-      // 本地缓存异常不影响发布。
-    }
-  },
-
-  _saveLocationToStorage(showToast = true) {
-    const displayName = normalizeLocationText(this.data.locationInput || this.data.region)
-    if (!displayName) {
-      if (showToast) wx.showToast({ title: "请先填写位置", icon: "none" })
-      return false
-    }
-
-    const location = buildLocationMeta(displayName, this.data.location || {})
-    const saved = {
-      ...location,
-      displayName,
-      mode: this.data.locationMode || location.source || "manual",
-      savedAt: Date.now()
-    }
-
-    wx.setStorageSync(MARKET_SAVED_LOCATION_KEY, saved)
     this.setData({
-      region: displayName,
-      locationInput: displayName,
-      location,
-      locationSaved: true
+      statusBarHeight: sys.statusBarHeight || 0,
+      isEdit,
+      editId: isEdit ? id : '',
+      ...normalizePickupWindow(this.data.pickupStartDate, this.data.pickupEndDate)
     })
 
-    if (showToast) wx.showToast({ title: "住处已保存", icon: "success" })
-    return true
+    if (isEdit) {
+      this._loadExistingItem(id)
+    } else {
+      this._applyDefaultLocation()
+    }
+    this._hasLoaded = true
+  },
+
+  onShow() {
+    if (!this._hasLoaded || this.data.isEdit || this._locationTouched) return
+    this._applyProfileLocation()
+  },
+
+  async _applyDefaultLocation() {
+    await this._applyProfileLocation()
+  },
+
+  async _applyProfileLocation() {
+    if (this.data.isEdit || this._locationTouched) return false
+
+    try {
+      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      const user = (res?.result?.data || [])[0] || null
+      const profileWechatID = normalizeLocationText(user?.wechatID)
+      const displayName = buildProfileLocationDisplay(user || {})
+      if (this.data.isEdit || this._locationTouched) return false
+      if (!displayName) {
+        this.setData({ profileWechatID })
+        return false
+      }
+
+      const location = buildLocationMeta(displayName, {
+        ...(user?.location || {}),
+        source: user?.location ? (user.location.source || "profile") : "profile"
+      })
+      this.setData({
+        profileWechatID,
+        region: displayName,
+        locationInput: displayName,
+        location
+      })
+      return true
+    } catch (e) {
+      showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
+      return false
+    }
   },
 
   // =========================
@@ -501,7 +444,6 @@ Page({
       const category = x.category || ''
       const categoryIndex = CATEGORY_OPTIONS.indexOf(category)
       const locationDisplayName = x.location?.displayName || x.region || ''
-      const regionPickerValue = findRegionPickerValue(locationDisplayName)
 
       // 图片：回填 fileIDs + 预览 temp urls
       const fileIds = Array.isArray(x.imageFileIDs) && x.imageFileIDs.length
@@ -524,10 +466,6 @@ Page({
         region: x.region || '',
         locationInput: locationDisplayName,
         location: x.location || buildLocationMeta(x.region || ''),
-        locationMode: x.location?.source === 'current' ? 'current' : 'manual',
-        locationSaved: false,
-        regionPickerValue,
-        regionPickerColumns: buildRegionPickerColumns(regionPickerValue),
 
         // 单图预览仍用 image
         image: tempUrls[0] || '',
@@ -547,7 +485,7 @@ Page({
       })
     } catch (e) {
       console.error(e)
-      wx.showToast({ title: '加载失败', icon: 'none' })
+      showDataError("商品加载失败", e, "商品详情从数据库加载失败，请稍后重试。")
     } finally {
       this.setData({ editLoading: false })
     }
@@ -559,6 +497,54 @@ Page({
   },
 
   noop() {},
+
+  onTapProfileLocation() {
+    wx.navigateTo({ url: "/pages/profile/editInfo/editInfo?from=marketPost" })
+  },
+
+  async _getMyUserInfo() {
+    try {
+      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      return (res?.result?.data || [])[0] || {}
+    } catch (e) {
+      console.error("[marketPost] getUserInfo failed:", e)
+      showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
+      return null
+    }
+  },
+
+  _promptEditProfile(title, content) {
+    wx.showModal({
+      title,
+      content,
+      confirmText: "去填写",
+      cancelText: "取消",
+      success: res => {
+        if (res.confirm) this.onTapProfileLocation()
+      }
+    })
+  },
+
+  _applyProfileToForm(user = {}) {
+    const profileWechatID = normalizeLocationText(user.wechatID)
+    const displayName = buildProfileLocationDisplay(user || {})
+    const updates = { profileWechatID }
+
+    if (displayName && (!this._locationTouched || !this.data.locationInput)) {
+      const location = buildLocationMeta(displayName, {
+        ...(user.location || {}),
+        source: user.location ? (user.location.source || "profile") : "profile"
+      })
+      Object.assign(updates, {
+        region: displayName,
+        locationInput: displayName,
+        location
+      })
+    }
+
+    this.setData(updates)
+    return updates
+  },
 
   // ========== 登录检查（发布前必须登录且非游客） ==========
   ensureLoginBeforePost() {
@@ -720,77 +706,6 @@ Page({
     this.setData(normalizePickupWindow(this.data.pickupStartDate, end))
   },
 
-  onRegionPickerColumnChange(e) {
-    const column = Number(e.detail.column)
-    const pickerValue = [...(this.data.regionPickerValue || [0, 0, 0])]
-    pickerValue[column] = Number(e.detail.value) || 0
-    if (column === 0) {
-      pickerValue[1] = 0
-      pickerValue[2] = 0
-    }
-    if (column === 1) {
-      pickerValue[2] = 0
-    }
-
-    const nextValue = normalizeRegionPickerValue(pickerValue)
-    this.setData({
-      regionPickerValue: nextValue,
-      regionPickerColumns: buildRegionPickerColumns(nextValue)
-    })
-  },
-
-  onRegionPickerChange(e) {
-    const pickerValue = normalizeRegionPickerValue(e.detail.value || this.data.regionPickerValue || [0, 0, 0])
-    const value = buildRegionNameFromPicker(pickerValue)
-    this.setData({
-      locationInput: value,
-      region: value,
-      location: buildLocationMeta(value, { source: "picker" }),
-      locationMode: "manual",
-      locationSaved: false,
-      regionPickerValue: pickerValue,
-      regionPickerColumns: buildRegionPickerColumns(pickerValue)
-    })
-  },
-
-  onSelectManualLocation() {
-    this.setData({
-      locationMode: "manual",
-      location: buildLocationMeta(this.data.locationInput || this.data.region, {
-        ...(this.data.location || {}),
-        source: "manual"
-      }),
-      locationSaved: false
-    })
-  },
-
-  onClearLocation() {
-    const regionPickerValue = [0, 0, 0]
-    this.setData({
-      region: "",
-      locationInput: "",
-      location: {},
-      locationMode: "manual",
-      locationSaved: false,
-      regionPickerValue,
-      regionPickerColumns: buildRegionPickerColumns(regionPickerValue)
-    })
-  },
-
-  onSaveLocation() {
-    this._saveLocationToStorage(true)
-  },
-
-  onUseCurrentLocation() {
-    this.setData({ locationMode: "manual" })
-    wx.showModal({
-      title: "位置功能测试中",
-      content: "当前位置功能暂时作为占位展示，请先使用手动选择填写取货位置。",
-      showCancel: false,
-      confirmText: "知道了"
-    })
-  },
-
   onTapPhrase(e) {
     const t = e.currentTarget.dataset.text || ""
     const old = this.data.desc || ""
@@ -833,8 +748,6 @@ onChooseCondition() {
       pickupStartDate,
       pickupEndDate
     } = this.data
-    const region = normalizeLocationText(this.data.locationInput || this.data.region)
-    const location = buildLocationMeta(region, this.data.location || {})
     const imageFileIDs = uniqFileIDs([imageFileID, ...(Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [])])
     const thumbFileIDs = uniqFileIDs([this.data.thumbFileID, ...(Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [])])
     const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate)
@@ -846,11 +759,24 @@ onChooseCondition() {
     }
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
     if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
+
+    const profile = await this._getMyUserInfo()
+    if (!profile) return
+    const profileUpdates = this.data.isEdit
+      ? { profileWechatID: normalizeLocationText(profile.wechatID) }
+      : this._applyProfileToForm(profile)
+    if (this.data.isEdit) this.setData(profileUpdates)
+    if (!normalizeLocationText(profile.wechatID)) {
+      this._promptEditProfile("请先填写微信号", "发布闲置前需要在个人资料里填写微信号，方便买家联系。")
+      return
+    }
+
+    const region = normalizeLocationText(profileUpdates.locationInput || this.data.locationInput || this.data.region)
+    const location = buildLocationMeta(region, profileUpdates.location || this.data.location || {})
     if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
     if (!expireTime) return wx.showToast({ title: "请选择可取时间", icon: "none" })
 
     this.setData({ submitting: true })
-    this._saveLocationToStorage(false)
 
     try {
       const payload = {
@@ -895,7 +821,7 @@ onChooseCondition() {
         name: "createMarketItem",
         data: payload
       })
-      
+
       const r = checkRes?.result || {}
       if (r.ok === false) {
         wx.showToast({ title: r.message || "发布失败", icon: "none" })
@@ -914,7 +840,7 @@ onChooseCondition() {
       setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
     } catch (e) {
       console.error(e)
-      wx.showToast({ title: "发布失败", icon: "none" })
+      showDataError("发布失败", e, "商品保存到数据库失败，请稍后重试。")
     } finally {
       this.setData({ submitting: false })
     }

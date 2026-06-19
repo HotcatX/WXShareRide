@@ -150,7 +150,6 @@ exports.main = async (event, context) => {
             })
           }
         } catch (eNotify) {
-          console.warn('【editMyTripDetailPassenger】carpool notify failed:', eNotify)
         }
       }
 
@@ -166,7 +165,6 @@ exports.main = async (event, context) => {
           })
         }
       } catch (e2) {
-        console.warn('【editMyTripDetailPassenger】clean userInfo (carpool) failed:', e2)
       }
 
       return {
@@ -251,7 +249,6 @@ exports.main = async (event, context) => {
           )
         }
       } catch (eNotify2) {
-        console.warn('【editMyTripDetailPassenger】request notify failed:', eNotify2)
       }
     }
 
@@ -267,7 +264,6 @@ exports.main = async (event, context) => {
         })
       }
     } catch (e3) {
-      console.warn('【editMyTripDetailPassenger】clean userInfo (request) failed:', e3)
     }
 
     return {
@@ -279,8 +275,7 @@ exports.main = async (event, context) => {
     console.error('【editMyTripDetailPassenger】error:', e)
     return {
       ok: false,
-      errorMsg: '操作失败（云函数异常）',
-      debug: { errMsg: e && e.errMsg, message: e && e.message, stack: e && e.stack }
+      errorMsg: '操作失败（云函数异常）'
     }
   }
 }

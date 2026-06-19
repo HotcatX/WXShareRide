@@ -2,7 +2,6 @@ page{
   background: #F6EFE8;
 }
 
-/* 页面骨架 */
 .ui-page{
   height: 100vh;
   overflow: hidden;
@@ -11,7 +10,6 @@ page{
   flex-direction: column;
 }
 
-/* 顶部导航（保留） */
 .nav-bar{
   width: 100%;
   background-color: #ffffff;
@@ -36,7 +34,6 @@ page{
   color: #111;
 }
 
-/* 加载态 */
 .state-text{
   flex: 1;
   text-align: center;
@@ -45,7 +42,6 @@ page{
   color: rgba(0,0,0,0.45);
 }
 
-/* 滚动区 */
 .ui-scroll{
   flex: 1;
   min-height: 0;
@@ -53,7 +49,6 @@ page{
   box-sizing: border-box;
 }
 
-/* 同款白卡 */
 .ui-card{
   background: #fff;
   border-radius: 26rpx;
@@ -63,7 +58,6 @@ page{
   margin-top: 18rpx;
 }
 
-/* 提示卡 */
 .ui-notice{
   border: 2rpx solid rgba(238,156,115,0.28);
   background: rgba(238,156,115,0.10);
@@ -82,7 +76,6 @@ page{
   line-height: 1.6;
 }
 
-/* 顶部 toast：统一轻提示条 */
 .ui-toast{
   margin-top: 12rpx;
   padding: 14rpx 16rpx;
@@ -103,7 +96,6 @@ page{
   color: rgba(0,0,0,0.60);
 }
 
-/* 你原来的 toastType 如果有 success/warn/error，可以继续沿用（可选） */
 .ui-toast.success{
   background: rgba(156,176,106,0.14);
   border-color: rgba(156,176,106,0.28);
@@ -117,12 +109,10 @@ page{
   border-color: rgba(254,129,75,0.26);
 }
 
-/* 底部留空 */
 .ui-bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* 底部固定白框 */
 .ui-bottom-fixed{
   position: fixed;
   left: 0;
@@ -140,7 +130,6 @@ page{
   justify-content: center;
 }
 
-/* 主按钮（同款二手交易） */
 .ui-primary-btn{
   width: 93%;
   height: 96rpx;
@@ -157,7 +146,6 @@ page{
 }
 .ui-primary-btn::after{ border: none; }
 
-/* 禁用态：灰色 + 内凹阴影（你刚刚要求的内置阴影） */
 .ui-primary-btn--disabled{
   background: #f0f0f0 !important;
   color: #9a9a9a !important;
@@ -166,7 +154,6 @@ page{
     inset 0 -4rpx 6rpx rgba(255,255,255,0.8) !important;
 }
 
-/* ====== 卡片内文字排版（保持你原结构，颜色统一） ====== */
 .card-title{
   font-size: 28rpx;
   font-weight: 900;
@@ -266,7 +253,6 @@ page{
   font-weight: 900;
 }
 
-/* 微信/手机号/Zelle 行保持不换行 */
 .wechat-row,
 .phone-row,
 .zelle-row{
@@ -275,7 +261,6 @@ page{
   flex-wrap: nowrap;
 }
 
-/* 复制按钮统一 */
 .copy-btn{
   padding: 0 18rpx;
   font-size: 22rpx;
@@ -296,16 +281,14 @@ page{
 }
 
 .pudo-label{
-  width: 120rpx;            /* 固定 label 宽度，保证两行对齐 */
-  font-size: 28rpx;
+  width: 120rpx;            font-size: 28rpx;
   color: #111;
   font-weight: 600;
 }
 
 .pudo-input-wrap{
   flex: 1;
-  background: #f3f3f3;      /* 灰色框 */
-  border-radius: 14rpx;
+  background: #f3f3f3;      border-radius: 14rpx;
   padding: 0 16rpx;
   height: 74rpx;
   display: flex;

@@ -1,9 +1,3 @@
-/* =========================
-   pages/home/home.wxss
-   主页（无司机/乘客身份区分版本）
-   ========================= */
-
-/* ========= 全局背景与容器 ========= */
 page{
   background: #f7efe9;
 }
@@ -14,7 +8,6 @@ page{
   box-sizing: border-box;
 }
 
-/* ========= 顶部导航栏 ========= */
 .nav-bar{
   width: 100%;
   background: #fff;
@@ -29,22 +22,18 @@ page{
   box-sizing: border-box;
 }
 
-/* 左侧区域：放登录按钮；固定宽度保证标题永远绝对居中 */
 .nav-left{
   width: 260rpx;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  z-index: 2;                    /* 防止被标题层盖住导致点不到 */
-}
+  z-index: 2;                    }
 
-/* 右侧占位（将来如果放图标也不会影响标题居中） */
 .nav-right{
   width: 260rpx;
   height: 1px;
 }
 
-/* 标题绝对居中 */
 .nav-title{
   position: absolute;
   left: 50%;
@@ -59,21 +48,17 @@ page{
   z-index: 1;
 }
 
-/* 导航栏里的登录按钮（✅ 适当拉长） */
 .nav-login-btn{
   height: 64rpx;
   line-height: 56rpx;
   font-size: 26rpx;
-  padding: 0 18rpx;              /* ✅ 左右更大 -> 更“长” */
-  min-width: 190rpx;             /* ✅ 进一步保证按钮长度 */
-  border-radius: 999rpx;
+  padding: 0 18rpx;              min-width: 190rpx;             border-radius: 999rpx;
   background: #179E16;
   color: #fff;
   margin: 0;
   box-sizing: border-box;
 }
 
-/* 去掉 button 默认边框 */
 .nav-login-btn::after{
   border: none;
 }
@@ -83,7 +68,6 @@ page{
   color: #666;
 }
 
-/* ========= 顶部两张大卡片按钮（发车/拼车） ========= */
 .hero-grid{
   display: flex;
   justify-content: center;
@@ -106,23 +90,18 @@ page{
   display: block;
 }
 
-/* ========= 行程区域整体（创建路线 / 加入路线） ========= */
 .trip-canvas{
   width: 95%;
   margin: 0 auto;
 }
 
-/* section 白框（✅ 高度缩小：padding、间距都更紧凑） */
 .section-box{
   background: #fff;
   border-radius: 26rpx;
-  padding: 10rpx 12rpx;          /* ✅ 原 12/14 -> 更小 */
-  margin-top: 18rpx;             /* ✅ 原 26 -> 更小 */
-  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.04);
+  padding: 10rpx 12rpx;          margin-top: 18rpx;             box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.04);
   box-sizing: border-box;
 }
 
-/* section 标题栏 */
 .section-head{
   display: flex;
   align-items: center;
@@ -138,15 +117,13 @@ page{
 .section-action{
   display: flex;
   align-items: center;
-  padding: 4rpx 8rpx;            /* ✅ 略缩小 */
-  color: #999;
+  padding: 4rpx 8rpx;            color: #999;
 }
 
 .action-text{
   font-size: 26rpx;
 }
 
-/* 互斥展开：非当前块压缩为条状（只留标题行） */
 .section-bar{
   padding-bottom: 0 !important;
 }
@@ -155,33 +132,24 @@ page{
   display: none;
 }
 
-/* ========= scroll-view 固定高度：收起/展开（✅ 整体更矮） ========= */
 .trip-fixed{
   overflow: hidden;
-  margin-top: 10rpx;             /* ✅ 原 12 -> 更小 */
-}
+  margin-top: 10rpx;             }
 
-/* 收起：显示 1 条高度（✅ 略降） */
 .trip-fixed--collapse{
-  height: 116rpx;                /* 原 132 */
-}
+  height: 116rpx;                }
 
-/* 展开：显示约 3 条高度（✅ 略降） */
 .trip-fixed--expand{
-  height: 348rpx;                /* 原 396 */
-}
+  height: 348rpx;                }
 
-/* 空态占位：跟收起一致 */
 .trip-empty-slot{
-  height: 116rpx;                /* 原 132 */
-  display: flex;
+  height: 116rpx;                display: flex;
   align-items: center;
   justify-content: center;
   color: #999;
   font-size: 26rpx;
 }
 
-/* ========= 单条行程卡片（徽章 + 绿卡） ========= */
 .trip-item{
   display: flex;
   align-items: center;
@@ -238,7 +206,6 @@ page{
   opacity: 0.9;
 }
 
-/* ========= 社区数据 ========= */
 .community-stats-section{
   margin-top: 30rpx;
 }
@@ -366,7 +333,6 @@ page{
   line-height: 1.45;
 }
 
-/* ========= 可选：全局加载遮罩（保留） ========= */
 .global-loading{
   position: fixed;
   left: 0;
@@ -396,9 +362,6 @@ page{
   color: #666;
 }
 
-/* ========= 兼容保留：如果你还没删掉页面主体里的 login-row/login-btn =========
-   如果你已经把登录按钮放到导航栏了，可以把下面整段删掉
-======== */
 .login-row{
   width: 100%;
   display: flex;

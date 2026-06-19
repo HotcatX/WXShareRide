@@ -1,4 +1,3 @@
-/* 整页背景 + 居中 */
 .container {
   padding: 30rpx;
   background-color: #f5f5f5;
@@ -6,32 +5,25 @@
   box-sizing: border-box;
 }
 
-/* 白色信息卡片 */
 .form-card {
   background-color: #ffffff;
   border-radius: 16rpx;
   padding: 30rpx 24rpx;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.04);
-  margin-bottom: 60rpx; /* 白卡片和按钮之间留一点空间 */
-}
+  margin-bottom: 60rpx; }
 
-/* 每一行表单项 */
 .form-item {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  margin-bottom: 40rpx;  /* 行间距大一点，看起来更疏朗 */
-}
+  margin-bottom: 40rpx;  }
 
-/* 左侧标签 */
 .label {
   width: 150rpx;
   font-size: 28rpx;
   color: #555;
-  line-height: 80rpx;   /* 和输入框高度对齐 */
-}
+  line-height: 80rpx;   }
 
-/* 横向布局区域（地区 + 手机号） */
 .field-row {
   flex: 1;
   display: flex;
@@ -40,7 +32,6 @@
   gap: 20rpx;
 }
 
-/* 纵向布局区域（两个微信号） */
 .field-column {
   flex: 1;
   display: flex;
@@ -48,7 +39,6 @@
   gap: 20rpx;
 }
 
-/* 输入框统一样式 */
 .input {
   flex: 1;
   height: 80rpx;
@@ -60,7 +50,6 @@
   box-sizing: border-box;
 }
 
-/* 地区选择器 */
 .picker {
   width: 150rpx;
 }
@@ -76,7 +65,6 @@
   box-sizing: border-box;
 }
 
-/* 底部按钮区域 */
 .buttons {
   width: 100%;
   display: flex;
@@ -85,34 +73,29 @@
   margin-top: 10rpx;
 }
 
-/* 更长：宽度 90%，更细：padding 变小一点 */
 .btn {
   width: 90%;
   max-width: 650rpx;
-  padding: 14rpx 0;      /* 原来是 20rpx，可适当再调 */
-  border-radius: 999rpx; /* 更细长的胶囊形 */
-  font-size: 30rpx;
+  padding: 14rpx 0;      border-radius: 999rpx; font-size: 30rpx;
 }
 
-/* 主按钮保持绿色 */
 .main-btn {
   background-color: #07c160;
   color: white;
 }
 
-/* 顶部导航栏 */
-.header { 
-  display:flex; 
-  align-items:center; 
-  height:80rpx; 
-  padding:0 20rpx; 
+.header {
+  display:flex;
+  align-items:center;
+  height:80rpx;
+  padding:0 20rpx;
 }
 
-.title { 
-  flex:1; 
-  text-align:center; 
-  font-size:40rpx; 
-  font-weight:bold; 
+.title {
+  flex:1;
+  text-align:center;
+  font-size:40rpx;
+  font-weight:bold;
 }
 
 .nav-bar {
@@ -128,7 +111,6 @@
   position: relative;
 }
 
-/* 顶部头像区域 */
 .avatar-section {
   margin-top: 40rpx;
   margin-bottom: 20rpx;
@@ -137,7 +119,6 @@
   align-items: center;
 }
 
-/* 外层 button，只保留点击功能，去掉一切装饰 */
 .avatar-wrapper {
   padding: 0;
   margin: 0;
@@ -147,51 +128,40 @@
   display: inline-block;
 }
 
-/* 去掉 button 默认那条边线（很关键） */
 .avatar-wrapper::after {
   border: none;
 }
 
-/* ⭐ 这层是精确外框，大小就是头像大小 */
 .avatar-border {
-  width: 180rpx;          /* 头像整体尺寸 */
-  height: 180rpx;
-  border-radius: 16rpx;   /* 想完全方形就改成 0 */
-  border: 2rpx solid #dddddd;   /* 外框颜色/粗细在这里调 */
-  overflow: hidden;       /* 把图片裁在边框内部 */
-  box-sizing: border-box; /* 确保 border 不撑大尺寸 */
-}
+  width: 180rpx;          height: 180rpx;
+  border-radius: 16rpx;   border: 2rpx solid #dddddd;   overflow: hidden;       box-sizing: border-box; }
 
-/* 图片本身 100% 填满外框容器 */
 .avatar {
   width: 100%;
   height: 100%;
-  display: block;         /* 去掉 inline-image 可能带来的缝隙 */
-  border: none;
+  display: block;         border: none;
   background-color: transparent;
 }
 
 
-/* 头像下方提示文字 */
 .avatar-tip {
   margin-top: 16rpx;
   font-size: 24rpx;
   color: #888;
 }
 
-/* 顶部导航栏 */
-.header { 
-  display:flex; 
-  align-items:center; 
-  height:80rpx; 
-  padding:0 20rpx; 
+.header {
+  display:flex;
+  align-items:center;
+  height:80rpx;
+  padding:0 20rpx;
 }
 
-.title { 
-  flex:1; 
-  text-align:center; 
-  font-size:40rpx; 
-  font-weight:bold; 
+.title {
+  flex:1;
+  text-align:center;
+  font-size:40rpx;
+  font-weight:bold;
 }
 
 .nav-bar {

@@ -38,7 +38,6 @@ exports.main = async (event, context) => {
       updateData.tripPassenger = doc.tripPassenger.concat(tripId)
     }
 
-    // 老数据兜底补齐
     if (!Array.isArray(doc.tripDriver))           updateData.tripDriver = []
     if (!Array.isArray(doc.tripDriverHistory))    updateData.tripDriverHistory = []
     if (!Array.isArray(doc.tripPassengerHistory)) updateData.tripPassengerHistory = []

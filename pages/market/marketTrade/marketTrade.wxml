@@ -1,10 +1,8 @@
 <view class="page">
 
-<!-- 顶部自定义导航 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
 
-    <!-- 返回按钮 -->
     <image
       class="back-icon"
       src="/images/back.png"
@@ -34,7 +32,6 @@
     bindtap="onOpenDetail"
     data-id="{{item.id}}"
   >
-    <!-- 左侧小图 -->
     <image wx:if="{{item.hasImage}}"
            class="thumb"
            src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
@@ -44,12 +41,10 @@
       <text>{{item.title}}</text>
     </view>
 
-    <!-- 中间标题 -->
     <view class="mid">
       <view class="title">{{item.title}}</view>
     </view>
 
-    <!-- 右侧价格 + 黄色联系按钮 -->
     <view class="right">
       <view class="price">¥{{item.price}}</view>
 

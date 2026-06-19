@@ -1,5 +1,3 @@
-<!-- pages/home/CarpoolTemplateList/CarpoolTemplateList.wxml -->
-
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -9,7 +7,6 @@
 
 <view class="container">
 
-  <!-- 顶部：司机/乘客 身份切换 -->
   <view class="role-bar">
     <view class="role-switch">
       <view
@@ -37,9 +34,6 @@
     <block wx:else>
       <block wx:for="{{templateList}}" wx:for-item="tpl" wx:key="_id">
 
-        <!-- ✅ 不再显示周几分组标题 -->
-
-        <!-- 模板卡片：排版与行程卡片一致 -->
         <view class="trip-card" bindtap="onTemplateCardTap" data-id="{{tpl._id}}">
           <view class="trip-main-row">
             <text class="place-text-left">{{tpl._fromAddress}}</text>
@@ -48,7 +42,6 @@
           </view>
 
           <view class="trip-sub-row">
-            <!-- 时间仍显示：周三 17:00 -->
             <text class="time-text">{{tpl._timeLabel}}</text>
             <text class="seat-text">载客：{{tpl.passengerCount || 4}}人</text>
           </view>
@@ -61,13 +54,10 @@
 
   <block wx:else>
 
-<!-- 乘客：常用出行地址 -->
 <view class="fav-wrap">
 
-<!-- 常用出发地 -->
 <view class="fav-card">
 
-  <!-- 第1行：标题 + 添加 -->
   <view class="fav-head">
     <text class="fav-title">常用出发地</text>
 
@@ -76,7 +66,6 @@
     </view>
   </view>
 
-  <!-- 输入框（添加时出现） -->
   <view wx:if="{{pickupEditing}}" class="fav-input-row">
     <input
       class="fav-input"
@@ -87,7 +76,6 @@
     />
   </view>
 
-  <!-- 第2行：地址(左) + 删除/完成(右) -->
   <view class="fav-body-row" wx:if="{{pickupSpotList && pickupSpotList.length>0}}">
     <view class="fav-tags">
       <block wx:for="{{pickupSpotList}}" wx:key="*this">
@@ -115,10 +103,8 @@
   </view>
 
 
-<!-- 常用目的地 -->
 <view class="fav-card">
 
-<!-- 第1行：标题 + 添加/保存 -->
 <view class="fav-head">
   <text class="fav-title">常用目的地</text>
 
@@ -127,7 +113,6 @@
   </view>
 </view>
 
-<!-- 输入框 -->
 <view wx:if="{{dropoffEditing}}" class="fav-input-row">
   <input
     class="fav-input"
@@ -138,7 +123,6 @@
   />
 </view>
 
-<!-- 第2行：地址(左) + 删除/完成(右) -->
 <view wx:if="{{dropoffSpotList && dropoffSpotList.length>0}}" class="fav-body-row">
   <view class="fav-tags">
     <block wx:for="{{dropoffSpotList}}" wx:key="*this">
@@ -173,7 +157,6 @@
 
 </view>
 
-<!-- 底部固定按钮：双按钮同一行（仅司机身份展示） -->
 <view class="ui-bottom-fixed" wx:if="{{currentRole === 'driver'}}">
   <view class="ui-bottom-bar ui-bottom-bar--double">
     <view class="ui-primary-btn ui-primary-btn--half" bindtap="goAddTemplate">

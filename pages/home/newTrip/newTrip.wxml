@@ -1,6 +1,4 @@
-<!-- pages/home/newTrip/newTrip.wxml -->
 
-<!-- 顶部自定义导航（保留结构） -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -8,7 +6,6 @@
   </view>
 </view>
 
-<!-- ✅ 角色切换：新增（默认司机） -->
 <view class="mode-switch-wrap">
   <view class="mode-switch">
     <view
@@ -28,18 +25,12 @@
   </view>
 </view>
 
-<!-- 页面骨架：同款米色背景 + 中间滚动 + 底部固定 -->
 <view class="ui-page">
 
-  <!-- ===================== -->
-  <!-- ✅ 司机视图 -->
-  <!-- ===================== -->
   <view wx:if="{{mode==='driver'}}">
 
-    <!-- 顶部：出发地/目的地 + 日期时间 + 载客数（同款卡片） -->
     <view class="ui-card">
 
-      <!-- 第一行：出发地 / 目的地 -->
       <view class="route-row">
         <view class="route-item">
           <picker
@@ -78,7 +69,6 @@
         </view>
       </view>
 
-      <!-- 第二行：日期 / 时间 -->
       <view class="datetime-row">
         <view class="route-item">
           <picker mode="date" bindchange="onDateChange">
@@ -103,7 +93,6 @@
         </view>
       </view>
 
-      <!-- 第三行：载客数量 -->
       <view class="passenger-inline-row">
         <text class="passenger-label">载客数量</text>
         <input
@@ -115,7 +104,6 @@
       </view>
     </view>
 
-    <!-- 中间：参考价格 + 车辆信息 + 备注（同款卡片） -->
     <view class="ui-card">
 
       <view class="field-row">
@@ -172,7 +160,6 @@
 
     </view>
 
-    <!-- 是否公开 Zelle 信息 -->
     <view class="ui-card zelle-card">
       <checkbox-group bindchange="onZelleCheckboxChange">
         <label class="zelle-label">
@@ -182,19 +169,16 @@
       </checkbox-group>
     </view>
 
-    <!-- ✅ 常用模板 -->
     <view class="tpl-title-row">
       <text class="tpl-title">常用模板</text>
     </view>
 
-    <!-- 模板加载/空态 -->
     <view wx:if="{{loadingTemplates}}" class="state-text tpl-state">模板加载中…</view>
 
     <view wx:elif="{{templates.length === 0}}" class="state-text tpl-state">
       暂无模板（可在“个人中心-出行模板”中创建）
     </view>
 
-    <!-- 模板卡片列表 -->
     <view wx:else class="tpl-list">
       <view
         class="trip-card tpl-card"
@@ -213,10 +197,8 @@
       </view>
     </view>
 
-    <!-- 给底部固定按钮留空 -->
     <view class="ui-bottom-space"></view>
 
-    <!-- 底部固定（司机） -->
     <view class="ui-bottom-fixed">
       <view class="ui-bottom-bar">
         <view
@@ -230,15 +212,10 @@
 
   </view>
 
-  <!-- ===================== -->
-  <!-- ✅ 乘客视图 -->
-  <!-- ===================== -->
   <view wx:if="{{mode==='passenger'}}">
 
-    <!-- 顶部：路线 + 日期时间 + 人数 + 价格（同款白卡） -->
     <view class="ui-card">
 
-      <!-- 第一行：出发地 / 目的地 -->
       <view class="route-row">
         <view class="route-item">
           <picker
@@ -277,7 +254,6 @@
         </view>
       </view>
 
-      <!-- 第二行：日期 / 时间 -->
       <view class="datetime-row">
         <view class="route-item">
           <picker mode="date" bindchange="onDateChange">
@@ -302,7 +278,6 @@
         </view>
       </view>
 
-      <!-- 第三行：人数 -->
       <view class="passenger-inline-row">
         <text class="passenger-label">乘车人数（1-4）</text>
         <input
@@ -314,7 +289,6 @@
         />
       </view>
 
-      <!-- 第四行：价格（只读显示） -->
       <view class="passenger-inline-row">
         <text class="passenger-label">价格</text>
         <input
@@ -326,7 +300,6 @@
 
     </view>
 
-    <!-- 拼车选项 + 红色提示框 -->
     <view class="ui-carpool-section">
       <view class="ui-tip-carpool">
         <text class="ui-tip-carpool-title">注意事项：</text>
@@ -335,7 +308,6 @@
       </view>
     </view>
 
-    <!-- 强提示框 -->
     <view class="ui-tip-strong">
       <text class="ui-tip-title">提示：</text>
 
@@ -346,10 +318,8 @@
       </view>
     </view>
 
-    <!-- 给底部固定按钮留空 -->
     <view class="ui-bottom-space"></view>
 
-    <!-- 底部固定（乘客） -->
     <view class="ui-bottom-fixed">
       <view class="ui-bottom-bar">
         <button

@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部自定义导航 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="onBack" />
@@ -9,7 +8,6 @@
   </view>
 </view>
 
-<!-- 内容区：表单独立滚动，顶部导航和底部按钮保持固定 -->
 <scroll-view
   class="content-scroll"
   scroll-y="{{true}}"
@@ -19,9 +17,7 @@
 <view class="content">
 <view wx:if="{{editLoading}}" class="inline-loading">正在加载商品...</view>
 
-<!-- ✅ 卡片 1：图片 + 标题 + 描述 + 常用描述语 -->
 <view class="card">
-  <!-- 图片+说明 -->
   <view class="top-block">
     <view class="img-uploader" bindtap="onChooseImage">
       <image wx:if="{{image}}" class="img" src="{{image}}" mode="aspectFill" />
@@ -56,7 +52,6 @@
     />
   </view>
 
-  <!-- 常用描述语 -->
   <view class="quick-wrap">
     <view class="quick-title">添加常用描述语</view>
     <view class="chips">
@@ -73,7 +68,6 @@
   </view>
 </view>
 
-<!-- ✅ 卡片 2：类型/价格/新旧/位置 -->
 <view class="card">
   <view class="form">
     <picker
@@ -147,67 +141,20 @@
       </view>
     </picker>
 
-    <view class="expire-hint">商品会展示到可取结束当天，最长可选 2 个月。</view>
-
-    <view class="location-block">
-      <view class="location-title-row">
-        <view class="label">所在位置</view>
-        <text wx:if="{{locationSaved}}" class="location-saved">已保存</text>
-      </view>
-
-      <view class="location-mode-row">
-        <view
-          class="location-mode-btn {{locationMode === 'current' ? 'active' : ''}}"
-          bindtap="onUseCurrentLocation"
-        >
-          位置功能测试中
-        </view>
-        <view
-          class="location-mode-btn {{locationMode === 'manual' ? 'active' : ''}}"
-          bindtap="onSelectManualLocation"
-        >
-          手动选择
-        </view>
-      </view>
-
-      <view wx:if="{{locationMode === 'current'}}" class="location-current-card" bindtap="onUseCurrentLocation">
-        <text class="location-current-label">位置功能测试中</text>
-        <text class="location-current-sub">暂时请使用手动选择填写取货位置</text>
-      </view>
-
-      <view wx:else class="location-picker-wrap">
-        <picker
-          mode="multiSelector"
-          range="{{regionPickerColumns}}"
-          value="{{regionPickerValue}}"
-          bindcolumnchange="onRegionPickerColumnChange"
-          bindchange="onRegionPickerChange"
-        >
-          <view class="location-picker-row">
-            <text class="location-picker-value {{locationInput ? '' : 'is-placeholder'}}">{{locationInput || '请选择 NJ / NY 区域'}}</text>
-            <text class="arrow">›</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="location-actions">
-        <text wx:if="{{locationInput}}" class="location-save" bindtap="onSaveLocation">保存住处</text>
-        <text wx:if="{{locationInput}}" class="location-clear" bindtap="onClearLocation">清空</text>
-      </view>
-
-      <view class="location-hint">
-        住处保存后，下次发布会自动填写。也可以每次改成新的取货位置。
+    <view class="row location-row no-border" bindtap="onTapProfileLocation">
+      <view class="label">所在位置</view>
+      <view class="right location-right">
+        <text class="location-value {{locationInput ? '' : 'is-placeholder'}}">{{locationInput || '请到个人资料填写地址'}}</text>
+        <text class="arrow">›</text>
       </view>
     </view>
   </view>
 </view>
 
-<!-- 给底部固定发布按钮留空 -->
 <view class="bottom-space"></view>
 </view>
 </scroll-view>
 
-<!-- 底部固定：发布/保存 -->
 <view class="bottom-fixed">
   <view class="bottom-bar">
     <view
@@ -220,7 +167,6 @@
   </view>
 </view>
 
-<!-- ✅ 隐藏 canvas：生成缩略图用（不影响UI） -->
 <canvas canvas-id="mainCompressCanvas" style="position:fixed;left:-9999px;top:-9999px;width:1280px;height:1280px;"></canvas>
 <canvas canvas-id="thumbCanvas" style="position:fixed;left:-9999px;top:-9999px;width:300px;height:300px;"></canvas>
 

@@ -37,7 +37,6 @@ exports.main = async (event, context) => {
   try {
     const res = await coll.where({ _openid: openid }).limit(1).get()
 
-    // 没有 userInfo：兜底创建
     if (!res.data.length) {
       const now = new Date()
 
@@ -86,7 +85,6 @@ exports.main = async (event, context) => {
     const updateData = {
       updateTime: new Date(),
 
-      // 老字段兜底：保持字段存在且为数组（但不清空已有数据）
       tripDriver: oldTripDriver,
       tripPassenger: oldTripPassenger,
       tripDriverHistory: oldTripDriverHistory,

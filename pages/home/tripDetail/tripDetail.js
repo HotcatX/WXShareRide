@@ -29,7 +29,6 @@ function formatDateNoYear(dateStr) {
   return `${Number(m)}月${Number(d)}日`
 }
 
-// ===== 判断地址是否命中 Fort Lee 核心区关键词 =====
 function containsFortLeeCore(addr) {
   if (!addr) return false
   const s = String(addr).toLowerCase()
@@ -75,10 +74,10 @@ Page({
 
     pickupAddress: "",
     dropoffAddress: "",
-  
+
     pickupSpotList: [],
     dropoffSpotList: [],
-  
+
     showPickupOptions: false,
     showDropoffOptions: false,
   },
@@ -86,17 +85,17 @@ Page({
   async loadUserSpots() {
     const openid = wx.getStorageSync("openid")
     if (!openid) return
-  
+
     const db = wx.cloud.database()
     const res = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
     const info = res.data[0] || {}
-  
+
     this.setData({
       pickupSpotList: info.pickupSpot || [],
       dropoffSpotList: info.dropoffSpot || []
     })
   },
-  
+
 
   onPullDownRefresh: async function () {
     const { tripId, trip } = this.data
@@ -185,28 +184,28 @@ Page({
   onDropoffFocus() {
     this.setData({ showDropoffOptions: true })
   },
-  
+
   onPickupInput(e) {
     this.setData({
       pickupAddress: e.detail.value,
       showPickupOptions: false
     })
   },
-  
+
   onDropoffInput(e) {
     this.setData({
       dropoffAddress: e.detail.value,
       showDropoffOptions: false
     })
   },
-  
+
   onPickupOptionTap(e) {
     this.setData({
       pickupAddress: e.currentTarget.dataset.value,
       showPickupOptions: false
     })
   },
-  
+
   onDropoffOptionTap(e) {
     this.setData({
       dropoffAddress: e.currentTarget.dataset.value,
@@ -221,15 +220,15 @@ Page({
       showPickupOptions: false
     })
   },
-  
+
   onDropoffTagSelect(e) {
     const v = String(e.currentTarget.dataset.value || '').trim()
     this.setData({
       dropoffAddress: v,
       showDropoffOptions: false
     })
-  },  
-  
+  },
+
 
   goBack() {
     const pages = getCurrentPages()
@@ -295,7 +294,6 @@ Page({
         applied = this.applyTripData(cached.item, id, { fromPreview: true })
       }
     } catch (e) {
-      console.warn("read detail preview failed", e)
     }
 
     try {
@@ -308,7 +306,6 @@ Page({
         })
       }
     } catch (e) {
-      console.warn("bind detail preview channel failed", e)
     }
 
     return applied
@@ -383,7 +380,6 @@ Page({
 
       if (!res.result || !res.result.success) {
         if (this.data.trip) {
-          console.warn('getCarpoolDetail failed after preview:', res.result)
           return
         }
         this.showToastBar('加载失败', 'error')
@@ -404,7 +400,6 @@ Page({
 
       if (!trip) {
         if (this.data.trip) {
-          console.warn('getCarpoolDetail returned empty after preview')
           return
         }
         this.showToastBar('未找到该路线', 'warn')
@@ -429,7 +424,6 @@ Page({
       })
     } catch (err) {
       if (this.data.trip) {
-        console.warn('getCarpoolDetail error after preview:', err)
         return
       }
       this.showToastBar('网络异常', 'error')
@@ -541,7 +535,7 @@ Page({
 
       const userInfo = list[0]
       userInfo._openid = openid
-      
+
       // ✅ 微信号校验（只拦截，不跳转）
       if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {
         wx.showToast({
@@ -551,7 +545,7 @@ Page({
         this.setData({ submitting: false })
         return
       }
-      
+
       // ✅ 2) 把乘客的上车点/下车点附加到本次加入的乘客记录里
       //     （云函数 addCarpoolDetail 需要把这两个字段写入 passengers[] 的那一条记录）
       userInfo.pickupAddress = p
@@ -568,7 +562,7 @@ Page({
             dropoffAddress: this.data.dropoffAddress
           }
         }
-      })      
+      })
 
       const cResult = carpoolRes.result || {}
       if (!cResult.success) {

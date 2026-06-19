@@ -1,15 +1,12 @@
 <view class="login-container">
 
-<!-- 标题区域（居中） -->
 <view class="title-area">
   <view class="title">FL-NYC出行</view>
   <view class="subtitle">欢迎使用共享出行服务</view>
 </view>
 
-<!-- 按钮区（整体垂直居中） -->
 <view class="btn-area">
 
-  <!-- 微信登录 -->
   <button
     class="login-btn"
     bindtap="onLoginTap"
@@ -19,7 +16,6 @@
     微信快速登录
   </button>
 
-  <!-- 游客入口：放在微信登录下面 -->
   <button
     class="guest-btn"
     bindtap="onGuestTap"

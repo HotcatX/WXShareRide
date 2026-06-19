@@ -86,7 +86,6 @@ async function bumpServedTrips(delta, source, tripId, collection) {
         await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
         return true
       } catch (retryErr) {
-        console.warn('[bumpServedTrips] 统计自增失败:', retryErr)
         return false
       }
     }
@@ -128,7 +127,6 @@ async function completeTripAndCount(tripId, carpoolDoc, updateData) {
  */
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
   if (!toOpenid) {
-    console.warn('[sendNotification] 缺少 toOpenid，跳过发送')
     return
   }
   try {
@@ -144,7 +142,6 @@ async function sendNotification(toOpenid, type, title, content, carpoolId, extra
         createdAt: db.serverDate()
       }
     })
-    console.log('[sendNotification] 已发送通知给', toOpenid, type)
   } catch (e) {
     console.error('[sendNotification] 写入通知失败：', e)
   }
@@ -158,7 +155,6 @@ async function removeTripFromMyTrips(openidToClean, tripId) {
   const res = await coll.where({ _openid: openidToClean }).limit(1).get()
 
   if (!res.data.length) {
-    console.log('【removeTripFromMyTrips】没有找到 MyTrips 文档, _openid =', openidToClean)
     return
   }
 
@@ -166,14 +162,7 @@ async function removeTripFromMyTrips(openidToClean, tripId) {
   const oldTrips = Array.isArray(doc.trips) ? doc.trips : []
   const newTrips = oldTrips.filter(t => t.tripId !== tripId)
 
-  console.log(
-    '【removeTripFromMyTrips】_openid =', openidToClean,
-    'trip 数:', oldTrips.length, '→', newTrips.length,
-    'tripId =', tripId
-  )
-
   if (newTrips.length === oldTrips.length) {
-    console.log('【removeTripFromMyTrips】没有找到要删除的 tripId，保持不变')
     return
   }
 
@@ -193,7 +182,6 @@ async function removeTripFromUserInfo(openidToClean, tripId, fieldName) {
   const res = await coll.where({ _openid: openidToClean }).limit(1).get()
 
   if (!res.data.length) {
-    console.log('【removeTripFromUserInfo】没有找到 userInfo 文档, _openid =', openidToClean)
     return
   }
 
@@ -201,15 +189,7 @@ async function removeTripFromUserInfo(openidToClean, tripId, fieldName) {
   const oldList = Array.isArray(doc[fieldName]) ? doc[fieldName] : []
   const newList = oldList.filter(id => id !== tripId)
 
-  console.log(
-    '【removeTripFromUserInfo】_openid =', openidToClean,
-    'field =', fieldName,
-    '数量:', oldList.length, '→', newList.length,
-    'tripId =', tripId
-  )
-
   if (newList.length === oldList.length) {
-    console.log('【removeTripFromUserInfo】没有找到要删除的 tripId，保持不变')
     return
   }
 
@@ -226,7 +206,6 @@ async function moveTripInUserInfo(openidToClean, tripId, activeField, historyFie
   const res = await coll.where({ _openid: openidToClean }).limit(1).get()
 
   if (!res.data.length) {
-    console.log('【moveTripInUserInfo】没有找到 userInfo 文档, _openid =', openidToClean)
     return
   }
 
@@ -264,7 +243,6 @@ exports.main = async (event, context) => {
   const driverOpenid = wxContext.OPENID
 
   const { tripId, action, targetOpenid } = event || {}
-  console.log('【editMyTripDetailDriver】driverOpenid=', driverOpenid, 'tripId=', tripId, 'action=', action)
 
   if (!driverOpenid) return { ok: false, errorMsg: '未获取到 openid' }
   if (!tripId) return { ok: false, errorMsg: '缺少 tripId 参数' }
@@ -314,7 +292,6 @@ exports.main = async (event, context) => {
         { role: 'passenger', driverOpenid }
       )
 
-      console.log('【editMyTripDetailDriver】已剔除乘客:', targetOpenid, 'from trip:', tripId)
       return { ok: true, action: 'kick_passenger' }
     } catch (e) {
       console.error('【editMyTripDetailDriver】kickPassenger 失败：', e)
@@ -371,7 +348,6 @@ exports.main = async (event, context) => {
       ))
       const failed = results.filter(r => !r.ok)
       if (failed.length) {
-        console.warn('【editMyTripDetailDriver】路线已结束，但部分关联更新失败:', failed.map(r => r.reason && r.reason.message ? r.reason.message : r.reason))
       }
 
       return {
@@ -407,14 +383,11 @@ exports.main = async (event, context) => {
     const passengersArr = Array.isArray(carpoolDoc.passengers) ? carpoolDoc.passengers : []
     const passengerOpenids = passengersArr.map(p => p && p._openid).filter(Boolean)
 
-    console.log('【editMyTripDetailDriver】本路线乘客 openid 列表 =', passengerOpenids)
-
     // 拼接通知用信息
     const { dateStr, timeStr, routeStr } = buildRouteInfo(carpoolDoc)
 
     // 1) 删除 Carpool 整条路线
     await db.collection('Carpool').doc(tripId).remove()
-    console.log('【editMyTripDetailDriver】已删除 Carpool 记录:', tripId)
 
     // 2) 清理司机和乘客关联数据。路线已删除，后续清理失败不应阻断主结果。
     const cleanupTasks = [
@@ -440,7 +413,6 @@ exports.main = async (event, context) => {
     ))
     const cleanupFailed = cleanupResults.filter(r => !r.ok)
     if (cleanupFailed.length > 0) {
-      console.warn('【editMyTripDetailDriver】路线已删除，但部分关联清理失败:', cleanupFailed.map(r => r.reason && r.reason.message ? r.reason.message : r.reason))
     }
 
     return { ok: true, action: 'delete_trip_as_driver' }

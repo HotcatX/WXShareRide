@@ -193,7 +193,6 @@ async function bumpServedTrips(delta, source, tripId, collection) {
         await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
         return true
       } catch (retryErr) {
-        console.warn('[bumpServedTrips] 统计自增失败:', retryErr)
         return false
       }
     }
@@ -254,7 +253,6 @@ function computeCarpoolStatus(doc, now) {
 async function updateCarpoolDocs(list, now) {
   const collName = 'Carpool'
   let totalUpdated = 0
-  const debug = []
 
   const updateTasks = []
 
@@ -264,27 +262,10 @@ async function updateCarpoolDocs(list, now) {
     const result = computeCarpoolStatus(doc, now)
 
     if (!result.ok) {
-      debug.push({
-        coll: collName,
-        id: _id,
-        reason: result.reason,
-        departures: doc.departures || []
-      })
       return
     }
 
-    const { latest, diffMs, oldStatus, newStatus } = result
-    debug.push({
-      coll: collName,
-      id: _id,
-      now: now.toISOString(),
-      latest: latest.toISOString(),
-      diffMs,
-      diffHour: diffMs / (1000 * 60 * 60),
-      availSeatNum: doc.availSeatNum,
-      oldStatus,
-      newStatus
-    })
+    const { oldStatus, newStatus } = result
 
     const shouldUpdateMeta = Object.keys(departureMeta).some(key => doc[key] !== departureMeta[key])
     const shouldUpdateStatus = doc.status !== newStatus
@@ -306,7 +287,7 @@ async function updateCarpoolDocs(list, now) {
   const updateRes = await Promise.all(updateTasks)
   totalUpdated += updateRes.filter(x => x && x.updated !== false).length
 
-  return { totalUpdated, debug }
+  return { totalUpdated }
 }
 
 async function scanAndUpdateCarpool(now, ids = [], allowFullScan = false) {
@@ -325,7 +306,6 @@ async function scanAndUpdateCarpool(now, ids = [], allowFullScan = false) {
   if (!allowFullScan) {
     return {
       totalUpdated: 0,
-      debug: [],
       skipped: true,
       reason: 'ids-required'
     }
@@ -335,7 +315,6 @@ async function scanAndUpdateCarpool(now, ids = [], allowFullScan = false) {
   // User-facing pages must pass ids and should never trigger a full collection scan.
   let skip = 0
   let totalUpdated = 0
-  const debug = []
 
   while (true) {
     const res = await db.collection(collName).skip(skip).limit(pageSize).get()
@@ -344,11 +323,10 @@ async function scanAndUpdateCarpool(now, ids = [], allowFullScan = false) {
 
     const result = await updateCarpoolDocs(list, now)
     totalUpdated += result.totalUpdated
-    debug.push(...(result.debug || []))
     skip += pageSize
   }
 
-  return { totalUpdated, debug }
+  return { totalUpdated }
 }
 
 exports.main = async (event, context) => {
@@ -364,7 +342,6 @@ exports.main = async (event, context) => {
     scope: ids.length > 0 ? 'ids' : (allowFullScan ? 'full' : 'none'),
     skipped: !!res.skipped,
     reason: res.reason || '',
-    totalUpdatedCarpool: res.totalUpdated,
-    debugCarpool: (res.debug || []).slice(0, 30)
+    totalUpdatedCarpool: res.totalUpdated
   }
 }

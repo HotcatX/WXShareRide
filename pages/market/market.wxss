@@ -1,16 +1,12 @@
-/* 整页不滚动 */
 .page{
   height: 100vh;
   overflow: hidden;
-  background: #f7efe9; /* ✅ 尽量对齐新稿的浅米色背景 */
-  display: flex;
+  background: #f7efe9; display: flex;
   flex-direction: column;
 }
 
-/* 顶部导航 */
 .nav-bar{
-  background: #f2a073; /* ✅ 新稿顶部橙色 */
-  border-bottom: none;
+  background: #f2a073; border-bottom: none;
 }
 .nav-content{
   height: 44px;
@@ -39,21 +35,17 @@
 }
 .nav-right{ right:22rpx; }
 
-/* 搜索 */
 .search-row{
   padding: 18rpx 22rpx 16rpx 22rpx;
-  background: #f7efe9; /* ✅ 搜索区跟顶部同色 */
-}
+  background: #f7efe9; }
 .search-box{
   height: 70rpx;
-  border: 3rpx solid #f2a073; /* ✅ 橙色描边 */
-  border-radius: 999rpx;
+  border: 3rpx solid #f2a073; border-radius: 999rpx;
   display:flex;
   align-items:center;
   padding: 0 10rpx 0 18rpx;
   box-sizing:border-box;
-  background: transparent;   /* ✅ 不要白底，露出浅米色 */
-}
+  background: transparent;   }
 .search-input{ flex:1; height:70rpx; font-size:26rpx; }
 .ph{ color: rgba(0,0,0,0.35); }
 .search-btn{
@@ -69,7 +61,6 @@
   justify-content:center;
 }
 
-/* 顶部筛选条：区域/分类放左侧，右侧接「我的商品」 */
 .filter-row{
   display:flex;
   align-items:center;
@@ -83,6 +74,8 @@
   display:flex;
   align-items:center;
   gap: 14rpx;
+  min-width: 0;
+  flex: 1;
 }
 
 .filter-left{
@@ -124,14 +117,12 @@
   font-weight: 900;
 }
 
-/* 主体占剩余空间 */
 .main{
   flex:1;
   display:flex;
   min-height:0;
 }
 
-/* 左侧分类 */
 .left{
   width: 170rpx;
   border-right: 2rpx solid rgba(0,0,0,0.10);
@@ -167,7 +158,6 @@
   border-bottom: 2rpx solid rgba(0,0,0,0.08);
 }
 
-/* 右侧商品区：唯一滚动 */
 .right{
   flex:1;
   min-height:0;
@@ -179,7 +169,6 @@
   background: #f7efe9;
 }
 
-/* 商品格子 */
 .grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -199,6 +188,16 @@
   font-weight: 800;
   color: #111;
   background: #fbeee7;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  min-height: 72rpx;
+  box-sizing: border-box;
+}
+.goods-distance{
+  font-size: 22rpx;
+  font-weight: 700;
+  color: rgba(0,0,0,0.48);
 }
 .thumb{
   width: 100%;
@@ -231,19 +230,16 @@
 }
 .caret{ font-size: 26rpx; }
 
-/* 给底部固定区留空间（很关键，不然会挡住最后几行） */
 .bottom-spacer{
   height: 200rpx;
 }
 
 
-/* 底部固定：只保留「卖闲置」 */
 .bottom-fixed{
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(10rpx); /* ✅ 更贴近 tabbar 上方 */
-  background: transparent;
+  bottom: calc(10rpx); background: transparent;
   border-top: none;
   padding: 0 22rpx;
   box-sizing:border-box;
@@ -262,46 +258,33 @@
   color:#fff;
   font-size: 34rpx;
   font-weight: 900;
-  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25); 
+  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
 }
 
-/* 左侧分类 */
 .left{
   width: 170rpx;
   border-right: 2rpx solid rgba(0,0,0,0.10);
   background: #f3e9e1;
 
-  display: flex;           /* ✅ 关键 */
-  flex-direction: column;  /* ✅ 关键 */
-  min-height: 0;           /* ✅ 关键 */
-}
+  display: flex;           flex-direction: column;  min-height: 0;           }
 
 .cat-scroll{
-  flex: 1;                 /* ✅ 关键：不要只靠 height:100% */
-  min-height: 0;
+  flex: 1;                 min-height: 0;
   padding: 10rpx 10rpx 0 10rpx;
   box-sizing:border-box;
 }
 
-/* 右侧商品区：唯一滚动 */
 .right{
   flex:1;
-  display:flex;            /* ✅ 关键 */
-  flex-direction:column;   /* ✅ 关键 */
-  min-height:0;            /* ✅ 关键 */
-}
+  display:flex;            flex-direction:column;   min-height:0;            }
 
 .goods-scroll{
-  flex:1;                  /* ✅ 关键：让它吃满剩余高度 */
-  min-height:0;
+  flex:1;                  min-height:0;
   padding: 16rpx 18rpx 0 18rpx;
   box-sizing:border-box;
   background: #f7efe9;
 }
 
-/* =========================
-   ✅ 只新增：地区三列 picker 弹层样式（rp- 前缀，绝不影响其它）
-   ========================= */
 .rp-mask{
   position: fixed;
   left:0; right:0; top:0; bottom:0;
@@ -377,20 +360,25 @@
 .filter-left-group{
   display:flex;
   align-items:center;
-  gap: 10rpx;              /* 让区域和价格靠更近 */
+  gap: 10rpx;              min-width: 0;
+  flex: 1;
 }
 
 .filter-pill{
   display:flex;
   align-items:center;
   gap: 8rpx;
-  padding: 6rpx 14rpx;
+  padding: 6rpx 12rpx;
   border-radius: 14rpx;
   background: rgba(0,0,0,0.06);
 }
 
+.filter-pill.active{
+  background: rgba(242,160,115,0.22);
+}
+
 .pill-text{
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 900;
   color: rgba(0,0,0,0.70);
 }
@@ -399,7 +387,6 @@
   font-size: 26rpx;
   color: rgba(0,0,0,0.35);
 }
-/* 让“区域/价格”这种 pill 永远一行并且高度一致 */
 .filter-left-group{
   flex-wrap: nowrap;
 }
@@ -417,17 +404,15 @@
 
 .region-text{
   white-space: nowrap;
-  line-height: 56rpx;     /* 关键：高度对齐 */
-}
+  line-height: 56rpx;     }
 
 .region-caret{
-  line-height: 56rpx;     /* 关键：caret 垂直对齐 */
-}
+  line-height: 56rpx;     }
 .filter-pill{
   display: inline-flex;
   align-items: center;
   height: 56rpx;
-  padding: 0 18rpx;
+  padding: 0 12rpx;
   box-sizing: border-box;
 }
 

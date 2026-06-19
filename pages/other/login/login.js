@@ -9,7 +9,7 @@ Page({
       wx.navigateBack()
       return
     }
-  
+
     // 没有上一页：按 url 回跳
     if (pendingUrl) {
       // 你的主界面 home 是 tabBar，必须用 switchTab
@@ -20,7 +20,7 @@ Page({
       wx.redirectTo({ url: pendingUrl })
       return
     }
-  
+
     wx.switchTab({ url: '/pages/home/home' })
   },
 
@@ -71,7 +71,6 @@ Page({
 
       // 强制完善资料的触发条件：
       // 1) 明确要求补全资料
-      // 2) （可选）有 pendingUrl 也视为业务触发
       // ✅ 微信登录后：强制检查一次资料是否完成（最符合你“新用户必须补资料”的要求）
       let completed = false
       try {
@@ -98,7 +97,7 @@ Page({
         this.backToPending(pendingUrl) // 你文件里已经有兼容 switchTab 的 backToPending
         return
       }
-            
+
       if (returnUrl) {
         wx.redirectTo({ url: returnUrl })
         return
@@ -112,16 +111,15 @@ Page({
   },
 
   onGuestTap() {
-    // 关键：游客必须清空 openid，保证 home 判定为未登录
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
-  
+
     wx.removeStorageSync('postLoginAction')
-  
+
     const pending = wx.getStorageSync('pendingPage') || {}
     const pendingUrl = (pending && pending.url) ? String(pending.url) : ''
     wx.removeStorageSync('pendingPage')
-  
+
     this.backToPending(pendingUrl)
   },
 

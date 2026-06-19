@@ -1,4 +1,6 @@
 // pages/home/driverCarpoolTemplate/driverCarpoolTemplate.js
+const { showDataError } = require("../../../utils/error")
+
 Page({
   data: {
     editMode: false,
@@ -51,7 +53,7 @@ Page({
     const n = parseInt(val, 10)
     if (isNaN(n)) return 1
     return Math.min(7, Math.max(1, n))
-  },  
+  },
 
   async loadTemplateDetail(id) {
     try {
@@ -62,30 +64,30 @@ Page({
         wx.showToast({ title: '未找到该模板', icon: 'none' })
         return
       }
-  
+
       // 安全：只允许编辑自己的模板（避免被别人 id 猜到）
       const myOpenid = wx.getStorageSync('openid') || ''
       if (myOpenid && tpl._openid && tpl._openid !== myOpenid) {
         wx.showToast({ title: '无权限编辑该模板', icon: 'none' })
         return
       }
-  
+
       const seat = this.safeSeat(tpl.passengerCount)
-  
+
       this.setData({
         departureAddress: tpl.departureAddress || '',
         destinationAddress: tpl.destinationAddress || '',
-  
+
         weekdayIndex: typeof tpl.weekdayIndex === 'number' ? tpl.weekdayIndex : -1,
         weekdayText: tpl.weekdayText || '',
         departureTime: tpl.departureTime || '',
-  
+
         passengerCount: seat,
         passengerCountInput: String(seat),
-  
+
         referencePrice: tpl.referencePrice || '',
         comment: tpl.comment || '',
-  
+
         // 模板存的是 zelle: "yes"/"no"
         showZelle: tpl.zelle === 'yes'
       })
@@ -94,15 +96,15 @@ Page({
       wx.showToast({ title: '模板加载失败', icon: 'none' })
     }
   },
-  
+
 
   onLoad(options) {
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
-  
+
     this.loadAllAddresses()
     this.loadUserInfo()
-  
+
     const id = options && options.id ? String(options.id) : ''
     if (id) {
       this.setData({ editMode: true, templateId: id }, () => {
@@ -110,7 +112,7 @@ Page({
       })
     }
   },
-  
+
 
   onShow() {
     const tip = wx.getStorageSync("needLoginToast")
@@ -187,7 +189,7 @@ Page({
     }
   },
 
-  // ===== 地址列表（本地读取 Departure / Arrival）=====
+  // ===== 地址列表（读取 Departure / Arrival）=====
   async loadAllAddresses() {
     this.setData({ loadingDepartureAddrs: true, loadingArrivalAddrs: true })
 
@@ -205,7 +207,7 @@ Page({
       })
     } catch (err) {
       console.error("地址加载失败", err)
-      this.showError("地址加载失败，请稍后重试")
+      showDataError("地址加载失败", err, "地址配置从数据库加载失败，请稍后重试。")
       this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
     }
   },
@@ -216,8 +218,7 @@ Page({
       const res = await db.collection(type).get()
 
       if (!res.data || res.data.length === 0) {
-        wx.showToast({ title: `集合 ${type} 为空`, icon: "none" })
-        return []
+        throw new Error(`集合 ${type} 为空`)
       }
 
       const record = { ...res.data[0] }
@@ -229,9 +230,8 @@ Page({
 
       return addressList
     } catch (e) {
-      console.error("本地加载地址列表失败：", e)
-      wx.showToast({ title: "地址加载失败，请稍后重试", icon: "none" })
-      return []
+      console.error("地址列表数据库加载失败：", e)
+      throw e
     }
   },
 
@@ -307,7 +307,7 @@ Page({
     const v = String(e.detail.value || '')
     this.setData({ passengerCountInput: v })
   },
-  
+
 
   onCarNumberInput(e) { this.setData({ carNumber: e.detail.value }) },
   onCarBrandInput(e) { this.setData({ carBrand: e.detail.value }) },
@@ -317,7 +317,7 @@ Page({
   onCommentInput(e) {
     this.setData({ comment: e.detail.value })
   },
-  
+
   onZelleCheckboxChange(e) {
     const values = e.detail.value || []
     this.setData({ showZelle: values.includes("showZelle") })
@@ -417,7 +417,7 @@ Page({
 
       const payload = {
         // 归属
-        // _openid: openid,    
+        // _openid: openid,
         driverID: userInfo._id,   // 你项目里常用 userInfo._id
         templateName,
 
@@ -450,7 +450,6 @@ Page({
         return
       }
 
-      // （可选）同步更新 userInfo 的车辆信息/自定义价格逻辑
       // 不影响模板保存：失败也不回滚模板
       try {
         const updatePayload = {
@@ -476,7 +475,6 @@ Page({
 
         await wx.cloud.callFunction({ name: "updateUserCreateTrip", data: updatePayload })
       } catch (e) {
-        console.warn("同步 userInfo 失败（不影响模板保存）：", e)
       }
 
       wx.showToast({ title: "模板保存成功", icon: "success", duration: 1800 })

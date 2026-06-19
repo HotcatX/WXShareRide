@@ -5,7 +5,6 @@
   background: #F6EFE8;
 }
 
-/* 顶部导航 */
 .nav-bar{
   width: 100%;
   background-color: #EE9C73;
@@ -37,7 +36,6 @@
   overflow: auto;
 }
 
-/* Seller card */
 .seller-card{
   border: 2rpx solid rgba(0,0,0,0.12);
   border-radius: 18rpx;
@@ -94,7 +92,6 @@
   margin-bottom: 12rpx;
 }
 
-/* Grid */
 .goods-grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -135,7 +132,6 @@
   color:#111;
 }
 
-/* Add card */
 .add-card{
   display:flex;
   align-items:center;
@@ -176,12 +172,10 @@
   font-weight: 700;
 }
 
-/* 给底部固定栏留空间 */
 .bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* Bottom fixed */
 .bottom-fixed{
   position: fixed;
   left: 0;
@@ -201,7 +195,6 @@
   justify-content: center;
 }
 
-/* 非管理按钮 */
 .manage-btn{
   width: 100%;
   height: 96rpx;
@@ -216,7 +209,6 @@
   box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
 }
 
-/* ✅ 勾选框 */
 .select-box{
   position: absolute;
   top: 10rpx;
@@ -240,7 +232,6 @@
   font-weight: 900;
 }
 
-/* ✅ 管理模式底部：全选/删除 */
 .manage-actions{
   width: 100%;
   display: flex;

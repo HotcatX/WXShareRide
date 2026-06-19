@@ -127,7 +127,6 @@ exports.main = async (event, context) => {
       .get()
 
     if (!userRes.data.length) {
-      // 兜底：理论上你前端已要求完善信息，但这里仍建议兜底
       await transaction.collection('userInfo').add({
         data: {
           _openid: openid,
@@ -158,7 +157,6 @@ exports.main = async (event, context) => {
           // ✅ 新字段：我创建的求车（去重追加）
           tripPassengerCreate: _.addToSet(requestId),
 
-          // 兜底：确保字段存在且为数组（不覆盖原数组内容）
           tripPassenger: Array.isArray(doc.tripPassenger) ? doc.tripPassenger : [],
           tripDriver: Array.isArray(doc.tripDriver) ? doc.tripDriver : [],
           tripDriverHistory: Array.isArray(doc.tripDriverHistory) ? doc.tripDriverHistory : [],

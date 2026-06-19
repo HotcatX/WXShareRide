@@ -76,7 +76,6 @@ Page({
     const myOpenid = wx.getStorageSync('openid') || ''
     this.setData({ requestId: id, myOpenid })
 
-    // ✅ 新增：开启分享
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     await this.loadRequestDetail(id)
@@ -145,7 +144,6 @@ Page({
     const pendingUrl = `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}`
     wx.setStorageSync('pendingPage', { url: pendingUrl })
 
-    // 关键：告诉 login 这是需要完善资料的入口（driverPickupDetail）
     wx.setStorageSync('postLoginAction', {
       type: 'requireProfile',
       from: 'driverPickupDetail',
@@ -312,7 +310,7 @@ Page({
           wx.switchTab({ url: '/pages/home/home' })
         }, 1200)
         return
-      }      
+      }
 
       // ✅ 接单成功：不展示乘客信息，直接回首页
       wx.showToast({ title: '接单成功', icon: 'success', duration: 1200 })
@@ -336,7 +334,7 @@ Page({
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}`
     }
   },
-  
+
   onShareTimeline() {
     const { requestId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
@@ -345,5 +343,5 @@ Page({
       query: `id=${requestId}`
     }
   }
-  
+
 })

@@ -5,7 +5,6 @@
   </view>
 </view>
 
-<!-- ⭐ 横排提示条 -->
 <view wx:if="{{toastVisible}}" class="toast-bar {{toastType}}">
   <text class="toast-icon">{{toastIcon}}</text>
   <text class="toast-text">{{toastText}}</text>
@@ -13,9 +12,7 @@
 
 <view class="container">
 
-  <!-- 灰色表单区域 -->
   <view class="form-area">
-    <!-- 邮箱 -->
     <view class="form-item">
       <text class="label">邮箱：</text>
       <input class="input-box"
@@ -26,7 +23,6 @@
              placeholder-class="placeholder" />
     </view>
 
-    <!-- 手机号 -->
     <view class="form-item">
       <text class="label">手机号：</text>
       <view class="phone-row">
@@ -45,7 +41,6 @@
       </view>
     </view>
 
-    <!-- 反馈内容 -->
     <view class="form-item">
       <text class="label">反馈内容：</text>
       <textarea class="textarea-box"
@@ -55,7 +50,6 @@
                 placeholder-class="placeholder" />
     </view>
 
-    <!-- 按钮 -->
     <view class="btn-group">
       <button class="save-btn" bindtap="submitFeedback">提交反馈</button>
     </view>

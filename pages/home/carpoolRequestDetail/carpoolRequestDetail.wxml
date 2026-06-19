@@ -1,6 +1,3 @@
-<!-- pages/home/carpoolRequestDetail/carpoolRequestDetail.wxml -->
-
-<!-- 顶部导航栏 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -10,7 +7,6 @@
 
 <view class="ui-page">
 
-  <!-- 加载中 -->
   <view wx:if="{{loading}}" class="state-text">正在加载...</view>
 
   <view wx:elif="{{loadError}}" class="state-card">
@@ -18,20 +14,17 @@
     <button class="state-action-btn" bindtap="goBack">返回</button>
   </view>
 
-  <!-- 内容滚动 -->
   <view
   wx:else
   class="ui-scroll"
   >
 
 
-    <!-- 顶部横向提示条（统一风格） -->
     <view wx:if="{{toastVisible}}" class="ui-toast {{toastType}}">
       <text class="ui-toast-icon">{{toastIcon}}</text>
       <text class="ui-toast-text">{{toastText}}</text>
     </view>
 
-    <!-- 顶部卡片：路线 -->
     <view class="ui-card">
       <view class="route-row">
         <text class="route-text-left">{{departAddress || '出发地未设置'}}</text>
@@ -51,28 +44,18 @@
       </view>
     </view>
 
-    <!-- 路线备注 -->
-    <!-- <view class="ui-card">
-      <text class="card-title">路线备注</text>
-      <view class="info-row">
-        <text class="value">{{trip.comment || trip.driverComment || '暂无备注'}}</text>
-      </view>
-    </view> -->
-    <!-- 1 黑色提示框 -->
     <view class="ui-card ui-tip-card">
       <text class="ui-tip-title">备注：</text>
       <text class="ui-tip-line">求车请添加同行人</text>
       <text class="ui-tip-line">上/下车点不同 价格会有适当变化</text>
     </view>
 
-    <!-- ② 红色提示框 -->
     <view class="ui-card ui-tip-card">
       <text class="ui-tip-title">提示：</text>
       <text class="ui-tip-line">拼车失败，则一人支付全部费用</text>
       <text class="ui-tip-line">拼车成功，则共同平摊全部费用</text>
     </view>
 
-    <!-- ③ 注意事项 -->
     <view class="ui-card ui-note-card">
       <text class="ui-note-title">注意事项：</text>
       <text class="ui-note-line">优先查看“拼车列表”是否满足需求的行程</text>
@@ -80,11 +63,9 @@
       <text class="ui-note-line">长距离来车：发完来车后有工作人员联系</text>
     </view>
 
-    <!-- 底部留空 -->
     <view class="ui-bottom-space"></view>
   </view>
 
-  <!-- 底部固定白框 -->
   <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
     <view class="ui-bottom-bar">
 

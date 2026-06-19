@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部自定义导航 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="onBack" />
@@ -11,17 +10,14 @@
 
 <scroll-view class="content" scroll-y="true">
 
-  <!-- 卖家信息卡 -->
   <view class="seller-card">
     <view class="avatar-wrap">
-      <!-- 有头像就显示头像 -->
       <image
         wx:if="{{seller.avatarDisplay}}"
         class="avatar-img"
         src="{{seller.avatarDisplay}}"
         mode="aspectFill"
       />
-      <!-- 没头像就 fallback -->
       <view wx:else class="avatar-fallback">🏃</view>
     </view>
 
@@ -40,7 +36,6 @@
 
   <view class="section-title">正在出售 ing……</view>
 
-  <!-- 卖家商品 -->
   <view class="goods-grid">
     <view class="goods-card"
           wx:for="{{goods}}"
@@ -65,8 +60,6 @@
   <view class="bottom-space"></view>
 </scroll-view>
 
-<!-- 底部固定按钮 -->
-<!-- 底部固定按钮（米色底框 + 居中按钮 + 阴影） -->
 <view class="bottom-fixed">
   <view class="bottom-bar">
     <view class="contact-btn" bindtap="onCopyContact">

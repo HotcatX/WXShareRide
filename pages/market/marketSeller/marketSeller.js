@@ -58,13 +58,13 @@ Page({
       wx.navigateBack({ delta: 1 })
       return
     }
-  
+
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.switchTab({
       url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
     })
   },
-  
+
   // ✅ 复制联系方式前必须登录（允许游客浏览页面，但不能复制）
   ensureLoginBeforeCopy() {
     const openid = wx.getStorageSync('openid') || ''
@@ -115,7 +115,7 @@ Page({
         avatarDisplay: ""
       }
 
-      // 3) 把 cloud:// 头像转成可展示的临时 https URL
+      // 3) 把 cloud:// 头像转成可展示的 https URL
       seller.avatarDisplay = await this._resolveAvatarUrl(rawAvatar)
 
       this.setData({ seller })
@@ -151,10 +151,10 @@ Page({
       const db = wx.cloud.database()
       const PAGE = 20
       const MAX_TOTAL = 1000
-  
+
       let rows = []
       let skip = 0
-  
+
       while (true) {
         const res = await db.collection("market_goods")
           .where({ _openid: openid })
@@ -162,15 +162,15 @@ Page({
           .skip(skip)
           .limit(PAGE)
           .get()
-  
+
         const batch = res.data || []
         rows = rows.concat(batch)
-  
+
         if (batch.length < PAGE) break
         skip += PAGE
         if (rows.length >= MAX_TOTAL) break
       }
-  
+
       let goods = rows.filter(x => this._isVisibleMarketDoc(x)).map(x => ({
         id: x._id,
         title: x.title,
@@ -180,7 +180,7 @@ Page({
         hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
         thumbUrl: ""
       }))
-  
+
       const fileIDs = goods.map(g => g.thumbFileID || g.imageFileID).filter(Boolean)
       if (fileIDs.length) {
         const urlMap = await this._batchGetTempUrl(fileIDs)
@@ -189,13 +189,13 @@ Page({
           thumbUrl: urlMap[g.thumbFileID || g.imageFileID] || ""
         }))
       }
-  
+
       this.setData({ goods })
     } catch (e) {
       console.error("fetchSellerGoods error", e)
       wx.showToast({ title: "获取卖家商品失败", icon: "none" })
     }
-  },  
+  },
 
   _isVisibleMarketDoc(x) {
     if (!x) return false

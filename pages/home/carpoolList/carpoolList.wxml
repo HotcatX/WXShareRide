@@ -1,6 +1,3 @@
-<!-- pages/home/carpoolList/carpoolList.wxml -->
-
-<!-- 顶部导航栏（保持原样） -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="goBack" />
@@ -10,9 +7,7 @@
 
 <view class="container">
 
-  <!-- 顶部筛选栏：出发地 + 目的地 + 时间（保持原样） -->
   <view class="filter-bar">
-    <!-- 出发地筛选 -->
     <view class="filter-item">
       <picker
         mode="selector"
@@ -28,7 +23,6 @@
 
     <view class="filter-spacer"></view>
 
-    <!-- 目的地筛选 -->
     <view class="filter-item">
       <picker
         mode="selector"
@@ -44,7 +38,6 @@
 
     <view class="filter-spacer"></view>
 
-    <!-- 时间筛选 -->
     <view class="filter-item">
       <picker
         mode="selector"
@@ -61,30 +54,24 @@
     <text class="filter-reset" bindtap="onResetFilter">重置</text>
   </view>
 
-  <!-- 加载中 -->
   <view wx:if="{{loading && !hasLoadedOnce}}" class="state-text">
     {{loadingText}}
   </view>
 
-  <!-- 无数据 -->
   <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="state-text">
     暂无可查看的行程
   </view>
 
-  <!-- 有数据：按天分组；同一天内严格按时间排序混排 -->
   <block wx:else>
     <block wx:for="{{dayGroups}}" wx:key="date">
 
-      <!-- 日期小标题 -->
       <view class="date-header">
         <text class="date-header-text">{{item.dateLabel}}</text>
       </view>
 
-      <!-- 同一天内统一遍历 items，而不是先 carpool 再 request -->
       <block wx:if="{{item.items && item.items.length}}">
         <block wx:for="{{item.items}}" wx:for-item="trip" wx:key="_id">
 
-          <!-- 拼车线路 -->
           <view
             wx:if="{{trip._type === 'carpool'}}"
             class="trip-card trip-card--tag"
@@ -106,7 +93,6 @@
             </view>
           </view>
 
-          <!-- 求车线路 -->
           <view
             wx:elif="{{trip._type === 'request'}}"
             class="trip-card trip-card--tag"
@@ -134,7 +120,6 @@
     </block>
   </block>
 
-  <!-- 轻提示 -->
   <view class="toast-bar" wx:if="{{showToast}}">
     <text class="toast-icon">!</text>
     <text class="toast-text">{{toastText}}</text>

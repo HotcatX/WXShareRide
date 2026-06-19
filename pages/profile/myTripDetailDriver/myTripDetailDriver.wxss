@@ -1,11 +1,7 @@
-/* =========================
-   统一排版：米色背景 + 同款卡片 + 同款底栏
-   ========================= */
-
-   page{
+page{
     background: #F6EFE8;
   }
-  
+
   .ui-page{
     height: 100vh;
     overflow: hidden;
@@ -13,8 +9,7 @@
     display: flex;
     flex-direction: column;
   }
-  
-  /* 顶部导航（保留你原样） */
+
   .nav-bar{
     width: 100%;
     background-color: #ffffff;
@@ -38,8 +33,7 @@
     font-weight: 600;
     color: #111;
   }
-  
-  /* 加载态 */
+
   .state-text{
     flex: 1;
     text-align: center;
@@ -47,16 +41,14 @@
     font-size: 26rpx;
     color: rgba(0,0,0,0.45);
   }
-  
-  /* 内容滚动区（同款 padding） */
+
   .ui-scroll{
     flex: 1;
     min-height: 0;
     padding: 22rpx 22rpx 0 22rpx;
     box-sizing: border-box;
   }
-  
-  /* 同款白卡 */
+
   .ui-card{
     background: #fff;
     border-radius: 26rpx;
@@ -65,13 +57,11 @@
     box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
     margin-top: 18rpx;
   }
-  
-  /* 底部留空 */
+
   .ui-bottom-space{
     height: calc(140rpx + env(safe-area-inset-bottom));
   }
-  
-  /* 底部固定白框 */
+
   .ui-bottom-fixed{
     position: fixed;
     left: 0;
@@ -100,7 +90,6 @@
     gap: 12rpx;
   }
 
-  /* 两个底部按钮：统一高度/圆角 */
   .ui-secondary-btn,
   .ui-complete-btn,
   .ui-danger-btn{
@@ -113,8 +102,7 @@
     padding-left: 0;
     padding-right: 0;
   }
-  
-  /* 次按钮：白底描边（和主按钮体系一致，但弱一级） */
+
   .ui-secondary-btn{
     background: #9CB06A;
     color: #fff;
@@ -134,30 +122,25 @@
     color: rgba(255,255,255,0.85) !important;
     box-shadow: none;
   }
-  
-  /* 危险按钮：红色实心（但仍有柔和阴影） */
+
   .ui-danger-btn{
     background: #FE814B;
     color: #fff;
     border: none;
     box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.10);
   }
-  
-  /* 去掉 button 默认边框 */
+
   .ui-secondary-btn::after,
   .ui-complete-btn::after,
   .ui-danger-btn::after{
     border: none;
   }
-  
-  /* =========================
-     顶部路线卡片排版（保留你的信息结构，颜色贴近统一体系）
-     ========================= */
+
   .route-row{
     display: flex;
     align-items: center;
   }
-  
+
   .route-text-left,
   .route-text-right{
     flex: 1;
@@ -168,7 +151,7 @@
   }
   .route-text-left{ text-align: left; }
   .route-text-right{ text-align: right; }
-  
+
   .route-arrow{
     width: 80rpx;
     font-size: 34rpx;
@@ -177,21 +160,21 @@
     line-height: 40rpx;
     color: rgba(0,0,0,0.45);
   }
-  
+
   .time-seat-row{
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-top: 20rpx;
   }
-  
+
   .time-text,
   .seat-text{
     font-size: 30rpx;
     font-weight: 800;
     color: rgba(0,0,0,0.60);
   }
-  
+
   .price-row{
     margin-top: 20rpx;
     display: flex;
@@ -221,12 +204,8 @@
     font-size: 24rpx;
     font-weight: 900;
   }
-  
-/* =========================
-   乘客信息卡片（同款 Grid 版）
-   ========================= */
 
-   .passenger-item{
+.passenger-item{
     display: flex;
     align-items: flex-start;
     padding: 16rpx 0;
@@ -234,8 +213,7 @@
     gap: 18rpx;
   }
   .passenger-item:first-child{ border-top: none; }
-  
-  /* 左侧：头像上 + 名字下 */
+
   .passenger-left{
     width: 128rpx;
     display: flex;
@@ -243,27 +221,26 @@
     align-items: center;
     flex-shrink: 0;
   }
-  
+
   .passenger-avatar{
     width: 92rpx;
     height: 92rpx;
     border-radius: 50%;
   }
-  
+
   .passenger-name{
     margin-top: 10rpx;
     font-size: 24rpx;
     font-weight: 900;
     color: rgba(0,0,0,0.78);
     text-align: center;
-  
+
     width: 128rpx;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
-  /* 右侧三行容器 */
+
   .passenger-right{
     flex: 1;
     min-width: 0;
@@ -271,12 +248,11 @@
     flex-direction: column;
     gap: 12rpx;
   }
-  
+
   .pgrid{
-    --label-w: 110rpx;   /* 原来 96 太窄，接送地容易“像换行” */
-    --btn-w: 102rpx;
+    --label-w: 110rpx;   --btn-w: 102rpx;
     --btn-h: 36rpx;
-  
+
     display: grid;
     grid-template-columns: var(--label-w) 1fr var(--btn-w);
     column-gap: 6rpx;
@@ -284,124 +260,107 @@
     min-width: 0;
     min-height: 36rpx;
   }
-  
+
   .pgrid-label{
     font-size: 24rpx;
     font-weight: 800;
     color: rgba(0,0,0,0.45);
     line-height: 34rpx;
-    text-align: left;     /* ✅ 改为 left，保证“接送地：”和内容视觉同一行 */
-  }  
-  
+    text-align: left;     }
+
   .pgrid-value{
     min-width: 0;
     font-size: 24rpx;
     font-weight: 800;
     color: rgba(0,0,0,0.70);
     line-height: 34rpx;
-  
+
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .pgrid--addr{ align-items: start; }
-  /* ✅ 仅“接送地”这一行：用 flex，彻底解决 label/value 错行 */
-.pgrid.pgrid--addr{
-  display: flex;                 /* 覆盖 grid */
-  align-items: flex-start;
-  column-gap: 0;                 /* grid 才用得上，这里无所谓 */
-}
+  .pgrid.pgrid--addr{
+  display: flex;                 align-items: flex-start;
+  column-gap: 0;                 }
 
-/* label 固定宽度 */
 .pgrid.pgrid--addr .pgrid-label{
   width: var(--label-w);
   flex-shrink: 0;
   text-align: left;
   line-height: 34rpx;
-  padding-top: 2rpx;             /* 轻微对齐（可删） */
-}
+  padding-top: 2rpx;             }
 
-/* value 占满中间，允许换行/两行截断 */
 .pgrid.pgrid--addr .pgrid-value{
   flex: 1;
   min-width: 0;
   line-height: 34rpx;
 }
 
-/* 右侧按钮列固定宽度 */
 .pgrid.pgrid--addr .kick-pill,
 .pgrid.pgrid--addr .pgrid-btn-placeholder{
   width: var(--btn-w);
   flex-shrink: 0;
   margin-left: 6rpx;
 }
-  
-  /* 地址允许两行 */
+
   .pgrid-value--addr{
-    white-space: normal;        /* ✅ 允许换行 */
-    overflow: hidden;
-    text-overflow: clip;        /* ✅ 不要 ellipsis 抢布局 */
-    word-break: break-word;
-  
+    white-space: normal;        overflow: hidden;
+    text-overflow: clip;        word-break: break-word;
+
     display: -webkit-box;
-    -webkit-line-clamp: 2;      /* 两行截断 */
-    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;      -webkit-box-orient: vertical;
   }
-  
-  
-  /* 占位：保证三行按钮列对齐 */
+
+
   .pgrid-btn-placeholder{
     height: var(--btn-h);
   }
-  
-  /* 复制按钮（同款） */
+
   .copy-pill{
     width: var(--btn-w);
     height: var(--btn-h);
     border-radius: 999rpx;
-  
+
     display: flex;
     align-items: center;
     justify-content: center;
-  
+
     font-size: 20rpx;
     font-weight: 900;
     line-height: 1;
     color: #fff;
     background: #9CB06A;
-  
+
     justify-self: end;
     align-self: center;
   }
-  
-  /* 剔除按钮：和复制按钮同尺寸，但用橙色体系 */
+
   .kick-pill{
     width: var(--btn-w);
     height: var(--btn-h);
     border-radius: 999rpx;
-  
+
     display: flex;
     align-items: center;
     justify-content: center;
-  
+
     font-size: 20rpx;
     font-weight: 900;
     line-height: 1;
     color: #fff;
     background: #FE814B;
-  
+
     justify-self: end;
     align-self: center;
   }
 
-  /* ===== 强制：接送地一行不换行（超出省略）===== */
-.pgrid.pgrid--addr{
+  .pgrid.pgrid--addr{
   display: flex !important;
   align-items: center !important;
 }
 
-/* label 固定宽度 */
 .pgrid.pgrid--addr .pgrid-label{
   width: var(--label-w) !important;
   flex-shrink: 0 !important;
@@ -409,27 +368,19 @@
   line-height: 34rpx !important;
 }
 
-/* value 强制单行 + 省略号（核心） */
 .pgrid.pgrid--addr .pgrid-value{
   flex: 1 !important;
   min-width: 0 !important;
 
-  white-space: nowrap !important;      /* ✅ 强制不换行 */
-  overflow: hidden !important;          /* ✅ 超出隐藏 */
-  text-overflow: ellipsis !important;   /* ✅ 省略号 */
-
-  display: block !important;            /* ✅ 避免 text 的 inline 行为导致换行错位 */
-  line-height: 34rpx !important;
+  white-space: nowrap !important;      overflow: hidden !important;          text-overflow: ellipsis !important;   display: block !important;            line-height: 34rpx !important;
 }
 
-/* 关闭你 addr 的两行截断（否则仍可能产生块级换行） */
 .pgrid.pgrid--addr .pgrid-value--addr{
   display: block !important;
   -webkit-line-clamp: unset !important;
   -webkit-box-orient: unset !important;
 }
 
-/* 右侧按钮/占位固定宽度 */
 .pgrid.pgrid--addr .kick-pill,
 .pgrid.pgrid--addr .pgrid-btn-placeholder{
   width: var(--btn-w) !important;

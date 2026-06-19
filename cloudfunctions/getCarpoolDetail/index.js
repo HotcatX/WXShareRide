@@ -6,7 +6,6 @@ exports.main = async (event, context) => {
   try {
     const db = cloud.database()
     const res = await db.collection('Carpool').doc(id).get()
-    console.log('云函数返回的完整数据:', res.data);
     return { success: true, data: res.data}
   } catch (err) {
     console.error(err)

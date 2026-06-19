@@ -1,12 +1,12 @@
 // pages/profile/addInfo/addInfo.js
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+const { showDataError } = require('../../../utils/error')
 
 Page({
   data: {
     from: '',
     // 原来 wechat1 / wechat2 合并为一个字段
     wechat: '',
-    // 新增：住址（选填）
     address: '',
     phone: '',               // ⭐ 手机号改成选填
     regionIndex: 0,
@@ -116,30 +116,27 @@ Page({
 
     const ok = await this.saveToCloud()
     if (!ok) {
-      wx.showToast({ title: '信息保存失败，请稍后重试', icon: 'none' })
       return
     }
 
     wx.showToast({ title: '信息已完善', icon: 'success', duration: 800 })
 
-    // ⭐⭐ 关键：保存成功后，优先跳回 pendingPage（即原分享界面）
     setTimeout(() => {
       const pending = wx.getStorageSync('pendingPage')
       const pages = getCurrentPages()
       const len = pages.length
       const prev = len >= 2 ? pages[len - 2] : null
       const prev2 = len >= 3 ? pages[len - 3] : null
-    
-      // ✅ 关键修复：如果栈是 [某页面 -> login -> addInfo]，保存后直接回退 2 层，清掉 login
+
       // 典型：业务页触发登录 -> login -> addInfo
       if (prev && prev.route === 'pages/other/login/login' && prev2) {
         wx.removeStorageSync('pendingPage')
         wx.removeStorageSync('postLoginAction')
-    
+
         wx.navigateBack({ delta: 2 })
         return
       }
-    
+
       // ⭐⭐ 其他情况：仍然优先跳回 pendingPage（即原分享界面/业务界面）
       if (pending && pending.url) {
         const url = pending.url
@@ -148,7 +145,7 @@ Page({
         wx.redirectTo({ url })
         return
       }
-    
+
       // 没有 pendingPage 时，按来源决定去向
       if (this.data.from === 'login') {
         wx.switchTab({ url: '/pages/home/home' })
@@ -160,7 +157,7 @@ Page({
         }
       }
     }, 800)
-    
+
   },
 
   async saveToCloud() {
@@ -184,7 +181,6 @@ Page({
       }
     }
 
-    // 住址（选填）：为了支持“清空地址”，这里直接写入字符串（可能是空）
     updateData.address = address || ''
 
     // 写入其他字段
@@ -214,7 +210,7 @@ Page({
 
     } catch (e) {
       console.error('updateUser 调用失败：', e)
-      wx.showToast({ title: '网络错误，请稍后再试', icon: 'none' })
+      showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')
       return false
     }
   }

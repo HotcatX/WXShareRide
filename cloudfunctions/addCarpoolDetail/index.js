@@ -19,12 +19,10 @@ function normalizeTripStatus(status) {
  * @param {string} title    标题
  * @param {string} content  内容
  * @param {string} carpoolId 对应的行程 id
- * @param {object} extra    其他附加字段（可选）
  */
 
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
   if (!toOpenid) {
-    console.warn('[sendNotification] 缺少 toOpenid，跳过发送')
     return
   }
   try {
@@ -40,7 +38,6 @@ async function sendNotification(toOpenid, type, title, content, carpoolId, extra
         createdAt: db.serverDate()
       }
     })
-    console.log('[sendNotification] 已发送通知给', toOpenid, type)
   } catch (e) {
     console.error('[sendNotification] 写入通知失败：', e)
   }
@@ -89,16 +86,14 @@ exports.main = async (event, context) => {
 
     // ✅ 修正乘客信息（确保含 openid）
     const fixedPassengerInfo = {
-      // 你原来 passengerInfo 里用于展示的字段（按你实际有的来）
       name: passengerInfo?.name,
       nickName: passengerInfo?.nickName,
       nickname: passengerInfo?.nickname,
       avatarUrl: passengerInfo?.avatarUrl,
-    
+
       _openid: passengerInfo?._openid || OPENID,
       joinedAt: new Date(),
-    
-      // ✅ 新增：乘客自己的上下车点
+
       pickupAddress,
       dropoffAddress
     }

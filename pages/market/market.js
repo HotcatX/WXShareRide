@@ -1,9 +1,10 @@
 // 与 marketPost 保持一致：分类顺序固定
+const { showDataError } = require("../../utils/error")
 
 const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "其他"]
 
 // ====== Performance / Cache ======
-const GOODS_CACHE_KEY = "market_goods_list_cache_v3"
+const GOODS_CACHE_KEY = "market_goods_list_cache_v4"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
@@ -13,6 +14,7 @@ const MARKET_GOODS_LIST_FIELDS = {
   price: true,
   category: true,
   region: true,
+  location: true,
   condition: true,
   postDate: true,
   imageFileID: true,
@@ -27,6 +29,41 @@ const MARKET_GOODS_LIST_FIELDS = {
   expiresAtText: true,
   status: true,
   createTime: true
+}
+
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function hasLatLng(location = {}) {
+  return toFiniteNumber(location.lat ?? location.latitude) !== null &&
+    toFiniteNumber(location.lng ?? location.longitude) !== null
+}
+
+function distanceMiles(a = {}, b = {}) {
+  const lat1 = toFiniteNumber(a.lat ?? a.latitude)
+  const lng1 = toFiniteNumber(a.lng ?? a.longitude)
+  const lat2 = toFiniteNumber(b.lat ?? b.latitude)
+  const lng2 = toFiniteNumber(b.lng ?? b.longitude)
+  if (lat1 === null || lng1 === null || lat2 === null || lng2 === null) return null
+
+  const toRad = deg => deg * Math.PI / 180
+  const earthMiles = 3958.8
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const s1 = Math.sin(dLat / 2)
+  const s2 = Math.sin(dLng / 2)
+  const h = s1 * s1 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * s2 * s2
+  return earthMiles * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function formatDistanceText(miles) {
+  if (!Number.isFinite(miles)) return ""
+  if (miles < 0.1) return "0.1 mi内"
+  if (miles < 10) return `${miles.toFixed(1)} mi`
+  return `${Math.round(miles)} mi`
 }
 
 // 云端分页：小程序端单次 get 实际上最多 20
@@ -66,6 +103,8 @@ Page({
     isLoadingGoods: false,
 
     priceSortOrder: 'none', // 'none' | 'asc' | 'desc'
+    distanceSortActive: false,
+    myLocation: null
   },
 
   _getStatusBarHeight() {
@@ -95,7 +134,6 @@ Page({
     return {
       title: '二手市场｜看看有没有你想要的',
       path
-      // imageUrl: 'cloud://xxx/xxx.jpg' // 可选：自定义分享封面
     }
   },
 
@@ -108,15 +146,40 @@ Page({
     return {
       title: '二手市场｜看看有没有你想要的',
       query
-      // imageUrl: 'cloud://xxx/xxx.jpg' // 可选
     }
   },
 
   onTogglePriceSort() {
     const cur = this.data.priceSortOrder || 'none'
     const next = cur === 'none' ? 'asc' : (cur === 'asc' ? 'desc' : 'none')
-    this.setData({ priceSortOrder: next })
+    this.setData({ priceSortOrder: next, distanceSortActive: false })
     // 排序不需要重新拉云端，直接对当前已拉取结果排序+切片即可
+    this.applyFilters(true)
+  },
+
+  async onToggleDistanceSort() {
+    const next = !this.data.distanceSortActive
+    if (next && !hasLatLng(this.data.myLocation || {})) {
+      await this._loadMyLocationFromProfile()
+    }
+
+    if (next && !hasLatLng(this.data.myLocation || {})) {
+      wx.showModal({
+        title: "请先设置定位",
+        content: "需要在个人资料里选择精确定位后，才能按距离排序。",
+        confirmText: "去设置",
+        cancelText: "取消",
+        success: res => {
+          if (res.confirm) wx.navigateTo({ url: "/pages/profile/editInfo/editInfo?from=marketDistance" })
+        }
+      })
+      return
+    }
+
+    this.setData({
+      distanceSortActive: next,
+      priceSortOrder: next ? "none" : this.data.priceSortOrder
+    })
     this.applyFilters(true)
   },
 
@@ -130,6 +193,7 @@ Page({
 
     this.initCategoriesFromGoods()
     this.loadRegionTreeFromCloud()
+    this._loadMyLocationFromProfile()
 
     // 先用缓存秒开，再后台刷新
     this._restoreGoodsFromCache()
@@ -140,6 +204,7 @@ Page({
   },
 
   onShow() {
+    this._loadMyLocationFromProfile()
     this._maybeRefreshGoods(false)
   },
 
@@ -217,10 +282,7 @@ Page({
     this.setData({ regions: ["全部", ...Array.from(set)] })
   },
 
-  // ====== 地区树（保持你原来的逻辑）======
   async loadRegionTreeFromCloud() {
-    const fallback = [{ label: "全部", children: [{ label: "全部", children: ["全部"] }] }]
-
     try {
       const db = wx.cloud.database()
       let docData = null
@@ -236,7 +298,7 @@ Page({
 
       let tree = docData
       if (tree && Array.isArray(tree.tree)) tree = tree.tree
-      if (!Array.isArray(tree) || !tree.length) tree = fallback
+      if (!Array.isArray(tree) || !tree.length) throw new Error("regionTree 数据为空或格式错误")
 
       // ✅ 确保顶层永远有 “全部”
       const allNode = { label: "全部", children: [{ label: "全部", children: ["全部"] }] }
@@ -245,7 +307,7 @@ Page({
       }
 
       const col1 = tree.map(x => x.label)
-      const lv1 = tree[0] || fallback[0]
+      const lv1 = tree[0]
       const col2 = (lv1.children || []).map(x => x.label) || ["全部"]
       const lv2 = (lv1.children || [])[0] || { children: ["全部"] }
       const raw3 = (lv2.children || []).filter(Boolean)
@@ -259,12 +321,14 @@ Page({
         regionCol3: col3.length ? col3 : ["全部"]
       })
     } catch (e) {
+      console.error("regionTree 加载失败：", e)
+      showDataError("地区加载失败", e, "地区配置从数据库加载失败，请稍后重试。")
       this.setData({
-        regionTree: fallback,
+        regionTree: [],
         regionPickerValue: [0, 0, 0],
-        regionCol1: ["全部"],
-        regionCol2: ["全部"],
-        regionCol3: ["全部"]
+        regionCol1: ["加载失败"],
+        regionCol2: ["加载失败"],
+        regionCol3: ["加载失败"]
       })
     }
   },
@@ -325,12 +389,13 @@ Page({
   _mapDocToGood(x) {
     const thumbKey = (x.thumbFileID || x.imageFileID || "")
     const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
-    return {
+    return this._withDistance({
       id: x._id,
       title: x.title,
       price: x.price,
       category: CATEGORY_OPTIONS.includes(x.category) ? x.category : "其他",
       region: x.region,
+      location: x.location || {},
       condition: x.condition,
       desc: x.desc,
       postDate: x.postDate,
@@ -351,7 +416,45 @@ Page({
 
       // temp url（优先 thumbFileID，否则 imageFileID）
       thumbUrl: thumbKey ? (this._thumbUrlCache[thumbKey] || "") : ""
+    })
+  },
+
+  _withDistance(g) {
+    const miles = hasLatLng(this.data.myLocation || {}) && hasLatLng(g?.location || {})
+      ? distanceMiles(this.data.myLocation, g.location)
+      : null
+    return {
+      ...g,
+      distanceMiles: miles,
+      distanceText: formatDistanceText(miles)
     }
+  },
+
+  async _loadMyLocationFromProfile() {
+    const openid = wx.getStorageSync("openid") || ""
+    const isGuest = !!wx.getStorageSync("isGuest")
+    if (!openid || isGuest) {
+      this.setData({ myLocation: null, distanceSortActive: false })
+      return null
+    }
+
+    try {
+      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      const user = (res?.result?.data || [])[0] || {}
+      const location = user.location || {}
+      const myLocation = hasLatLng(location) ? location : null
+      this.setData({ myLocation })
+      this._refreshGoodsDistance()
+      return myLocation
+    } catch (e) {
+      return null
+    }
+  },
+
+  _refreshGoodsDistance() {
+    const allGoods = (this.data.allGoods || []).map(g => this._withDistance(g))
+    this.setData({ allGoods })
+    this.applyFilters(false)
   },
 
   _isVisibleMarketDoc(x) {
@@ -363,7 +466,6 @@ Page({
     return true
   },
 
-  // ====== 构造云端查询条件（类目/地区/关键字）======
   _buildCloudWhere() {
     const db = wx.cloud.database()
     const _ = db.command
@@ -388,7 +490,6 @@ Page({
       }
     }
 
-    // 3) keyword：title/desc 模糊匹配（可选）
     const kw = (keyword || "").trim()
     if (kw) {
       const safe = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -413,7 +514,6 @@ Page({
     return query.limit(options.limit || CLOUD_PAGE_SIZE).get()
   },
 
-  // ====== 重点修复：按【当前筛选条件】在云端分页拉取 ======
   async _fetchFirstPage() {
     try {
       this.setData({ isLoadingGoods: true })
@@ -434,16 +534,16 @@ Page({
         cloudHasMore: rawRows.length === INITIAL_LOAD_SIZE
       })
 
-      // ✅ 只缓存“全部 + 无关键字 + 无地区”的列表，避免把“某个类目结果”当成全量缓存
       if (this.data.activeCategory === "全部" && this.data.activeRegion === "全部" && !(this.data.keyword || "").trim()) {
         this._saveGoodsToCache(res.data || [])
       }
 
       this.initRegionsFromGoods()
-      // 云端已筛选，这里只做排序 + 前端切片展示。图片临时链接后台补，不能阻塞首屏。
+      // 云端已筛选，这里只做排序 + 前端切片展示。图片链接后台补，不能阻塞首屏。
       this.applyFilters(true)
     } catch (e) {
       console.error(e)
+      showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
     } finally {
       this.setData({ isLoadingGoods: false })
     }
@@ -484,6 +584,7 @@ Page({
       this.applyFilters(resetPagingAfterAppend)
     } catch (e) {
       console.error(e)
+      showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
     } finally {
       this.setData({ isLoadingGoods: false })
     }
@@ -540,9 +641,18 @@ Page({
 
     const filtered = [...(allGoods || [])]
 
-    // price sort（必须在 slice 前做）
+    // sort（必须在 slice 前做）
+    if (this.data.distanceSortActive) {
+      filtered.sort((a, b) => {
+        const da = Number.isFinite(a.distanceMiles) ? a.distanceMiles : Number.POSITIVE_INFINITY
+        const db = Number.isFinite(b.distanceMiles) ? b.distanceMiles : Number.POSITIVE_INFINITY
+        if (da !== db) return da - db
+        return String(b.postDate || "").localeCompare(String(a.postDate || ""))
+      })
+    }
+
     const order = this.data.priceSortOrder || 'none'
-    if (order !== 'none') {
+    if (!this.data.distanceSortActive && order !== 'none') {
       const getPrice = (g) => {
         const raw =
           g?.price ??

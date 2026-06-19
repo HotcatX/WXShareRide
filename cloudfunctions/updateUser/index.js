@@ -7,6 +7,41 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const coll = db.collection('userInfo')
 
+function normalizeLocationText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizeLocationForSave(location) {
+  if (!location || typeof location !== 'object') return null
+
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
+  const displayName = normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.address
+  )
+  const address = normalizeLocationText(location.address)
+
+  if (!displayName && !address && (lat === null || lng === null)) return null
+
+  return {
+    displayName: displayName || address,
+    name: normalizeLocationText(location.name || displayName || address),
+    address,
+    lat,
+    lng,
+    source: normalizeLocationText(location.source || 'chooseLocation'),
+    updatedAtMs: Date.now()
+  }
+}
+
 exports.main = async (event, context) => {
   const { OPENID: openid } = cloud.getWXContext()
 
@@ -17,7 +52,6 @@ exports.main = async (event, context) => {
   const { action } = event || {}
 
   // ============================================================
-  // D）新增常用备注：action === 'addCommonComment'
   // ============================================================
   if (action === 'addCommonComment') {
     return await handleAddCommonComment(openid, event)
@@ -50,11 +84,12 @@ async function handleNormalUpdate(openid, event) {
 
     // 住址
     address,
+    location,
 
-    // ✅ 新增：所住区域（三级）
     bigregion,
     bio
   } = event || {}
+  const normalizedLocation = normalizeLocationForSave(location)
 
   try {
     const res = await coll.where({ _openid: openid }).limit(1).get()
@@ -75,8 +110,8 @@ async function handleNormalUpdate(openid, event) {
           zelleName: zelleName || '',
           zelleAccount: zelleAccount || '',
           address: address || '',
+          location: normalizedLocation || {},
 
-          // ✅ 新增：所住区域（三级）
           bigregion: bigregion || '',
 
           carNumber: carNumber || '',
@@ -120,7 +155,7 @@ async function handleNormalUpdate(openid, event) {
     if (typeof zelleName === 'string')     updateData.zelleName = zelleName
     if (typeof zelleAccount === 'string')  updateData.zelleAccount = zelleAccount
     if (typeof address === 'string')       updateData.address = address
-    // ✅ 新增：所住区域（三级）
+    if (normalizedLocation)                updateData.location = normalizedLocation
     if (typeof bigregion === 'string')    updateData.bigregion = bigregion
 
     if (typeof carNumber === 'string') updateData.carNumber = carNumber
@@ -133,7 +168,6 @@ async function handleNormalUpdate(openid, event) {
       updateData.customPrice = customPrice
     }
 
-    // 补齐 trip 字段（老数据兜底）
     if (!Array.isArray(doc.tripDriver))           updateData.tripDriver = []
     if (!Array.isArray(doc.tripPassenger))        updateData.tripPassenger = []
     if (!Array.isArray(doc.tripDriverHistory))    updateData.tripDriverHistory = []
@@ -149,7 +183,6 @@ async function handleNormalUpdate(openid, event) {
 }
 
 /**
- * D）新增常用备注（写入 userInfo.commonComments）
  * event: { action: 'addCommonComment', text: 'xxx', max: 10 }
  */
 async function handleAddCommonComment(openid, event) {

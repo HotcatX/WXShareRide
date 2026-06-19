@@ -1,37 +1,14 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+const { showDataError } = require('../../../utils/error')
 
 // ====================== ✅ 所住区域 bigregion：云端 regionTree 优先 ======================
 // - 云端集合：regionTree
 // - 优先 doc("default")，否则取第一条
 // - 字段：tree（结构：[{label, children:[{label, children:[...]}]}]）
-// - 失败回退本地
-const LOCAL_REGION_TREE = [
-  {
-    label: "无",
-    children: [
-      { label: "无", children: ["无"] }
-    ]
-  },
-  {
-    label: "NJ",
-    children: [
-      { label: "FL", children: ["Modern", "Fiat House"] },
-      { label: "JC", children: ["Newport", "Journal Sq", "Exchange Place"] }
-    ]
-  },
-  {
-    label: "NY",
-    children: [
-      { label: "上城", children: ["Inwood", "125St", "哥大步行楼", "96St"] },
-      { label: "中城", children: ["Times Sq", "42St", "34St"] },
-      { label: "下城", children: ["SoHo", "Chinatown", "Wall St"] },
-      { label: "LIC", children: ["Court Sq", "Hunters Point", "Queens Plaza"] }
-    ]
-  }
-]
+const NONE_REGION_NODE = { label: "无", children: [{ label: "无", children: ["无"] }] }
 
 // REGION_TREE 改成可变：云端拉到后覆盖
-let REGION_TREE = LOCAL_REGION_TREE
+let REGION_TREE = [NONE_REGION_NODE]
 
 const REGION_TREE_CACHE_KEY = "region_tree_cache_v1"
 const REGION_TREE_CACHE_AT_KEY = "region_tree_cache_at_v1"
@@ -40,7 +17,7 @@ const REGION_TREE_CACHE_TTL_MS = 12 * 60 * 60 * 1000 // 12h
 function normalizeRegionTree(raw) {
   let tree = raw
   if (tree && Array.isArray(tree.tree)) tree = tree.tree
-  if (!Array.isArray(tree)) return LOCAL_REGION_TREE
+  if (!Array.isArray(tree)) throw new Error("regionTree 数据格式错误")
 
   const out = tree
     .map(x => ({
@@ -58,11 +35,11 @@ function normalizeRegionTree(raw) {
         .filter(y => y.label)
     }))
 
-  if (!out.length) return LOCAL_REGION_TREE
+  if (!out.length) throw new Error("regionTree 为空")
 
   // 确保“无/无/无”在最前面（避免你原 UI 行为变化）
   const hasNone = out[0] && out[0].label === "无"
-  return hasNone ? out : [LOCAL_REGION_TREE[0], ...out]
+  return hasNone ? out : [NONE_REGION_NODE, ...out]
 }
 
 async function getRegionTreeFromCloud() {
@@ -100,12 +77,41 @@ async function getRegionTreeFromCloud() {
 
     return tree
   } catch (e) {
-    return LOCAL_REGION_TREE
+    throw e
   }
 }
 
 function safeArr(arr) {
   return Array.isArray(arr) && arr.length ? arr : ["—"]
+}
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function buildLocationFromChooseResult(res = {}) {
+  const lat = Number(res.latitude)
+  const lng = Number(res.longitude)
+  const displayName = normalizeText(res.name || res.address)
+
+  return {
+    displayName,
+    name: normalizeText(res.name || displayName),
+    address: normalizeText(res.address || displayName),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    source: 'chooseLocation',
+    updatedAtMs: Date.now()
+  }
+}
+
+function getLocationDisplay(location = {}, address = '') {
+  return normalizeText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    address
+  )
 }
 
 function buildCols(v0, v1) {
@@ -126,8 +132,9 @@ Page({
 
     // 原来 wechat1 / wechat2 合并为一个字段
     wechat: '',
-    // 新增：住址（选填）
     address: '',
+    location: {},
+    locationDisplay: '',
 
     // ✅ 所住区域（存到 userInfo.bigregion）
     bigregion: '',
@@ -175,15 +182,12 @@ Page({
     const from = options.from || 'profile'
     this.setData({ from })
 
-    // 先用本地初始化列（避免空白）
-    const { col1, col2, col3 } = buildCols(0, 0)
     this.setData({
-      bigRegionCol1: col1,
-      bigRegionCol2: col2,
-      bigRegionCol3: col3
+      bigRegionCol1: ["加载中"],
+      bigRegionCol2: ["加载中"],
+      bigRegionCol3: ["加载中"]
     })
 
-    // ✅ 只改这里：云端拉取 regionTree 覆盖 REGION_TREE
     this._loadRegionTree()
 
     // 拉取云端 userInfo
@@ -191,17 +195,27 @@ Page({
   },
 
   async _loadRegionTree() {
-    const tree = await getRegionTreeFromCloud()
-    REGION_TREE = (tree && tree.length) ? tree : LOCAL_REGION_TREE
+    try {
+      const tree = await getRegionTreeFromCloud()
+      REGION_TREE = tree
 
-    const [v0, v1] = this.data.bigRegionPickerValue || [0, 0]
-    const { col1, col2, col3 } = buildCols(v0, v1)
+      const [v0, v1] = this.data.bigRegionPickerValue || [0, 0]
+      const { col1, col2, col3 } = buildCols(v0, v1)
 
-    this.setData({
-      bigRegionCol1: col1,
-      bigRegionCol2: col2,
-      bigRegionCol3: col3
-    })
+      this.setData({
+        bigRegionCol1: col1,
+        bigRegionCol2: col2,
+        bigRegionCol3: col3
+      })
+    } catch (e) {
+      console.error("regionTree 加载失败：", e)
+      showDataError("地区加载失败", e, "地区配置从数据库加载失败，请稍后重试。")
+      this.setData({
+        bigRegionCol1: ["加载失败"],
+        bigRegionCol2: ["加载失败"],
+        bigRegionCol3: ["加载失败"]
+      })
+    }
   },
 
   // 上传头像
@@ -242,6 +256,8 @@ Page({
         this.setData({
           wechat: user.wechatID || '',
           address: user.address || '',
+          location: user.location || {},
+          locationDisplay: getLocationDisplay(user.location || {}, user.address || ''),
           bigregion: user.bigregion || '',
 
           phone: user.phone || '',
@@ -259,12 +275,42 @@ Page({
       }
     } catch (e) {
       console.error('loadUserInfo 失败：', e)
+      showDataError('资料加载失败', e, '个人资料从数据库加载失败，请稍后重试。')
     }
   },
 
   onInput(e) {
     const { field } = e.currentTarget.dataset
-    this.setData({ [field]: e.detail.value, unsaved: true })
+    const value = e.detail.value
+    if (field === 'address') {
+      this.setData({
+        address: value,
+        location: {},
+        locationDisplay: normalizeText(value),
+        unsaved: true
+      })
+      return
+    }
+    this.setData({ [field]: value, unsaved: true })
+  },
+
+  async onChooseLocation() {
+    try {
+      const res = await wx.chooseLocation({})
+      if (!res) return
+
+      const location = buildLocationFromChooseResult(res)
+      const display = getLocationDisplay(location)
+      if (!display) return
+
+      this.setData({
+        address: display,
+        location,
+        locationDisplay: display,
+        unsaved: true
+      })
+    } catch (e) {
+    }
   },
 
   onRegionChange(e) {
@@ -339,7 +385,6 @@ Page({
     return ''
   },
 
-  // ✅ 保留你原来的保存入口：onComplete（wxml 绑的就是它）
   async onComplete() {
     const msg = this.validateAll()
     if (msg) {
@@ -361,6 +406,7 @@ Page({
     const {
       wechat,
       address,
+      location,
       bigregion,
       phone,
       regionIndex,
@@ -385,6 +431,9 @@ Page({
     }
 
     updateData.address = address || ''
+    if (location && typeof location === 'object' && (location.displayName || location.address || location.lat || location.lng)) {
+      updateData.location = location
+    }
     updateData.bigregion = bigregion || ''
 
     updateData.name = this.data.name || ''
@@ -423,7 +472,7 @@ Page({
       return true
     } catch (e) {
       console.error('updateUser 调用失败', e)
-      wx.showToast({ title: '网络错误，请稍后再试', icon: 'none' })
+      showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')
       return false
     }
   }

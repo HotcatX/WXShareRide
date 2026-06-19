@@ -263,13 +263,11 @@ Page({
             data: { requestId, action: 'quit' }
           })
 
-          console.log('【quit】cloud res =', res)
           const rr = res && res.result ? res.result : {}
 
           if (!rr.ok) {
-            console.log('【quit】debug =', rr.debug)
             wx.showToast({
-              title: (rr.debug && (rr.debug.errMsg || rr.debug.message)) || rr.errorMsg || '退出失败',
+              title: rr.errorMsg || '退出失败',
               icon: 'none'
             })
             return

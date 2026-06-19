@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <text class="nav-title">二手市场</text>
@@ -8,7 +7,6 @@
   </view>
 </view>
 
-<!-- 搜索 -->
 <view class="search-row">
   <view class="search-box">
     <input
@@ -24,22 +22,23 @@
   </view>
 </view>
 
-<!-- 顶部筛选条：区域/分类放左侧，右侧接「我的商品」 -->
 <view class="filter-row">
   <view class="filter-left-group">
     <text class="filter-left">分类</text>
     <text class="filter-arrow">▶</text>
 
-    <!-- 区域 -->
     <view class="filter-pill" bindtap="onTapRegion">
       <text class="pill-text">{{activeRegion==='全部'?'区域':activeRegion}}</text>
       <text class="pill-caret">▼</text>
     </view>
 
-    <!-- 价格（改成和区域一样的框） -->
     <view class="filter-pill" bindtap="onTogglePriceSort">
       <text class="pill-text"> {{priceSortOrder === 'asc' ? '价格↑' : (priceSortOrder === 'desc' ? '价格↓' : '价格')}}
       </text>
+    </view>
+
+    <view class="filter-pill {{distanceSortActive ? 'active' : ''}}" bindtap="onToggleDistanceSort">
+      <text class="pill-text">{{distanceSortActive ? '距离↑' : '距离'}}</text>
     </view>
 
   </view>
@@ -47,10 +46,8 @@
   <view class="my-btn" bindtap="onMyGoods">我的商品</view>
 </view>
 
-<!-- 主体：左分类（窄） + 右商品（滚动） -->
 <view class="main">
 
-  <!-- 左侧分类 -->
   <view class="left">
     <scroll-view class="cat-scroll" scroll-y>
       <view
@@ -67,7 +64,6 @@
     </scroll-view>
   </view>
 
-  <!-- 右侧商品：唯一滚动区域 -->
   <view class="right">
     <scroll-view class="goods-scroll" scroll-y lower-threshold="120" bindscrolltolower="onGoodsScrollToLower">
       <view class="grid">
@@ -90,7 +86,8 @@
               <text>{{item.title}}</text>
             </view>
             <view class="goods-label">
-              {{item.title}}: ${{item.price}}
+              <text>{{item.title}}: ${{item.price}}</text>
+              <text wx:if="{{item.distanceText}}" class="goods-distance">距你 {{item.distanceText}}</text>
             </view>
           </view>
         </view>
@@ -106,12 +103,10 @@
 
 </view>
 
-<!-- 底部固定：只保留「卖闲置」 -->
 <view class="bottom-fixed">
   <view class="sell-btn" bindtap="onSellIdle">卖闲置</view>
 </view>
 
-<!-- 地区三列滚动选择器 -->
 <view wx:if="{{regionPickerVisible}}">
   <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
 

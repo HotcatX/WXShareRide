@@ -226,7 +226,6 @@ Page({
         applied = this.applyRequestData(cached.item)
       }
     } catch (e) {
-      console.warn("read request detail preview failed", e)
     }
 
     try {
@@ -239,7 +238,6 @@ Page({
         })
       }
     } catch (e) {
-      console.warn("bind request detail preview channel failed", e)
     }
 
     return applied
@@ -347,7 +345,6 @@ Page({
 
       if (!res.result || !res.result.success) {
         if (this.data.trip && !(res.result && res.result.notFound)) {
-          console.warn('getCarpoolRequestDetail failed after preview:', res.result)
           return
         }
         const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
@@ -384,7 +381,6 @@ Page({
       })
     } catch (err) {
       if (this.data.trip) {
-        console.warn('getCarpoolRequestDetail error after preview:', err)
         return
       }
       console.error('loadTripDetail error:', err)

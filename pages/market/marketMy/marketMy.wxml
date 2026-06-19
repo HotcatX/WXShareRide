@@ -1,6 +1,5 @@
 <view class="page">
 
-<!-- 顶部自定义导航 -->
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <image class="back-icon" src="/images/back.png" bindtap="onBack" />
@@ -9,10 +8,8 @@
   </view>
 </view>
 
-<!-- 内容区 -->
 <view class="content">
 
-  <!-- 个人信息卡 -->
   <view class="seller-card">
     <view class="seller-top">
       <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
@@ -24,7 +21,6 @@
       </view>
     </view>
 
-    <!-- 简介编辑 -->
     <view class="bio-editor">
       <textarea
         class="bio-textarea"
@@ -42,10 +38,8 @@
   <view class="divider"></view>
   <view class="section-title">我发布的宝贝</view>
 
-  <!-- 空态 -->
   <view wx:if="{{!goods || goods.length===0}}" class="empty">你还没有发布商品</view>
 
-  <!-- ✅ 商品网格（支持管理模式多选） -->
   <view class="goods-grid" wx:else>
     <view
       class="goods-card"
@@ -63,7 +57,6 @@
         <text>{{item.title}}</text>
       </view>
 
-      <!-- ✅ 多选勾选框（管理模式才显示） -->
       <view wx:if="{{manageMode}}"
             class="select-box {{selectedMap[item.id] ? 'on' : ''}}"
             catchtap="onToggleSelect"
@@ -74,7 +67,6 @@
       <view class="goods-label">{{item.title}} ${{item.price}}</view>
     </view>
 
-    <!-- 添加宝贝 -->
     <view class="goods-card add-card" bindtap="onAddGood">
       <view class="add-inner">
         <view class="add-plus">＋</view>
@@ -83,19 +75,15 @@
     </view>
   </view>
 
-  <!-- 给底部固定栏留空间 -->
   <view class="bottom-space"></view>
 
 </view>
 
-<!-- 底部固定 -->
 <view class="bottom-fixed">
   <view class="bottom-bar">
 
-    <!-- ✅ 管理模式：退出 + 全选 + 删除 -->
     <view wx:if="{{manageMode}}" class="manage-actions">
 
-      <!-- 退出多选管理模式 -->
       <view class="manage-exit" bindtap="onToggleManage">
         退出
       </view>
@@ -112,7 +100,6 @@
     </view>
 
 
-    <!-- ✅ 非管理模式：进入管理 -->
     <view wx:else class="manage-btn" bindtap="onToggleManage">
       一键管理我的宝贝
     </view>

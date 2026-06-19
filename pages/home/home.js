@@ -179,7 +179,6 @@ function wrapTripForCard(raw, opts = {}) {
     _fromAddress: fromAddress || '(未读取到出发地字段)',
     _toAddress: toAddress || '(未读取到目的地字段)',
     _timeLabel: timeLabel || '(未读取到时间字段)',
-    _debugIndex: idx,
     _statusKey: safeStatusKey,
     _statusBadge: statusBadgeMap[safeStatusKey],
   }
@@ -341,6 +340,8 @@ Page({
     const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
     const tripId = ds.tripid || ds.id || ''
     const role = String(ds.role || '').toLowerCase()
+    const from = String(ds.from || '').toLowerCase()
+    const sourceType = from === 'carpoolrequest' ? 'request' : 'carpool'
 
     if (!tripId) {
       wx.showToast({ title: '缺少路线ID', icon: 'none' })
@@ -359,14 +360,13 @@ Page({
       return
     }
 
-    // passengerCreate -> myTripRequestPassenger（你原来用 id=）
     if (role === 'passengercreate') {
       wx.navigateTo({ url: `/pages/profile/myTripRequestPassenger/myTripRequestPassenger?id=${tripId}` })
       return
     }
 
     // passenger / passengerJoin -> myTripDetailPassenger
-    wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}` })
+    wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}&sourceType=${sourceType}` })
   },
 
   async loadPublicStats() {
@@ -382,7 +382,6 @@ Page({
         result: "success"
       })
     } catch (e) {
-      console.warn('[home] loadPublicStats failed:', e)
       trackDuration("home_sync", startedAt, {
         module: "home",
         action: "sync",
@@ -500,7 +499,6 @@ Page({
       }
       return null
     }).catch((e) => {
-      console.warn('[home] refreshHomeStatusInBackground error:', e)
     }).finally(() => {
       this._statusRefreshPromise = null
     })
@@ -572,7 +570,7 @@ Page({
       const passengerTrips = sortByDepartTimeAsc(
         joinList.map((item, idx) =>
           wrapTripForCard(item.tripData || item, {
-            // 你之前这里默认 'passenger'；保留，统一跳转里已兜底
+            // 沿用原默认角色，跳转时按 item.from 决定详情来源。
             role: item.role || 'passenger',
             from: item.from || 'Carpool',
             idx

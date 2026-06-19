@@ -71,7 +71,6 @@ Page({
     isFull: false,
     isClosed: false,
 
-    // ✅ 新增：我是否为该路线司机
     isDriver: false,
 
     // ✅ 不再展示司机/其他乘客信息（保留字段避免 WXML/其他引用报错）
@@ -368,7 +367,7 @@ Page({
       path: `/pages/home/carpoolRequestDetail/carpoolRequestDetail?id=${tripId}`
     }
   },
-  
+
   onShareTimeline() {
     const { tripId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
@@ -378,6 +377,6 @@ Page({
       query: `id=${tripId}`
     }
   }
-  
-  
+
+
 })

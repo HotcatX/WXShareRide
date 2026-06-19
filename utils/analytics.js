@@ -78,7 +78,6 @@ function trackEvent(event, payload = {}) {
     name: "trackEvent",
     data
   }).catch(err => {
-    console.warn("[analytics] trackEvent failed:", event, err)
   })
 }
 

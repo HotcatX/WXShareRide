@@ -1,11 +1,7 @@
-/* pages/home/driverPickupDetail/driverPickupDetail.wxss */
-
-/* 页面同款米色背景 */
 page{
   background: #F6EFE8;
 }
 
-/* 页面骨架 */
 .ui-page{
   height: 100vh;
   overflow: hidden;
@@ -14,7 +10,6 @@ page{
   flex-direction: column;
 }
 
-/* 加载态居中 */
 .state-text{
   flex: 1;
   text-align: center;
@@ -52,7 +47,6 @@ page{
 }
 .state-action-btn::after{ border: none; }
 
-/* 中间滚动：同款 padding */
 .ui-scroll{
   flex: 1;
   min-height: 0;
@@ -60,7 +54,6 @@ page{
   box-sizing: border-box;
 }
 
-/* 白色卡片：同款圆角 + 阴影 */
 .ui-card{
   background: #fff;
   border-radius: 26rpx;
@@ -70,12 +63,10 @@ page{
   margin-top: 18rpx;
 }
 
-/* 给底部按钮留空间 */
 .ui-bottom-space{
   height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
-/* 底部固定：同款白框 */
 .ui-bottom-fixed{
   position: fixed;
   left: 0;
@@ -94,7 +85,6 @@ page{
   justify-content: center;
 }
 
-/* 同款主按钮（button 版） */
 .ui-primary-btn{
   width: 93%;
   height: 96rpx;
@@ -110,26 +100,18 @@ page{
   box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
 }
 
-/* 去掉 button 默认边框 */
 .ui-primary-btn::after{ border: none; }
 
-/* 禁用态：内凹阴影，表达“系统限制” */
 .ui-primary-btn--disabled{
   background: #f0f0f0 !important;
   color: #9a9a9a !important;
 
-  /* 关键：内置阴影（inset） */
   box-shadow:
     inset 0 4rpx 6rpx rgba(0,0,0,0.12),
     inset 0 -4rpx 6rpx rgba(255,255,255,0.8) !important;
 }
 
 
-/* =========================
-   卡片内排版（保留你原设计，只微调颜色统一）
-   ========================= */
-
-/* 卡片标题（你原来是蓝色，这里给你保留“强调色”，但不抢主按钮） */
 .card-title{
   font-size: 28rpx;
   font-weight: 900;
@@ -137,7 +119,6 @@ page{
   margin-bottom: 16rpx;
 }
 
-/* 第一行：出发地 → 目的地 */
 .route-row{
   display: flex;
   align-items: center;
@@ -163,7 +144,6 @@ page{
   color: rgba(0,0,0,0.45);
 }
 
-/* 第二行：时间 + 人数 */
 .time-seat-row{
   display: flex;
   justify-content: space-between;
@@ -178,7 +158,6 @@ page{
   color: rgba(0,0,0,0.60);
 }
 
-/* 第三行：参考价格 */
 .price-row{
   margin-top: 20rpx;
   display: flex;
@@ -188,14 +167,10 @@ page{
 .price-text-combined{
   font-size: 34rpx;
   line-height: 40rpx;
-  color: #FE814B;          /* 与二手交易“红标题”同一体系 */
-  font-weight: 900;
+  color: #FE814B;          font-weight: 900;
   white-space: nowrap;
 }
 
-/* =========================
-   顶部导航栏（结构保留）
-   ========================= */
 .nav-bar{
   width: 100%;
   background-color: #ffffff;

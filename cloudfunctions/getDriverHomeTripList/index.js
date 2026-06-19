@@ -97,7 +97,6 @@ function normalizeTripData(raw = {}, source) {
 
 exports.main = async (event, context) => {
   const { OPENID: openid } = cloud.getWXContext()
-  console.log('【getDriverHomeTripList】openid =', openid)
   if (!openid) return { ok: false, errorMsg: '未获取到 openid' }
 
   const statuses =

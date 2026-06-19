@@ -1,4 +1,4 @@
-// 云函数 addCarpoolList 
+// 云函数 addCarpoolList
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -87,14 +87,12 @@ exports.main = async (event, context) => {
     availSeatNum,
     status,
     passengers,
-    referencePrice,   // ✅ 新增
-    comment,          // ✅ 新增
-    zelle             // ✅ 新增 (yes/no)
+    referencePrice,
+    comment,
+    zelle
   } = event
 
   const { OPENID } = cloud.getWXContext()
-
-  console.log("【addCarpoolList 接收到的参数】", event) // 调试用
 
   try {
     const departureMeta = buildDepartureMeta(departures)
@@ -111,7 +109,6 @@ exports.main = async (event, context) => {
         passengers: passengers || [],
 
         // ========================
-        // ★★★ 新增三个字段 ★★★
         // ========================
         referencePrice: referencePrice || "",   // 价格
         comment: comment || "",                 // 备注

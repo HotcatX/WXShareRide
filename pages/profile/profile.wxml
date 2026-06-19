@@ -129,5 +129,9 @@
     </view>
   </view>
 
+  <view class="privacy-link-row" bindtap="goPrivacy">
+    <text class="privacy-link-text">隐私政策</text>
+  </view>
+
 </view>
 </view>

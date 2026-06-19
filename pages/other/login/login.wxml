@@ -30,6 +30,9 @@
 
 </view>
 
+<view class="privacy-footer">
+  <text>登录或继续浏览前，请阅读</text>
+  <text class="privacy-link" bindtap="goPrivacy">《隐私政策》</text>
 </view>
 
-
+</view>

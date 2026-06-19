@@ -123,8 +123,10 @@ Page({
     wx.removeStorageSync('pendingPage')
   
     this.backToPending(pendingUrl)
-  }
-  
-})
+  },
 
+  goPrivacy() {
+    wx.navigateTo({ url: '/pages/other/privacy/privacy' })
+  }
+})
 

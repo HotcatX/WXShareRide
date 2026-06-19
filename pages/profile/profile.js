@@ -286,5 +286,9 @@ Page({
   goPublished() {
     if (!this.ensureLoggedIn()) return
     wx.navigateTo({ url: '/pages/market/marketMy/marketMy' })
+  },
+
+  goPrivacy() {
+    wx.navigateTo({ url: '/pages/other/privacy/privacy' })
   }
 })

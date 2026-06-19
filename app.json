@@ -2,6 +2,7 @@
   "pages": [
     "pages/home/home",
     "pages/other/login/login",
+    "pages/other/privacy/privacy",
     "pages/profile/profile",
     "pages/home/driverNewTrip/driverNewTrip",
     "pages/home/newTrip/newTrip",

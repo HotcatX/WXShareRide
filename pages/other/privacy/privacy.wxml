@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="hero">
+    <text class="title">隐私政策</text>
+    <text class="updated">最近更新：{{updatedAt}}</text>
+    <text class="intro">
+      本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和使用统计中如何收集、使用、存储和保护你的信息。
+    </text>
+    <button class="contract-btn" bindtap="openWechatPrivacyContract">查看微信隐私保护指引</button>
+  </view>
+
+  <view class="content">
+    <view class="section" wx:for="{{sections}}" wx:for-item="section" wx:key="title">
+      <text class="section-title">{{section.title}}</text>
+      <view class="line" wx:for="{{section.lines}}" wx:for-item="line" wx:key="*this">
+        <text class="dot"></text>
+        <text class="line-text">{{line}}</text>
+      </view>
+    </view>
+  </view>
+</view>

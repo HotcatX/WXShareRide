@@ -4,6 +4,7 @@
   background: #F6EFE8; /* 米色背景 */
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 
 /* 顶部导航栏 */
@@ -36,10 +37,9 @@
 }
 
 /* 内容滚动 */
-.scroll{
+.content-scroll{
   flex: 1;
   min-height: 0;
-  padding: 22rpx 22rpx 0 22rpx;
   box-sizing: border-box;
 }
 
@@ -428,9 +428,10 @@
 }
 
 
-/* 取消 scroll-view 后的内容容器：让页面走默认滚动 */
+/* 内容容器 */
 .content{
-  padding: 0 24rpx;
+  padding: 22rpx 24rpx 0;
+  box-sizing: border-box;
 }
 
 /* 底部占位（你已有就保留，没有就加上） */

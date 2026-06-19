@@ -103,3 +103,23 @@
   font-size: 30rpx;
 }
 
+.privacy-footer {
+  position: absolute;
+  left: 56rpx;
+  right: 56rpx;
+  bottom: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4rpx;
+  color: #8a8a8a;
+  font-size: 24rpx;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.privacy-link {
+  color: #5f7f2d;
+  font-weight: 600;
+}

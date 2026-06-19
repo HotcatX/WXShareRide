@@ -1,0 +1,94 @@
+.page {
+  min-height: 100vh;
+  background: #f7efe9;
+  color: #202020;
+  padding: 28rpx;
+  box-sizing: border-box;
+}
+
+.hero {
+  background: #ffffff;
+  border-radius: 18rpx;
+  padding: 34rpx 30rpx;
+  box-sizing: border-box;
+}
+
+.title {
+  display: block;
+  font-size: 42rpx;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.updated {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #7a7a7a;
+}
+
+.intro {
+  display: block;
+  margin-top: 26rpx;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #4a4a4a;
+}
+
+.contract-btn {
+  margin: 30rpx 0 0;
+  height: 78rpx;
+  line-height: 78rpx;
+  border-radius: 39rpx;
+  background: #9fb66e;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.contract-btn::after {
+  border: 0;
+}
+
+.content {
+  margin-top: 24rpx;
+}
+
+.section {
+  background: #ffffff;
+  border-radius: 18rpx;
+  padding: 30rpx;
+  margin-bottom: 20rpx;
+  box-sizing: border-box;
+}
+
+.section-title {
+  display: block;
+  font-size: 31rpx;
+  font-weight: 700;
+  margin-bottom: 18rpx;
+  color: #1f1f1f;
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 14rpx;
+  margin-top: 16rpx;
+}
+
+.dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #9fb66e;
+  margin-top: 18rpx;
+  flex: 0 0 auto;
+}
+
+.line-text {
+  flex: 1;
+  font-size: 27rpx;
+  line-height: 1.75;
+  color: #444444;
+}

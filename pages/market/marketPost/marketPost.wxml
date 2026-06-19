@@ -9,7 +9,13 @@
   </view>
 </view>
 
-<!-- 内容区（取消 scroll-view，使用页面默认滚动） -->
+<!-- 内容区：表单独立滚动，顶部导航和底部按钮保持固定 -->
+<scroll-view
+  class="content-scroll"
+  scroll-y="{{true}}"
+  enhanced="{{true}}"
+  show-scrollbar="{{false}}"
+>
 <view class="content">
 <view wx:if="{{editLoading}}" class="inline-loading">正在加载商品...</view>
 
@@ -165,6 +171,7 @@
 <!-- 给底部固定发布按钮留空 -->
 <view class="bottom-space"></view>
 </view>
+</scroll-view>
 
 <!-- 底部固定：发布/保存 -->
 <view class="bottom-fixed">

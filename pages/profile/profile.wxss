@@ -222,3 +222,16 @@
   display: block;
   margin: 0 auto;
 }
+
+.privacy-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18rpx 0 8rpx;
+}
+
+.privacy-link-text {
+  font-size: 24rpx;
+  color: #7a7a7a;
+  text-decoration: underline;
+}

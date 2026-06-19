@@ -1,5 +1,3 @@
-const { trackEvent } = require("./utils/analytics")
-
 App({
   onLaunch() {
 
@@ -12,12 +10,6 @@ App({
     wx.cloud.init({
       env: 'cloud1-7gmtcu4s3aebce27',
       traceUser: true
-    })
-
-    trackEvent("app_launch", {
-      module: "app",
-      action: "launch",
-      result: "success"
     })
 
     // 强制重新登录（可保留）

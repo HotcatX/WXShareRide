@@ -1,6 +1,3 @@
-// pages/home/home.js
-const { createTimer, trackDuration, trackEvent } = require("../../utils/analytics")
-
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
 const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
@@ -276,12 +273,6 @@ Page({
   },
 
   onLoad() {
-    trackEvent("page_view", {
-      module: "home",
-      action: "view",
-      source: "home"
-    })
-
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -370,24 +361,12 @@ Page({
   },
 
   async loadPublicStats() {
-    const startedAt = createTimer()
     try {
       const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
       const data = res && res.result && res.result.data ? res.result.data : {}
       this.setData({ publicStats: normalizePublicStats(data) })
       this.startPublicStatsTicker()
-      trackDuration("home_sync", startedAt, {
-        module: "home",
-        action: "sync",
-        result: "success"
-      })
     } catch (e) {
-      trackDuration("home_sync", startedAt, {
-        module: "home",
-        action: "sync",
-        result: "fail",
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     }
   },
 
@@ -442,7 +421,6 @@ Page({
   },
 
   async loadHomeTripLists() {
-    const startedAt = createTimer()
     const res = await wx.cloud.callFunction({ name: 'getHomeTripList' })
     const ok = !!(res && res.result && res.result.ok)
     if (!ok) {
@@ -517,13 +495,6 @@ Page({
 
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
-    })
-
-    trackDuration("home_trip_load", startedAt, {
-      module: "home",
-      action: "load",
-      result: "success",
-      listCount: createTrips.length + joinTrips.length
     })
   },
 

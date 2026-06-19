@@ -1,5 +1,3 @@
-// pages/home/requestDetail/requestDetail.js
-const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
@@ -92,13 +90,6 @@ Page({
   },
 
   async onLoad(options) {
-    trackEvent("page_view", {
-      module: "carpool",
-      action: "view",
-      source: "request_detail",
-      routeType: "request"
-    })
-
     const info = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -333,7 +324,6 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
-    const startedAt = createTimer()
     const { silent = false } = options
     if (!silent) this.setData({ loading: true, loadError: '' })
 
@@ -349,49 +339,22 @@ Page({
         }
         const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
         this.setLoadError(msg)
-        trackDuration("carpool_detail_load", startedAt, {
-          module: "carpool",
-          action: "load",
-          routeType: "request",
-          result: "fail",
-          errorCode: "success_false"
-        })
         return
       }
 
       const trip = res.result.data
       if (!trip) {
         this.setLoadError('该求车路线不存在或已被删除')
-        trackDuration("carpool_detail_load", startedAt, {
-          module: "carpool",
-          action: "load",
-          routeType: "request",
-          result: "fail",
-          errorCode: "empty"
-        })
         return
       }
 
       this.applyRequestData(trip)
-      trackDuration("carpool_detail_load", startedAt, {
-        module: "carpool",
-        action: "load",
-        routeType: "request",
-        result: "success"
-      })
     } catch (err) {
       if (this.data.trip) {
         return
       }
       console.error('loadTripDetail error:', err)
       this.setLoadError('网络异常，请稍后重试')
-      trackDuration("carpool_detail_load", startedAt, {
-        module: "carpool",
-        action: "load",
-        routeType: "request",
-        result: "fail",
-        errorCode: err && (err.errMsg || err.message) ? String(err.errMsg || err.message).slice(0, 80) : "unknown"
-      })
     }
   },
 
@@ -414,12 +377,6 @@ Page({
 
     if (!tripId) return
     if (submittingPassenger) return
-
-    trackEvent("carpool_join_click", {
-      module: "carpool",
-      action: "click",
-      routeType: "request"
-    })
 
     // ✅ 登录 + 完善资料拦截
     if (!this.ensureLoginBeforeAction('requestDetail:join')) return
@@ -448,12 +405,6 @@ Page({
 
       if (ret.result && ret.result.success) {
         this.showToast('加入成功', 'success', 1200)
-        trackEvent("carpool_join_success", {
-          module: "carpool",
-          action: "join",
-          routeType: "request",
-          result: "success"
-        })
         setTimeout(() => {
           wx.switchTab({ url: '/pages/home/home' })
         }, 1200)
@@ -462,23 +413,9 @@ Page({
 
       const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '加入失败'
       this.showToast(msg, 'none')
-      trackEvent("carpool_join_fail", {
-        module: "carpool",
-        action: "join",
-        routeType: "request",
-        result: "fail",
-        errorCode: msg
-      })
     } catch (e) {
       console.error('joinAsPassenger error:', e)
       this.showToast('加入失败', 'none')
-      trackEvent("carpool_join_fail", {
-        module: "carpool",
-        action: "join",
-        routeType: "request",
-        result: "fail",
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     } finally {
       this.setData({ submittingPassenger: false })
     }
@@ -500,12 +437,6 @@ Page({
 
     if (!tripId) return
     if (submittingDriver) return
-
-    trackEvent("carpool_accept_click", {
-      module: "carpool",
-      action: "click",
-      routeType: "request"
-    })
 
     // ✅ 登录 + 完善资料拦截
     if (!this.ensureLoginBeforeAction('requestDetail:accept')) return
@@ -538,12 +469,6 @@ Page({
 
       if (ret.result && ret.result.success) {
         this.showToast('接单成功', 'success', 1200)
-        trackEvent("carpool_accept_success", {
-          module: "carpool",
-          action: "accept",
-          routeType: "request",
-          result: "success"
-        })
         setTimeout(() => {
           wx.switchTab({ url: '/pages/home/home' })
         }, 1200)
@@ -552,23 +477,9 @@ Page({
 
       const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '接单失败'
       this.showToast(msg, 'none')
-      trackEvent("carpool_accept_fail", {
-        module: "carpool",
-        action: "accept",
-        routeType: "request",
-        result: "fail",
-        errorCode: msg
-      })
     } catch (e) {
       console.error('acceptAsDriver error:', e)
       this.showToast('接单失败', 'none')
-      trackEvent("carpool_accept_fail", {
-        module: "carpool",
-        action: "accept",
-        routeType: "request",
-        result: "fail",
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     } finally {
       this.setData({ submittingDriver: false })
     }

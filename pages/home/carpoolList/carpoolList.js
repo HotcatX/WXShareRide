@@ -1,5 +1,3 @@
-// pages/home/carpoolList/carpoolList.js
-const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const { showDataError } = require("../../../utils/error")
 
 const LIST_FETCH_LIMIT = 80
@@ -83,12 +81,6 @@ Page({
   _initFilterFromShare: null,
 
   onLoad(options) {
-    trackEvent("page_view", {
-      module: "carpool",
-      action: "view",
-      source: "carpool_list"
-    })
-
     const info = wx.getSystemInfoSync()
 
     // 允许分享
@@ -548,7 +540,6 @@ Page({
   },
 
   async _loadBothListsImpl(showLoading) {
-    const startedAt = createTimer()
     try {
       const res = await wx.cloud.callFunction({
         name: "getTripList",
@@ -566,12 +557,6 @@ Page({
           originalCarpoolList: [],
           originalRequestList: [],
           dayGroups: []
-        })
-        trackDuration("carpool_list_load", startedAt, {
-          module: "carpool",
-          action: "load",
-          result: "fail",
-          failCount: 1
         })
         return
       }
@@ -601,26 +586,12 @@ Page({
       this._loadedOnceAt = Date.now()
       this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
       this.applyAllFiltersAndGroup()
-      trackDuration("carpool_list_load", startedAt, {
-        module: "carpool",
-        action: "load",
-        result: "success",
-        carpoolCount: decoratedCarpool.length,
-        requestCount: decoratedRequest.length,
-        failCount: 0
-      })
     } catch (err) {
       console.error("loadBothLists error:", err)
       if (showLoading) showDataError("加载失败", err, "拼车列表加载失败，请稍后重试。")
       this.setData({
         loading: false,
         hasLoadedOnce: true
-      })
-      trackDuration("carpool_list_load", startedAt, {
-        module: "carpool",
-        action: "load",
-        result: "fail",
-        errorCode: err && (err.errMsg || err.message) ? String(err.errMsg || err.message).slice(0, 80) : "unknown"
       })
     }
   },
@@ -866,12 +837,6 @@ Page({
   onFromFilterChange(e) {
     const index = Number(e.detail.value)
     const fromSelected = this.data.fromFilterOptions[index] || "全部"
-    trackEvent("carpool_filter_change", {
-      module: "carpool",
-      action: "filter",
-      filterName: "from",
-      filterValue: fromSelected
-    })
     const nextToOptions = this.rebuildToOptionsByFrom(fromSelected)
 
     let nextToIndex = this.data.toFilterIndex
@@ -891,23 +856,11 @@ Page({
 
   onToFilterChange(e) {
     const index = Number(e.detail.value)
-    trackEvent("carpool_filter_change", {
-      module: "carpool",
-      action: "filter",
-      filterName: "to",
-      filterValue: this.data.toFilterOptions[index] || "全部"
-    })
     this.setData({ toFilterIndex: index }, () => this.applyAllFiltersAndGroup())
   },
 
   onTimeFilterChange(e) {
     const index = Number(e.detail.value)
-    trackEvent("carpool_filter_change", {
-      module: "carpool",
-      action: "filter",
-      filterName: "time",
-      filterValue: this.data.timeFilterOptions[index] || "全部"
-    })
     this.setData({ timeFilterIndex: index }, () => this.applyAllFiltersAndGroup())
   },
 
@@ -962,13 +915,6 @@ Page({
   },
 
   openDetailPage(url, id, type) {
-    trackEvent("carpool_route_click", {
-      module: "carpool",
-      action: "click",
-      source: "carpool_list",
-      routeType: type || "unknown"
-    })
-
     const item = this.findDetailItem(id, type)
     const preview = item ? { id, type, item, savedAt: Date.now() } : null
 

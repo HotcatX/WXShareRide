@@ -67,6 +67,24 @@
   width: 100%;
   height: 100%;
 }
+.main-no-img{
+  width: 100%;
+  height: 100%;
+  padding: 48rpx;
+  box-sizing: border-box;
+  background: #eef3e5;
+  color: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.main-no-img text{
+  font-size: 54rpx;
+  font-weight: 900;
+  line-height: 1.18;
+  word-break: break-all;
+}
 
 /* 信息卡 */
 .info-card{
@@ -94,6 +112,24 @@
 .post-date .date{
   display:block;
   font-weight: 800;
+}
+.pickup-window{
+  margin-top: 12rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 12rpx;
+  background: #fff;
+  border: 2rpx solid rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  font-size: 26rpx;
+  font-weight: 800;
+  color: rgba(0,0,0,0.58);
+}
+.pickup-date{
+  color: #111;
+  text-align: right;
 }
 
 /* 品牌 + 商品名称 */

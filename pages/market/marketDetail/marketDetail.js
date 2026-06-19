@@ -1,5 +1,4 @@
 // pages/market/marketDetail/marketDetail.js
-const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const LOGIN_PAGE = '/pages/other/login/login'
 
 Page({
@@ -99,12 +98,6 @@ Page({
   },  
 
   onLoad(options) {
-    trackEvent("page_view", {
-      module: "market",
-      action: "view",
-      source: "market_detail"
-    })
-
     const sys = wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
 
@@ -155,7 +148,6 @@ Page({
   },
 
   async fetchDetail(id) {
-    const startedAt = createTimer()
     try {
       const db = wx.cloud.database()
       const res = await db.collection("market_goods").doc(id).get()
@@ -179,9 +171,17 @@ Page({
 
           // ✅ 旧字段保留
           imageFileID: x.imageFileID || "",
+          thumbFileID: x.thumbFileID || "",
 
           // ✅ 新字段：多图数组（详情轮播用）
           imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+          thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+          hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
+          pickupStartDate: x.pickupStartDate || "",
+          pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
+          pickupRangeText: x.pickupRangeText || "",
+          expireTime: Number(x.expireTime) || 0,
+          status: x.status || "online",
 
           // 你原来的字段
           wantCount: x.wantCount || 0,
@@ -192,22 +192,9 @@ Page({
       })
 
       await this._buildTempUrls(x)
-      trackDuration("market_detail_load", startedAt, {
-        module: "market",
-        action: "load",
-        result: "success",
-        category: x.category || "",
-        region: x.region || ""
-      })
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "获取详情失败", icon: "none" })
-      trackDuration("market_detail_load", startedAt, {
-        module: "market",
-        action: "load",
-        result: "fail",
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     }
   },
 
@@ -251,24 +238,15 @@ Page({
     if (!ok) return
 
     try {
-
-      // 1) 先删云存储图片（失败也不影响删除文档）
-      const fileIds = [
-        ...(Array.isArray(this.data.item?.imageFileIDs) ? this.data.item.imageFileIDs : []),
-        this.data.item?.imageFileID
-      ].filter(Boolean)
-
-      if (fileIds.length > 0) {
-        try {
-          await wx.cloud.deleteFile({ fileList: fileIds })
-        } catch (e) {
-          console.warn('[deleteFile] ignored:', e)
-        }
+      const res = await wx.cloud.callFunction({
+        name: 'deleteMarketItem',
+        data: { id }
+      })
+      const r = res?.result || {}
+      if (!r.ok) {
+        wx.showToast({ title: r.error || '删除失败', icon: 'none' })
+        return
       }
-
-      // 2) 再删数据库文档
-      const db = wx.cloud.database()
-      await db.collection('market_goods').doc(id).remove()
 
       wx.showToast({ title: '已删除', icon: 'success' })
       wx.navigateBack({ delta: 1 })
@@ -327,13 +305,6 @@ Page({
 
   async onContactSeller() {
     if (!this.ensureLoginBeforeContact()) return
-    trackEvent("market_contact_seller_click", {
-      module: "market",
-      action: "contact",
-      category: this.data.item && this.data.item.category ? this.data.item.category : "",
-      region: this.data.item && this.data.item.region ? this.data.item.region : ""
-    })
-
     const openid = this.data.item?._openid
     if (!openid) {
       wx.showToast({ title: "卖家信息缺失", icon: "none" })

@@ -205,6 +205,22 @@
   height: 180rpx;
   background: #f6f6f6;
 }
+.text-thumb{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18rpx;
+  box-sizing: border-box;
+  background: #eef3e5;
+  color: #111;
+  text-align: center;
+}
+.text-thumb text{
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 1.2;
+  word-break: break-all;
+}
 
 .view-more{
   text-align:center;

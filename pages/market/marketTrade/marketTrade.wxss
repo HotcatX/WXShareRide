@@ -75,6 +75,21 @@
   background:#f6f6f6;
   margin-right: 14rpx;
 }
+.text-thumb{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 10rpx;
+  box-sizing:border-box;
+  background:#eef3e5;
+  text-align:center;
+}
+.text-thumb text{
+  font-size: 22rpx;
+  font-weight: 900;
+  line-height: 1.15;
+  word-break: break-all;
+}
 
 .mid{ flex:1; }
 .title{

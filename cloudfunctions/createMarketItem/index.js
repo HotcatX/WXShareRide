@@ -1,6 +1,10 @@
 const cloud = require("wx-server-sdk")
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
+const crypto = require("crypto")
+
+const MARKET_FILES_COLLECTION = "MarketFiles"
+const MAX_PICKUP_MONTHS = 2
 
 function normalizeLocationText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
@@ -75,10 +79,146 @@ async function upsertUserRegion(openid, regionStr) {
   }
 }
 
+function normalizeFileID(fileID) {
+  const value = String(fileID || "").trim()
+  return value.startsWith("cloud://") ? value : ""
+}
+
+function uniqFileIDs(fileIDs) {
+  return Array.from(new Set((fileIDs || []).map(normalizeFileID).filter(Boolean)))
+}
+
+function collectMarketFiles(payload = {}) {
+  const files = []
+  const imageFileID = normalizeFileID(payload.imageFileID)
+  const thumbFileID = normalizeFileID(payload.thumbFileID)
+  const imageFileIDs = Array.isArray(payload.imageFileIDs) ? payload.imageFileIDs : []
+  const thumbFileIDs = Array.isArray(payload.thumbFileIDs) ? payload.thumbFileIDs : []
+
+  uniqFileIDs([imageFileID, ...imageFileIDs]).forEach(fileID => {
+    files.push({ fileID, type: "image", folder: "market" })
+  })
+  uniqFileIDs([thumbFileID, ...thumbFileIDs]).forEach(fileID => {
+    files.push({ fileID, type: "thumb", folder: "market_thumb" })
+  })
+
+  const seen = new Set()
+  return files.filter(file => {
+    if (!file.fileID || seen.has(file.fileID)) return false
+    seen.add(file.fileID)
+    return true
+  })
+}
+
+function marketFileDocId(fileID) {
+  return crypto.createHash("sha1").update(String(fileID)).digest("hex")
+}
+
+async function attachMarketFiles(files, goodsId, openid) {
+  if (!files.length || !goodsId || !openid) return
+  const col = db.collection(MARKET_FILES_COLLECTION)
+
+  await Promise.all(files.map(file => {
+    const nowMs = Date.now()
+    return col.doc(marketFileDocId(file.fileID)).set({
+      data: {
+        fileID: file.fileID,
+        type: file.type || "image",
+        folder: file.folder || "",
+        goodsId,
+        status: "attached",
+        _openid: openid,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+        attachedAt: db.serverDate(),
+        updatedAt: db.serverDate()
+      }
+    }).catch(e => {
+      console.error("[createMarketItem] attach MarketFiles failed:", e)
+    })
+  }))
+}
+
+function parseDateOnly(value) {
+  const text = String(value || "").trim()
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!match) return null
+  const y = Number(match[1])
+  const m = Number(match[2])
+  const d = Number(match[3])
+  const date = new Date(y, m - 1, d)
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null
+  return date
+}
+
+function formatDateOnly(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function endOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+}
+
+function addMonths(date, months) {
+  const d = new Date(date.getTime())
+  const day = d.getDate()
+  d.setMonth(d.getMonth() + months)
+  if (d.getDate() !== day) d.setDate(0)
+  return d
+}
+
+function buildPickupWindow(event = {}) {
+  const today = startOfDay(new Date())
+  const maxEnd = addMonths(today, MAX_PICKUP_MONTHS)
+  const fallbackEnd = new Date(today.getTime())
+  fallbackEnd.setDate(fallbackEnd.getDate() + 14)
+  const safeFallbackEnd = fallbackEnd > maxEnd ? maxEnd : fallbackEnd
+
+  const start = parseDateOnly(event.pickupStartDate) || today
+  const end = parseDateOnly(event.pickupEndDate) || safeFallbackEnd
+
+  if (end < start) {
+    return { ok: false, message: "pickup_end_before_start" }
+  }
+  if (end > maxEnd) {
+    return { ok: false, message: "pickup_range_over_2_months" }
+  }
+
+  const pickupStartDate = formatDateOnly(start)
+  const pickupEndDate = formatDateOnly(end)
+  return {
+    ok: true,
+    pickupStartDate,
+    pickupEndDate,
+    pickupRangeText: `${pickupStartDate} 至 ${pickupEndDate}`,
+    expireTime: endOfDay(end).getTime(),
+    expiresAtText: pickupEndDate
+  }
+}
+
 exports.main = async (event, context) => {
   const { OPENID } = cloud.getWXContext()
 
-  const { title, price, category, region, location, condition, desc, imageFileID } = event
+  const {
+    title,
+    price,
+    category,
+    region,
+    location,
+    condition,
+    desc,
+    imageFileID,
+    thumbFileID,
+    imageFileIDs,
+    thumbFileIDs
+  } = event || {}
 
   if (!title || !category || !region) {
     return { ok: false, message: "missing required fields" }
@@ -92,6 +232,11 @@ exports.main = async (event, context) => {
   // ✅ 发布时同步用户地址到 userInfo（失败不阻塞发布）
   await upsertUserRegion(OPENID, region)
   const saveLocation = buildLocationForSave(region, location || {})
+  const pickupWindow = buildPickupWindow(event || {})
+  if (!pickupWindow.ok) return { ok: false, message: pickupWindow.message }
+  const files = collectMarketFiles({ imageFileID, thumbFileID, imageFileIDs, thumbFileIDs })
+  const firstImageFileID = normalizeFileID(imageFileID) || files.find(file => file.type === "image")?.fileID || ""
+  const firstThumbFileID = normalizeFileID(thumbFileID) || files.find(file => file.type === "thumb")?.fileID || ""
 
   const now = new Date()
   const postDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
@@ -105,17 +250,30 @@ exports.main = async (event, context) => {
       location: saveLocation,
       condition: condition || "99新",
       desc: desc || "",
-      imageFileID: imageFileID || "",
+      imageFileID: firstImageFileID,
+      thumbFileID: firstThumbFileID,
+      imageFileIDs: uniqFileIDs([firstImageFileID, ...(Array.isArray(imageFileIDs) ? imageFileIDs : [])]),
+      thumbFileIDs: uniqFileIDs([firstThumbFileID, ...(Array.isArray(thumbFileIDs) ? thumbFileIDs : [])]),
+      hasImage: !!firstImageFileID,
+      pickupStartDate: pickupWindow.pickupStartDate,
+      pickupEndDate: pickupWindow.pickupEndDate,
+      pickupRangeText: pickupWindow.pickupRangeText,
+      expireTime: pickupWindow.expireTime,
+      expiresAtText: pickupWindow.expiresAtText,
 
       wantCount: 0,
       viewCount: 0,
 
       postDate,
       createTime: db.serverDate(),
+      updateTime: db.serverDate(),
+      status: "online",
       _openid: OPENID
     }
   })
 
+  await attachMarketFiles(files, res._id, OPENID)
+
   // 兼容：前端可能读 id / itemId
-  return { ok: true, id: res._id, itemId: res._id }
+  return { ok: true, id: res._id, itemId: res._id, status: "online" }
 }

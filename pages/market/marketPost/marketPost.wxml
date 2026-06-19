@@ -26,8 +26,8 @@
     <view class="img-uploader" bindtap="onChooseImage">
       <image wx:if="{{image}}" class="img" src="{{image}}" mode="aspectFill" />
       <view wx:else class="img-placeholder">
-        <text class="ph1">+ 添加优质</text>
-        <text class="ph2">商品更受人~</text>
+        <text class="ph1">+ 添加图片</text>
+        <text class="ph2">可选，文字也能发布</text>
       </view>
       <view wx:if="{{imageUploading}}" class="image-upload-mask" catchtap="noop">
         <view class="upload-progress-ring" style="background: conic-gradient(#ffffff {{imageUploadProgressDeg}}deg, rgba(255,255,255,0.22) 0deg);">
@@ -114,6 +114,40 @@
         <text class="arrow">›</text>
       </view>
     </view>
+
+    <picker
+      mode="date"
+      start="{{pickupStartMin}}"
+      end="{{pickupStartMax}}"
+      value="{{pickupStartDate}}"
+      bindchange="onPickupStartDateChange"
+    >
+      <view class="row">
+        <view class="label">可取开始</view>
+        <view class="right">
+          <text class="value">{{pickupStartDate}}</text>
+          <text class="arrow">›</text>
+        </view>
+      </view>
+    </picker>
+
+    <picker
+      mode="date"
+      start="{{pickupEndMin}}"
+      end="{{pickupEndMax}}"
+      value="{{pickupEndDate}}"
+      bindchange="onPickupEndDateChange"
+    >
+      <view class="row">
+        <view class="label">可取结束</view>
+        <view class="right">
+          <text class="value">{{pickupEndDate}}</text>
+          <text class="arrow">›</text>
+        </view>
+      </view>
+    </picker>
+
+    <view class="expire-hint">商品会展示到可取结束当天，最长可选 2 个月。</view>
 
     <view class="location-block">
       <view class="location-title-row">

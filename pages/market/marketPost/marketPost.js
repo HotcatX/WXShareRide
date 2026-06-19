@@ -1,10 +1,11 @@
-const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 const MARKET_SAVED_LOCATION_KEY = "market_post_saved_location_v1"
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
 const MARKET_MAIN_IMAGE_MAX_SIDE = 1280
 const MARKET_MAIN_CANVAS_QUALITY = 0.78
 const MARKET_THUMB_CANVAS_QUALITY = 0.72
+const MARKET_PICKUP_MAX_MONTHS = 2
+const MARKET_DEFAULT_PICKUP_DAYS = 14
 
 // ========== 图片压缩（上传前压缩，失败自动回退原图，保证不出错） ==========
 function compressForUpload(srcPath, quality = 70) {
@@ -137,6 +138,112 @@ function uploadOne(localPath, folder = "market", onProgress) {
         }
       })
     }
+  })
+}
+
+function normalizeFileID(fileID) {
+  const value = String(fileID || "").trim()
+  return value.startsWith("cloud://") ? value : ""
+}
+
+function uniqFileIDs(fileIDs) {
+  return Array.from(new Set((fileIDs || []).map(normalizeFileID).filter(Boolean)))
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function addMonths(date, months) {
+  const d = new Date(date.getTime())
+  const day = d.getDate()
+  d.setMonth(d.getMonth() + months)
+  if (d.getDate() !== day) d.setDate(0)
+  return d
+}
+
+function addDays(date, days) {
+  const d = new Date(date.getTime())
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+function formatDate(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function parseDate(value) {
+  const text = String(value || "").trim()
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  if (formatDate(date) !== text) return null
+  return date
+}
+
+function endOfDayTime(value) {
+  const d = parseDate(value)
+  if (!d) return 0
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
+}
+
+function buildDefaultPickupWindow() {
+  const today = startOfDay(new Date())
+  const max = addMonths(today, MARKET_PICKUP_MAX_MONTHS)
+  const defaultEnd = addDays(today, MARKET_DEFAULT_PICKUP_DAYS)
+  const safeEnd = defaultEnd > max ? max : defaultEnd
+  const start = formatDate(today)
+  const end = formatDate(safeEnd)
+  const maxText = formatDate(max)
+  return {
+    pickupStartMin: start,
+    pickupStartMax: maxText,
+    pickupEndMin: start,
+    pickupEndMax: maxText,
+    pickupStartDate: start,
+    pickupEndDate: end,
+    pickupRangeText: `${start} 至 ${end}`
+  }
+}
+
+function normalizePickupWindow(startText, endText) {
+  const base = buildDefaultPickupWindow()
+  const minDate = parseDate(base.pickupStartMin)
+  const maxDate = parseDate(base.pickupEndMax)
+  let startDate = parseDate(startText) || parseDate(base.pickupStartDate)
+  let endDate = parseDate(endText) || parseDate(base.pickupEndDate)
+
+  if (startDate < minDate) startDate = minDate
+  if (startDate > maxDate) startDate = maxDate
+  if (endDate < startDate) endDate = startDate
+  if (endDate > maxDate) endDate = maxDate
+
+  const start = formatDate(startDate)
+  const end = formatDate(endDate)
+  return {
+    ...base,
+    pickupEndMin: start,
+    pickupStartDate: start,
+    pickupEndDate: end,
+    pickupRangeText: `${start} 至 ${end}`
+  }
+}
+
+function registerUploadedMarketFiles(files, goodsId = "") {
+  const payload = (files || []).filter(file => file && file.fileID)
+  if (!payload.length) return Promise.resolve()
+  return wx.cloud.callFunction({
+    name: "trackMarketFiles",
+    data: {
+      goodsId,
+      status: goodsId ? "attached" : "uploaded",
+      files: payload
+    }
+  }).catch(e => {
+    console.warn("[trackMarketFiles] ignored:", e)
   })
 }
 
@@ -285,6 +392,7 @@ Page({
     locationSaved: false,
     regionPickerValue: [0, 0, 0],
     regionPickerColumns: buildRegionPickerColumns([0, 0, 0]),
+    ...buildDefaultPickupWindow(),
 
     categoryOptions: CATEGORY_OPTIONS,
     categoryIndex: -1,
@@ -299,15 +407,11 @@ Page({
   },
 
   onLoad(options) {
-    trackEvent("market_post_start", {
-      module: "market",
-      action: "view",
-      source: "market_post",
-      result: "start"
-    })
-
     const sys = wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
+    this.setData({
+      statusBarHeight: sys.statusBarHeight || 0,
+      ...normalizePickupWindow(this.data.pickupStartDate, this.data.pickupEndDate)
+    })
 
     this._applySavedLocation()
 
@@ -434,7 +538,12 @@ Page({
         imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
 
         thumbFileID: x.thumbFileID || '',
-        thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : []
+        thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+
+        ...normalizePickupWindow(
+          x.pickupStartDate || '',
+          x.pickupEndDate || x.expiresAtText || ''
+        )
       })
     } catch (e) {
       console.error(e)
@@ -497,13 +606,6 @@ Page({
       wx.showToast({ title: "图片上传中", icon: "none" })
       return
     }
-
-    const startedAt = createTimer()
-    trackEvent("market_image_upload_start", {
-      module: "market",
-      action: "upload",
-      imageCount: 1
-    })
 
     try {
       const res = await wx.chooseMedia({
@@ -579,13 +681,12 @@ Page({
         thumbFileIDs: thumbFID ? [thumbFID] : []
       })
 
+      registerUploadedMarketFiles([
+        { fileID, type: "image", folder: "market" },
+        thumbFID ? { fileID: thumbFID, type: "thumb", folder: "market_thumb" } : null
+      ]).catch(() => {})
+
       wx.showToast({ title: "上传成功", icon: "success" })
-      trackDuration("market_image_upload_done", startedAt, {
-        module: "market",
-        action: "upload",
-        result: "success",
-        imageCount: 1
-      })
       setTimeout(() => {
         if (this.data.imageFileID === fileID) {
           this.setData({ imageUploading: false })
@@ -594,13 +695,6 @@ Page({
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "选择/上传失败", icon: "none" })
-      trackDuration("market_image_upload_fail", startedAt, {
-        module: "market",
-        action: "upload",
-        result: "fail",
-        imageCount: 1,
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
       this.setData({ imageUploading: false })
     }
   },
@@ -614,6 +708,16 @@ Page({
   },
   onPriceInput(e) {
     this.setData({ price: e.detail.value || "" })
+  },
+
+  onPickupStartDateChange(e) {
+    const start = e.detail.value || this.data.pickupStartDate
+    this.setData(normalizePickupWindow(start, this.data.pickupEndDate))
+  },
+
+  onPickupEndDateChange(e) {
+    const end = e.detail.value || this.data.pickupEndDate
+    this.setData(normalizePickupWindow(this.data.pickupStartDate, end))
   },
 
   onRegionPickerColumnChange(e) {
@@ -718,238 +822,99 @@ onChooseCondition() {
   async onSubmit() {
     if (!this.ensureLoginBeforePost()) return
     if (this.data.submitting) return
-    const startedAt = createTimer()
 
     const {
-      image,
       imageFileID,
       title,
       desc,
       category,
       price,
-      condition
+      condition,
+      pickupStartDate,
+      pickupEndDate
     } = this.data
     const region = normalizeLocationText(this.data.locationInput || this.data.region)
     const location = buildLocationMeta(region, this.data.location || {})
+    const imageFileIDs = uniqFileIDs([imageFileID, ...(Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [])])
+    const thumbFileIDs = uniqFileIDs([this.data.thumbFileID, ...(Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [])])
+    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate)
+    const expireTime = endOfDayTime(pickupWindow.pickupEndDate)
+    const hasImage = imageFileIDs.length > 0
 
-    if (!image) return wx.showToast({ title: "请上传图片", icon: "none" })
-    if (!imageFileID || !String(imageFileID).startsWith("cloud://")) {
-      return wx.showToast({ title: "图片还在上传中或上传失败", icon: "none" })
+    if (this.data.imageUploading) {
+      return wx.showToast({ title: "图片还在上传中", icon: "none" })
     }
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
     if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
     if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
-
-    trackEvent("market_publish_click", {
-      module: "market",
-      action: this.data.isEdit ? "edit" : "publish",
-      category,
-      region
-    })
+    if (!expireTime) return wx.showToast({ title: "请选择可取时间", icon: "none" })
 
     this.setData({ submitting: true })
     this._saveLocationToStorage(false)
 
     try {
-      // ✅ 编辑模式：只更新原记录，禁止触发 createMarketItem（否则会新增一条记录）
+      const payload = {
+        title: String(title).trim(),
+        price: Number(price || 0),
+        category,
+        region,
+        location,
+        condition: condition || "99新",
+        desc: desc || "",
+        imageFileID: imageFileIDs[0] || "",
+        imageFileIDs,
+        thumbFileID: thumbFileIDs[0] || "",
+        thumbFileIDs,
+        hasImage,
+        pickupStartDate: pickupWindow.pickupStartDate,
+        pickupEndDate: pickupWindow.pickupEndDate,
+        pickupRangeText: pickupWindow.pickupRangeText,
+        expireTime,
+        expiresAtText: pickupWindow.pickupEndDate,
+        status: "online"
+      }
+
       if (this.data.isEdit && this.data.editId) {
-        const patch = {
-          title: String(title).trim(),
-          price: Number(price),
-          category,
-          region,
-          location,
-          condition: condition || "99新",
-          desc: desc || "",
-
-          // 旧字段（不动）
-          imageFileID,
-
-          // 多图/缩略图（保留你现在做的）
-          thumbFileID: this.data.thumbFileID || "",
-          imageFileIDs: Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [],
-          thumbFileIDs: Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : []
-        }
-
         const updRes = await wx.cloud.callFunction({
           name: "updateMarketItem",
-          data: { id: this.data.editId, patch }
+          data: { id: this.data.editId, patch: payload }
         })
 
         const ur = updRes?.result || {}
         if (!ur.ok) {
           wx.showToast({ title: ur.error || "保存失败", icon: "none" })
-          trackDuration("market_publish_fail", startedAt, {
-            module: "market",
-            action: "edit",
-            result: "fail",
-            category,
-            region,
-            errorCode: ur.error || "updateMarketItem_fail"
-          })
           return
         }
 
         wx.showToast({ title: "已保存", icon: "success" })
-        trackDuration("market_publish_success", startedAt, {
-          module: "market",
-          action: "edit",
-          result: "success",
-          category,
-          region,
-          imageCount: 1
-        })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
         return
       }
 
-
-      // 1) 先走云函数：审核 + 同步 userInfo 地址（恢复旧功能）
       const checkRes = await wx.cloud.callFunction({
         name: "createMarketItem",
-        data: {
-          imageFileID, // 用第一张原图做审核/取地址同步足够
-          title,
-          desc,
-          category,
-          price,
-          condition,
-          region,
-          location
-        }
+        data: payload
       })
       
       const r = checkRes?.result || {}
       if (r.ok === false) {
         wx.showToast({ title: r.message || "发布失败", icon: "none" })
-        trackDuration("market_publish_fail", startedAt, {
-          module: "market",
-          action: "publish",
-          result: "fail",
-          category,
-          region,
-          errorCode: r.message || "createMarketItem_fail"
-        })
         return
       }
 
-      const db = wx.cloud.database()
-
-// ✅ 若云函数已创建记录（返回 itemId / id / docId / _id），发布模式改为 update，避免重复插入两条
-const createdId = r.itemId || r.id || r.docId || r._id || ""
-
-// ✅ 新增：编辑模式走 update，发布模式走 add
-
-      if (this.data.isEdit && this.data.editId) {
-        await db.collection("market_goods").doc(this.data.editId).update({
-          data: {
-            title: String(title).trim(),
-            price: Number(price),
-            category,
-            region,
-            location,
-            condition: condition || "99新",
-            desc: desc || "",
-
-            // 旧字段（不动）
-            imageFileID,
-
-            // 多图/缩略图（保留你现在做的）
-            thumbFileID: this.data.thumbFileID || "",
-            imageFileIDs: Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [],
-            thumbFileIDs: Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [],
-
-            // ✅ audit/status 同步更新（避免详情页看到 null）
-            audit: r.audit || { text: "skip", media: "na", traceId: "", requestedAt: Date.now() },
-            status: r.status || "online",
-
-            updateTime: db.serverDate()
-          }
-        })
-      } else if (createdId) {
-  await db.collection("market_goods").doc(createdId).update({
-    data: {
-      title: String(title).trim(),
-      price: Number(price),
-      category,
-      region,
-      location,
-      condition: condition || "99新",
-      desc: desc || "",
-
-      // 旧字段（不动）
-      imageFileID,
-
-      // 多图/缩略图（保留你现在做的）
-      thumbFileID: this.data.thumbFileID || "",
-      imageFileIDs: Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [],
-      thumbFileIDs: Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [],
-
-      // ✅ audit/status 同步更新（避免详情页看到 null）
-      audit: r.audit || { text: "skip", media: "na", traceId: "", requestedAt: Date.now() },
-      status: r.status || "online",
-
-      updateTime: db.serverDate()
-    }
-  })
-} else {
-  const now = new Date()
-
-        const postDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
-
-        await db.collection("market_goods").add({
-          data: {
-            title: String(title).trim(),
-            price: Number(price),
-            category,
-            region,
-            location,
-            condition: condition || "99新",
-            desc: desc || "",
-
-            // 旧字段（不动）
-            imageFileID,
-
-            // 多图/缩略图（保留你现在做的）
-            thumbFileID: this.data.thumbFileID || "",
-            imageFileIDs: Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [],
-            thumbFileIDs: Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [],
-
-            wantCount: 0,
-            viewCount: 0,
-            postDate,
-            createTime: db.serverDate(),
-
-            // ✅ audit 不再 null
-            audit: r.audit || { text: "skip", media: "na", traceId: "", requestedAt: Date.now() },
-
-            // ✅ 状态也按云函数返回（默认 online）
-            status: r.status || "online"
-          }
-        })
+      const createdId = r.itemId || r.id || r.docId || r._id || ""
+      if (createdId && hasImage) {
+        registerUploadedMarketFiles([
+          ...imageFileIDs.map(fileID => ({ fileID, type: "image", folder: "market" })),
+          ...thumbFileIDs.map(fileID => ({ fileID, type: "thumb", folder: "market_thumb" }))
+        ], createdId).catch(() => {})
       }
 
       wx.showToast({ title: this.data.isEdit ? "已保存" : "已提交", icon: "success" })
-      trackDuration("market_publish_success", startedAt, {
-        module: "market",
-        action: this.data.isEdit ? "edit" : "publish",
-        result: "success",
-        category,
-        region,
-        imageCount: 1
-      })
       setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
     } catch (e) {
       console.error(e)
       wx.showToast({ title: "发布失败", icon: "none" })
-      trackDuration("market_publish_fail", startedAt, {
-        module: "market",
-        action: this.data.isEdit ? "edit" : "publish",
-        result: "fail",
-        category,
-        region,
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     } finally {
       this.setData({ submitting: false })
     }

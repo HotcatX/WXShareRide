@@ -54,10 +54,14 @@
       bindtap="onOpenGood"
       data-id="{{item.id}}"
     >
-      <image class="thumb"
-             src="{{item.thumbUrl || item.imageFileID || '/images/market.png'}}"
+      <image wx:if="{{item.hasImage}}"
+             class="thumb"
+             src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
              mode="aspectFill"
              lazy-load="true" />
+      <view wx:else class="thumb text-thumb">
+        <text>{{item.title}}</text>
+      </view>
 
       <!-- ✅ 多选勾选框（管理模式才显示） -->
       <view wx:if="{{manageMode}}"

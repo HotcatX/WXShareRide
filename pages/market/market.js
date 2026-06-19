@@ -1,10 +1,9 @@
 // 与 marketPost 保持一致：分类顺序固定
-const { createTimer, trackDuration, trackEvent } = require("../../utils/analytics")
 
 const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "其他"]
 
 // ====== Performance / Cache ======
-const GOODS_CACHE_KEY = "market_goods_list_cache_v2"
+const GOODS_CACHE_KEY = "market_goods_list_cache_v3"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
@@ -18,6 +17,15 @@ const MARKET_GOODS_LIST_FIELDS = {
   postDate: true,
   imageFileID: true,
   thumbFileID: true,
+  imageFileIDs: true,
+  thumbFileIDs: true,
+  hasImage: true,
+  pickupStartDate: true,
+  pickupEndDate: true,
+  pickupRangeText: true,
+  expireTime: true,
+  expiresAtText: true,
+  status: true,
   createTime: true
 }
 
@@ -113,12 +121,6 @@ Page({
   },
 
   onLoad() {
-    trackEvent("page_view", {
-      module: "market",
-      action: "view",
-      source: "market_list"
-    })
-
     this.setData({ statusBarHeight: this._getStatusBarHeight() })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
@@ -157,12 +159,6 @@ Page({
   },
 
   async onSearch() {
-    trackEvent("market_search_submit", {
-      module: "market",
-      action: "search",
-      result: "submit"
-    })
-
     // 搜索：按当前 keyword + category + region 重新拉第一页
     this.setData({
       allGoods: [],
@@ -177,12 +173,6 @@ Page({
 
   async onSelectCat(e) {
     const cat = e.currentTarget.dataset.cat
-    trackEvent("market_filter_click", {
-      module: "market",
-      action: "filter",
-      filterName: "category",
-      filterValue: cat || "全部"
-    })
 
     // 切类目：云端 where(category=xxx) + 分页拉取
     this.setData({
@@ -200,11 +190,6 @@ Page({
   onTapItem(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
-    trackEvent("market_detail_load", {
-      module: "market",
-      action: "click",
-      source: "market_list"
-    })
     wx.navigateTo({ url: `/pages/market/marketDetail/marketDetail?id=${id}` })
   },
 
@@ -339,6 +324,7 @@ Page({
   // ====== 核心：映射商品（✅缩略图优先）======
   _mapDocToGood(x) {
     const thumbKey = (x.thumbFileID || x.imageFileID || "")
+    const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
     return {
       id: x._id,
       title: x.title,
@@ -354,10 +340,27 @@ Page({
 
       // 新字段（可没有，兼容老数据）
       thumbFileID: x.thumbFileID || "",
+      imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+      thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+      hasImage,
+      pickupStartDate: x.pickupStartDate || "",
+      pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
+      pickupRangeText: x.pickupRangeText || "",
+      expireTime: Number(x.expireTime) || 0,
+      status: x.status || "online",
 
       // temp url（优先 thumbFileID，否则 imageFileID）
       thumbUrl: thumbKey ? (this._thumbUrlCache[thumbKey] || "") : ""
     }
+  },
+
+  _isVisibleMarketDoc(x) {
+    if (!x) return false
+    const status = String(x.status || "online").toLowerCase()
+    if (status === "deleted" || status === "offline" || status === "expired") return false
+    const expireTime = Number(x.expireTime) || 0
+    if (expireTime && expireTime <= Date.now()) return false
+    return true
   },
 
   // ====== 构造云端查询条件（类目/地区/关键字）======
@@ -412,7 +415,6 @@ Page({
 
   // ====== 重点修复：按【当前筛选条件】在云端分页拉取 ======
   async _fetchFirstPage() {
-    const startedAt = createTimer()
     try {
       this.setData({ isLoadingGoods: true })
 
@@ -422,13 +424,14 @@ Page({
 
       const res = await this._getMarketGoodsPage(col, where, { limit: INITIAL_LOAD_SIZE })
 
-      const rows = (res.data || []).map(x => this._mapDocToGood(x))
+      const rawRows = res.data || []
+      const rows = rawRows.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
 
       this.setData({
         // allGoods 代表“当前筛选条件下已加载到前端的全集（分页累积）”
         allGoods: rows,
-        cloudSkip: rows.length,
-        cloudHasMore: rows.length === INITIAL_LOAD_SIZE
+        cloudSkip: rawRows.length,
+        cloudHasMore: rawRows.length === INITIAL_LOAD_SIZE
       })
 
       // ✅ 只缓存“全部 + 无关键字 + 无地区”的列表，避免把“某个类目结果”当成全量缓存
@@ -439,24 +442,8 @@ Page({
       this.initRegionsFromGoods()
       // 云端已筛选，这里只做排序 + 前端切片展示。图片临时链接后台补，不能阻塞首屏。
       this.applyFilters(true)
-      trackDuration("market_list_load", startedAt, {
-        module: "market",
-        action: "load",
-        result: "success",
-        category: this.data.activeCategory || "全部",
-        region: this.data.activeRegion || "全部",
-        listCount: rows.length
-      })
     } catch (e) {
       console.error(e)
-      trackDuration("market_list_load", startedAt, {
-        module: "market",
-        action: "load",
-        result: "fail",
-        category: this.data.activeCategory || "全部",
-        region: this.data.activeRegion || "全部",
-        errorCode: e && (e.errMsg || e.message) ? String(e.errMsg || e.message).slice(0, 80) : "unknown"
-      })
     } finally {
       this.setData({ isLoadingGoods: false })
     }
@@ -478,13 +465,14 @@ Page({
         limit: CLOUD_PAGE_SIZE
       })
 
-      const batch = (res.data || []).map(x => this._mapDocToGood(x))
+      const rawBatch = res.data || []
+      const batch = rawBatch.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
       const all = [...(this.data.allGoods || []), ...batch]
 
       this.setData({
         allGoods: all,
-        cloudSkip: all.length,
-        cloudHasMore: (res.data || []).length === CLOUD_PAGE_SIZE
+        cloudSkip: (this.data.cloudSkip || 0) + rawBatch.length,
+        cloudHasMore: rawBatch.length === CLOUD_PAGE_SIZE
       })
 
       // 同上：只缓存“全量列表”的结果
@@ -648,7 +636,7 @@ Page({
       const cacheAge = Date.now() - cached.ts
       if (cacheAge > GOODS_CACHE_MAX_STALE_MS) return false
 
-      const rows = (cached.list || []).map(x => this._mapDocToGood(x))
+      const rows = (cached.list || []).filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
       this.setData({
         allGoods: rows,
         cloudSkip: rows.length,

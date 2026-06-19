@@ -171,20 +171,22 @@ Page({
         if (rows.length >= MAX_TOTAL) break
       }
   
-      let goods = rows.map(x => ({
+      let goods = rows.filter(x => this._isVisibleMarketDoc(x)).map(x => ({
         id: x._id,
         title: x.title,
         price: x.price,
         imageFileID: x.imageFileID || "",
+        thumbFileID: x.thumbFileID || "",
+        hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
         thumbUrl: ""
       }))
   
-      const fileIDs = goods.map(g => g.imageFileID).filter(Boolean)
+      const fileIDs = goods.map(g => g.thumbFileID || g.imageFileID).filter(Boolean)
       if (fileIDs.length) {
         const urlMap = await this._batchGetTempUrl(fileIDs)
         goods = goods.map(g => ({
           ...g,
-          thumbUrl: urlMap[g.imageFileID] || ""
+          thumbUrl: urlMap[g.thumbFileID || g.imageFileID] || ""
         }))
       }
   
@@ -194,6 +196,15 @@ Page({
       wx.showToast({ title: "获取卖家商品失败", icon: "none" })
     }
   },  
+
+  _isVisibleMarketDoc(x) {
+    if (!x) return false
+    const status = String(x.status || "online").toLowerCase()
+    if (status === "deleted" || status === "offline" || status === "expired") return false
+    const expireTime = Number(x.expireTime) || 0
+    if (expireTime && expireTime <= Date.now()) return false
+    return true
+  },
 
   async _batchGetTempUrl(fileIDs) {
     const uniq = Array.from(new Set(fileIDs))

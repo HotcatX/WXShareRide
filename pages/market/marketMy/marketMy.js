@@ -154,45 +154,26 @@ Page({
     })
     if (!confirm) return
 
-    const db = wx.cloud.database()
     const goods = this.data.goods || []
-    const toDeleteGoods = goods.filter(g => ids.includes(g.id))
 
     try {
-
-      // 1) 尝试批量删云存储文件（失败不影响）
-      const fileIds = []
-      toDeleteGoods.forEach(g => {
-        // 兼容你库里可能存在的字段
-        if (g.imageFileID) fileIds.push(g.imageFileID)
-        if (Array.isArray(g.imageFileIDs)) fileIds.push(...g.imageFileIDs.filter(Boolean))
-        if (g.thumbFileID) fileIds.push(g.thumbFileID)
-        if (Array.isArray(g.thumbFileIDs)) fileIds.push(...g.thumbFileIDs.filter(Boolean))
-      })
-
-      const uniqFileIds = Array.from(new Set(fileIds)).filter(Boolean)
-      if (uniqFileIds.length) {
-        try {
-          for (let i = 0; i < uniqFileIds.length; i += 50) {
-            const chunk = uniqFileIds.slice(i, i + 50)
-            await wx.cloud.deleteFile({ fileList: chunk })
-          }
-        } catch (e) {
-          console.warn('[deleteFile] ignored:', e)
-        }
-      }
-
-      // 2) 删除商品 doc（逐个删最稳）
+      const failed = []
       for (const id of ids) {
         try {
-          await db.collection('market_goods').doc(id).remove()
+          const res = await wx.cloud.callFunction({
+            name: 'deleteMarketItem',
+            data: { id }
+          })
+          const r = res?.result || {}
+          if (!r.ok) failed.push({ id, error: r.error || 'delete_failed' })
         } catch (e) {
-          console.error('remove failed for id=', id, e)
+          failed.push({ id, error: e && (e.errMsg || e.message) ? String(e.errMsg || e.message) : 'delete_failed' })
         }
       }
 
-      // 3) 本地刷新
-      const nextGoods = goods.filter(g => !ids.includes(g.id))
+      const failedSet = new Set(failed.map(x => x.id))
+      const successIds = ids.filter(id => !failedSet.has(id))
+      const nextGoods = goods.filter(g => !successIds.includes(g.id))
       this.setData({
         goods: nextGoods,
         selectedMap: {},
@@ -200,7 +181,10 @@ Page({
         allSelected: false
       })
 
-      wx.showToast({ title: '已删除', icon: 'success' })
+      wx.showToast({
+        title: failed.length ? `已删${successIds.length}个，失败${failed.length}个` : '已删除',
+        icon: failed.length ? 'none' : 'success'
+      })
 
       // 可选：删完自动退出管理模式
       // this.setData({ manageMode: false })
@@ -344,14 +328,17 @@ Page({
         imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
         thumbFileID: x.thumbFileID || '',
         thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+        hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
+        pickupEndDate: x.pickupEndDate || x.expiresAtText || '',
+        expireTime: Number(x.expireTime) || 0,
+        status: x.status || 'online',
         thumbUrl: ''
       }))
 
-      // 仍然用 imageFileID 取预览 url（你要用 thumbFileID 也行）
-      const fileIDs = goods.map((g) => g.imageFileID).filter(Boolean)
+      const fileIDs = goods.map((g) => g.thumbFileID || g.imageFileID).filter(Boolean)
       if (fileIDs.length) {
         const urlMap = await this._batchGetTempUrl(fileIDs)
-        goods = goods.map((g) => ({ ...g, thumbUrl: urlMap[g.imageFileID] || '' }))
+        goods = goods.map((g) => ({ ...g, thumbUrl: urlMap[g.thumbFileID || g.imageFileID] || '' }))
       }
 
       this.setData({

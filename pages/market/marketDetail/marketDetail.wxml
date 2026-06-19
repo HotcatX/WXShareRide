@@ -24,7 +24,10 @@
 
       <block wx:else>
         <swiper-item>
-          <image class="main-img" src="{{imgUrl || item.imageFileID || '/images/market.png'}}" mode="aspectFill" />
+          <image wx:if="{{item.hasImage}}" class="main-img" src="{{imgUrl || item.imageFileID || item.thumbFileID || '/images/market.png'}}" mode="aspectFill" />
+          <view wx:else class="main-no-img">
+            <text>{{item.title}}</text>
+          </view>
         </swiper-item>
       </block>
     </swiper>
@@ -40,6 +43,11 @@
       <text>发布时间</text>
       <text class="date">{{item.postDate}}</text>
     </view>
+  </view>
+
+  <view class="pickup-window" wx:if="{{item.pickupRangeText || item.pickupEndDate}}">
+    <text>可取时间</text>
+    <text class="pickup-date">{{item.pickupRangeText || item.pickupEndDate}}</text>
   </view>
 
   <!-- 品牌 + 商品名称 -->

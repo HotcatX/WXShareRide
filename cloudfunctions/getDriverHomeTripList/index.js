@@ -11,6 +11,7 @@ const db = cloud.database()
 const _ = db.command
 
 const IN_CHUNK_SIZE = 50
+const TZ_OFFSET_HOURS = -5
 
 function chunk(arr, size) {
   const out = []
@@ -31,6 +32,16 @@ function getWeekdayCN(dateStr) {
   return map[dt.getDay()] || ''
 }
 
+function makeDate(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null
+  const [y, m, d] = String(dateStr).split('-').map(Number)
+  const [hh, mm] = String(timeStr).split(':').map(Number)
+  if (!y || !m || !d) return null
+  const utcMs = Date.UTC(y, m - 1, d, (Number.isFinite(hh) ? hh : 0) - TZ_OFFSET_HOURS, Number.isFinite(mm) ? mm : 0, 0)
+  const dt = new Date(utcMs)
+  return Number.isNaN(dt.getTime()) ? null : dt
+}
+
 function formatDateCNNoYear(dateStr) {
   if (!dateStr) return ''
   const parts = String(dateStr).split('-')
@@ -39,6 +50,24 @@ function formatDateCNNoYear(dateStr) {
   const d = Number(parts[2])
   if (!m || !d) return ''
   return `${m}月${d}日`
+}
+
+function getFirstDepartureTime(doc = {}) {
+  const dep = Array.isArray(doc.departures) && doc.departures.length ? doc.departures[0] : (doc.departure || null)
+  if (!dep) return null
+  return makeDate(dep.date, dep.time)
+}
+
+function getHomeVisibleDoc(doc = {}, requestedStatuses = [], allowCloseCompat = false) {
+  const status = String(doc.status || 'open').toLowerCase()
+  if (requestedStatuses.includes(status)) return doc
+  if (!allowCloseCompat || status !== 'close') return null
+
+  const tripTime = getFirstDepartureTime(doc)
+  if (!tripTime || tripTime.getTime() <= Date.now()) return null
+
+  const visibleStatus = Number(doc.availSeatNum || 0) <= 0 ? 'full' : 'open'
+  return requestedStatuses.includes(visibleStatus) ? { ...doc, status: visibleStatus } : null
 }
 
 // 给 tripData 补齐 home 常用字段
@@ -84,6 +113,7 @@ exports.main = async (event, context) => {
     Array.isArray(event?.statuses) && event.statuses.length
       ? event.statuses.map(s => String(s).trim()).filter(Boolean)
       : ['open', 'full', 'past']
+  const queryStatuses = Array.from(new Set([...statuses, 'close']))
 
   try {
     // 1) 读取 userInfo
@@ -106,9 +136,9 @@ exports.main = async (event, context) => {
     if (tripDriver.length) {
       for (const ids of chunk([...new Set(tripDriver)], IN_CHUNK_SIZE)) {
         const res = await db.collection('Carpool')
-          .where({ _id: _.in(ids), status: _.in(statuses) })
+          .where({ _id: _.in(ids), status: _.in(queryStatuses) })
           .get()
-        carpoolList = carpoolList.concat(res.data || [])
+        carpoolList = carpoolList.concat((res.data || []).map(x => getHomeVisibleDoc(x, statuses, true)).filter(Boolean))
       }
     }
 

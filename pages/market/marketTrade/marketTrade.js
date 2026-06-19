@@ -112,6 +112,8 @@ Page({
         title: x.title || '',
         price: x.price || '',
         imageFileID: x.imageFileID || '',
+        thumbFileID: x.thumbFileID || '',
+        hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
         thumbUrl: '',
   
         otherOpenid: (this.data.type === 'sold')
@@ -122,10 +124,10 @@ Page({
       }))
   
       // 1) 图片：批量临时链接
-      const fileIDs = list.map(it => it.imageFileID).filter(Boolean)
+      const fileIDs = list.map(it => it.thumbFileID || it.imageFileID).filter(Boolean)
       if (fileIDs.length) {
         const urlMap = await this._batchGetTempUrl(fileIDs)
-        list = list.map(it => ({ ...it, thumbUrl: urlMap[it.imageFileID] || '' }))
+        list = list.map(it => ({ ...it, thumbUrl: urlMap[it.thumbFileID || it.imageFileID] || '' }))
       }
   
       // 2) 微信号：批量通过 openid 查 userInfo.wechatID

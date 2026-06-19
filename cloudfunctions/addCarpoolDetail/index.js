@@ -6,9 +6,6 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
-const PUBLIC_STATS_COLLECTION = 'PublicStats'
-const PUBLIC_STATS_DOC_ID = 'home'
-const MAX_SERVED_DELTA = 5
 
 /**
  * 🆕 公共方法：往 Notifications 集合里写一条消息
@@ -41,50 +38,6 @@ async function sendNotification(toOpenid, type, title, content, carpoolId, extra
     console.log('[sendNotification] 已发送通知给', toOpenid, type)
   } catch (e) {
     console.error('[sendNotification] 写入通知失败：', e)
-  }
-}
-
-function normalizeServedDelta(amount) {
-  const n = Number(amount)
-  if (!Number.isFinite(n)) return 1
-  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
-}
-
-async function bumpServedTrips(amount = 1) {
-  const delta = normalizeServedDelta(amount)
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(delta),
-    servedTripsLastDelta: delta,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  try {
-    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    return
-  } catch (e) {
-    try {
-      await db.collection(PUBLIC_STATS_COLLECTION).add({
-        data: {
-          _id: PUBLIC_STATS_DOC_ID,
-          servedTrips: delta,
-          servedTripsLastDelta: delta,
-          coverageText: 'NY / NJ',
-          matchModeText: '发车 + 求车',
-          statusText: '实时同步',
-          lastServedAt: now,
-          createdAt: now,
-          updatedAt: now
-        }
-      })
-    } catch (addErr) {
-      try {
-        await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-      } catch (retryErr) {
-        console.warn('[bumpServedTrips] 统计自增失败（不影响拼车）:', retryErr)
-      }
-    }
   }
 }
 
@@ -127,7 +80,6 @@ exports.main = async (event, context) => {
     if (alreadyJoined) {
       return { success: false, msg: '您已加入该路线' }
     }
-    const servedPeopleDelta = (tripData.statsDriverCounted === true || passengers.length > 0) ? 1 : 2
 
     // ✅ 修正乘客信息（确保含 openid）
     const fixedPassengerInfo = {
@@ -153,8 +105,7 @@ exports.main = async (event, context) => {
       data: {
         availSeatNum: _.inc(-1),
         passengers: _.push(fixedPassengerInfo),
-        status: newAvail <= 0 ? 'close' : 'open',
-        statsDriverCounted: true,
+        status: newAvail <= 0 ? 'full' : 'open',
         updatedAt: new Date()
       }
     })
@@ -186,9 +137,7 @@ exports.main = async (event, context) => {
       passengerOpenid: OPENID
     })
 
-    await bumpServedTrips(servedPeopleDelta)
-
-    return { success: true, msg: '添加路线成功', newAvail, servedPeopleDelta }
+    return { success: true, msg: '添加路线成功', newAvail }
 
   } catch (err) {
     console.error('[addCarpoolDetail 错误]', err)

@@ -258,6 +258,15 @@
 
 .price-ph{ color: rgba(217,100,74,0.60); }
 
+.expire-hint{
+  padding: 14rpx 0 18rpx 0;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.45;
+  color: rgba(0,0,0,0.42);
+  border-bottom: 2rpx solid rgba(0,0,0,0.08);
+}
+
 .location-block{
   padding: 22rpx 0 6rpx;
 }

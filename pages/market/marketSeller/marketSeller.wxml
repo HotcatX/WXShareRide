@@ -47,9 +47,13 @@
           wx:key="id"
           bindtap="onOpenGood"
           data-id="{{item.id}}">
-      <image class="thumb"
-             src="{{item.thumbUrl || item.imageFileID || '/images/market.png'}}"
+      <image wx:if="{{item.hasImage}}"
+             class="thumb"
+             src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
              mode="aspectFill" />
+      <view wx:else class="thumb text-thumb">
+        <text>{{item.title}}</text>
+      </view>
       <view class="goods-label">{{item.title}} ¥{{item.price}}</view>
     </view>
   </view>

@@ -484,6 +484,13 @@ Page({
     const dep = this.getFirstDeparture(trip)
     const currentDate = dep && dep.date ? dep.date : ""
     const currentTime = dep && dep.time ? dep.time : ""
+    const rawStatus = String(trip.status || "").toLowerCase()
+    if (rawStatus === "close") {
+      const ts = this.getTripTimestamp(trip)
+      if (ts !== Number.MAX_SAFE_INTEGER && ts + TRIP_EXPIRE_GRACE >= Date.now()) {
+        trip.status = Number(trip.availSeatNum || 0) <= 0 ? "full" : "open"
+      }
+    }
 
     trip._type = type
     trip._date = currentDate
@@ -698,7 +705,7 @@ Page({
     const _ = db.command
     const res = await db.collection(meta.collection)
       .where({
-        status: _.in(["open", "full"])
+        status: _.in(["open", "full", "close"])
       })
       .field({
         _id: true,

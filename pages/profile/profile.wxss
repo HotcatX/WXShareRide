@@ -68,19 +68,7 @@
   color: #222;
 }
 
-.points-badge {
-  align-self: flex-start;
-  background-color: #ffcc4d;
-  border-radius: 16rpx;
-  padding: 6rpx 14rpx;
-}
-
-.points-text {
-  font-size: 24rpx;
-  color: #222;
-}
-
-/* 右侧 3 个入口 */
+/* 右侧 2 个入口 */
 .header-actions {
   display: flex;
   gap: 18rpx;
@@ -207,7 +195,7 @@
   line-height: 1;
 }
 
-/* 顶部三入口图标（卡券/反馈/设置） */
+/* 顶部入口图标（反馈/设置） */
 .action-icon-img{
   width: 40rpx;
   height: 40rpx;

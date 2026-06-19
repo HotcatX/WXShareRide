@@ -36,9 +36,6 @@
     "pages/market/marketSeller/marketSeller",
     "pages/market/marketMy/marketMy",
     "pages/market/marketTrade/marketTrade",
-    "pages/profile/coinBalance/coinBalance",
-    "pages/profile/coupon/coupon",
-    "pages/profile/couponUse/couponUse",
     "pages/profile/travelAchievement/travelAchievement",
     "pages/other/chuantianxia/chuantianxia",
     "pages/other/greenDragon/greenDragon"

@@ -9,7 +9,7 @@
 
 <view class="container">
 
-  <!-- Header：头像 + 昵称/登录按钮 + 金币 + 右侧三个入口 -->
+  <!-- Header：头像 + 昵称/登录按钮 + 右侧入口 -->
   <view class="header">
     <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
 
@@ -23,18 +23,9 @@
           <text class="login-btn-text">一键登录</text>
         </view>
       </block>
-
-      <view class="points-badge" bindtap="goCoinBalance">
-        <text class="points-text">金币余额: {{coins}}</text>
-      </view>
     </view>
 
     <view class="header-actions">
-      <view class="action" bindtap="goCoupon">
-        <image class="action-icon-img" src="/images/icon_coupon.png" mode="aspectFit" />
-        <text class="action-text">卡券</text>
-      </view>
-
       <view class="action" bindtap="goFeedback">
         <image class="action-icon-img" src="/images/icon_feedback.png" mode="aspectFit" />
         <text class="action-text">反馈</text>

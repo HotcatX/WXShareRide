@@ -12,7 +12,6 @@ Page({
     customPriceNonCore: '',
     customPriceCore: '',
 
-    coins: 0,
     region: '',
     apartment: '',
 
@@ -83,7 +82,6 @@ Page({
       customPriceNonCore: '',
       customPriceCore: '',
 
-      coins: 0,
       region: '',
       apartment: '',
 
@@ -167,13 +165,6 @@ Page({
           customPriceNonCore: priceObj.fortLeeNonCore || '',
           customPriceCore: priceObj.fortLeeCore || '',
 
-          coins:
-            typeof user.coins === 'number'
-              ? user.coins
-              : typeof user.points === 'number'
-                ? user.points
-                : this.data.coins,
-
           region: user.bigregion || '',
           apartment: user.address || ''
         })
@@ -239,11 +230,6 @@ Page({
   // =========================
   // 页面跳转（原逻辑保留）
   // =========================
-  goCoinBalance() {
-    if (!this.ensureLoggedIn()) return
-    wx.navigateTo({ url: '/pages/profile/coinBalance/coinBalance' })
-  },
-
   goEditProfile() {
     if (!this.ensureLoggedIn()) return
     wx.navigateTo({ url: '/pages/profile/editInfo/editInfo?from=profile' })
@@ -261,11 +247,6 @@ Page({
 
   goFeedback() {
     wx.navigateTo({ url: '/pages/other/feedback/feedback' })
-  },
-
-  goCoupon() {
-    if (!this.ensureLoggedIn()) return
-    wx.navigateTo({ url: '/pages/profile/coupon/coupon' })
   },
 
   goCarpoolTemplate() {

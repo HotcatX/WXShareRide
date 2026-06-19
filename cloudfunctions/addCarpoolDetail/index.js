@@ -7,6 +7,11 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+function normalizeTripStatus(status) {
+  const value = String(status || 'open').toLowerCase()
+  return value === 'close' || value === 'closed' ? 'past' : value
+}
+
 /**
  * 🆕 公共方法：往 Notifications 集合里写一条消息
  * @param {string} toOpenid 接收方 openid
@@ -70,8 +75,9 @@ exports.main = async (event, context) => {
 
 
     // ✅ 检查路线状态
-    if (tripData.status === 'close' || (tripData.availSeatNum ?? 0) <= 0) {
-      return { success: false, msg: '该路线已满员' }
+    const tripStatus = normalizeTripStatus(tripData.status)
+    if (tripStatus === 'past' || (tripData.availSeatNum ?? 0) <= 0) {
+      return { success: false, msg: '该路线已结束或已满员' }
     }
 
     // ✅ 检查是否已加入

@@ -1,9 +1,11 @@
 // 云函数：getCarpoolRequestList
 const cloud = require('wx-server-sdk')
+
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
-const _ = db.command
+const COLLECTION = 'CarpoolRequest'
+const VISIBLE_STATUSES = ['open', 'full']
 
 function getLimit(event) {
   const n = Number(event && event.limit)
@@ -11,37 +13,100 @@ function getLimit(event) {
   return Math.max(20, Math.min(100, Math.floor(n)))
 }
 
-exports.main = async (event = {}, context) => {
+function applyQuickFields(query, quick) {
+  if (!quick) return query
+  return query.field({
+    _id: true,
+    status: true,
+    departures: true,
+    destinations: true,
+    passengerCount: true,
+    requestPassengerCount: true,
+    createdAt: true
+  })
+}
+
+function mergeById(lists) {
+  const map = new Map()
+  ;(lists || []).forEach(list => {
+    ;(list || []).forEach(item => {
+      if (!item || !item._id) return
+      if (!map.has(item._id)) map.set(item._id, item)
+    })
+  })
+  return Array.from(map.values())
+}
+
+async function readList(query, errors, label) {
   try {
-    const limit = getLimit(event)
-    const quick = event.quick !== false
+    const res = await query.get()
+    return res.data || []
+  } catch (e) {
+    errors.push({
+      label,
+      errMsg: e && (e.errMsg || e.message) ? String(e.errMsg || e.message) : 'query failed'
+    })
+    return []
+  }
+}
 
-    // 页面会按出发时间重新排序；这里只取仍可展示的状态，避免复杂 or/nin + orderBy 查询超时。
-    let query = db.collection('CarpoolRequest')
-      .where({
-        status: _.in(['open', 'full'])
-      })
+exports.main = async (event = {}) => {
+  const limit = getLimit(event)
+  const quick = event.quick !== false
+  const errors = []
 
-    if (quick) {
-      query = query.field({
-        _id: true,
-        status: true,
-        departures: true,
-        destinations: true,
-        passengerCount: true,
-        requestPassengerCount: true,
-        createdAt: true
-      })
+  try {
+    const orderedQueries = [
+      ...VISIBLE_STATUSES.map(status => applyQuickFields(
+        db.collection(COLLECTION)
+          .where({ status })
+          .orderBy('createdAt', 'desc')
+          .limit(limit),
+        quick
+      )),
+      applyQuickFields(
+        db.collection(COLLECTION)
+          .orderBy('createdAt', 'desc')
+          .limit(limit),
+        quick
+      )
+    ]
+
+    let rows = mergeById(await Promise.all(
+      orderedQueries.map((query, index) => readList(query, errors, `ordered_${index}`))
+    ))
+
+    if (!rows.length) {
+      const fallbackQueries = VISIBLE_STATUSES.map(status => applyQuickFields(
+        db.collection(COLLECTION)
+          .where({ status })
+          .limit(limit),
+        quick
+      ))
+      rows = mergeById(await Promise.all(
+        fallbackQueries.map((query, index) => readList(query, errors, `fallback_${index}`))
+      ))
     }
 
-    const res = await query.limit(limit).get()
+    const data = rows.filter(item => {
+      const status = String(item.status || 'open').toLowerCase()
+      return status === 'open' || status === 'full'
+    })
 
     return {
       success: true,
-      data: res.data || []
+      data,
+      debug: event.debug ? {
+        total: data.length,
+        rawCount: rows.length,
+        errors
+      } : undefined
     }
   } catch (e) {
     console.error('getCarpoolRequestList error:', e)
-    return { success: false, errorMsg: '读取 CarpoolRequest 失败' }
+    return {
+      success: false,
+      errorMsg: e && (e.errMsg || e.message) ? String(e.errMsg || e.message) : '读取 CarpoolRequest 失败'
+    }
   }
 }

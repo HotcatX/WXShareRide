@@ -9,6 +9,11 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+function normalizeTripStatus(status) {
+  const value = String(status || 'open').toLowerCase()
+  return value === 'close' || value === 'closed' ? 'past' : value
+}
+
 // ✅ 保留一份 sendNotification（删除重复声明，避免 “already been declared”）
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
   if (!toOpenid) return
@@ -110,8 +115,8 @@ exports.main = async (event, context) => {
         if (typeof carpool.availSeatNum === 'number') {
           updateData.availSeatNum = carpool.availSeatNum + 1
         }
-        const curStatus = String(carpool.status || '')
-        if (curStatus !== 'past' && curStatus !== 'close') {
+        const curStatus = normalizeTripStatus(carpool.status)
+        if (curStatus !== 'past') {
           updateData.status = 'open'
         }
       }
@@ -199,8 +204,8 @@ exports.main = async (event, context) => {
       updateReq.passengerCount = Math.max(0, req.passengerCount - 1)
     }
     if (removedReq) {
-      const curStatus = String(req.status || '')
-      if (curStatus !== 'past' && curStatus !== 'close') {
+      const curStatus = normalizeTripStatus(req.status)
+      if (curStatus !== 'past') {
         updateReq.status = 'open'
       }
     }

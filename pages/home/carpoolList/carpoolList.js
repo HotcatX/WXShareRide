@@ -1,7 +1,7 @@
 // pages/home/carpoolList/carpoolList.js
 const { createTimer, trackDuration, trackEvent } = require("../../../utils/analytics")
 
-const LIST_FETCH_LIMIT = 40
+const LIST_FETCH_LIMIT = 80
 const LIST_REFRESH_INTERVAL = 30 * 1000
 const OPTION_CACHE_KEY = "carpoolListFilterOptionsV1"
 const OPTION_CACHE_TTL = 24 * 60 * 60 * 1000
@@ -480,17 +480,16 @@ Page({
     return String(timeStr).slice(0, 5)
   },
 
+  normalizeTripStatus(status) {
+    const value = String(status || "open").toLowerCase()
+    return value === "close" || value === "closed" ? "past" : value
+  },
+
   decorateTripCommon(trip, type) {
     const dep = this.getFirstDeparture(trip)
     const currentDate = dep && dep.date ? dep.date : ""
     const currentTime = dep && dep.time ? dep.time : ""
-    const rawStatus = String(trip.status || "").toLowerCase()
-    if (rawStatus === "close") {
-      const ts = this.getTripTimestamp(trip)
-      if (ts !== Number.MAX_SAFE_INTEGER && ts + TRIP_EXPIRE_GRACE >= Date.now()) {
-        trip.status = Number(trip.availSeatNum || 0) <= 0 ? "full" : "open"
-      }
-    }
+    trip.status = this.normalizeTripStatus(trip.status)
 
     trip._type = type
     trip._date = currentDate
@@ -520,8 +519,8 @@ Page({
   shouldShowTrip(trip) {
     if (!trip) return false
 
-    const status = String(trip.status || "").toLowerCase()
-    if (status === "close" || status === "closed" || status === "past") return false
+    const status = this.normalizeTripStatus(trip.status)
+    if (status === "past") return false
 
     const ts = this.getTripTimestamp(trip)
     if (!ts || ts === Number.MAX_SAFE_INTEGER) return false
@@ -668,59 +667,99 @@ Page({
 
   fetchListFast(meta) {
     const sources = [
-      this.fetchListFromDB(meta),
-      this.fetchListFromCloud(meta)
+      this.fetchListFromDB(meta).then(data => ({ source: "db", data })),
+      this.fetchListFromCloud(meta).then(data => ({ source: "cloud", data }))
     ]
 
-    return new Promise((resolve, reject) => {
+    return Promise.allSettled(sources).then(results => {
       const errors = []
-      let settled = false
+      const map = new Map()
+      let sourceLabel = ""
 
-      const finish = (source, data) => {
-        if (settled) return
-        settled = true
-        if (source !== "db") {
-          console.warn(`${meta.name} direct DB was slower or failed; using cloud function result`)
+      results.forEach(item => {
+        if (!item || item.status !== "fulfilled") {
+          errors.push(item && item.reason ? item.reason : "load failed")
+          return
         }
-        resolve({ source, data: Array.isArray(data) ? data : [] })
-      }
 
-      const fail = (source, err) => {
-        errors.push({ source, err })
-        if (!settled && errors.length === sources.length) {
-          settled = true
-          reject(errors)
+        const value = item.value || {}
+        const list = Array.isArray(value.data) ? value.data : []
+        if (list.length) {
+          sourceLabel = sourceLabel ? `${sourceLabel}+${value.source}` : value.source
         }
-      }
 
-      sources.forEach((promise, index) => {
-        const source = index === 0 ? "db" : "cloud"
-        promise.then(data => finish(source, data)).catch(err => fail(source, err))
+        list.forEach(row => {
+          if (!row || !row._id) return
+          if (!map.has(row._id)) map.set(row._id, row)
+        })
       })
+
+      if (!map.size && errors.length === results.length) {
+        return Promise.reject(errors)
+      }
+
+      return {
+        source: sourceLabel || "empty",
+        data: Array.from(map.values())
+      }
     })
   },
 
   async fetchListFromDB(meta) {
     const db = wx.cloud.database()
-    const _ = db.command
-    const res = await db.collection(meta.collection)
-      .where({
-        status: _.in(["open", "full", "close"])
-      })
-      .field({
-        _id: true,
-        status: true,
-        departures: true,
-        destinations: true,
-        availSeatNum: true,
-        passengerCount: true,
-        requestPassengerCount: true,
-        createdAt: true
-      })
-      .limit(LIST_FETCH_LIMIT)
-      .get()
+    const statuses = ["open", "full"]
 
-    return Array.isArray(res.data) ? res.data : []
+    const applyFields = query => query.field({
+      _id: true,
+      status: true,
+      departures: true,
+      destinations: true,
+      availSeatNum: true,
+      passengerCount: true,
+      requestPassengerCount: true,
+      createdAt: true
+    }).limit(LIST_FETCH_LIMIT)
+
+    const orderedQueries = [
+      ...statuses.map(status => applyFields(db.collection(meta.collection)
+        .where({ status })
+        .orderBy("createdAt", "desc"))),
+      applyFields(db.collection(meta.collection)
+        .orderBy("createdAt", "desc"))
+    ]
+
+    let results = await Promise.allSettled(orderedQueries.map(query => query.get()))
+    let successRows = results
+      .filter(item => item.status === "fulfilled")
+      .map(item => item.value && Array.isArray(item.value.data) ? item.value.data : [])
+
+    if (!successRows.length || !successRows.some(list => list.length)) {
+      const fallbackQueries = statuses.map(status => applyFields(db.collection(meta.collection)
+        .where({ status })))
+
+      results = await Promise.allSettled(fallbackQueries.map(query => query.get()))
+      successRows = results
+        .filter(item => item.status === "fulfilled")
+        .map(item => item.value && Array.isArray(item.value.data) ? item.value.data : [])
+    }
+
+    if (!successRows.length) {
+      const firstError = results.find(item => item.status === "rejected")
+      throw firstError ? firstError.reason : new Error(`${meta.collection} db query failed`)
+    }
+
+    const map = new Map()
+    successRows.forEach(list => {
+      list.forEach(item => {
+        if (!item || !item._id) return
+        if (!map.has(item._id)) map.set(item._id, item)
+      })
+    })
+
+    return Array.from(map.values()).filter(item => {
+      const status = this.normalizeTripStatus(item.status)
+      return status === "open" || status === "full"
+    })
   },
 
   async fetchListFromCloud(meta) {

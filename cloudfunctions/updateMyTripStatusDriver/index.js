@@ -1,9 +1,7 @@
 // 云函数：updateMyTripStatusDriver
 // 作用：刷新司机端 userInfo.tripDriver（Carpool）和 userInfo.tripDriverJoin（CarpoolRequest）
 // 规则：以第一个 departures 的时间为准，超过 6 小时迁移到 history；
-//      对过期且 status=open 的记录：
-//        - CarpoolRequest：open -> close
-//        - Carpool：open -> close
+//      对过期记录统一写 status=past，不再自动写 close
 
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
@@ -107,8 +105,9 @@ exports.main = async (event, context) => {
   const newTripDriverJoin = []
   const movedTripDriverJoin = []
 
-  // 收集：过期且来自 CarpoolRequest 的 id，用于 open->close 更新
-  const expiredRequestIdsToUpdate = []
+  // 收集：发车时间已过的 id，用于写入 past；超过 6 小时才迁移到 history
+  const passedCarpoolIdsToUpdate = []
+  const passedRequestIdsToUpdate = []
 
   // 处理 tripDriver（Carpool）
   for (const id of tripDriver) {
@@ -119,8 +118,12 @@ exports.main = async (event, context) => {
       continue
     }
     const diffMs = now.getTime() - dt.getTime()
-    if (diffMs > sixHoursMs) movedTripDriver.push(id)
-    else newTripDriver.push(id)
+    if (diffMs > 0) passedCarpoolIdsToUpdate.push(id)
+    if (diffMs > sixHoursMs) {
+      movedTripDriver.push(id)
+    } else {
+      newTripDriver.push(id)
+    }
   }
 
   // 处理 tripDriverJoin（CarpoolRequest）
@@ -132,9 +135,9 @@ exports.main = async (event, context) => {
       continue
     }
     const diffMs = now.getTime() - dt.getTime()
+    if (diffMs > 0) passedRequestIdsToUpdate.push(id)
     if (diffMs > sixHoursMs) {
       movedTripDriverJoin.push(id)
-      expiredRequestIdsToUpdate.push(id)
     } else {
       newTripDriverJoin.push(id)
     }
@@ -155,9 +158,9 @@ exports.main = async (event, context) => {
     })
   }
 
-  // ========== 1) 更新 CarpoolRequest：open -> close（仅针对过期的 tripDriverJoin） ==========
+  // ========== 1) 更新 CarpoolRequest：expired -> past（仅针对过期的 tripDriverJoin） ==========
   let requestUpdatedCount = 0
-  const uniqueExpiredRequest = Array.from(new Set(expiredRequestIdsToUpdate))
+  const uniqueExpiredRequest = Array.from(new Set(passedRequestIdsToUpdate))
 
   if (uniqueExpiredRequest.length) {
     const updates = await Promise.all(uniqueExpiredRequest.map(async (rid) => {
@@ -170,11 +173,13 @@ exports.main = async (event, context) => {
         const diffMs = now.getTime() - dt.getTime()
         const oldStatus = doc.status || 'open'
 
-        if (oldStatus === 'open' && diffMs > sixHoursMs) {
-          await db.collection('CarpoolRequest').doc(rid).update({
-            data: { status: 'close', updatedAt: now }
+        if (oldStatus !== 'past' && diffMs > 0) {
+          const statusRes = await cloud.callFunction({
+            name: 'updateCarpoolRequestStatus',
+            data: { requestId: rid }
           })
-          return { rid, updated: true }
+          const updated = Number(statusRes && statusRes.result && statusRes.result.totalUpdatedCarpoolRequest || 0) > 0
+          return { rid, updated }
         }
         return { rid, updated: false, reason: 'not_match' }
       } catch (e) {
@@ -186,9 +191,9 @@ exports.main = async (event, context) => {
     requestUpdatedCount = updates.filter(x => x && x.updated).length
   }
 
-  // ========== 2) 更新 Carpool：open -> close（仅针对过期的 tripDriver） ==========
+  // ========== 2) 更新 Carpool：expired -> past（仅针对过期的 tripDriver） ==========
   let carpoolUpdatedCount = 0
-  const uniqueExpiredCarpool = Array.from(new Set(movedTripDriver))
+  const uniqueExpiredCarpool = Array.from(new Set(passedCarpoolIdsToUpdate))
 
   if (uniqueExpiredCarpool.length) {
     const updates2 = await Promise.all(uniqueExpiredCarpool.map(async (cid) => {
@@ -201,11 +206,13 @@ exports.main = async (event, context) => {
         const diffMs = now.getTime() - dt.getTime()
         const oldStatus = doc.status || 'open'
 
-        if (oldStatus === 'open' && diffMs > sixHoursMs) {
-          await db.collection('Carpool').doc(cid).update({
-            data: { status: 'close', updatedAt: now }
+        if (oldStatus !== 'past' && diffMs > 0) {
+          const statusRes = await cloud.callFunction({
+            name: 'updateCarpoolStatus',
+            data: { tripId: cid }
           })
-          return { cid, updated: true }
+          const updated = Number(statusRes && statusRes.result && statusRes.result.totalUpdatedCarpool || 0) > 0
+          return { cid, updated }
         }
         return { cid, updated: false, reason: 'not_match' }
       } catch (e) {

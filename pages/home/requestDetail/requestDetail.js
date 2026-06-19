@@ -272,8 +272,9 @@ Page({
     const isFull = seatLeft <= 0
 
     // 5) 状态
-    const st = String(trip.status || 'open')
-    const isClosed = (st !== 'open') || (st === 'close' || st === 'closed' || st === 'past')
+    const rawStatus = String(trip.status || 'open').toLowerCase()
+    const st = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+    const isClosed = st !== 'open'
 
     // 6) 已登录才计算“我是谁”
     const myOpenid = wx.getStorageSync('openid') || ''

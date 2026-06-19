@@ -4,6 +4,10 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+const PUBLIC_STATS_COLLECTION = 'PublicStats'
+const PUBLIC_STATS_DOC_ID = 'home'
+const MAX_SERVED_DELTA = 5
+
 // 纽约时间偏移（非夏令时 -5；如需夏令时可改 -4）
 const TZ_OFFSET_HOURS = -5
 
@@ -54,19 +58,131 @@ function getTargetIds(event = {}) {
   return normalizeIds(values)
 }
 
+function normalizeTripStatus(status) {
+  const value = String(status || 'open').toLowerCase()
+  return value === 'close' || value === 'closed' ? 'past' : value
+}
+
+function normalizeServedDelta(amount) {
+  const n = Number(amount)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
+}
+
+function addId(set, value) {
+  const id = String(value || '').trim()
+  if (id) set.add(id)
+}
+
+function getCarpoolServedPeople(doc = {}) {
+  const drivers = new Set()
+  const passengers = new Set()
+  addId(drivers, doc._openid)
+  addId(drivers, doc.driverOpenid)
+
+  ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(p => {
+    addId(passengers, p && p._openid)
+  })
+  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(passengers, id))
+
+  const capacity = Number(doc.passengerCount)
+  const left = Number(doc.availSeatNum)
+  const joinedBySeat = Number.isFinite(capacity) && Number.isFinite(left)
+    ? Math.max(0, capacity - left)
+    : 0
+  const passengerSignals = Math.max(passengers.size, joinedBySeat)
+  const hasDriver = drivers.size > 0 || !!(doc.driverID || doc.driverId)
+  return normalizeServedDelta((hasDriver ? 1 : 0) + passengerSignals)
+}
+
+async function bumpServedTrips(delta, source, tripId, collection) {
+  const amount = normalizeServedDelta(delta)
+  if (amount <= 0) return false
+
+  const now = db.serverDate()
+  const data = {
+    servedTrips: _.inc(amount),
+    servedTripsLastDelta: amount,
+    servedTripsLastSource: source,
+    servedTripsLastTripId: tripId,
+    servedTripsLastCollection: collection,
+    lastServedAt: now,
+    updatedAt: now
+  }
+
+  try {
+    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
+    return true
+  } catch (e) {
+    try {
+      await db.collection(PUBLIC_STATS_COLLECTION).add({
+        data: {
+          _id: PUBLIC_STATS_DOC_ID,
+          servedTrips: amount,
+          servedTripsLastDelta: amount,
+          servedTripsLastSource: source,
+          servedTripsLastTripId: tripId,
+          servedTripsLastCollection: collection,
+          coverageText: 'NY / NJ',
+          lastServedAt: now,
+          createdAt: now,
+          updatedAt: now
+        }
+      })
+      return true
+    } catch (addErr) {
+      try {
+        await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
+        return true
+      } catch (retryErr) {
+        console.warn('[bumpServedTrips] 统计自增失败:', retryErr)
+        return false
+      }
+    }
+  }
+}
+
+async function updatePastAndCount(collection, id, doc, updateData, source) {
+  const delta = getCarpoolServedPeople(doc)
+  const countedAt = db.serverDate()
+  const data = {
+    ...updateData,
+    servedStatsCounted: true,
+    servedStatsDelta: delta,
+    servedStatsSource: source,
+    servedStatsCountedAt: countedAt
+  }
+
+  const res = await db.collection(collection)
+    .where({ _id: id, servedStatsCounted: _.neq(true) })
+    .update({ data })
+
+  const updated = Number((res && res.stats && res.stats.updated) || (res && res.updated) || 0)
+  if (updated > 0) {
+    const counted = await bumpServedTrips(delta, source, id, collection)
+    return { updated: true, counted, delta }
+  }
+
+  const fresh = await db.collection(collection).doc(id).get().catch(() => null)
+  if (fresh && fresh.data && normalizeTripStatus(fresh.data.status) !== 'past') {
+    await db.collection(collection).doc(id).update({ data: updateData })
+    return { updated: true, counted: false, delta: 0 }
+  }
+
+  return { updated: false, counted: false, delta: 0 }
+}
+
 // Carpool 状态计算：时间优先，其次座位
-function computeCarpoolStatus(doc, now, thresholdMs) {
+function computeCarpoolStatus(doc, now) {
   const latest = getLatestDeparture(doc.departures || [])
   if (!latest) return { ok: false, reason: 'no-valid-time', latest: null, newStatus: null }
 
   const diffMs = now.getTime() - latest.getTime()
-  const oldStatus = doc.status || 'open'
+  const oldStatus = normalizeTripStatus(doc.status)
   let newStatus = oldStatus
 
-  // 1) 时间驱动（强制覆盖）
-  if (diffMs > thresholdMs) {
-    newStatus = 'close'
-  } else if (diffMs > 0) {
+  // 1) 时间驱动（强制覆盖）：发车时间一过就视为已结束，但不删除、不写 close。
+  if (diffMs > 0) {
     newStatus = 'past'
   } else {
     // 2) 未到时间：座位驱动
@@ -77,7 +193,7 @@ function computeCarpoolStatus(doc, now, thresholdMs) {
   return { ok: true, latest, diffMs, oldStatus, newStatus }
 }
 
-async function updateCarpoolDocs(list, now, thresholdMs) {
+async function updateCarpoolDocs(list, now) {
   const collName = 'Carpool'
   let totalUpdated = 0
   const debug = []
@@ -86,7 +202,7 @@ async function updateCarpoolDocs(list, now, thresholdMs) {
 
   list.forEach(doc => {
     const _id = doc._id
-    const result = computeCarpoolStatus(doc, now, thresholdMs)
+    const result = computeCarpoolStatus(doc, now)
 
     if (!result.ok) {
       debug.push({
@@ -113,20 +229,21 @@ async function updateCarpoolDocs(list, now, thresholdMs) {
 
     if (newStatus === oldStatus) return
 
+    const updateData = { status: newStatus, updatedAt: now }
     updateTasks.push(
-      db.collection(collName).doc(_id).update({
-        data: { status: newStatus, updatedAt: now }
-      })
+      newStatus === 'past'
+        ? updatePastAndCount(collName, _id, doc, updateData, 'updateCarpoolStatus')
+        : db.collection(collName).doc(_id).update({ data: updateData }).then(() => ({ updated: true }))
     )
   })
 
   const updateRes = await Promise.all(updateTasks)
-  totalUpdated += updateRes.length
+  totalUpdated += updateRes.filter(x => x && x.updated !== false).length
 
   return { totalUpdated, debug }
 }
 
-async function scanAndUpdateCarpool(now, thresholdMs, ids = [], allowFullScan = false) {
+async function scanAndUpdateCarpool(now, ids = [], allowFullScan = false) {
   const collName = 'Carpool'
   const pageSize = 100
 
@@ -136,7 +253,7 @@ async function scanAndUpdateCarpool(now, thresholdMs, ids = [], allowFullScan = 
       .limit(ids.length)
       .get()
 
-    return updateCarpoolDocs(res.data || [], now, thresholdMs)
+    return updateCarpoolDocs(res.data || [], now)
   }
 
   if (!allowFullScan) {
@@ -159,7 +276,7 @@ async function scanAndUpdateCarpool(now, thresholdMs, ids = [], allowFullScan = 
     const list = res.data || []
     if (!list.length) break
 
-    const result = await updateCarpoolDocs(list, now, thresholdMs)
+    const result = await updateCarpoolDocs(list, now)
     totalUpdated += result.totalUpdated
     debug.push(...(result.debug || []))
     skip += pageSize
@@ -170,11 +287,10 @@ async function scanAndUpdateCarpool(now, thresholdMs, ids = [], allowFullScan = 
 
 exports.main = async (event, context) => {
   const now = new Date()
-  const thresholdMs = 0.5 * 60 * 60 * 1000 // 0.5小时
   const ids = getTargetIds(event || {})
   const allowFullScan = !!(event && event.fullScan === true)
 
-  const res = await scanAndUpdateCarpool(now, thresholdMs, ids, allowFullScan)
+  const res = await scanAndUpdateCarpool(now, ids, allowFullScan)
 
   return {
     ok: true,

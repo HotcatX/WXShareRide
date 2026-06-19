@@ -93,16 +93,25 @@
     padding: 0 22rpx;
     gap: 18rpx;
   }
-  
+
+  .ui-bottom-bar--three{
+    justify-content: space-between;
+    padding: 0 22rpx;
+    gap: 12rpx;
+  }
+
   /* 两个底部按钮：统一高度/圆角 */
   .ui-secondary-btn,
+  .ui-complete-btn,
   .ui-danger-btn{
-    width: 48%;
+    width: 31.5%;
     height: 96rpx;
     line-height: 96rpx;
     border-radius: 999rpx;
-    font-size: 32rpx;
+    font-size: 28rpx;
     font-weight: 900;
+    padding-left: 0;
+    padding-right: 0;
   }
   
   /* 次按钮：白底描边（和主按钮体系一致，但弱一级） */
@@ -111,6 +120,19 @@
     color: #fff;
     border: none;
     box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.06);
+  }
+
+  .ui-complete-btn{
+    background: #5066A0;
+    color: #fff;
+    border: none;
+    box-shadow: 0 10rpx 22rpx rgba(0,0,0,0.08);
+  }
+
+  .ui-complete-btn--disabled{
+    background: rgba(0,0,0,0.18) !important;
+    color: rgba(255,255,255,0.85) !important;
+    box-shadow: none;
   }
   
   /* 危险按钮：红色实心（但仍有柔和阴影） */
@@ -123,6 +145,7 @@
   
   /* 去掉 button 默认边框 */
   .ui-secondary-btn::after,
+  .ui-complete-btn::after,
   .ui-danger-btn::after{
     border: none;
   }
@@ -180,6 +203,23 @@
     color: #E54B3B;
     font-weight: 900;
     white-space: nowrap;
+  }
+
+  .status-row{
+    margin-top: 18rpx;
+    display: flex;
+    justify-content: center;
+  }
+
+  .status-pill{
+    height: 44rpx;
+    line-height: 44rpx;
+    padding: 0 24rpx;
+    border-radius: 999rpx;
+    background: rgba(80, 102, 160, 0.12);
+    color: #5066A0;
+    font-size: 24rpx;
+    font-weight: 900;
   }
   
 /* =========================
@@ -397,4 +437,3 @@
   margin-left: 6rpx;
 }
 
-  

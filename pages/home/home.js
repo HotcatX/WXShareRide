@@ -150,6 +150,7 @@ function wrapTripForCard(raw, opts = {}) {
     st.includes('past') ||
     st.includes('expired') ||
     st.includes('done') ||
+    st.includes('close') ||
     st.includes('closed') ||
     st.includes('结束') ||
     st.includes('过期')

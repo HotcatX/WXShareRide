@@ -8,9 +8,6 @@ const db = cloud.database()
 const _ = db.command
 
 const VERSION = '2025-12-30-acceptCarpoolRequest-v4-notify-passengers'
-const PUBLIC_STATS_COLLECTION = 'PublicStats'
-const PUBLIC_STATS_DOC_ID = 'home'
-const MAX_SERVED_DELTA = 5
 
 /**
  * 往 Notifications 集合写一条消息
@@ -41,63 +38,6 @@ async function sendNotification(toOpenid, type, title, content, carpoolId, extra
   }
 }
 
-function normalizeServedDelta(amount) {
-  const n = Number(amount)
-  if (!Number.isFinite(n)) return 1
-  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
-}
-
-function getRequestServedPeople(req = {}) {
-  const passengerIds = Array.isArray(req.passengerID)
-    ? [...new Set(req.passengerID.filter(Boolean))]
-    : []
-  const passengerCount = Number(req.passengerCount)
-  const passengerTotal = Math.max(
-    passengerIds.length,
-    Number.isFinite(passengerCount) ? passengerCount : 0,
-    1
-  )
-  return normalizeServedDelta(passengerTotal + 1)
-}
-
-async function bumpServedTrips(amount = 1) {
-  const delta = normalizeServedDelta(amount)
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(delta),
-    servedTripsLastDelta: delta,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  try {
-    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    return
-  } catch (e) {
-    try {
-      await db.collection(PUBLIC_STATS_COLLECTION).add({
-        data: {
-          _id: PUBLIC_STATS_DOC_ID,
-          servedTrips: delta,
-          servedTripsLastDelta: delta,
-          coverageText: 'NY / NJ',
-          matchModeText: '发车 + 求车',
-          statusText: '实时同步',
-          lastServedAt: now,
-          createdAt: now,
-          updatedAt: now
-        }
-      })
-    } catch (addErr) {
-      try {
-        await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-      } catch (retryErr) {
-        console.warn('[bumpServedTrips] 统计自增失败（不影响接单）:', retryErr)
-      }
-    }
-  }
-}
-
 exports.main = async (event, context) => {
   console.log('acceptCarpoolRequest VERSION =', VERSION)
 
@@ -111,7 +51,6 @@ exports.main = async (event, context) => {
   // 用于事务后发通知
   let passengersToNotify = []
   let reqSnapshotForMsg = null
-  let servedPeopleDelta = 0
 
   try {
     const res = await db.runTransaction(async (transaction) => {
@@ -130,7 +69,7 @@ exports.main = async (event, context) => {
       const existingDriver = req.driverOpenid || req.driverID || ''
       if (existingDriver) {
         if (existingDriver === driverOpenid) {
-          return { success: true, alreadyAccepted: true, servedPeopleDelta: 0 }
+          return { success: true, alreadyAccepted: true }
         }
         return { success: false, errorMsg: '该求车已被其他司机接单' }
       }
@@ -138,8 +77,6 @@ exports.main = async (event, context) => {
       if (req.status && req.status !== 'open') {
         return { success: false, errorMsg: `当前状态不可接单：${req.status}` }
       }
-
-      servedPeopleDelta = getRequestServedPeople(req)
 
       // 3) 更新 CarpoolRequest：写入司机
       await reqDoc.update({
@@ -188,14 +125,12 @@ exports.main = async (event, context) => {
       passengersToNotify = passengerIds
       reqSnapshotForMsg = req
 
-      return { success: true, servedPeopleDelta }
+      return { success: true }
     })
 
     // 若事务内已判定失败，直接返回
     if (!res || !res.success) return res
     if (res.alreadyAccepted) return res
-
-    await bumpServedTrips(res.servedPeopleDelta || servedPeopleDelta)
 
     // ===== 事务成功后：给所有已加入乘客发送通知 =====
     try {

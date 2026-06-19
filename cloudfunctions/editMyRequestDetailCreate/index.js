@@ -10,8 +10,105 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+const PUBLIC_STATS_COLLECTION = 'PublicStats'
+const PUBLIC_STATS_DOC_ID = 'home'
+const MAX_SERVED_DELTA = 5
+
 function uniq(arr) {
   return Array.from(new Set((arr || []).filter(Boolean)))
+}
+
+function normalizeTripStatus(status) {
+  const value = String(status || 'open').toLowerCase()
+  return value === 'close' || value === 'closed' ? 'past' : value
+}
+
+function normalizeServedDelta(amount) {
+  const n = Number(amount)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
+}
+
+function getCarpoolRequestServedPeople(req = {}) {
+  const passengerIds = Array.isArray(req.passengerID)
+    ? Array.from(new Set(req.passengerID.filter(Boolean)))
+    : []
+  const passengerCount = Number(req.passengerCount)
+  const passengerTotal = Math.max(
+    passengerIds.length,
+    Number.isFinite(passengerCount) ? passengerCount : 0,
+    req._openid ? 1 : 0
+  )
+  const hasDriver = !!(req.driverOpenid || req.driverID || req.driverId)
+  return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
+}
+
+function bumpServedTrips(delta, source, tripId, collection) {
+  const amount = normalizeServedDelta(delta)
+  if (amount <= 0) return Promise.resolve(false)
+
+  const now = db.serverDate()
+  const data = {
+    servedTrips: _.inc(amount),
+    servedTripsLastDelta: amount,
+    servedTripsLastSource: source,
+    servedTripsLastTripId: tripId,
+    servedTripsLastCollection: collection,
+    lastServedAt: now,
+    updatedAt: now
+  }
+
+  return db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
+    .then(() => true)
+    .catch(() => db.collection(PUBLIC_STATS_COLLECTION).add({
+      data: {
+        _id: PUBLIC_STATS_DOC_ID,
+        servedTrips: amount,
+        servedTripsLastDelta: amount,
+        servedTripsLastSource: source,
+        servedTripsLastTripId: tripId,
+        servedTripsLastCollection: collection,
+        coverageText: 'NY / NJ',
+        lastServedAt: now,
+        createdAt: now,
+        updatedAt: now
+      }
+    }).then(() => true))
+    .catch(() => db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data }).then(() => true))
+    .catch((retryErr) => {
+      console.warn('[bumpServedTrips] 统计自增失败:', retryErr)
+      return false
+    })
+}
+
+function completeRequestAndCount(requestId, req, updateData) {
+  const delta = getCarpoolRequestServedPeople(req)
+  const data = {
+    ...updateData,
+    servedStatsCounted: true,
+    servedStatsDelta: delta,
+    servedStatsSource: 'creatorQuitAndClose',
+    servedStatsCountedAt: db.serverDate()
+  }
+
+  return db.collection('CarpoolRequest')
+    .where({ _id: requestId, servedStatsCounted: _.neq(true) })
+    .update({ data })
+    .then((res) => {
+      const updated = Number((res && res.stats && res.stats.updated) || (res && res.updated) || 0)
+      if (updated > 0) {
+        return bumpServedTrips(delta, 'creatorQuitAndClose', requestId, 'CarpoolRequest')
+          .then((counted) => ({ updated: true, counted, delta }))
+      }
+
+      return db.collection('CarpoolRequest').doc(requestId).get().then((fresh) => {
+        if (fresh && fresh.data && normalizeTripStatus(fresh.data.status) !== 'past') {
+          return db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
+            .then(() => ({ updated: true, counted: false, delta: 0 }))
+        }
+        return { updated: false, counted: false, delta: 0 }
+      })
+    })
 }
 
 /**
@@ -120,8 +217,8 @@ exports.main = (event, context) => {
       if (!driver) return { ok: false, errorMsg: '当前无司机' }
 
       const next = buildClearDriverFields(preReq)
-      const reqStatus = preReq.status || ''
-      if (reqStatus && reqStatus !== 'past' && reqStatus !== 'close') next.status = 'open'
+      const reqStatus = normalizeTripStatus(preReq.status)
+      if (reqStatus !== 'past') next.status = 'open'
       if (Object.keys(next).length === 0) {
         return { ok: false, errorMsg: '该路线不包含 driver 字段，无法清除' }
       }
@@ -370,10 +467,14 @@ exports.main = (event, context) => {
       })
     }
 
-    // ====== creatorQuitAndClose（保留：close但不删）=====
+    // ====== creatorQuitAndClose（兼容旧 action 名；现在统一写 past）=====
     if (action === 'creatorQuitAndClose') {
-      const next = { status: 'close', ...buildClearDriverFields(preReq) }
-      return reqRef.update({ data: next }).then(() => ({ ok: true }))
+      const next = { status: 'past', ...buildClearDriverFields(preReq) }
+      return completeRequestAndCount(requestId, preReq, next).then((statsResult) => ({
+        ok: true,
+        servedStatsDelta: statsResult.delta || 0,
+        servedStatsCounted: !!statsResult.counted
+      }))
         .catch((e) => ({ ok: false, errorMsg: '操作失败（creatorQuitAndClose）', debug: { errMsg: e && e.errMsg, message: e && e.message } }))
     }
 

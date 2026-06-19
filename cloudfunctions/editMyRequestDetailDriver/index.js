@@ -3,7 +3,7 @@
 //
 // 1) 读取 CarpoolRequest 并校验当前 openid 是司机
 // 2) CarpoolRequest：清空 driverOpenid/driverID/driverId（仅清空存在字段）
-//    并在未 past/close 时 status -> open
+//    并在未 past 时 status -> open
 // 3) userInfo：从司机 tripDriverJoin 数组中移除该 requestId（尽力清理，不阻断主流程）
 
 const cloud = require('wx-server-sdk')
@@ -11,6 +11,11 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+
+function normalizeTripStatus(status) {
+  const value = String(status || 'open').toLowerCase()
+  return value === 'close' || value === 'closed' ? 'past' : value
+}
 
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
   if (!toOpenid) return
@@ -63,9 +68,9 @@ exports.main = async (event, context) => {
     if (Object.prototype.hasOwnProperty.call(req, 'driverID')) next.driverID = ''
     if (Object.prototype.hasOwnProperty.call(req, 'driverId')) next.driverId = ''
 
-    // status 回滚：仅当当前不是 close/past
-    const curStatus = req.status || ''
-    if (curStatus && curStatus !== 'past' && curStatus !== 'close') {
+    // status 回滚：仅当当前不是 past
+    const curStatus = normalizeTripStatus(req.status)
+    if (curStatus !== 'past') {
       next.status = 'open'
     }
 

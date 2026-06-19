@@ -16,6 +16,7 @@ Page({
 
     passengers: [],
     kickMode: false,
+    isTripCompleted: false,
 
     showFortLeeCoreTip: false
   },
@@ -138,7 +139,10 @@ Page({
       const timeText = dep0.time || ''
   
       const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
-  
+      const rawStatus = String(trip.status || '').toLowerCase()
+      const status = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+      const isTripCompleted = status === 'past'
+
       // ===== 乘客：Carpool.passengers + 通过 _openid 补全 userInfo（微信/手机/昵称）=====
       const rawPassengers = Array.isArray(trip.passengers) ? trip.passengers.filter(Boolean) : []
       const openids = rawPassengers.map(p => p && p._openid).filter(Boolean)
@@ -201,6 +205,7 @@ Page({
         dateText,
         weekdayText,
         timeText,
+        isTripCompleted,
         showFortLeeCoreTip,
         loading: false
       })
@@ -259,6 +264,41 @@ Page({
           }
         } catch (e2) {
           console.error('kickPassenger error:', e2)
+          wx.showToast({ title: '操作失败', icon: 'none' })
+        }
+      }
+    })
+  },
+
+  async onCompleteTrip() {
+    const { tripId, isTripCompleted } = this.data
+    if (!tripId || isTripCompleted) return
+
+    wx.showModal({
+      title: '结束路线',
+      content: '结束后路线将从公开拼车列表移除，并进入你和乘客的历史行程。确认结束？',
+      confirmText: '结束',
+      cancelText: '取消',
+      success: async (r) => {
+        if (!r.confirm) return
+
+        try {
+          wx.showLoading({ title: '正在结束...', mask: true })
+          const res = await wx.cloud.callFunction({
+            name: 'editMyTripDetailDriver',
+            data: { tripId, action: 'completeTrip' }
+          })
+
+          wx.hideLoading()
+          if (res.result && res.result.ok) {
+            wx.showToast({ title: '已结束路线', icon: 'success' })
+            await this.loadTripDetail(tripId)
+          } else {
+            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
+          }
+        } catch (e2) {
+          wx.hideLoading()
+          console.error('completeTrip error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
       }

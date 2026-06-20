@@ -110,8 +110,8 @@
 
         <view class="goods-body">
           <text class="goods-title">{{item.title}}</text>
-          <view class="meta-line">
-            <text wx:if="{{item.distanceText}}" class="distance">{{item.distanceText}}</text>
+          <view wx:if="{{item.distanceText}}" class="meta-line">
+            <text class="distance">{{item.distanceText}}</text>
           </view>
         </view>
       </view>

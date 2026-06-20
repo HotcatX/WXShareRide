@@ -57,20 +57,34 @@
       </view>
     </view>
 
-    <view class="profile-score ride-card ride-card-pad">
+    <view class="profile-section ride-card ride-card-pad">
       <view class="profile-section-head">
-        <text class="ride-section-title">拼车信用</text>
+        <text class="ride-section-title">我的二手/转租</text>
       </view>
-      <view class="profile-score-grid">
-        <view class="profile-score-item">
-          <text class="profile-score-role">司机</text>
-          <text class="profile-score-value">{{isLoggedIn ? driverRatingText : '未登录'}}</text>
-          <text class="profile-score-sub">{{isLoggedIn ? driverCompletedText : '登录后查看'}}</text>
+
+      <view class="profile-grid">
+        <view class="profile-grid-item" bindtap="goPublished" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap profile-badge-wrap">
+            <image class="profile-grid-icon" src="/images/icon_publish.png" mode="aspectFit" />
+            <view wx:if="{{walletUnreadCount > 0}}" class="profile-badge">
+              <text class="profile-badge-number">{{ walletUnreadCount > 99 ? '99+' : walletUnreadCount }}</text>
+            </view>
+          </view>
+          <text class="profile-grid-text">我发布的</text>
         </view>
-        <view class="profile-score-item">
-          <text class="profile-score-role">乘客</text>
-          <text class="profile-score-value">{{isLoggedIn ? passengerRatingText : '未登录'}}</text>
-          <text class="profile-score-sub">{{isLoggedIn ? passengerCompletedText : '登录后查看'}}</text>
+
+        <view class="profile-grid-item" bindtap="goSold" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_sold.png" mode="aspectFit" />
+          </view>
+          <text class="profile-grid-text">我卖出的</text>
+        </view>
+
+        <view class="profile-grid-item" bindtap="goBought" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_bought.png" mode="aspectFit" />
+          </view>
+          <text class="profile-grid-text">我买到的</text>
         </view>
       </view>
     </view>
@@ -117,34 +131,20 @@
       </view>
     </view>
 
-    <view class="profile-section ride-card ride-card-pad">
+    <view class="profile-score ride-card ride-card-pad">
       <view class="profile-section-head">
-        <text class="ride-section-title">我的二手/转租</text>
+        <text class="ride-section-title">拼车信用</text>
       </view>
-
-      <view class="profile-grid">
-        <view class="profile-grid-item" bindtap="goPublished" hover-class="ride-card-pressed" hover-stay-time="80">
-          <view class="profile-grid-icon-wrap profile-badge-wrap">
-            <image class="profile-grid-icon" src="/images/icon_publish.png" mode="aspectFit" />
-            <view wx:if="{{walletUnreadCount > 0}}" class="profile-badge">
-              <text class="profile-badge-number">{{ walletUnreadCount > 99 ? '99+' : walletUnreadCount }}</text>
-            </view>
-          </view>
-          <text class="profile-grid-text">我发布的</text>
+      <view class="profile-score-grid">
+        <view class="profile-score-item">
+          <text class="profile-score-role">司机</text>
+          <text class="profile-score-value">{{isLoggedIn ? driverRatingText : '未登录'}}</text>
+          <text class="profile-score-sub">{{isLoggedIn ? driverCompletedText : '登录后查看'}}</text>
         </view>
-
-        <view class="profile-grid-item" bindtap="goSold" hover-class="ride-card-pressed" hover-stay-time="80">
-          <view class="profile-grid-icon-wrap">
-            <image class="profile-grid-icon" src="/images/icon_sold.png" mode="aspectFit" />
-          </view>
-          <text class="profile-grid-text">我卖出的</text>
-        </view>
-
-        <view class="profile-grid-item" bindtap="goBought" hover-class="ride-card-pressed" hover-stay-time="80">
-          <view class="profile-grid-icon-wrap">
-            <image class="profile-grid-icon" src="/images/icon_bought.png" mode="aspectFit" />
-          </view>
-          <text class="profile-grid-text">我买到的</text>
+        <view class="profile-score-item">
+          <text class="profile-score-role">乘客</text>
+          <text class="profile-score-value">{{isLoggedIn ? passengerRatingText : '未登录'}}</text>
+          <text class="profile-score-sub">{{isLoggedIn ? passengerCompletedText : '登录后查看'}}</text>
         </view>
       </view>
     </view>

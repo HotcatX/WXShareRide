@@ -248,7 +248,7 @@ Page({
 
     statusBarHeight: 80,
     homeTopbarStyle: '',
-    pageTitle: '纽约生活',
+    pageTitle: '留学生活',
 
     publicStats: normalizePublicStats(),
 

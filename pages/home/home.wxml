@@ -1,0 +1,205 @@
+<view class="ride-shell home-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar" style="{{homeTopbarStyle}}">
+      <view class="ride-brand">
+        <text class="ride-kicker">Campus rides</text>
+        <text class="ride-title">{{pageTitle}}</text>
+      </view>
+
+      <view class="ride-actions">
+        <view
+          class="ride-action {{isLoggedIn ? 'ride-action--light home-login-done' : 'ride-action--dark'}}"
+          hover-class="ride-pressed"
+          hover-stay-time="80"
+          bindtap="onTapLoginBtn"
+        >{{isLoggedIn ? '已登录' : '登录'}}</view>
+      </view>
+    </view>
+  </view>
+
+  <scroll-view
+    class="ride-scroll home-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    refresher-background="#f4f6f8"
+    bindrefresherrefresh="onHomeRefresherRefresh"
+  >
+    <view class="home-service-grid">
+      <view class="home-service ride-card" bindtap="goNewTrip" hover-class="ride-card-pressed" hover-stay-time="80">
+        <view class="home-service-icon-slot">
+          <image
+            class="home-service-image"
+            src="/images/post_trip.png"
+            mode="aspectFit"
+          />
+        </view>
+        <view class="home-service-title-slot">
+          <text class="home-service-title">发布路线</text>
+        </view>
+      </view>
+
+      <view class="home-service ride-card" bindtap="goCarpoolList" hover-class="ride-card-pressed" hover-stay-time="80">
+        <view class="home-service-icon-slot">
+          <image
+            class="home-service-image"
+            src="/images/share_ride.png"
+            mode="aspectFit"
+          />
+        </view>
+        <view class="home-service-title-slot">
+          <text class="home-service-title">加入路线</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="home-section">
+      <view class="ride-row-between home-section-head">
+        <view>
+          <text class="ride-section-title">我的创建</text>
+        </view>
+        <view
+          wx:if="{{createTrips.length > 0}}"
+          class="ride-chip {{expandedSection === 'create' ? 'ride-chip--dark' : ''}}"
+          bindtap="onToggleSection"
+          data-key="create"
+          hover-class="ride-pressed"
+          hover-stay-time="80"
+        >{{expandedSection === 'create' ? '收起' : '全部'}}</view>
+      </view>
+
+      <view class="home-trip-list {{expandedSection === 'create' ? 'home-trip-list--open' : ''}}">
+        <view wx:if="{{createTrips.length === 0}}" class="ride-state home-inline-state">
+          {{loading ? '正在同步路线' : '暂无创建的路线'}}
+        </view>
+
+        <block wx:else>
+          <view
+            wx:for="{{createShow}}"
+            wx:key="_id"
+            class="ride-card ride-list-card home-trip-card"
+            bindtap="goUnifiedTripDetail"
+            data-tripid="{{item._id}}"
+            data-role="{{item.role}}"
+            data-from="{{item.from}}"
+            hover-class="ride-card-pressed"
+            hover-stay-time="80"
+          >
+            <view class="ride-list-head">
+              <view class="home-kind-row">
+                <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车请求' : '发车路线'}}</text>
+                <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text>
+                <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
+              </view>
+              <text class="ride-list-time">时间 {{item._timeLabel || '待定'}}</text>
+            </view>
+            <view class="home-route-inline">
+              <view class="home-route-main">
+                <view class="home-route-place">
+                  <text class="ride-route-label">出发</text>
+                  <text class="ride-route-name">{{item._fromAddress}}</text>
+                </view>
+                <text class="home-route-arrow">→</text>
+                <view class="home-route-place">
+                  <text class="ride-route-label">到达</text>
+                  <text class="ride-route-name">{{item._toAddress}}</text>
+                </view>
+              </view>
+              <view class="home-route-side">
+                <text class="ride-chip ride-chip--accent home-seat-chip">{{item._seatText}}</text>
+              </view>
+            </view>
+          </view>
+        </block>
+      </view>
+    </view>
+
+    <view class="home-section">
+      <view class="ride-row-between home-section-head">
+        <view>
+          <text class="ride-section-title">我的加入</text>
+        </view>
+        <view
+          wx:if="{{joinTrips.length > 0}}"
+          class="ride-chip {{expandedSection === 'join' ? 'ride-chip--dark' : ''}}"
+          bindtap="onToggleSection"
+          data-key="join"
+          hover-class="ride-pressed"
+          hover-stay-time="80"
+        >{{expandedSection === 'join' ? '收起' : '全部'}}</view>
+      </view>
+
+      <view class="home-trip-list {{expandedSection === 'join' ? 'home-trip-list--open' : ''}}">
+        <view wx:if="{{joinTrips.length === 0}}" class="ride-state home-inline-state">
+          {{loading ? '正在同步路线' : '暂无加入的路线'}}
+        </view>
+
+        <block wx:else>
+          <view
+            wx:for="{{joinShow}}"
+            wx:key="_id"
+            class="ride-card ride-list-card home-trip-card"
+            bindtap="goUnifiedTripDetail"
+            data-tripid="{{item._id}}"
+            data-role="{{item.role}}"
+            data-from="{{item.from}}"
+            hover-class="ride-card-pressed"
+            hover-stay-time="80"
+          >
+            <view class="ride-list-head">
+              <view class="home-kind-row">
+                <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车路线' : '拼车路线'}}</text>
+                <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text>
+                <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
+              </view>
+              <text class="ride-list-time">时间 {{item._timeLabel || '待定'}}</text>
+            </view>
+            <view class="home-route-inline">
+              <view class="home-route-main">
+                <view class="home-route-place">
+                  <text class="ride-route-label">出发</text>
+                  <text class="ride-route-name">{{item._fromAddress}}</text>
+                </view>
+                <text class="home-route-arrow">→</text>
+                <view class="home-route-place">
+                  <text class="ride-route-label">到达</text>
+                  <text class="ride-route-name">{{item._toAddress}}</text>
+                </view>
+              </view>
+              <view class="home-route-side">
+                <text class="ride-chip ride-chip--accent home-seat-chip">{{item._seatText}}</text>
+              </view>
+            </view>
+          </view>
+        </block>
+      </view>
+    </view>
+
+    <view class="home-section">
+      <view class="ride-row-between home-section-head">
+        <text class="ride-section-title">社区数据</text>
+        <text class="ride-section-subtitle">实时同步</text>
+      </view>
+      <view class="home-stats ride-card ride-card-pad">
+        <view class="home-stat-main">
+          <text class="home-stat-label">累计已服务</text>
+          <view class="home-stat-number-row">
+            <text class="home-stat-number">{{publicStats.servedTripsText}}</text>
+            <text wx:if="{{publicStats.hasServedTrips}}" class="home-stat-unit">人次</text>
+          </view>
+          <text class="home-stat-subtitle">成功拼车</text>
+        </view>
+        <view class="home-stat-side">
+          <view class="ride-chip ride-chip--accent">{{publicStats.coverageText}}</view>
+          <view class="ride-chip">{{publicStats.lastSyncText}}</view>
+        </view>
+      </view>
+    </view>
+
+    <text class="home-refresh-tip">下拉同步路线</text>
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+  <app-tabbar active="home" market-badge="{{customTabMarketBadge}}" profile-badge="{{customTabProfileBadge}}"></app-tabbar>
+</view>

@@ -1,0 +1,138 @@
+page{
+  background: #f4f6f8;
+}
+
+.create-ride{
+  background: #f4f6f8;
+}
+
+.create-scroll{
+  padding-top: 10rpx;
+}
+
+.create-card-head{
+  margin-bottom: 10rpx;
+}
+
+.create-card-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
+}
+
+.create-route-card{
+  margin-top: 0;
+}
+
+.create-ride .ride-card-pad{
+  padding: 16rpx;
+}
+
+.create-ride .ride-form-grid{
+  gap: 8rpx;
+}
+
+.create-ride .ride-field{
+  min-height: 58rpx;
+  padding: 5rpx 10rpx;
+  border-radius: 12rpx;
+}
+
+.create-ride .ride-field-label{
+  font-size: 18rpx;
+  line-height: 22rpx;
+}
+
+.create-ride .ride-field-value,
+.create-ride .ride-input{
+  margin-top: 0;
+  font-size: 23rpx;
+  line-height: 30rpx;
+}
+
+.create-ride .ride-input{
+  height: 30rpx;
+}
+
+.create-textarea-field{
+  min-height: 96rpx;
+  justify-content: flex-start;
+}
+
+.create-zelle{
+  margin-top: 16rpx;
+}
+
+.create-check{
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.create-check-text{
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #111418;
+}
+
+.create-template-head{
+  margin: 26rpx 4rpx 12rpx;
+}
+
+.create-inline-state{
+  margin: 0;
+}
+
+.create-template-list{
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.create-template-card{
+  padding: 18rpx 20rpx;
+}
+
+.create-template-time{
+  min-width: 0;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  color: #111418;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-template-route{
+  margin-top: 14rpx;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 36rpx minmax(0,1fr);
+  align-items: center;
+  gap: 10rpx;
+  font-size: 25rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #59636f;
+}
+
+.create-template-route text{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-template-arrow{
+  text-align: center;
+  color: #111418;
+  font-weight: 900;
+}
+
+.create-notice-muted{
+  margin-top: 14rpx;
+  background: #ffffff;
+  border-color: rgba(20,23,26,0.06);
+}

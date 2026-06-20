@@ -1,0 +1,44 @@
+page{
+  background: #f4f6f8;
+}
+
+.edit-template-ride{
+  background: #f4f6f8;
+}
+
+.edit-template-scroll{
+  padding-top: 14rpx;
+}
+
+.edit-template-head{
+  margin-bottom: 16rpx;
+}
+
+.edit-template-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
+}
+
+.edit-template-textarea{
+  min-height: 138rpx;
+  justify-content: flex-start;
+}
+
+.edit-template-zelle{
+  margin-top: 16rpx;
+}
+
+.edit-template-check{
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.edit-template-check-text{
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #111418;
+}

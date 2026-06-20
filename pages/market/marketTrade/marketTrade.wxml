@@ -1,0 +1,63 @@
+<view class="trade-page">
+  <view class="trade-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="trade-nav">
+      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <view class="nav-copy">
+        <text class="nav-kicker">Transactions</text>
+        <text class="nav-title">{{pageTitle}}</text>
+      </view>
+      <view class="nav-spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="trade-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+    <view class="summary-card">
+      <text class="summary-title">{{summaryTitle}}</text>
+      <text class="summary-subtitle">{{listCountText}}</text>
+    </view>
+
+    <view wx:if="{{listEmpty}}" class="empty-state">
+      <view class="empty-mark">⌕</view>
+      <view class="empty-title">暂无记录</view>
+      <view class="empty-subtitle">有交易后会显示在这里</view>
+    </view>
+
+    <view
+      class="trade-card pressable"
+      wx:for="{{list}}"
+      wx:key="id"
+      hover-class="card-pressed"
+      hover-stay-time="80"
+      bindtap="onOpenDetail"
+      data-id="{{item.id}}"
+    >
+      <image
+        wx:if="{{item.hasImage}}"
+        class="thumb"
+        src="{{item.imageSrc}}"
+        mode="aspectFill"
+        lazy-load="true"
+      />
+      <view wx:else class="thumb text-thumb">
+        <text>{{item.title}}</text>
+      </view>
+
+      <view class="trade-main">
+        <text class="item-title">{{item.title}}</text>
+        <text class="price">$ {{item.priceDisplay}}</text>
+      </view>
+
+      <view
+        class="contact-chip pressable"
+        catchtap="onCopyWechat"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        data-wx="{{item.contactWechat}}"
+      >
+        {{contactRoleText}}
+      </view>
+    </view>
+
+    <view class="bottom-space"></view>
+  </scroll-view>
+</view>

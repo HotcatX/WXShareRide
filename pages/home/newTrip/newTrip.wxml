@@ -1,0 +1,301 @@
+<view class="ride-shell create-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+
+    <view class="ride-segment">
+      <view
+        class="ride-segment-item {{mode==='driver' ? 'active' : ''}}"
+        bindtap="setMode"
+        data-mode="driver"
+      >司机发车</view>
+      <view
+        class="ride-segment-item {{mode==='passenger' ? 'active' : ''}}"
+        bindtap="setMode"
+        data-mode="passenger"
+      >乘客求车</view>
+    </view>
+  </view>
+
+  <scroll-view class="ride-scroll create-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <block wx:if="{{mode==='driver'}}">
+      <view class="ride-card ride-card-pad create-route-card">
+        <view class="create-card-head">
+          <text class="ride-section-title">路线</text>
+          <text class="ride-section-subtitle">选择出发、到达和发车时间</text>
+        </view>
+
+        <view class="ride-form-grid">
+          <picker
+            mode="selector"
+            range="{{departureAddresses}}"
+            data-type="departure"
+            bindchange="onAddressSelect"
+            disabled="{{loadingDepartureAddrs}}"
+          >
+            <view class="ride-field">
+              <text class="ride-field-label">出发地</text>
+              <text class="ride-field-value {{departureAddress ? '' : 'ride-placeholder'}}">
+                {{ loadingDepartureAddrs ? '加载中' : (departureAddress || '选择出发地') }}
+              </text>
+            </view>
+          </picker>
+
+          <picker
+            mode="selector"
+            range="{{arrivalAddresses}}"
+            data-type="destination"
+            bindchange="onAddressSelect"
+            disabled="{{loadingArrivalAddrs}}"
+          >
+            <view class="ride-field">
+              <text class="ride-field-label">目的地</text>
+              <text class="ride-field-value {{destinationAddress ? '' : 'ride-placeholder'}}">
+                {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择到达') }}
+              </text>
+            </view>
+          </picker>
+
+          <picker mode="date" bindchange="onDateChange">
+            <view class="ride-field">
+              <text class="ride-field-label">日期</text>
+              <text class="ride-field-value {{departureDate ? '' : 'ride-placeholder'}}">
+                {{departureDate || '选择日期'}}
+              </text>
+            </view>
+          </picker>
+
+          <picker mode="time" bindchange="onTimeChange">
+            <view class="ride-field">
+              <text class="ride-field-label">时间</text>
+              <text class="ride-field-value {{departureTime ? '' : 'ride-placeholder'}}">
+                {{departureTime || '选择时间'}}
+              </text>
+            </view>
+          </picker>
+
+          <view class="ride-field ride-field--full">
+            <text class="ride-field-label">载客数量</text>
+            <input
+              class="ride-input"
+              type="number"
+              value="{{passengerCountInput}}"
+              bindinput="onPassengerInput"
+              placeholder="可载几人"
+              placeholder-class="ride-placeholder"
+            />
+          </view>
+        </view>
+      </view>
+
+      <view class="ride-card ride-card-pad">
+        <view class="create-card-head">
+          <text class="ride-section-title">车辆与价格</text>
+          <text class="ride-section-subtitle">乘客加入前可查看核心信息</text>
+        </view>
+
+        <view class="ride-form-grid">
+          <view class="ride-field ride-field--full">
+            <text class="ride-field-label">参考价格</text>
+            <input
+              class="ride-input"
+              value="{{referencePrice}}"
+              bindinput="onReferencePriceInput"
+              placeholder="例如: 10 / 11-13$ / 价格私议"
+              placeholder-class="ride-placeholder"
+            />
+          </view>
+
+          <view class="ride-field">
+            <text class="ride-field-label">车牌号</text>
+            <input class="ride-input" value="{{carNumber}}" bindinput="onCarNumberInput" placeholder="车牌" placeholder-class="ride-placeholder" />
+          </view>
+
+          <view class="ride-field">
+            <text class="ride-field-label">车辆品牌</text>
+            <input class="ride-input" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="Toyota" placeholder-class="ride-placeholder" />
+          </view>
+
+          <view class="ride-field ride-field--full">
+            <text class="ride-field-label">车辆型号</text>
+            <input class="ride-input" value="{{carModel}}" bindinput="onCarModelInput" placeholder="RAV4 / Civic" placeholder-class="ride-placeholder" />
+          </view>
+
+          <view class="ride-field ride-field--full create-textarea-field">
+            <text class="ride-field-label">备注</text>
+            <textarea
+              class="ride-textarea"
+              value="{{comment}}"
+              bindinput="onCommentInput"
+              placeholder="选填，例如可等5分钟 / 可送到门口"
+              placeholder-class="ride-placeholder"
+              auto-height="true"
+              maxlength="100"
+            />
+          </view>
+        </view>
+      </view>
+
+      <view class="ride-card ride-card-pad create-zelle">
+        <checkbox-group bindchange="onZelleCheckboxChange">
+          <label class="create-check">
+            <checkbox value="showZelle" checked="{{showZelle}}" />
+            <text class="create-check-text">公开 Zelle 信息给拼车成功的乘客</text>
+          </label>
+        </checkbox-group>
+      </view>
+
+      <view class="create-card-head create-template-head">
+        <text class="ride-section-title">常用模板</text>
+        <text class="ride-section-subtitle">点击快速填充路线</text>
+      </view>
+
+      <view wx:if="{{loadingTemplates}}" class="ride-state create-inline-state">模板加载中</view>
+      <view wx:elif="{{templates.length === 0}}" class="ride-state create-inline-state">
+        暂无模板，可在个人中心创建
+      </view>
+
+      <view wx:else class="create-template-list">
+        <view
+          class="ride-card create-template-card"
+          wx:for="{{templates}}"
+          wx:key="_id"
+          bindtap="onTemplateTap"
+          data-id="{{item._id}}"
+          hover-class="ride-card-pressed"
+          hover-stay-time="80"
+        >
+          <view class="ride-row-between">
+            <text class="create-template-time">{{item.weekdayText}} {{item.departureTime}}</text>
+            <text class="ride-chip ride-chip--accent">套用</text>
+          </view>
+          <view class="create-template-route">
+            <text>{{item.departureAddress}}</text>
+            <text class="create-template-arrow">→</text>
+            <text>{{item.destinationAddress}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <block wx:if="{{mode==='passenger'}}">
+      <view class="ride-card ride-card-pad create-route-card">
+        <view class="create-card-head">
+          <text class="ride-section-title">求车信息</text>
+          <text class="ride-section-subtitle">发布后司机可接单，乘客也可加入</text>
+        </view>
+
+        <view class="ride-form-grid">
+          <picker
+            mode="selector"
+            range="{{departureAddresses}}"
+            data-type="departure"
+            bindchange="onAddressSelect"
+            disabled="{{loadingDepartureAddrs}}"
+          >
+            <view class="ride-field">
+              <text class="ride-field-label">出发地</text>
+              <text class="ride-field-value {{departureAddress ? '' : 'ride-placeholder'}}">
+                {{ loadingDepartureAddrs ? '加载中' : (departureAddress || '选择出发地') }}
+              </text>
+            </view>
+          </picker>
+
+          <picker
+            mode="selector"
+            range="{{arrivalAddresses}}"
+            data-type="destination"
+            bindchange="onAddressSelect"
+            disabled="{{loadingArrivalAddrs}}"
+          >
+            <view class="ride-field">
+              <text class="ride-field-label">目的地</text>
+              <text class="ride-field-value {{destinationAddress ? '' : 'ride-placeholder'}}">
+                {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择到达') }}
+              </text>
+            </view>
+          </picker>
+
+          <picker mode="date" bindchange="onDateChange">
+            <view class="ride-field">
+              <text class="ride-field-label">日期</text>
+              <text class="ride-field-value {{departureDate ? '' : 'ride-placeholder'}}">
+                {{departureDate || '选择日期'}}
+              </text>
+            </view>
+          </picker>
+
+          <picker mode="time" bindchange="onTimeChange">
+            <view class="ride-field">
+              <text class="ride-field-label">时间</text>
+              <text class="ride-field-value {{departureTime ? '' : 'ride-placeholder'}}">
+                {{departureTime || '选择时间'}}
+              </text>
+            </view>
+          </picker>
+
+          <view class="ride-field">
+            <text class="ride-field-label">乘车人数</text>
+            <input
+              class="ride-input"
+              type="number"
+              value="{{passengerCount}}"
+              bindinput="onPassengerInputPassenger"
+              placeholder="1-4"
+              placeholder-class="ride-placeholder"
+            />
+          </view>
+
+          <view class="ride-field">
+            <text class="ride-field-label">价格</text>
+            <input
+              class="ride-input"
+              value="{{referencePrice || ''}}"
+              disabled
+              placeholder="自动计算"
+              placeholder-class="ride-placeholder"
+            />
+          </view>
+        </view>
+      </view>
+
+      <view class="ride-card ride-notice">
+        <text class="ride-notice-title">拼车费用</text>
+        <text class="ride-notice-text">拼车失败时一人支付全部费用；拼车成功后按同行人数平摊。</text>
+      </view>
+
+      <view class="ride-card ride-notice create-notice-muted">
+        <text class="ride-notice-title">发布建议</text>
+        <text class="ride-notice-text">短距离优先自行打车，长距离求车发布后可等待司机接单。</text>
+      </view>
+    </block>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view class="ride-bottom">
+    <button
+      wx:if="{{mode==='driver'}}"
+      class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
+      bindtap="confirmTrip"
+      disabled="{{submitting}}"
+      loading="{{submitting}}"
+    >
+      {{ submitting ? '提交中' : '发布司机路线' }}
+    </button>
+
+    <button
+      wx:else
+      class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
+      bindtap="confirmTrip"
+      disabled="{{submitting}}"
+      loading="{{submitting}}"
+    >
+      {{ submitting ? '提交中' : '发布求车' }}
+    </button>
+  </view>
+</view>

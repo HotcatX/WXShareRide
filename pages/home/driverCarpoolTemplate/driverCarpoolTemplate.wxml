@@ -1,0 +1,126 @@
+<view class="ride-shell edit-template-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+  </view>
+
+  <scroll-view class="ride-scroll edit-template-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view class="ride-card ride-card-pad">
+      <view class="edit-template-head">
+        <text class="ride-section-title">模板路线</text>
+        <text class="ride-section-subtitle">设置固定出发日、时间和路线</text>
+      </view>
+
+      <view class="ride-form-grid">
+        <picker
+          mode="selector"
+          range="{{departureAddresses}}"
+          data-type="departure"
+          bindchange="onAddressSelect"
+          disabled="{{loadingDepartureAddrs}}"
+        >
+          <view class="ride-field">
+            <text class="ride-field-label">出发地</text>
+            <text class="ride-field-value {{departureAddress ? '' : 'ride-placeholder'}}">
+              {{ loadingDepartureAddrs ? '加载中' : (departureAddress || '选择出发地') }}
+            </text>
+          </view>
+        </picker>
+
+        <picker
+          mode="selector"
+          range="{{arrivalAddresses}}"
+          data-type="destination"
+          bindchange="onAddressSelect"
+          disabled="{{loadingArrivalAddrs}}"
+        >
+          <view class="ride-field">
+            <text class="ride-field-label">目的地</text>
+            <text class="ride-field-value {{destinationAddress ? '' : 'ride-placeholder'}}">
+              {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择到达') }}
+            </text>
+          </view>
+        </picker>
+
+        <picker mode="selector" range="{{weekdayOptions}}" value="{{weekdayIndex}}" bindchange="onWeekdayChange">
+          <view class="ride-field">
+            <text class="ride-field-label">星期</text>
+            <text class="ride-field-value {{weekdayText ? '' : 'ride-placeholder'}}">{{weekdayText || '选择星期几'}}</text>
+          </view>
+        </picker>
+
+        <picker mode="time" bindchange="onTimeChange">
+          <view class="ride-field">
+            <text class="ride-field-label">时间</text>
+            <text class="ride-field-value {{departureTime ? '' : 'ride-placeholder'}}">{{departureTime || '选择时间'}}</text>
+          </view>
+        </picker>
+
+        <view class="ride-field ride-field--full">
+          <text class="ride-field-label">载客数量</text>
+          <input class="ride-input" type="number" value="{{passengerCountInput || passengerCount}}" bindinput="onPassengerInput" placeholder="1-7" placeholder-class="ride-placeholder" />
+        </view>
+      </view>
+    </view>
+
+    <view class="ride-card ride-card-pad">
+      <view class="edit-template-head">
+        <text class="ride-section-title">车辆与价格</text>
+        <text class="ride-section-subtitle">保存后新建路线可直接套用</text>
+      </view>
+
+      <view class="ride-form-grid">
+        <view class="ride-field ride-field--full">
+          <text class="ride-field-label">参考价格</text>
+          <input class="ride-input" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="例如: 10 / 11-13$ / 价格私议" placeholder-class="ride-placeholder" />
+        </view>
+
+        <view class="ride-field">
+          <text class="ride-field-label">车牌号</text>
+          <input class="ride-input" value="{{carNumber}}" bindinput="onCarNumberInput" placeholder="车牌" placeholder-class="ride-placeholder" />
+        </view>
+
+        <view class="ride-field">
+          <text class="ride-field-label">车辆品牌</text>
+          <input class="ride-input" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="Toyota" placeholder-class="ride-placeholder" />
+        </view>
+
+        <view class="ride-field ride-field--full">
+          <text class="ride-field-label">车辆型号</text>
+          <input class="ride-input" value="{{carModel}}" bindinput="onCarModelInput" placeholder="RAV4 / Civic" placeholder-class="ride-placeholder" />
+        </view>
+
+        <view class="ride-field ride-field--full edit-template-textarea">
+          <text class="ride-field-label">备注</text>
+          <textarea class="ride-textarea" value="{{comment}}" bindinput="onCommentInput" placeholder="选填" placeholder-class="ride-placeholder" auto-height="true" maxlength="100" />
+        </view>
+      </view>
+    </view>
+
+    <view class="ride-card ride-card-pad edit-template-zelle">
+      <checkbox-group bindchange="onZelleCheckboxChange">
+        <label class="edit-template-check">
+          <checkbox value="showZelle" checked="{{showZelle}}" />
+          <text class="edit-template-check-text">公开 Zelle 信息给拼车成功的乘客</text>
+        </label>
+      </checkbox-group>
+    </view>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view class="ride-bottom">
+    <view
+      class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
+      bindtap="confirmTemplate"
+      hover-class="ride-pressed"
+      hover-stay-time="80"
+    >
+      {{submitting ? '提交中' : '保存出行模板'}}
+    </view>
+  </view>
+</view>

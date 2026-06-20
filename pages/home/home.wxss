@@ -1,0 +1,333 @@
+page{
+  background: #f4f6f8;
+}
+
+.home-ride{
+  background: #f4f6f8;
+}
+
+.home-login-done{
+  color: #69727d;
+}
+
+.home-scroll{
+  padding-top: 18rpx;
+}
+
+.home-service-grid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 12rpx;
+  margin-bottom: 22rpx;
+}
+
+.home-service-grid .ride-card + .ride-card{
+  margin-top: 0;
+}
+
+.home-service{
+  height: 176rpx;
+  padding: 18rpx;
+  display: grid;
+  grid-template-rows: 54rpx 36rpx 28rpx;
+  align-content: start;
+  row-gap: 10rpx;
+  box-sizing: border-box;
+}
+
+.home-service-icon-slot,
+.home-service-title-slot,
+.home-service-desc-slot{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.home-service-icon{
+  width: 54rpx;
+  height: 54rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  line-height: 54rpx;
+  font-weight: 900;
+}
+
+.home-service-icon--dark{
+  background: #111418;
+  color: #fff;
+}
+
+.home-service-icon--accent{
+  background: rgba(15,155,149,0.12);
+  color: #0f9b95;
+}
+
+.home-service-title{
+  display: block;
+  max-width: 100%;
+  font-size: 29rpx;
+  line-height: 36rpx;
+  font-weight: 900;
+  color: #111418;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-service-desc{
+  display: block;
+  max-width: 100%;
+  font-size: 22rpx;
+  line-height: 28rpx;
+  font-weight: 800;
+  color: #69727d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-section{
+  margin-top: 24rpx;
+}
+
+.home-section-head{
+  margin-bottom: 12rpx;
+  padding: 0 4rpx;
+}
+
+.home-section-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
+}
+
+.home-trip-list{
+  min-height: 0;
+}
+
+.home-trip-list .ride-card + .ride-card{
+  margin-top: 0;
+}
+
+.home-trip-card{
+  margin-bottom: 12rpx;
+  padding: 16rpx 18rpx;
+}
+
+.home-trip-card .ride-list-head{
+  margin-bottom: 10rpx;
+  align-items: center;
+}
+
+.home-kind-row{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+
+.home-trip-card .ride-list-kind{
+  display: flex;
+  align-items: center;
+  font-size: 23rpx;
+  line-height: 30rpx;
+}
+
+.home-kind-row .ride-chip{
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+  display: flex;
+  align-items: center;
+}
+
+.home-trip-card .ride-list-time{
+  font-size: 23rpx;
+  line-height: 30rpx;
+  color: #69727d;
+}
+
+.home-route-inline{
+  min-width: 0;
+  position: relative;
+}
+
+.home-route-main{
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0,0.92fr) 96rpx minmax(0,1.08fr);
+  align-items: center;
+  column-gap: 10rpx;
+}
+
+.home-route-place{
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6rpx;
+  box-sizing: border-box;
+}
+
+.home-route-main .home-route-place:first-child{
+  justify-content: flex-start;
+}
+
+.home-route-main .home-route-place:last-child{
+  justify-content: flex-start;
+  padding-right: 108rpx;
+}
+
+.home-trip-card .ride-route-label{
+  flex: none;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  color: #59636f;
+}
+
+.home-trip-card .ride-route-name{
+  min-width: 0;
+  margin-top: 0;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  color: #111418;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-route-arrow{
+  width: 92rpx;
+  height: 34rpx;
+  border-radius: 999rpx;
+  background: rgba(15,155,149,0.08);
+  color: #0f746f;
+  border: 1rpx solid rgba(15,155,149,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  align-self: center;
+  font-size: 31rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.home-seat-chip{
+  flex: none;
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+}
+
+.home-route-side{
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  max-width: 100rpx;
+}
+
+.home-price-chip{
+  max-width: 92rpx;
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-inline-state{
+  margin: 0;
+  padding: 42rpx 24rpx;
+}
+
+.home-stats{
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.home-stat-main{
+  flex: 1;
+  min-width: 0;
+}
+
+.home-stat-label{
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: #69727d;
+  font-weight: 900;
+}
+
+.home-stat-number-row{
+  margin-top: 8rpx;
+  display: flex;
+  align-items: flex-end;
+  gap: 8rpx;
+}
+
+.home-stat-number{
+  font-size: 58rpx;
+  line-height: 60rpx;
+  font-weight: 900;
+  color: #111418;
+}
+
+.home-stat-unit{
+  margin-bottom: 6rpx;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  color: #69727d;
+}
+
+.home-stat-subtitle{
+  margin-top: 8rpx;
+  display: block;
+  font-size: 23rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  color: #69727d;
+}
+
+.home-stat-side{
+  width: 220rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10rpx;
+}
+
+.home-refresh-tip{
+  margin-top: 26rpx;
+  display: block;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  color: #9aa3ad;
+}
+
+.home-service-image {
+  width: 72rpx;
+  height: 72rpx;
+  display: block;
+}

@@ -1,0 +1,42 @@
+<view class="login-container ride-page">
+  <view class="login-shell ride-shell">
+    <view class="login-card ride-card ride-card-pad">
+      <view class="login-head">
+        <view class="login-chip ride-chip ride-chip--accent">FL-NYC 出行</view>
+        <view class="login-title">登录后继续</view>
+        <view class="login-subtitle">同步行程、拼车请求和个人资料</view>
+      </view>
+
+      <view class="login-actions">
+        <button
+          class="login-button ride-btn ride-primary ride-btn--primary {{logging ? 'ride-btn--disabled' : ''}}"
+          bindtap="onLoginTap"
+          loading="{{logging}}"
+          disabled="{{logging}}"
+          hover-class="ride-pressed"
+        >
+          {{logging ? '登录中' : '微信快速登录'}}
+        </button>
+
+        <button
+          class="login-button ride-btn ride-secondary ride-btn--secondary {{logging ? 'ride-btn--disabled' : ''}}"
+          bindtap="onGuestTap"
+          disabled="{{logging}}"
+          hover-class="ride-pressed"
+        >
+          游客身份查看
+        </button>
+      </view>
+
+      <view class="login-meta">
+        <view class="login-mini-chip ride-chip">微信同步</view>
+        <view class="login-mini-chip ride-chip">游客浏览</view>
+      </view>
+
+      <view class="privacy-footer">
+        <text>继续前请阅读</text>
+        <text class="privacy-link" bindtap="goPrivacy">《隐私政策》</text>
+      </view>
+    </view>
+  </view>
+</view>

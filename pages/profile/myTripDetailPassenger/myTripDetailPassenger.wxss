@@ -1,0 +1,117 @@
+page{
+  background: #f4f6f8;
+}
+
+.my-ride{
+  background: #f4f6f8;
+}
+
+.my-scroll{
+  padding: 10rpx 12rpx 0;
+}
+
+.my-scroll .ride-card + .ride-card{
+  margin-top: 10rpx;
+}
+
+.my-scroll .ride-card-pad{
+  padding: 16rpx 18rpx;
+}
+
+.my-hero-head,
+.my-section-head{
+  margin-bottom: 10rpx;
+}
+
+.my-hero-head{
+  align-items: center;
+}
+
+.my-hero-head .ride-list-kind{
+  display: flex;
+  align-items: center;
+  font-size: 21rpx;
+  line-height: 28rpx;
+}
+
+.my-hero-head .ride-chip{
+  height: 40rpx;
+  min-width: 78rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  font-size: 21rpx;
+  line-height: 38rpx;
+  display: flex;
+  align-items: center;
+}
+
+.my-scroll .ride-route{
+  grid-template-columns: 26rpx minmax(0,1fr);
+  column-gap: 10rpx;
+}
+
+.my-scroll .ride-route-rail{
+  width: 26rpx;
+  padding-top: 6rpx;
+}
+
+.my-scroll .ride-dot{
+  width: 15rpx;
+  height: 15rpx;
+}
+
+.my-scroll .ride-line{
+  width: 2rpx;
+  height: 38rpx;
+  margin: 4rpx 0;
+}
+
+.my-scroll .ride-route-body{
+  gap: 9rpx;
+}
+
+.my-scroll .ride-route-label{
+  font-size: 19rpx;
+  line-height: 24rpx;
+}
+
+.my-scroll .ride-route-name{
+  margin-top: 0;
+  font-size: 29rpx;
+  line-height: 35rpx;
+}
+
+.my-scroll .ride-meta{
+  margin-top: 10rpx;
+  gap: 7rpx;
+}
+
+.my-scroll .ride-meta .ride-chip{
+  height: 38rpx;
+  padding: 0 12rpx;
+  border-radius: 11rpx;
+  font-size: 20rpx;
+  line-height: 36rpx;
+}
+
+.my-section-head .ride-section-title{
+  font-size: 28rpx;
+  line-height: 34rpx;
+}
+
+.my-section-head .ride-section-subtitle{
+  font-size: 22rpx;
+  line-height: 28rpx;
+}
+
+.my-driver{
+  margin-top: 10rpx;
+}
+
+.my-empty{
+  padding: 10rpx 0 2rpx;
+  font-size: 23rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  color: #69727d;
+}

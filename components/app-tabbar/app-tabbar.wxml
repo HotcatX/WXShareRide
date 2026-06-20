@@ -1,0 +1,45 @@
+<view class="app-tabbar-wrap">
+  <view class="app-tabbar">
+    <view
+      class="tab-item {{displayActive === 'home' ? 'active' : ''}}"
+      data-key="home"
+      data-url="/pages/home/home"
+      bindtap="onTapTab"
+      hover-class="tab-pressed"
+      hover-stay-time="80"
+    >
+      <image class="tab-icon" src="{{displayActive === 'home' ? '/images/home_press.png' : '/images/home.png'}}" mode="aspectFit" />
+      <text class="tab-text">拼车</text>
+    </view>
+
+    <view
+      class="tab-item {{displayActive === 'market' ? 'active' : ''}}"
+      data-key="market"
+      data-url="/pages/market/market"
+      bindtap="onTapTab"
+      hover-class="tab-pressed"
+      hover-stay-time="80"
+    >
+      <view class="tab-icon-wrap">
+        <image class="tab-icon" src="{{displayActive === 'market' ? '/images/market_press.png' : '/images/market.png'}}" mode="aspectFit" />
+        <view wx:if="{{marketBadgeText}}" class="tab-badge">{{marketBadgeText}}</view>
+      </view>
+      <text class="tab-text">二手</text>
+    </view>
+
+    <view
+      class="tab-item {{displayActive === 'profile' ? 'active' : ''}}"
+      data-key="profile"
+      data-url="/pages/profile/profile"
+      bindtap="onTapTab"
+      hover-class="tab-pressed"
+      hover-stay-time="80"
+    >
+      <view class="tab-icon-wrap">
+        <image class="tab-icon" src="{{displayActive === 'profile' ? '/images/profile_press.png' : '/images/profile.png'}}" mode="aspectFit" />
+        <view wx:if="{{profileBadgeText}}" class="tab-badge">{{profileBadgeText}}</view>
+      </view>
+      <text class="tab-text">我的</text>
+    </view>
+  </view>
+</view>

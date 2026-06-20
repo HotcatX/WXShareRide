@@ -1,0 +1,63 @@
+<view class="page">
+
+<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
+  <view class="nav-content">
+    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
+    <text class="nav-title">{{pageTitle}}</text>
+  </view>
+</view>
+
+<scroll-view class="content" scroll-y enhanced="true" show-scrollbar="{{false}}">
+
+  <view class="top-actions" wx:if="{{!loading && list.length > 0}}">
+    <button class="delete-btn" size="mini" bindtap="onDeleteAll">
+      一键删除
+    </button>
+
+    <button
+      class="clear-btn {{unreadCount <= 0 ? 'clear-btn-disabled' : ''}}"
+      size="mini"
+      bindtap="onMarkAllRead"
+      disabled="{{unreadCount <= 0}}"
+    >
+      全部标为已读
+    </button>
+  </view>
+
+  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
+
+  <view wx:if="{{!loading && list.length === 0}}" class="state-text">
+    暂无消息通知
+  </view>
+
+  <block wx:for="{{list}}" wx:key="_id">
+    <view class="msg-item {{item.read ? '' : 'msg-unread'}}"
+          data-id="{{item._id}}"
+          data-index="{{index}}"
+          bindtap="onTapItem">
+      <view class="msg-header">
+        <view class="msg-title-left">
+          <text wx:if="{{!item.read}}" class="msg-dot"></text>
+          <text class="msg-title">{{item.title}}</text>
+        </view>
+        <text class="msg-time">{{item.createdAtText}}</text>
+      </view>
+      <view class="msg-content">
+        {{item.content}}
+      </view>
+      <view wx:if="{{item.canRate && item.rateTripId}}" class="msg-actions">
+        <button
+          class="msg-action-btn"
+          size="mini"
+          data-id="{{item._id}}"
+          data-index="{{index}}"
+          data-tripid="{{item.rateTripId}}"
+          catchtap="onGoRating"
+        >去评价</button>
+      </view>
+    </view>
+  </block>
+
+</scroll-view>
+
+</view>

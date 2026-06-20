@@ -1,0 +1,56 @@
+page{
+  background: #f4f6f8;
+}
+
+.request-ride{
+  background: #f4f6f8;
+}
+
+.request-scroll{
+  padding-top: 14rpx;
+}
+
+.request-hero-head{
+  margin-bottom: 18rpx;
+}
+
+.request-toast{
+  margin-bottom: 14rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  background: #ffffff;
+  border: 1rpx solid rgba(20,23,26,0.06);
+  box-shadow: 0 8rpx 24rpx rgba(20,23,26,0.06);
+}
+
+.request-toast.success{
+  background: rgba(15,155,149,0.10);
+}
+
+.request-toast.error,
+.request-toast.warn{
+  background: rgba(230,76,60,0.10);
+}
+
+.request-toast-icon{
+  font-size: 26rpx;
+  font-weight: 900;
+}
+
+.request-toast-text{
+  flex: 1;
+  min-width: 0;
+  font-size: 25rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #59636f;
+}
+
+.request-notice-muted{
+  margin-top: 14rpx;
+  background: #ffffff;
+  border-color: rgba(20,23,26,0.06);
+}

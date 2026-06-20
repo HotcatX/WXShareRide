@@ -1,0 +1,204 @@
+<view class="ride-shell detail-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
+
+  <view wx:elif="{{loadError || notFound}}" class="ride-state">
+    <text class="ride-state-title">{{notFound ? '路线不存在' : '加载失败'}}</text>
+    <text>{{loadError || '该路线暂时无法查看'}}</text>
+    <view class="ride-state-action" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">返回</view>
+  </view>
+
+  <scroll-view
+    wx:else
+    class="ride-scroll detail-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+  >
+    <view wx:if="{{toastVisible}}" class="detail-toast {{toastType}}">
+      <text class="detail-toast-icon">{{toastIcon}}</text>
+      <text class="detail-toast-text">{{toastText}}</text>
+    </view>
+
+    <view class="ride-card ride-card-pad detail-hero">
+      <view class="ride-row-between detail-hero-head">
+        <text class="ride-list-kind">司机发车</text>
+        <view class="ride-head-actions">
+          <view
+            wx:if="{{driverOpenid && !isOwner}}"
+            class="ride-chip ride-chip--warn ride-chip--small"
+            bindtap="onBlockDriver"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >拉黑司机</view>
+          <text class="ride-chip ride-chip--accent">余位 {{trip.availSeatNum || 0}}</text>
+        </view>
+      </view>
+
+      <view class="ride-route">
+        <view class="ride-route-rail">
+          <view class="ride-dot"></view>
+          <view class="ride-line"></view>
+          <view class="ride-dot ride-dot--accent"></view>
+        </view>
+        <view class="ride-route-body">
+          <view class="ride-route-point">
+            <text class="ride-route-label">出发</text>
+            <text class="ride-route-name">{{departAddress || '出发地未设置'}}</text>
+          </view>
+          <view class="ride-route-point">
+            <text class="ride-route-label">到达</text>
+            <text class="ride-route-name">{{destAddress || '目的地未设置'}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="ride-meta">
+        <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
+        <text class="ride-chip ride-chip--warn">{{trip.referencePrice || '价格以司机确认为准'}}</text>
+      </view>
+    </view>
+
+    <view class="ride-card ride-card-pad">
+      <text class="ride-section-title">司机备注</text>
+      <text class="detail-paragraph">{{trip.comment || '暂无司机备注'}}</text>
+    </view>
+
+    <view class="ride-card ride-card-pad">
+      <view class="ride-row-between detail-section-head">
+        <text class="ride-section-title">车辆信息</text>
+        <text class="ride-chip">{{carBrandModel || '未填写车型'}}</text>
+      </view>
+      <text class="detail-paragraph">{{carBrandModel ? '车辆信息将在拼车成功后配合司机联系方式展示。' : '司机暂未填写车辆详细信息。'}}</text>
+    </view>
+
+    <view wx:if="{{hasJoined && driverInfo}}" class="ride-card ride-card-pad">
+      <text class="ride-section-title">司机信息</text>
+      <view class="ride-person detail-driver">
+        <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
+        <view class="ride-person-main">
+          <text class="ride-person-name">{{driverInfo.name || driverInfo.nickName || '未设置昵称'}}</text>
+          <view class="ride-info-grid">
+            <view wx:if="{{driverInfo.carNumber}}" class="ride-info-row">
+              <text class="ride-info-label">车牌</text>
+              <text class="ride-info-value">{{driverInfo.carNumber}}</text>
+              <view></view>
+            </view>
+            <view class="ride-info-row">
+              <text class="ride-info-label">微信</text>
+              <text class="ride-info-value">{{driverInfo.wechatID || '司机未填写微信号'}}</text>
+              <view
+                wx:if="{{driverInfo.wechatID}}"
+                class="ride-copy"
+                bindtap="copyWeChat"
+              >复制</view>
+            </view>
+            <view wx:if="{{driverInfo.phone}}" class="ride-info-row">
+              <text class="ride-info-label">手机</text>
+              <text class="ride-info-value">{{driverInfo.phone}}</text>
+              <view class="ride-copy" bindtap="copyPhone">复制</view>
+            </view>
+            <view wx:if="{{trip.zelle === 'yes' && driverInfo.zelleName}}" class="ride-info-row">
+              <text class="ride-info-label">Zelle</text>
+              <text class="ride-info-value">{{driverInfo.zelleName}}</text>
+              <view></view>
+            </view>
+            <view wx:if="{{trip.zelle === 'yes' && driverInfo.zelleAccount}}" class="ride-info-row">
+              <text class="ride-info-label">账号</text>
+              <text class="ride-info-value">{{driverInfo.zelleAccount}}</text>
+              <view class="ride-copy" bindtap="copyZelle">复制</view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{showFortLeeCoreTip}}" class="ride-card ride-notice">
+      <text class="ride-notice-title">Fort Lee 核心区</text>
+      <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
+    </view>
+
+    <view class="ride-card ride-card-pad">
+      <view class="create-card-head">
+        <text class="ride-section-title">上下车点</text>
+        <text class="ride-section-subtitle">加入前请填写，方便司机确认路线</text>
+      </view>
+
+      <view class="ride-form-grid">
+        <view class="ride-field ride-field--full">
+          <text class="ride-field-label">上车点</text>
+          <input
+            class="ride-input"
+            placeholder="如 Modern 800 / 主校区 / 私议"
+            placeholder-class="ride-placeholder"
+            value="{{pickupAddress}}"
+            bindfocus="onPickupFocus"
+            bindinput="onPickupInput"
+            maxlength="60"
+          />
+        </view>
+
+        <view wx:if="{{showPickupOptions}}" class="detail-tags ride-field--full">
+          <block wx:for="{{pickupSpotList}}" wx:key="*this">
+            <view class="ride-chip" bindtap="onPickupTagSelect" data-value="{{item}}">{{item}}</view>
+          </block>
+          <view class="ride-chip ride-chip--accent" bindtap="onPickupTagSelect" data-value="私议">私议</view>
+        </view>
+
+        <view class="ride-field ride-field--full">
+          <text class="ride-field-label">下车点</text>
+          <input
+            class="ride-input"
+            placeholder="如 2050 / 法学院 / 私议"
+            placeholder-class="ride-placeholder"
+            value="{{dropoffAddress}}"
+            bindfocus="onDropoffFocus"
+            bindinput="onDropoffInput"
+            maxlength="60"
+          />
+        </view>
+
+        <view wx:if="{{showDropoffOptions}}" class="detail-tags ride-field--full">
+          <block wx:for="{{dropoffSpotList}}" wx:key="*this">
+            <view class="ride-chip" bindtap="onDropoffTagSelect" data-value="{{item}}">{{item}}</view>
+          </block>
+          <view class="ride-chip ride-chip--accent" bindtap="onDropoffTagSelect" data-value="私议">私议</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view wx:if="{{!loading && trip}}" class="ride-bottom">
+    <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
+      无法拼自己的路线
+    </button>
+
+    <button wx:elif="{{trip.status === 'full' || trip.availSeatNum <= 0}}" disabled="true" class="ride-btn ride-btn--disabled">
+      已满员
+    </button>
+
+    <button wx:elif="{{hasJoined}}" disabled="true" class="ride-btn ride-btn--disabled">
+      已成功加入
+    </button>
+
+    <button
+      wx:else
+      class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
+      bindtap="joinCarpool"
+      disabled="{{submitting}}"
+      loading="{{submitting}}"
+    >
+      {{ submitting ? '加入路线中' : '加入出行计划' }}
+    </button>
+  </view>
+</view>

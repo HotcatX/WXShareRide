@@ -1,0 +1,260 @@
+page{
+  background: #f4f6f8;
+}
+
+.edit-info{
+  background: #f4f6f8;
+}
+
+.edit-scroll{
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  padding-top: 14rpx;
+}
+
+.edit-profile-card{
+  display: grid;
+  grid-template-columns: 112rpx minmax(0, 1fr);
+  align-items: center;
+  gap: 16rpx;
+  padding: 14rpx;
+}
+
+.avatar-btn{
+  position: relative;
+  width: 112rpx;
+  height: 112rpx;
+  padding: 0;
+  margin: 0;
+  border-radius: 16rpx;
+  background: #eef1f4;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.avatar-btn::after,
+.save-btn::after{
+  border: none;
+}
+
+.avatar{
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 16rpx;
+  background: #eef1f4;
+  display: block;
+}
+
+.avatar-chip{
+  position: absolute;
+  left: 8rpx;
+  right: 8rpx;
+  bottom: 8rpx;
+  height: 34rpx;
+  padding: 0 6rpx;
+  border-radius: 10rpx;
+  background: rgba(255,255,255,0.92);
+  color: #111418;
+  font-size: 18rpx;
+  line-height: 24rpx;
+  box-shadow: 0 6rpx 16rpx rgba(20,23,26,0.10);
+}
+
+.profile-name-field{
+  min-height: 72rpx;
+  padding: 10rpx 14rpx;
+}
+
+.section-head{
+  margin: 16rpx 4rpx 8rpx;
+}
+
+.section-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
+}
+
+.edit-form-card{
+  padding: 10rpx;
+}
+
+.edit-form-card .ride-field + .ride-field,
+.edit-picker + .ride-field,
+.edit-form-card .ride-field + .edit-picker{
+  margin-top: 6rpx;
+}
+
+.car-card{
+  margin-top: 12rpx;
+}
+
+.edit-field{
+  min-height: 64rpx;
+  display: grid;
+  grid-template-columns: 172rpx minmax(0, 1fr);
+  align-items: center;
+  gap: 12rpx;
+  padding: 8rpx 12rpx;
+  border-radius: 12rpx;
+}
+
+.edit-field-label{
+  font-size: 22rpx;
+  line-height: 28rpx;
+  white-space: nowrap;
+}
+
+.edit-input,
+.edit-value-text{
+  margin-top: 0;
+  height: 34rpx;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 900;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-input-disabled{
+  color: #111418;
+  opacity: 1;
+}
+
+.edit-value-action{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8rpx;
+}
+
+.edit-value-action .edit-input,
+.edit-value-action .edit-value-text{
+  min-width: 0;
+  flex: 1;
+}
+
+.edit-chevron{
+  flex: none;
+  font-size: 34rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  color: #9aa3ad;
+}
+
+.edit-picker{
+  display: block;
+}
+
+.bottom-bar{
+  flex-shrink: 0;
+  padding: 10rpx 20rpx calc(14rpx + env(safe-area-inset-bottom));
+  background: rgba(255,255,255,0.96);
+  border-top: 1rpx solid rgba(20,23,26,0.06);
+  box-shadow: 0 -8rpx 26rpx rgba(20,23,26,0.06);
+  box-sizing: border-box;
+  z-index: 20;
+}
+
+.save-btn{
+  width: 100%;
+  height: 76rpx;
+  border-radius: 16rpx;
+  font-size: 29rpx;
+  line-height: 76rpx;
+  font-weight: 900;
+}
+
+.edit-bottom-space{
+  height: calc(118rpx + env(safe-area-inset-bottom));
+}
+
+.picker-mask{
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(17,20,24,0.36);
+  z-index: 10000;
+}
+
+.picker-panel{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ffffff;
+  border-top-left-radius: 24rpx;
+  border-top-right-radius: 24rpx;
+  box-shadow: 0 -16rpx 36rpx rgba(20,23,26,0.14);
+  z-index: 10001;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.picker-handle{
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: #d8dee5;
+  margin: 14rpx auto 2rpx;
+}
+
+.picker-header{
+  height: 88rpx;
+  display: grid;
+  grid-template-columns: 120rpx minmax(0, 1fr) 120rpx;
+  align-items: center;
+  padding: 0 20rpx;
+  border-bottom: 1rpx solid rgba(20,23,26,0.08);
+  box-sizing: border-box;
+}
+
+.picker-title{
+  min-width: 0;
+  font-size: 30rpx;
+  line-height: 38rpx;
+  font-weight: 900;
+  color: #111418;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-btn{
+  font-size: 27rpx;
+  line-height: 36rpx;
+  font-weight: 900;
+  color: #69727d;
+}
+
+.picker-btn.ok{
+  color: #111418;
+  text-align: right;
+}
+
+.picker-view{
+  height: 500rpx;
+}
+
+.picker-item{
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12rpx;
+  box-sizing: border-box;
+  font-size: 30rpx;
+  line-height: 38rpx;
+  font-weight: 900;
+  color: #111418;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

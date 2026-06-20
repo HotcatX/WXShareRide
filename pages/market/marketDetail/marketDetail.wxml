@@ -1,0 +1,118 @@
+<view class="market-detail-page">
+  <view class="detail-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="detail-nav">
+      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <text class="nav-title">商品详情</text>
+      <view class="nav-spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+    <block wx:if="{{showDetailState}}">
+      <view class="detail-content">
+        <view class="section-card">
+          <text class="section-title">{{detailStateTitle}}</text>
+          <text class="desc-text">{{detailStateDesc}}</text>
+        </view>
+
+        <view class="quick-actions">
+          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">
+            返回
+          </view>
+          <view
+            wx:if="{{detailCanRetry}}"
+            class="quick-btn pressable"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onRetryLoad"
+          >
+            重试
+          </view>
+        </view>
+
+        <view class="bottom-space"></view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="hero-card">
+        <swiper class="photo-swiper" indicator-dots="{{hasMultipleImages}}" autoplay="{{false}}" circular="{{hasMultipleImages}}">
+          <block wx:if="{{hasImageUrls}}">
+            <block wx:for="{{imgUrls}}" wx:key="*this">
+              <swiper-item>
+                <image class="hero-img" src="{{item}}" mode="aspectFill" />
+              </swiper-item>
+            </block>
+          </block>
+
+          <block wx:else>
+            <swiper-item>
+              <image wx:if="{{item.hasImage}}" class="hero-img" src="{{item.fallbackImageSrc}}" mode="aspectFill" />
+              <view wx:else class="hero-no-img">
+                <text>{{item.fallbackImageTitle}}</text>
+              </view>
+            </swiper-item>
+          </block>
+        </swiper>
+        <view class="hero-badge">{{item.categoryDisplay}}</view>
+      </view>
+
+      <view class="detail-content">
+        <view class="title-card">
+          <view class="price-row">
+            <text class="price">$ {{item.priceDisplay}}</text>
+            <text class="condition">{{item.conditionDisplay}}</text>
+          </view>
+          <text class="product-title">{{item.titleDisplay}}</text>
+          <view class="stats-row">
+            <text>{{item.wantCountText}}</text>
+            <text>{{item.viewCountText}}</text>
+            <text>{{item.postDateDisplay}}</text>
+          </view>
+        </view>
+
+        <view class="info-grid">
+          <view class="info-cell">
+            <text class="info-label">可取时间</text>
+            <text class="info-value">{{item.pickupText}}</text>
+          </view>
+          <view class="info-cell">
+            <text class="info-label">取货位置</text>
+            <text class="info-value">{{item.locationText}}</text>
+          </view>
+        </view>
+
+        <view class="section-card">
+          <text class="section-title">商品描述</text>
+          <text class="desc-text">{{item.descDisplay}}</text>
+        </view>
+
+        <view class="quick-actions">
+          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onViewSellerOther">
+            查看卖家其他商品
+          </view>
+          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onPickupInfo">
+            查看取货位置
+          </view>
+        </view>
+
+        <view class="detail-dock {{dockVisibleClass}}">
+          <block wx:if="{{isOwner}}">
+            <view class="owner-actions">
+              <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onEditItem">编辑</view>
+              <view class="dock-btn danger pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDeleteItem">删除</view>
+            </view>
+          </block>
+
+          <block wx:else>
+            <view class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onContactBuy">
+              联系购买
+            </view>
+          </block>
+        </view>
+
+        <view class="bottom-space"></view>
+      </view>
+    </block>
+  </scroll-view>
+</view>

@@ -1,0 +1,114 @@
+<view class="ride-shell my-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
+
+  <view wx:elif="{{loadError}}" class="ride-state">
+    <text class="ride-state-title">{{loadError}}</text>
+    <button class="ride-state-action" bindtap="goBack">返回</button>
+  </view>
+
+  <scroll-view wx:else class="ride-scroll my-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view class="ride-card ride-card-pad">
+      <view class="ride-row-between my-hero-head">
+        <text class="ride-list-kind">我接的求车</text>
+        <text class="ride-chip {{isRequestCompleted ? 'ride-chip--warn' : 'ride-chip--accent'}}">{{isRequestCompleted ? '已结束' : '司机'}}</text>
+      </view>
+
+      <view class="ride-route">
+        <view class="ride-route-rail">
+          <view class="ride-dot"></view>
+          <view class="ride-line"></view>
+          <view class="ride-dot ride-dot--accent"></view>
+        </view>
+        <view class="ride-route-body">
+          <view class="ride-route-point">
+            <text class="ride-route-label">出发</text>
+            <text class="ride-route-name">{{fromText || '出发地未设置'}}</text>
+          </view>
+          <view class="ride-route-point">
+            <text class="ride-route-label">到达</text>
+            <text class="ride-route-name">{{toText || '目的地未设置'}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="ride-meta">
+        <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
+        <text class="ride-chip">行李 {{largeLuggageCount || 0}}</text>
+        <text wx:if="{{trip.referencePrice}}" class="ride-chip ride-chip--warn">{{trip.referencePrice}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{isMyRequest}}" class="ride-card ride-card-pad">
+      <view class="ride-row-between my-section-head">
+        <text class="ride-section-title">乘客信息</text>
+        <text class="ride-section-subtitle">{{passengers.length || 0}} 人</text>
+      </view>
+
+      <view wx:if="{{!passengers || passengers.length === 0}}" class="my-empty">
+        暂无乘客加入
+      </view>
+
+      <block wx:else>
+        <view class="ride-person" wx:for="{{passengers}}" wx:key="_openid" wx:for-item="p">
+          <image class="ride-avatar" src="{{p.avatarUrl || '/images/profile.png'}}" mode="aspectFill" />
+          <view class="ride-person-main">
+            <text class="ride-person-name">{{p.name || '未设置昵称'}}</text>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
+            <view class="ride-info-grid">
+              <view class="ride-info-row">
+                <text class="ride-info-label">地址</text>
+                <text class="ride-info-value">{{p.address || '未填写'}}</text>
+                <view></view>
+              </view>
+              <view class="ride-info-row">
+                <text class="ride-info-label">微信</text>
+                <text class="ride-info-value">{{p.wechatID || '未填写'}}</text>
+                <view wx:if="{{p.wechatID}}" class="ride-copy" data-wechat="{{p.wechatID}}" bindtap="copyPassengerWechat">复制</view>
+              </view>
+              <view class="ride-info-row">
+                <text class="ride-info-label">手机</text>
+                <text class="ride-info-value">{{p.phone || '未填写'}}</text>
+                <view wx:if="{{p.phone}}" class="ride-copy" data-phone="{{p.phone}}" bindtap="onCopyPhone">复制</view>
+              </view>
+            </view>
+            <view class="ride-person-actions">
+              <view wx:if="{{isRequestCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view wx:if="{{isRequestCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-name="{{p.name || '该乘客'}}" bindtap="onRatePassenger">已评价</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+            </view>
+          </view>
+        </view>
+      </block>
+    </view>
+
+    <view wx:else class="ride-card ride-notice">
+      <text class="ride-notice-title">温馨提示</text>
+      <text class="ride-notice-text">你尚未成为该求车路线的司机，因此不展示乘客信息。</text>
+    </view>
+
+    <view wx:if="{{showFortLeeCoreTip}}" class="ride-card ride-notice">
+      <text class="ride-notice-title">Fort Lee 核心区</text>
+      <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
+    </view>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view class="ride-bottom" wx:if="{{isMyRequest && !isRequestCompleted && !loading && !loadError}}">
+    <button class="ride-btn ride-btn--secondary" bindtap="onQuitRequest">
+      退出路线
+    </button>
+    <button class="ride-btn ride-btn--accent" bindtap="onCompleteRequest">
+      结束路线
+    </button>
+  </view>
+</view>

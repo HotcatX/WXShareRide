@@ -1,0 +1,21 @@
+page{
+  background: #f4f6f8;
+}
+
+.request-ride{
+  background: #f4f6f8;
+}
+
+.request-scroll{
+  padding-top: 14rpx;
+}
+
+.request-hero-head{
+  margin-bottom: 18rpx;
+}
+
+.request-notice-muted{
+  margin-top: 14rpx;
+  background: #ffffff;
+  border-color: rgba(20,23,26,0.06);
+}

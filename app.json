@@ -1,0 +1,66 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/other/login/login",
+    "pages/other/privacy/privacy",
+    "pages/profile/profile",
+    "pages/home/newTrip/newTrip",
+    "pages/home/requestDetail/requestDetail",
+    "pages/home/driverPickupDetail/driverPickupDetail",
+    "pages/home/carpoolRequestDetail/carpoolRequestDetail",
+    "pages/home/carpoolList/carpoolList",
+    "pages/home/CarpoolTemplateList/CarpoolTemplateList",
+    "pages/home/driverCarpoolTemplate/driverCarpoolTemplate",
+    "pages/other/feedback/feedback",
+    "pages/profile/editInfo/editInfo",
+    "pages/profile/addInfo/addInfo",
+    "pages/home/tripDetail/tripDetail",
+    "pages/profile/tripHistory/tripHistory",
+    "pages/profile/myTripDetailDriver/myTripDetailDriver",
+    "pages/profile/myRequestDetailDriver/myRequestDetailDriver",
+    "pages/profile/myTripRequestPassenger/myTripRequestPassenger",
+    "pages/profile/myTripDetailPassenger/myTripDetailPassenger",
+    "pages/profile/notification/notification",
+    "pages/profile/blockList/blockList",
+    "pages/market/market",
+    "pages/market/marketDetail/marketDetail",
+    "pages/market/marketPost/marketPost",
+    "pages/market/marketSeller/marketSeller",
+    "pages/market/marketMy/marketMy",
+    "pages/market/marketTrade/marketTrade",
+    "pages/profile/tripActionReason/tripActionReason"
+
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#fff",
+    "navigationBarTitleText": "出行小程序"
+  },
+  "__usePrivacyCheck__": true,
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于选择取货位置并计算二手商品距离"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseLocation"
+  ],
+  "tabBar": {
+    "custom": true,
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "主页"
+      },
+      {
+        "pagePath": "pages/market/market",
+        "text": "二手"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
+      }
+    ]
+  },
+  "entryPagePath": "pages/home/home",
+  "cloud": true
+}

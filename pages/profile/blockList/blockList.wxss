@@ -1,0 +1,58 @@
+page{
+  background: #f4f6f8;
+}
+
+.block-ride{
+  background: #f4f6f8;
+}
+
+.block-scroll{
+  padding-top: 14rpx;
+}
+
+.block-card{
+  margin-bottom: 14rpx;
+}
+
+.block-person{
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.block-main{
+  flex: 1;
+  min-width: 0;
+}
+
+.block-name-wrap{
+  flex: 1;
+  min-width: 0;
+}
+
+.block-unblock{
+  flex: none;
+}
+
+.block-meta{
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.block-meta-text,
+.block-state-sub{
+  display: block;
+  font-size: 23rpx;
+  line-height: 32rpx;
+  font-weight: 800;
+  color: #69727d;
+}
+
+.block-state-sub{
+  margin-top: 10rpx;
+  max-width: 520rpx;
+  text-align: center;
+}

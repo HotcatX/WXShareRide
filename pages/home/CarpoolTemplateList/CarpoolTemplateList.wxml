@@ -1,0 +1,177 @@
+<view class="ride-shell template-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+
+    <view class="ride-segment">
+      <view
+        class="ride-segment-item {{currentRole === 'driver' ? 'active' : ''}}"
+        bindtap="switchRole"
+        data-role="driver"
+      >司机模板</view>
+      <view
+        class="ride-segment-item {{currentRole === 'passenger' ? 'active' : ''}}"
+        bindtap="switchRole"
+        data-role="passenger"
+      >常用地址</view>
+    </view>
+  </view>
+
+  <scroll-view class="ride-scroll template-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <block wx:if="{{currentRole === 'driver'}}">
+      <view wx:if="{{loading}}" class="ride-state">正在加载模板</view>
+      <view wx:elif="{{!templateList || templateList.length === 0}}" class="ride-state">
+        暂无模板，点击下方添加模板开始创建
+      </view>
+
+      <block wx:else>
+        <view
+          class="ride-card ride-list-card template-card"
+          wx:for="{{templateList}}"
+          wx:for-item="tpl"
+          wx:key="_id"
+          bindtap="onTemplateCardTap"
+          data-id="{{tpl._id}}"
+          hover-class="ride-card-pressed"
+          hover-stay-time="80"
+        >
+          <view class="ride-list-head">
+            <text class="ride-list-kind">{{deleteMode ? '点击删除' : '点击编辑'}}</text>
+            <text class="ride-list-time">{{tpl._timeLabel || '时间未设置'}}</text>
+          </view>
+
+          <view class="ride-route">
+            <view class="ride-route-rail">
+              <view class="ride-dot"></view>
+              <view class="ride-line"></view>
+              <view class="ride-dot ride-dot--accent"></view>
+            </view>
+            <view class="ride-route-body">
+              <view class="ride-route-point">
+                <text class="ride-route-label">出发</text>
+                <text class="ride-route-name">{{tpl._fromAddress || '出发地未设置'}}</text>
+              </view>
+              <view class="ride-route-point">
+                <text class="ride-route-label">到达</text>
+                <text class="ride-route-name">{{tpl._toAddress || '目的地未设置'}}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="ride-meta">
+            <text class="ride-chip ride-chip--accent">载客 {{tpl.passengerCount || 4}} 人</text>
+            <text wx:if="{{tpl.referencePrice}}" class="ride-chip">{{tpl.referencePrice}}</text>
+          </view>
+        </view>
+      </block>
+    </block>
+
+    <block wx:else>
+      <view class="template-address-card ride-card ride-card-pad">
+        <view class="ride-row-between template-address-head">
+          <view>
+            <text class="ride-section-title">常用出发地</text>
+            <text class="ride-section-subtitle">加入路线时可快速填入</text>
+          </view>
+          <view class="ride-chip ride-chip--dark" bindtap="onPickupBtnTap" hover-class="ride-pressed" hover-stay-time="80">
+            {{pickupEditing ? '保存' : '添加'}}
+          </view>
+        </view>
+
+        <view wx:if="{{pickupEditing}}" class="ride-field template-input-field">
+          <input
+            class="ride-input"
+            placeholder="请输入常用出发地"
+            placeholder-class="ride-placeholder"
+            value="{{pickupInput}}"
+            bindinput="onPickupInput"
+            maxlength="60"
+          />
+        </view>
+
+        <view wx:if="{{pickupSpotList && pickupSpotList.length>0}}" class="template-tags">
+          <block wx:for="{{pickupSpotList}}" wx:key="*this">
+            <view
+              class="ride-chip {{pickupDeleteMode ? 'ride-chip--warn' : ''}}"
+              bindtap="onPickupTagTap"
+              data-value="{{item}}"
+            >
+              {{item}}{{pickupDeleteMode ? ' ×' : ''}}
+            </view>
+          </block>
+          <view
+            class="ride-chip {{pickupDeleteMode ? 'ride-chip--dark' : ''}}"
+            bindtap="togglePickupDeleteMode"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >{{pickupDeleteMode ? '完成' : '删除'}}</view>
+        </view>
+
+        <text wx:else class="template-empty">暂无常用出发地</text>
+      </view>
+
+      <view class="template-address-card ride-card ride-card-pad">
+        <view class="ride-row-between template-address-head">
+          <view>
+            <text class="ride-section-title">常用目的地</text>
+            <text class="ride-section-subtitle">用于下车点快速选择</text>
+          </view>
+          <view class="ride-chip ride-chip--dark" bindtap="onDropoffBtnTap" hover-class="ride-pressed" hover-stay-time="80">
+            {{dropoffEditing ? '保存' : '添加'}}
+          </view>
+        </view>
+
+        <view wx:if="{{dropoffEditing}}" class="ride-field template-input-field">
+          <input
+            class="ride-input"
+            placeholder="如 2050 / Modern 800 / LIC"
+            placeholder-class="ride-placeholder"
+            value="{{dropoffInput}}"
+            bindinput="onDropoffInput"
+            maxlength="60"
+          />
+        </view>
+
+        <view wx:if="{{dropoffSpotList && dropoffSpotList.length>0}}" class="template-tags">
+          <block wx:for="{{dropoffSpotList}}" wx:key="*this">
+            <view
+              class="ride-chip {{dropoffDeleteMode ? 'ride-chip--warn' : ''}}"
+              bindtap="onDropoffTagTap"
+              data-value="{{item}}"
+            >
+              {{item}}{{dropoffDeleteMode ? ' ×' : ''}}
+            </view>
+          </block>
+          <view
+            class="ride-chip {{dropoffDeleteMode ? 'ride-chip--dark' : ''}}"
+            bindtap="toggleDropoffDeleteMode"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >{{dropoffDeleteMode ? '完成' : '删除'}}</view>
+        </view>
+
+        <text wx:else class="template-empty">暂无常用目的地</text>
+      </view>
+    </block>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view class="ride-bottom" wx:if="{{currentRole === 'driver'}}">
+    <view class="ride-btn ride-btn--primary" bindtap="goAddTemplate" hover-class="ride-pressed" hover-stay-time="80">
+      添加模板
+    </view>
+    <view
+      class="ride-btn {{deleteMode ? 'ride-btn--secondary' : 'ride-btn--danger'}}"
+      bindtap="toggleDeleteMode"
+      hover-class="ride-pressed"
+      hover-stay-time="80"
+    >
+      {{deleteMode ? '完成删除' : '删除模板'}}
+    </view>
+  </view>
+</view>

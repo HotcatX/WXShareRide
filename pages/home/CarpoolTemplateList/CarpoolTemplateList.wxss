@@ -1,0 +1,47 @@
+page{
+  background: #f4f6f8;
+}
+
+.template-ride{
+  background: #f4f6f8;
+}
+
+.template-scroll{
+  padding-top: 14rpx;
+}
+
+.template-card{
+  margin-bottom: 14rpx;
+}
+
+.template-address-card{
+  margin-bottom: 16rpx;
+}
+
+.template-address-head{
+  margin-bottom: 16rpx;
+}
+
+.template-address-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
+}
+
+.template-input-field{
+  margin-bottom: 14rpx;
+}
+
+.template-tags{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.template-empty{
+  display: block;
+  padding: 12rpx 0 4rpx;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #69727d;
+}

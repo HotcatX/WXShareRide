@@ -1,0 +1,73 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "envId": "cloud1-7gmtcu4s3aebce27",
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "syncTripStatus",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "syncMyTripStatus",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "getTripList",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "getTripDetail",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "getHomeTripList",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "createTrip",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "joinTrip",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "tripManage",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "getMyTripHistory",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "marketApi",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 30
+    },
+    {
+      "name": "referralApi",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    }
+  ]
+}

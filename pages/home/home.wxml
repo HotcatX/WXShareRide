@@ -8,34 +8,12 @@
 
       <view class="ride-actions">
         <view
-          class="ride-action ride-action--light"
-          hover-class="ride-pressed"
-          hover-stay-time="80"
-          bindtap="goCarpoolList"
-        >列表</view>
-        <view
           class="ride-action {{isLoggedIn ? 'ride-action--light home-login-done' : 'ride-action--dark'}}"
           hover-class="ride-pressed"
           hover-stay-time="80"
           bindtap="onTapLoginBtn"
         >{{isLoggedIn ? '已登录' : '登录'}}</view>
       </view>
-    </view>
-
-    <view class="home-search ride-card ride-card-pad">
-      <view class="home-search-main" bindtap="goCarpoolList" hover-class="ride-card-pressed" hover-stay-time="80">
-        <text class="home-search-icon">⌕</text>
-        <view class="home-search-copy">
-          <text class="home-search-title">去哪儿？</text>
-          <text class="home-search-subtitle">查找今天和近期可加入路线</text>
-        </view>
-      </view>
-      <view
-        class="home-search-action"
-        bindtap="goNewTrip"
-        hover-class="ride-pressed"
-        hover-stay-time="80"
-      >发布</view>
     </view>
   </view>
 

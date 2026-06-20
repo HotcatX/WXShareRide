@@ -2,6 +2,7 @@
 const { showDataError } = require("../../../utils/error")
 const {
   callTripManage,
+  askReason,
   attachRideStats,
   rateTripUser,
   markRideListStale,
@@ -409,15 +410,31 @@ Page({
     const { tripId, sourceType } = this.data
     if (!tripId) return
 
+    const reason = await askReason({
+      title: '退出路线',
+      content: '理由会作为消息发送给相关成员。',
+      reasons: [
+        '误加行程',
+        '本人出行计划有变',
+        '时间/地点不合适',
+        '联系不上对方',
+        '已找到其他出行方式',
+        '其他'
+      ],
+      placeholder: '例如临时有事、时间不合适',
+      confirmText: '继续'
+    })
+    if (!reason) return
+
     wx.showModal({
       title: '退出路线',
       content: '确认退出该出行计划吗？',
-      confirmText: '确定',
+      confirmText: '退出',
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
         try {
-          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'quitTrip' })
+          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'quitTrip', reason })
 
           if (result && (result.ok || result.success)) {
             wx.showToast({ title: '已退出路线', icon: 'success' })

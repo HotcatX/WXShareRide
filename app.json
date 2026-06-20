@@ -48,7 +48,7 @@
     "list": [
       {
         "pagePath": "pages/home/home",
-        "text": "主页"
+        "text": "拼车"
       },
       {
         "pagePath": "pages/market/market",

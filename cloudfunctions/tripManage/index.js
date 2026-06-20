@@ -703,6 +703,7 @@ async function completeRequest(event, actorOpenid) {
 async function quitCarpoolPassenger(event, actorOpenid) {
   const tripId = cleanText(event.tripId || event.id, 80)
   if (!tripId) return { ok: false, success: false, errorMsg: '缺少 tripId' }
+  const reason = getReason(event)
 
   const snap = await db.collection('Carpool').doc(tripId).get()
   const trip = snap && snap.data
@@ -732,12 +733,12 @@ async function quitCarpoolPassenger(event, actorOpenid) {
     driverOpenid,
     'PASSENGER_QUIT_CARPOOL',
     '有乘客退出拼车行程',
-    `有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`,
+    withReason(`有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`, reason),
     tripId,
-    { tripId, passengerOpenid: actorOpenid, action: 'passenger_quit' }
+    { tripId, passengerOpenid: actorOpenid, action: 'passenger_quit', reason }
   )
 
-  await logAction({ action: 'quitTrip', type: 'carpool', tripId, actorOpenid })
+  await logAction({ action: 'quitTrip', type: 'carpool', tripId, actorOpenid, reason })
   return { ok: true, success: true, action: 'quitTrip', sourceType: 'carpool' }
 }
 
@@ -905,6 +906,7 @@ async function quitRequestDriver(event, actorOpenid) {
 async function quitRequestPassenger(event, actorOpenid) {
   const requestId = cleanText(event.requestId || event.tripId || event.id, 80)
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
+  const reason = getReason(event)
 
   const snap = await db.collection('CarpoolRequest').doc(requestId).get()
   const req = snap && snap.data
@@ -931,12 +933,12 @@ async function quitRequestPassenger(event, actorOpenid) {
     id,
     'PASSENGER_QUIT_REQUEST',
     '有乘客退出求车路线',
-    `有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`,
+    withReason(`有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`, reason),
     requestId,
-    { requestId, passengerOpenid: actorOpenid, action: 'passenger_quit' }
+    { requestId, passengerOpenid: actorOpenid, action: 'passenger_quit', reason }
   )))
 
-  await logAction({ action: 'quitTrip', type: 'request', tripId: requestId, actorOpenid })
+  await logAction({ action: 'quitTrip', type: 'request', tripId: requestId, actorOpenid, reason })
   return { ok: true, success: true, action: 'quitTrip', sourceType: 'request' }
 }
 

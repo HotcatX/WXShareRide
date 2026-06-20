@@ -340,6 +340,14 @@ Page({
     const reason = await askReason({
       title: '剔除司机',
       content: '理由会作为消息发送给该司机。',
+      reasons: [
+        '联系不上司机',
+        '司机联系方式有误',
+        '司机临时改时间/地点',
+        '沟通不畅',
+        '双方协商取消',
+        '其他'
+      ],
       placeholder: '例如沟通不畅、临时调整',
       confirmText: '剔除'
     })
@@ -372,6 +380,14 @@ Page({
     const reason = await askReason({
       title: '剔除乘客',
       content: '理由会作为消息发送给该乘客。',
+      reasons: [
+        '联系不上乘客',
+        '乘客联系方式有误',
+        '上下车地点不合适',
+        '乘客临时改时间/地点',
+        '双方协商取消',
+        '其他'
+      ],
       placeholder: '例如信息不匹配、长期未回复',
       confirmText: '剔除'
     })
@@ -402,6 +418,14 @@ Page({
     const reason = await askReason({
       title: '退出并删除路线',
       content: '理由会作为消息发送给司机和已加入乘客。',
+      reasons: [
+        '误创行程',
+        '时间/地点填写错误',
+        '联系方式有误',
+        '本人出行计划有变',
+        '已找到其他出行方式',
+        '其他'
+      ],
       placeholder: '例如临时取消、时间变更',
       confirmText: '删除'
     })

@@ -57,7 +57,6 @@
       <view class="ride-row-between home-section-head">
         <view>
           <text class="ride-section-title">我的创建</text>
-          <text class="ride-section-subtitle">司机路线和乘客求车</text>
         </view>
         <view
           wx:if="{{createTrips.length > 0}}"
@@ -119,7 +118,6 @@
       <view class="ride-row-between home-section-head">
         <view>
           <text class="ride-section-title">我的加入</text>
-          <text class="ride-section-subtitle">已接单和已加入路线</text>
         </view>
         <view
           wx:if="{{joinTrips.length > 0}}"

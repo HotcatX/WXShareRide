@@ -25,7 +25,24 @@ function markRideListStale() {
   }
 }
 
-function askReason(options = {}) {
+function normalizeReasonItems(reasons = [], otherText = "其他", allowCustom = true) {
+  const out = []
+  ;(Array.isArray(reasons) ? reasons : []).forEach(item => {
+    const text = cleanText(item)
+    if (text && !out.includes(text)) out.push(text)
+  })
+
+  if (allowCustom && !out.includes(otherText)) out.push(otherText)
+  if (out.length <= 6) return out
+
+  if (out.includes(otherText)) {
+    return out.filter(item => item !== otherText).slice(0, 5).concat(otherText)
+  }
+
+  return out.slice(0, 6)
+}
+
+function askCustomReason(options = {}) {
   return new Promise(resolve => {
     wx.showModal({
       title: options.title || "填写理由",
@@ -45,6 +62,38 @@ function askReason(options = {}) {
           resolve(null)
           return
         }
+        resolve(reason)
+      },
+      fail() {
+        resolve("")
+      }
+    })
+  })
+}
+
+function askReason(options = {}) {
+  const otherText = cleanText(options.otherText || "其他")
+  const reasons = normalizeReasonItems(options.reasons, otherText, options.allowCustom !== false)
+
+  if (!reasons.length || typeof wx.showActionSheet !== "function") {
+    return askCustomReason(options)
+  }
+
+  return new Promise(resolve => {
+    wx.showActionSheet({
+      itemList: reasons,
+      success: async (res) => {
+        const reason = reasons[Number(res.tapIndex)]
+        if (!reason) {
+          resolve("")
+          return
+        }
+
+        if (reason === otherText) {
+          resolve(await askCustomReason(options))
+          return
+        }
+
         resolve(reason)
       },
       fail() {

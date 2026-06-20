@@ -109,6 +109,22 @@ function buildRouteText(doc, fallback) {
   return { dateStr, timeStr, routeStr }
 }
 
+function cleanOpenid(value) {
+  return String(value || '').trim()
+}
+
+function getCarpoolDriverOpenid(doc = {}) {
+  return cleanOpenid(doc._openid || doc.driverOpenid || doc.driverID || doc.driverId)
+}
+
+function getRequestCreatorOpenid(doc = {}) {
+  return cleanOpenid(doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid)
+}
+
+function getRequestDriverOpenid(doc = {}) {
+  return cleanOpenid(doc.driverOpenid || doc.driverID || doc.driverId || doc.driver)
+}
+
 async function upsertPassengerUser(transaction, openid, tripId) {
   const res = await transaction.collection('userInfo').where({ _openid: openid }).limit(1).get()
   const now = new Date()
@@ -153,7 +169,7 @@ async function joinCarpool(event, openid) {
       const existingPassengerOpenids = prePassengers
         .map(p => (typeof p === 'string' ? p : p && p._openid))
         .filter(Boolean)
-      const blockCheck = await checkBlockWithMany(openid, [preTrip._openid || preTrip.driverOpenid || ''].concat(existingPassengerOpenids))
+      const blockCheck = await checkBlockWithMany(openid, [getCarpoolDriverOpenid(preTrip)].concat(existingPassengerOpenids))
       if (blockCheck.blocked) {
         return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
       }
@@ -175,7 +191,8 @@ async function joinCarpool(event, openid) {
     if (status === 'past' || availSeatNum <= 0) {
       return { ok: false, success: false, errorMsg: '该路线已结束或已满员' }
     }
-    if (trip._openid && trip._openid === openid) {
+    const driverOpenid = getCarpoolDriverOpenid(trip)
+    if (driverOpenid && driverOpenid === openid) {
       return { ok: false, success: false, errorMsg: '无法加入自己发布的路线' }
     }
 
@@ -245,8 +262,16 @@ async function joinRequest(event, openid) {
   const preReq = preReqRes && preReqRes.data
   if (preReq) {
     const passengerIds = Array.isArray(preReq.passengerID) ? preReq.passengerID.filter(Boolean) : []
+    const preCreatorOpenid = getRequestCreatorOpenid(preReq)
+    const preDriverOpenid = getRequestDriverOpenid(preReq)
+    if (preCreatorOpenid && preCreatorOpenid === openid) {
+      return { ok: false, success: false, errorMsg: '不能加入自己发布的求车' }
+    }
+    if (preDriverOpenid && preDriverOpenid === openid) {
+      return { ok: false, success: false, errorMsg: '你已是该路线司机，无法作为乘客加入' }
+    }
     if (!passengerIds.includes(openid)) {
-      const blockCheck = await checkBlockWithMany(openid, [preReq._openid || '', preReq.driverOpenid || preReq.driverID || ''].concat(passengerIds))
+      const blockCheck = await checkBlockWithMany(openid, [preCreatorOpenid, preDriverOpenid].concat(passengerIds))
       if (blockCheck.blocked) {
         return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
       }
@@ -267,8 +292,13 @@ async function joinRequest(event, openid) {
     if (status !== 'open') {
       return { ok: false, success: false, errorMsg: '该路线不可加入（已关闭或已结束）' }
     }
-    if (req._openid && req._openid === openid) {
+    const creatorOpenid = getRequestCreatorOpenid(req)
+    const driverOpenid = getRequestDriverOpenid(req)
+    if (creatorOpenid && creatorOpenid === openid) {
       return { ok: false, success: false, errorMsg: '不能加入自己发布的求车' }
+    }
+    if (driverOpenid && driverOpenid === openid) {
+      return { ok: false, success: false, errorMsg: '你已是该路线司机，无法作为乘客加入' }
     }
 
     const passengerIds = Array.isArray(req.passengerID) ? req.passengerID.filter(Boolean) : []
@@ -294,7 +324,7 @@ async function joinRequest(event, openid) {
 
     await upsertPassengerUser(transaction, openid, requestId)
 
-    const targets = [req._openid || '', req.driverOpenid || req.driverID || '']
+    const targets = [creatorOpenid, driverOpenid]
       .filter(Boolean)
       .filter(target => target !== openid)
     notifyTargets = Array.from(new Set(targets))

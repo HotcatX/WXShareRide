@@ -284,13 +284,21 @@ async function readType(type, event) {
   const quick = event && event.quick !== false
   const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
 
-  const queries = VISIBLE_STATUSES.map(status => {
+  const buildQuery = (where, orderField, queryLimit) => {
     let query = db.collection(config.collection)
-      .where({ status })
-      .limit(limit)
+      .where(where)
+      .orderBy(orderField, orderField === 'createdAt' ? 'desc' : 'asc')
+      .limit(queryLimit)
     if (quick) query = query.field(config.fields)
     return query
-  })
+  }
+
+  const fallbackLimit = Math.min(limit, 20)
+  const queries = VISIBLE_STATUSES.flatMap(status => [
+    buildQuery({ status, departureAtMs: _.gte(minDepartureAtMs) }, 'departureAtMs', limit),
+    buildQuery({ status, latestDepartureAtMs: _.gte(minDepartureAtMs) }, 'latestDepartureAtMs', limit),
+    buildQuery({ status }, 'createdAt', fallbackLimit)
+  ])
 
   const results = await Promise.all(queries.map(query => query.get()))
   return mergeById(results.map(res => res.data || []))

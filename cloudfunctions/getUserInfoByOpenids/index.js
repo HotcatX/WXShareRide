@@ -4,10 +4,35 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-exports.main = async (event, context) => {
-  const { openids } = event || {}
+const MAX_OPENIDS = 20
+const PUBLIC_USER_FIELDS = {
+  _id: true,
+  _openid: true,
+  openid: true,
+  name: true,
+  nickName: true,
+  nickname: true,
+  avatarUrl: true,
+  wechatID: true,
+  phone: true,
+  carPlate: true,
+  plateNumber: true,
+  zelleName: true,
+  zelleAccount: true,
+  rideStats: true
+}
 
-  if (!Array.isArray(openids) || openids.length === 0) {
+function normalizeOpenids(openids) {
+  return Array.from(new Set((openids || [])
+    .map(id => String(id || '').trim())
+    .filter(Boolean)))
+    .slice(0, MAX_OPENIDS)
+}
+
+exports.main = async (event, context) => {
+  const openids = normalizeOpenids((event || {}).openids)
+
+  if (openids.length === 0) {
     return { ok: false, errorMsg: 'openids 为空' }
   }
 
@@ -16,6 +41,7 @@ exports.main = async (event, context) => {
       .where({
         _openid: _.in(openids)
       })
+      .field(PUBLIC_USER_FIELDS)
       .get()
 
     return {

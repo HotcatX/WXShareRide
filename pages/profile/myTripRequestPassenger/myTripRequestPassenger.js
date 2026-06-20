@@ -1,5 +1,5 @@
 // pages/profile/myTripRequestPassenger/myTripRequestPassenger.js
-const { callTripManage, askReason, attachRideStats, rateTripUser } = require("../../../utils/tripManage")
+const { callTripManage, askReason, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
 
 Page({
   data: {
@@ -432,6 +432,7 @@ Page({
         if (!r.confirm) return
         try {
           const result = await callTripManage({ type: 'request', requestId, action: 'blockUser', targetOpenid })
+          if (result && (result.ok || result.success)) markRideListStale()
           wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e) {
           console.error(e)

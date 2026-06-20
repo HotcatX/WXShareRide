@@ -604,9 +604,10 @@ async function completeCarpool(event, actorOpenid) {
         updatedAt: db.serverDate()
       }
     })
-  } else {
-    await bumpPublicServedTrips(delta, 'tripManageCompleteCarpool', tripId, 'Carpool')
+    await logAction({ action: 'completeTripAlreadyCounted', type: 'carpool', tripId, actorOpenid, targets: passengerOpenids })
+    return { ok: true, success: true, action: 'completeTrip', alreadyCompleted: true }
   }
+  await bumpPublicServedTrips(delta, 'tripManageCompleteCarpool', tripId, 'Carpool')
 
   await Promise.all([
     moveIdInUserInfo(driverOpenid, tripId, 'tripDriver', 'tripDriverHistory'),
@@ -672,9 +673,10 @@ async function completeRequest(event, actorOpenid) {
         updatedAt: db.serverDate()
       }
     })
-  } else {
-    await bumpPublicServedTrips(delta, 'tripManageCompleteRequest', requestId, 'CarpoolRequest')
+    await logAction({ action: 'completeTripAlreadyCounted', type: 'request', tripId: requestId, actorOpenid, targets: passengerOpenids })
+    return { ok: true, success: true, action: 'completeTrip', sourceType: 'request', alreadyCompleted: true }
   }
+  await bumpPublicServedTrips(delta, 'tripManageCompleteRequest', requestId, 'CarpoolRequest')
 
   await Promise.all([
     moveIdInUserInfo(driverOpenid, requestId, 'tripDriverJoin', 'tripDriverJoinHistory'),
@@ -1053,17 +1055,36 @@ async function blockUser(event, actorOpenid) {
     blockedUsers: [targetOpenid]
   })
 
-  await db.collection('UserBlocks').add({
-    data: {
+  const existingBlockRes = await db.collection('UserBlocks')
+    .where({
       _openid: actorOpenid,
-      blockerOpenid: actorOpenid,
       targetOpenid,
-      reason,
-      active: true,
-      createdAt: db.serverDate(),
-      updatedAt: db.serverDate()
-    }
-  })
+      active: true
+    })
+    .limit(1)
+    .get()
+  const existingBlock = existingBlockRes.data && existingBlockRes.data[0]
+  if (existingBlock && existingBlock._id) {
+    await db.collection('UserBlocks').doc(existingBlock._id).update({
+      data: {
+        blockerOpenid: actorOpenid,
+        reason,
+        updatedAt: db.serverDate()
+      }
+    })
+  } else {
+    await db.collection('UserBlocks').add({
+      data: {
+        _openid: actorOpenid,
+        blockerOpenid: actorOpenid,
+        targetOpenid,
+        reason,
+        active: true,
+        createdAt: db.serverDate(),
+        updatedAt: db.serverDate()
+      }
+    })
+  }
   await logAction({ action: 'blockUser', type: normalizeType(event.type || event.sourceType), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid, reason })
   return { ok: true, success: true, action: 'blockUser' }
 }
@@ -1237,7 +1258,7 @@ async function rateUser(event, actorOpenid) {
   const tripId = cleanText(event.tripId || event.requestId || event.id, 80)
   const type = normalizeType(event.type || event.sourceType)
   const score = Math.floor(Number(event.score || event.rating))
-  const comment = cleanText(event.comment || event.reason, 280)
+  const comment = ''
 
   if (!targetOpenid) return { ok: false, success: false, errorMsg: '缺少评分对象' }
   if (targetOpenid === actorOpenid) return { ok: false, success: false, errorMsg: '不能给自己评分' }

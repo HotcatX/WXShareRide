@@ -1,6 +1,6 @@
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
 const { showDataError } = require("../../../utils/error")
-const { callTripManage, attachRideStats, rateTripUser } = require("../../../utils/tripManage")
+const { callTripManage, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
@@ -433,6 +433,7 @@ Page({
         if (!r.confirm) return
         try {
           const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'blockUser', targetOpenid })
+          if (result && (result.ok || result.success)) markRideListStale()
           wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e2) {
           console.error('blockUser error:', e2)

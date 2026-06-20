@@ -13,18 +13,21 @@
     </view>
 
     <view
-      class="tab-item {{displayActive === 'market' ? 'active' : ''}}"
-      data-key="market"
-      data-url="/pages/market/market"
-      bindtap="onTapTab"
+      class="tab-item market-tab {{displayActive === 'market' ? 'active' : ''}}"
+      catchtap="onToggleMarketType"
       hover-class="tab-pressed"
       hover-stay-time="80"
     >
-      <view class="tab-icon-wrap">
-        <image class="tab-icon" src="{{displayActive === 'market' ? '/images/market_press.png' : '/images/market.png'}}" mode="aspectFit" />
-        <view wx:if="{{marketBadgeText}}" class="tab-badge">{{marketBadgeText}}</view>
+      <view class="market-tab-indicator {{displayActive === 'market' ? 'visible' : ''}} {{displayMarketType === 'sublet' ? 'is-sublet' : 'is-goods'}}"></view>
+      <view class="market-tab-half {{displayActive === 'market' && displayMarketType === 'goods' ? 'selected' : ''}}">
+        <image class="market-tab-icon" src="{{displayActive === 'market' && displayMarketType === 'goods' ? '/images/market_press.png' : '/images/market.png'}}" mode="aspectFit" />
+        <text class="market-tab-text">二手</text>
       </view>
-      <text class="tab-text">二手</text>
+      <view class="market-tab-half {{displayActive === 'market' && displayMarketType === 'sublet' ? 'selected' : ''}}">
+        <image class="market-tab-icon" src="/images/sublease.png" mode="aspectFit" />
+        <text class="market-tab-text">转租</text>
+      </view>
+      <view wx:if="{{marketBadgeText}}" class="tab-badge market-badge">{{marketBadgeText}}</view>
     </view>
 
     <view

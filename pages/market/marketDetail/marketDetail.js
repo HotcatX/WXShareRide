@@ -2,31 +2,119 @@
 const LOGIN_PAGE = '/pages/other/login/login'
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 
+const DETAIL_COPY = {
+  goods: {
+    navTitle: "商品详情",
+    missingTitle: "商品不存在",
+    missingDesc: "商品可能已删除或链接已失效。",
+    pickupLabel: "可取时间",
+    locationLabel: "取货位置",
+    descTitle: "商品描述",
+    sellerOtherText: "查看卖家其他商品",
+    locationActionText: "查看取货位置",
+    contactText: "联系购买",
+    defaultTitle: "未命名商品",
+    defaultCategory: "二手",
+    defaultCondition: "成色未填",
+    defaultDesc: "卖家暂未填写详细描述。",
+    pickupModalTitle: "取货地点"
+  },
+  sublet: {
+    navTitle: "转租详情",
+    missingTitle: "房源不存在",
+    missingDesc: "房源可能已删除或链接已失效。",
+    pickupLabel: "入住/租期",
+    locationLabel: "房源位置",
+    descTitle: "房源描述",
+    sellerOtherText: "查看发布者其他信息",
+    locationActionText: "查看房源位置",
+    contactText: "联系转租",
+    defaultTitle: "未命名房源",
+    defaultCategory: "转租",
+    defaultCondition: "房源",
+    defaultDesc: "发布者暂未填写详细描述。",
+    pickupModalTitle: "房源位置"
+  }
+}
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getDetailCopy(type) {
+  return DETAIL_COPY[normalizeListingType(type)] || DETAIL_COPY.goods
+}
+
 function formatMarketPrice(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n.toFixed(n % 1 === 0 ? 0 : 2) : '0'
 }
 
+function normalizeText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function formatAmountText(value) {
+  const text = normalizeText(value)
+  if (!text && text !== "0") return ""
+  const n = Number(value)
+  if (!Number.isFinite(n)) return text
+  return n.toFixed(n % 1 === 0 ? 0 : 2)
+}
+
+function buildSubletStartText(x = {}) {
+  const startText = normalizeText(x.availableStartDate || x.pickupStartDate)
+  return startText ? `${startText}起` : ""
+}
+
+function buildSubletMetaList(x = {}) {
+  if (Array.isArray(x.subletMetaList) && x.subletMetaList.length) return x.subletMetaList
+  const rows = []
+  const depositText = formatAmountText(x.deposit)
+  if (depositText) rows.push({ label: "押金", value: `$ ${depositText}` })
+  if (x.housingType) rows.push({ label: "房源类型", value: normalizeText(x.housingType) })
+  if (x.roomType) rows.push({ label: "房间类型", value: normalizeText(x.roomType) })
+  rows.push({ label: "家具", value: x.furnished ? "带家具" : "未标注" })
+  rows.push({ label: "水电网", value: x.utilitiesIncluded ? "已包含" : "未包含/未标注" })
+  if (x.genderPreference) rows.push({ label: "室友要求", value: normalizeText(x.genderPreference) })
+  const roommateCountText = formatAmountText(x.roommateCount)
+  if (roommateCountText) rows.push({ label: "室友数", value: `${roommateCountText} 人` })
+  return rows
+}
+
 function buildDetailItem(x = {}) {
-  const title = String(x.title || '').trim() || '未命名商品'
-  const pickupText = x.pickupRangeText || x.pickupEndDate || x.expiresAtText || '联系卖家确认'
-  const locationText = x.pickup || x.region || '卖家未填写'
+  const listingType = normalizeListingType(x.listingType)
+  const copy = getDetailCopy(listingType)
+  const title = String(x.title || '').trim() || copy.defaultTitle
+  const subletStartText = buildSubletStartText(x)
+  const pickupText = listingType === "sublet"
+    ? (subletStartText || x.leaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
+    : (x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系卖家确认")
+  const locationText = x.pickup || x.region || (listingType === "sublet" ? "发布者未填写" : "卖家未填写")
   const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
+  const priceDisplay = listingType === "sublet" ? `${formatMarketPrice(x.price)}/月` : formatMarketPrice(x.price)
+  const categoryDisplay = x.category || copy.defaultCategory
+  const subletMetaList = listingType === "sublet" ? buildSubletMetaList(x) : []
+  const conditionDisplay = listingType === "sublet"
+    ? (x.subletSummary || x.roomType || x.housingType || x.availableStartDate || categoryDisplay || copy.defaultCondition)
+    : (x.condition || copy.defaultCondition)
 
   return {
     id: x._id,
+    listingType,
+    detailPageClass: listingType === "sublet" ? "is-sublet-detail" : "",
     title,
     titleDisplay: title,
     price: x.price,
     priceText: formatMarketPrice(x.price),
-    priceDisplay: formatMarketPrice(x.price),
-    category: x.category || '二手',
-    categoryDisplay: x.category || '二手',
+    priceDisplay,
+    category: categoryDisplay,
+    categoryDisplay,
     region: x.region || '',
-    condition: x.condition || '成色未填',
-    conditionDisplay: x.condition || '成色未填',
-    desc: x.desc || '卖家暂未填写详细描述。',
-    descDisplay: x.desc || '卖家暂未填写详细描述。',
+    condition: conditionDisplay,
+    conditionDisplay,
+    desc: x.desc || copy.defaultDesc,
+    descDisplay: x.desc || copy.defaultDesc,
     postDate: x.postDate || '刚刚发布',
     postDateDisplay: x.postDate || '刚刚发布',
     imageFileID: x.imageFileID || "",
@@ -35,7 +123,7 @@ function buildDetailItem(x = {}) {
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
     hasImage,
     fallbackImageSrc: x.imageFileID || x.thumbFileID || '/images/market.png',
-    fallbackImageTitle: title || '商品图片',
+    fallbackImageTitle: title || (listingType === "sublet" ? "房源图片" : "商品图片"),
     pickupStartDate: x.pickupStartDate || "",
     pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
     pickupRangeText: x.pickupRangeText || "",
@@ -44,11 +132,21 @@ function buildDetailItem(x = {}) {
     expireTime: Number(x.expireTime) || 0,
     status: x.status || "online",
     wantCount: x.wantCount || 0,
-    wantCountText: `${Number(x.wantCount) || 0} 人想要`,
+    wantCountText: listingType === "sublet" ? `${Number(x.wantCount) || 0} 人关注` : `${Number(x.wantCount) || 0} 人想要`,
     viewCount: x.viewCount || 0,
     viewCountText: `${Number(x.viewCount) || 0} 人浏览`,
     _openid: x._openid,
-    pickup: x.pickup || x.region || ""
+    pickup: x.pickup || x.region || "",
+    navTitle: copy.navTitle,
+    pickupLabel: copy.pickupLabel,
+    locationLabel: copy.locationLabel,
+    descTitle: copy.descTitle,
+    sellerOtherText: copy.sellerOtherText,
+    locationActionText: copy.locationActionText,
+    contactText: copy.contactText,
+    pickupModalTitle: copy.pickupModalTitle,
+    subletMetaList,
+    hasSubletMeta: subletMetaList.length > 0
   }
 }
 
@@ -77,11 +175,12 @@ Page({
   data: {
     statusBarHeight: 0,
     item: null,
+    detailNavTitle: "商品详情",
     loading: true,
     notFound: false,
     loadError: false,
     showDetailState: true,
-    detailStateTitle: "正在加载商品...",
+    detailStateTitle: "正在加载内容...",
     detailStateDesc: "请稍候",
     detailCanRetry: false,
 
@@ -113,11 +212,11 @@ Page({
     const { item } = this.data
     const id = (item && item.id) ? item.id : ''
     const title = item
-      ? `${item.title || '商品'}${(item.price !== undefined && item.price !== null) ? ` $${item.price}` : ''}`
-      : '查看商品详情'
+      ? `${item.title || (item.listingType === "sublet" ? "房源" : "商品")}${(item.price !== undefined && item.price !== null) ? ` $${item.price}${item.listingType === "sublet" ? "/月" : ""}` : ''}`
+      : '查看市场详情'
 
     return getApp().withReferralShare({
-      title: String(title).trim().slice(0, 30) || '查看商品详情',
+      title: String(title).trim().slice(0, 30) || '查看市场详情',
       path: `/pages/market/marketDetail/marketDetail?id=${id}`,
     })
   },
@@ -126,11 +225,11 @@ Page({
     const { item } = this.data
     const id = (item && item.id) ? item.id : ''
     const title = item
-      ? `${item.title || '商品'}${(item.price !== undefined && item.price !== null) ? ` $${item.price}` : ''}`
-      : '查看商品详情'
+      ? `${item.title || (item.listingType === "sublet" ? "房源" : "商品")}${(item.price !== undefined && item.price !== null) ? ` $${item.price}${item.listingType === "sublet" ? "/月" : ""}` : ''}`
+      : '查看市场详情'
 
     return getApp().withReferralShare({
-      title: String(title).trim().slice(0, 30) || '查看商品详情',
+      title: String(title).trim().slice(0, 30) || '查看市场详情',
       query: `id=${id}`
     })
   },
@@ -197,10 +296,11 @@ Page({
         notFound: true,
         loadError: false,
         showDetailState: true,
-        detailStateTitle: "商品不存在",
-        detailStateDesc: "缺少商品 id，无法打开详情。",
+        detailStateTitle: "内容不存在",
+        detailStateDesc: "缺少内容 id，无法打开详情。",
         detailCanRetry: false,
         item: null,
+        detailNavTitle: "商品详情",
         isOwner: false,
         imgUrls: [],
         imgUrl: "",
@@ -232,10 +332,11 @@ Page({
       notFound: false,
       loadError: false,
       showDetailState: true,
-      detailStateTitle: "正在加载商品...",
+      detailStateTitle: "正在加载内容...",
       detailStateDesc: "请稍候",
       detailCanRetry: false,
       item: null,
+      detailNavTitle: "商品详情",
       isOwner: false,
       imgUrls: [],
       imgUrl: "",
@@ -256,10 +357,11 @@ Page({
           notFound: true,
           loadError: false,
           showDetailState: true,
-          detailStateTitle: "商品不存在",
-          detailStateDesc: "商品可能已删除或链接已失效。",
+          detailStateTitle: "内容不存在",
+          detailStateDesc: "内容可能已删除或链接已失效。",
           detailCanRetry: false,
           item: null,
+          detailNavTitle: "商品详情",
           isOwner: false,
           imgUrls: [],
           imgUrl: "",
@@ -272,6 +374,7 @@ Page({
 
       const myOpenid = wx.getStorageSync('openid') || ''
       const isOwner = !!result.isOwner
+      const detailItem = buildDetailItem(x)
 
       this.setData({
         loading: false,
@@ -283,7 +386,8 @@ Page({
         detailCanRetry: false,
         myOpenid,
         isOwner,
-        item: buildDetailItem(x),
+        item: detailItem,
+        detailNavTitle: detailItem.navTitle || "商品详情",
         imgUrls,
         imgUrl: result.imgUrl || x.imageUrl || imgUrls[0] || "",
         hasImageUrls: imgUrls.length > 0,
@@ -297,10 +401,11 @@ Page({
         notFound,
         loadError: !notFound,
         showDetailState: true,
-        detailStateTitle: notFound ? "商品不存在" : "加载失败",
-        detailStateDesc: notFound ? "商品可能已删除或链接已失效。" : "商品详情加载失败，请稍后重试。",
+        detailStateTitle: notFound ? "内容不存在" : "加载失败",
+        detailStateDesc: notFound ? "内容可能已删除或链接已失效。" : "详情加载失败，请稍后重试。",
         detailCanRetry: !notFound,
         item: null,
+        detailNavTitle: "商品详情",
         isOwner: false,
         imgUrls: [],
         imgUrl: "",
@@ -321,7 +426,7 @@ Page({
   // =========================
   onEditItem() {
     if (!this.data.isOwner) {
-      wx.showToast({ title: '只能编辑自己发布的商品', icon: 'none' })
+      wx.showToast({ title: '只能编辑自己发布的内容', icon: 'none' })
       return
     }
 
@@ -329,13 +434,13 @@ Page({
     if (!id) return
 
     wx.navigateTo({
-      url: `/pages/market/marketPost/marketPost?id=${id}&mode=edit`
+      url: `/pages/market/marketPost/marketPost?id=${id}&mode=edit&type=${this.data.item?.listingType || "goods"}`
     })
   },
 
   async onDeleteItem() {
     if (!this.data.isOwner) {
-      wx.showToast({ title: '只能删除自己发布的商品', icon: 'none' })
+      wx.showToast({ title: '只能删除自己发布的内容', icon: 'none' })
       return
     }
 
@@ -345,7 +450,7 @@ Page({
     const ok = await new Promise(resolve => {
       wx.showModal({
         title: '确认删除',
-        content: '删除后无法恢复，确定要删除该商品吗？',
+        content: `删除后无法恢复，确定要删除该${this.data.item?.listingType === "sublet" ? "房源" : "商品"}吗？`,
         confirmText: '删除',
         confirmColor: '#E54D42',
         success: (r) => resolve(!!r.confirm),
@@ -388,7 +493,7 @@ Page({
     if (!this.ensureLoginBeforeContact()) return
     const openid = this.data.item?._openid
     if (!openid) return
-    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${openid}` })
+    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${openid}&type=${this.data.item?.listingType || "goods"}` })
   },
 
   // =========================
@@ -402,7 +507,7 @@ Page({
     const pickup = this.data.item?.pickup || ''
     if (!pickup) return
     wx.showModal({
-      title: '取货地点',
+      title: this.data.item?.pickupModalTitle || '取货地点',
       content: String(pickup),
       confirmText: '复制',
       cancelText: '关闭',
@@ -421,7 +526,7 @@ Page({
     if (!this.ensureLoginBeforeContact()) return
     const openid = this.data.item?._openid
     if (!openid) {
-      wx.showToast({ title: "卖家信息缺失", icon: "none" })
+      wx.showToast({ title: "发布者信息缺失", icon: "none" })
       return
     }
 

@@ -2,7 +2,7 @@
   <view class="seller-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="seller-nav">
       <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
-      <text class="nav-title">卖家主页</text>
+      <text class="nav-title">{{navTitle}}</text>
       <view class="nav-spacer"></view>
     </view>
   </view>
@@ -24,16 +24,30 @@
     </view>
 
     <view class="bio-card">
-      <text class="section-title">卖家介绍</text>
+      <text class="section-title">{{bioTitle}}</text>
       <text class="bio-text">{{seller.bioDisplay}}</text>
     </view>
 
     <view class="goods-head">
       <view>
         <text class="section-kicker">Listings</text>
-        <text class="goods-title-main">正在出售</text>
+        <text class="goods-title-main">{{goodsTitleMain}}</text>
       </view>
       <text class="goods-count">{{goodsCountText}}</text>
+    </view>
+
+    <view class="listing-segment">
+      <view
+        class="listing-segment-item {{item.selectedClass}} pressable"
+        wx:for="{{listingTypeTabs}}"
+        wx:key="type"
+        data-type="{{item.type}}"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        bindtap="onSelectListingType"
+      >
+        {{item.label}}
+      </view>
     </view>
 
     <view class="goods-grid" wx:if="{{hasGoods}}">
@@ -61,6 +75,7 @@
 
         <view class="goods-body">
           <text class="goods-title">{{item.title}}</text>
+          <text class="goods-meta">{{item.metaText}}</text>
           <text class="goods-price">$ {{item.priceDisplay}}</text>
         </view>
       </view>
@@ -68,8 +83,8 @@
 
     <view class="empty-state" wx:else>
       <view class="empty-mark">⌕</view>
-      <view class="empty-title">暂无在售商品</view>
-      <view class="empty-subtitle">可以稍后再回来看看</view>
+      <view class="empty-title">{{emptyTitle}}</view>
+      <view class="empty-subtitle">{{emptySubtitle}}</view>
     </view>
 
     <view class="contact-dock {{dockVisibleClass}}">

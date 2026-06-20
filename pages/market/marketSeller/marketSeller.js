@@ -1,4 +1,52 @@
 const LOGIN_PAGE = '/pages/other/login/login'
+const LISTING_TYPE_CONFIG = {
+  goods: {
+    label: "二手",
+    navTitle: "卖家主页",
+    bioTitle: "卖家介绍",
+    goodsTitle: "正在出售",
+    emptyTitle: "暂无在售商品",
+    emptySubtitle: "可以稍后再回来看看",
+    unit: "件",
+    shareTitle: "二手商品",
+    shareRole: "卖家",
+    contactMissing: "卖家未填写联系方式",
+    fallbackTitle: "未命名商品",
+    fallbackImage: "/images/market.png",
+    metaFallback: "闲置"
+  },
+  sublet: {
+    label: "转租",
+    navTitle: "发布者主页",
+    bioTitle: "发布者介绍",
+    goodsTitle: "正在转租",
+    emptyTitle: "暂无转租房源",
+    emptySubtitle: "可以稍后再回来看看",
+    unit: "套",
+    shareTitle: "转租房源",
+    shareRole: "发布者",
+    contactMissing: "发布者未填写联系方式",
+    fallbackTitle: "未命名房源",
+    fallbackImage: "/images/sublease.png",
+    metaFallback: "转租"
+  }
+}
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getListingTypeConfig(type) {
+  return LISTING_TYPE_CONFIG[normalizeListingType(type)] || LISTING_TYPE_CONFIG.goods
+}
+
+function buildListingTypeTabs(activeType) {
+  return ["goods", "sublet"].map(type => ({
+    type,
+    label: LISTING_TYPE_CONFIG[type].label,
+    selectedClass: normalizeListingType(activeType) === type ? "selected" : ""
+  }))
+}
 
 function safeDecodeURIComponent(value) {
   const text = String(value || "")
@@ -21,7 +69,7 @@ function buildSellerDisplay(seller = {}) {
     nameDisplay: seller.name || "未设置昵称",
     apartmentDisplay: seller.apartment || "公寓未填",
     regionDisplay: seller.region || "区域未填",
-    bioDisplay: seller.bio || "卖家暂未填写个人简介。"
+    bioDisplay: seller.bio || "发布者暂未填写个人简介。"
   }
 }
 
@@ -40,18 +88,26 @@ function getMarketApiResult(res) {
 }
 
 function buildSellerGood(x = {}) {
-  const title = String(x.title || '').trim() || "未命名商品"
+  const listingType = normalizeListingType(x.listingType)
+  const config = getListingTypeConfig(listingType)
+  const title = String(x.title || '').trim() || config.fallbackTitle
   const imageKey = x.thumbFileID || x.imageFileID || ""
+  const priceText = formatMarketPrice(x.price)
+  const metaText = listingType === "sublet"
+    ? (x.leaseText || x.availableStartDate || x.roomType || x.category || config.metaFallback)
+    : (x.condition || x.pickupEndDate || config.metaFallback)
   return {
     id: x._id,
+    listingType,
     title,
     price: x.price,
-    priceText: formatMarketPrice(x.price),
-    priceDisplay: formatMarketPrice(x.price),
+    priceText,
+    priceDisplay: listingType === "sublet" ? `${priceText}/月` : priceText,
+    metaText,
     imageFileID: x.imageFileID || "",
     thumbFileID: x.thumbFileID || "",
     hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-    imageSrc: x.imageSrc || x.thumbUrl || imageKey || "/images/market.png",
+    imageSrc: x.imageSrc || x.thumbUrl || imageKey || config.fallbackImage,
     thumbUrl: x.thumbUrl || ""
   }
 }
@@ -59,6 +115,10 @@ function buildSellerGood(x = {}) {
 Page({
   data: {
     statusBarHeight: 0,
+    activeListingType: "goods",
+    listingTypeTabs: buildListingTypeTabs("goods"),
+    navTitle: LISTING_TYPE_CONFIG.goods.navTitle,
+    bioTitle: LISTING_TYPE_CONFIG.goods.bioTitle,
     sellerOpenid: "",
     seller: {
       name: "",
@@ -73,11 +133,14 @@ Page({
       nameDisplay: "未设置昵称",
       apartmentDisplay: "公寓未填",
       regionDisplay: "区域未填",
-      bioDisplay: "卖家暂未填写个人简介。"
+      bioDisplay: "发布者暂未填写个人简介。"
     },
     goods: [],
     hasGoods: false,
     goodsCountText: "0 件",
+    goodsTitleMain: LISTING_TYPE_CONFIG.goods.goodsTitle,
+    emptyTitle: LISTING_TYPE_CONFIG.goods.emptyTitle,
+    emptySubtitle: LISTING_TYPE_CONFIG.goods.emptySubtitle,
     contactText: "暂无联系方式",
     dockVisibleClass: "dock-hidden"
   },
@@ -90,13 +153,24 @@ Page({
 
   onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
+    const activeListingType = normalizeListingType(options?.type || options?.listingType)
+    const config = getListingTypeConfig(activeListingType)
+    this.setData({
+      statusBarHeight: sys.statusBarHeight || 0,
+      activeListingType,
+      listingTypeTabs: buildListingTypeTabs(activeListingType),
+      navTitle: config.navTitle,
+      bioTitle: config.bioTitle,
+      goodsTitleMain: config.goodsTitle,
+      emptyTitle: config.emptyTitle,
+      emptySubtitle: config.emptySubtitle
+    })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     const openid = options?.openid ? safeDecodeURIComponent(options.openid) : ""
     if (!openid) {
-      wx.showToast({ title: "缺少卖家openid", icon: "none" })
+      wx.showToast({ title: "缺少发布者openid", icon: "none" })
       return
     }
     this.setData({ sellerOpenid: openid })
@@ -107,19 +181,21 @@ Page({
 
   onShareAppMessage() {
     const { sellerOpenid, seller } = this.data
-    const title = seller?.name ? `看看 ${seller.name} 的二手商品` : '查看卖家二手商品'
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = seller?.name ? `看看 ${seller.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
     return getApp().withReferralShare({
       title,
-      path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(sellerOpenid || '')}`
+      path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(sellerOpenid || '')}&type=${this.data.activeListingType || "goods"}`
     })
   },
 
   onShareTimeline() {
     const { sellerOpenid, seller } = this.data
-    const title = seller?.name ? `看看 ${seller.name} 的二手商品` : '查看卖家二手商品'
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = seller?.name ? `看看 ${seller.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
     return getApp().withReferralShare({
       title,
-      query: `openid=${encodeURIComponent(sellerOpenid || '')}`
+      query: `openid=${encodeURIComponent(sellerOpenid || '')}&type=${this.data.activeListingType || "goods"}`
     })
   },
 
@@ -145,7 +221,7 @@ Page({
     if (openid && !isGuest) return true
 
     const sellerOpenid = this.data.sellerOpenid || ''
-    const pendingUrl = `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(sellerOpenid)}`
+    const pendingUrl = `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(sellerOpenid)}&type=${this.data.activeListingType || "goods"}`
 
     wx.setStorageSync('pendingPage', { url: pendingUrl })
     wx.setStorageSync('postLoginAction', {
@@ -197,7 +273,7 @@ Page({
       })
     } catch (e) {
       console.error("fetchSellerInfo error", e)
-      wx.showToast({ title: "获取卖家信息失败", icon: "none" })
+      wx.showToast({ title: "获取发布者信息失败", icon: "none" })
     }
   },
 
@@ -233,7 +309,14 @@ Page({
       while (true) {
         const res = await wx.cloud.callFunction({
           name: "marketApi",
-          data: { action: "sellerList", openid, skip, limit: PAGE }
+          data: {
+            action: "sellerList",
+            openid,
+            listingType: this.data.activeListingType,
+            filters: { listingType: this.data.activeListingType },
+            skip,
+            limit: PAGE
+          }
         })
         const result = getMarketApiResult(res)
 
@@ -250,12 +333,31 @@ Page({
       this.setData({
         goods,
         hasGoods: goods.length > 0,
-        goodsCountText: `${goods.length} 件`
+        goodsCountText: `${goods.length} ${getListingTypeConfig(this.data.activeListingType).unit}`
       })
     } catch (e) {
       console.error("fetchSellerGoods error", e)
-      wx.showToast({ title: "获取卖家商品失败", icon: "none" })
+      wx.showToast({ title: "获取发布列表失败", icon: "none" })
     }
+  },
+
+  onSelectListingType(e) {
+    const type = normalizeListingType(e.currentTarget.dataset.type)
+    if (type === this.data.activeListingType) return
+    const config = getListingTypeConfig(type)
+    this.setData({
+      activeListingType: type,
+      listingTypeTabs: buildListingTypeTabs(type),
+      navTitle: config.navTitle,
+      bioTitle: config.bioTitle,
+      goodsTitleMain: config.goodsTitle,
+      emptyTitle: config.emptyTitle,
+      emptySubtitle: config.emptySubtitle,
+      goods: [],
+      hasGoods: false,
+      goodsCountText: "0 件"
+    })
+    if (this.data.sellerOpenid) this.fetchSellerGoods(this.data.sellerOpenid)
   },
 
   _isVisibleMarketDoc(x) {
@@ -278,7 +380,7 @@ Page({
     const { wechatID, phone } = this.data.seller || {}
     const val = wechatID || phone || ""
     if (!val) {
-      wx.showToast({ title: "卖家未填写联系方式", icon: "none" })
+      wx.showToast({ title: getListingTypeConfig(this.data.activeListingType).contactMissing, icon: "none" })
       return
     }
     wx.setClipboardData({

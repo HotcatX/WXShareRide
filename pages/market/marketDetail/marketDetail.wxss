@@ -194,6 +194,10 @@
   gap: 12rpx;
 }
 
+.sublet-info-grid{
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .info-cell{
   min-height: 86rpx;
   padding: 18rpx 20rpx;
@@ -205,6 +209,14 @@
   gap: 20rpx;
   box-shadow: 0 8rpx 22rpx rgba(20,23,26,0.06);
   box-sizing: border-box;
+}
+
+.info-cell.compact{
+  min-height: 78rpx;
+  padding: 16rpx;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
 }
 
 .info-label{
@@ -224,6 +236,11 @@
   font-weight: 900;
   text-align: right;
   word-break: break-word;
+}
+
+.info-cell.compact .info-value{
+  width: 100%;
+  text-align: left;
 }
 
 .section-card{
@@ -326,6 +343,169 @@
   background: #f05d4f;
   color: #ffffff;
   box-shadow: 0 12rpx 26rpx rgba(240,93,79,0.20);
+}
+
+.is-sublet-detail .hero-card{
+  margin: 12rpx 20rpx 0;
+  height: 360rpx;
+  border-radius: 18rpx;
+}
+
+.is-sublet-detail .hero-no-img{
+  padding: 36rpx;
+}
+
+.is-sublet-detail .hero-no-img text{
+  font-size: 38rpx;
+  line-height: 46rpx;
+}
+
+.is-sublet-detail .hero-badge{
+  left: 14rpx;
+  top: 14rpx;
+  height: 42rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+}
+
+.is-sublet-detail .detail-content{
+  padding: 12rpx 20rpx 0;
+}
+
+.is-sublet-detail .title-card,
+.is-sublet-detail .section-card{
+  padding: 18rpx;
+  border-radius: 16rpx;
+}
+
+.is-sublet-detail .price-row{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 240rpx);
+  gap: 10rpx;
+}
+
+.is-sublet-detail .price{
+  min-width: 0;
+  font-size: 40rpx;
+  line-height: 48rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-sublet-detail .condition{
+  justify-self: end;
+  max-width: 100%;
+  height: 38rpx;
+  padding: 0 10rpx;
+  border-radius: 10rpx;
+  display: block;
+  font-size: 20rpx;
+  line-height: 38rpx;
+  text-align: center;
+}
+
+.is-sublet-detail .product-title{
+  margin-top: 8rpx;
+  font-size: 32rpx;
+  line-height: 40rpx;
+}
+
+.is-sublet-detail .stats-row{
+  margin-top: 10rpx;
+  gap: 8rpx;
+}
+
+.is-sublet-detail .stats-row text{
+  height: 32rpx;
+  padding: 0 10rpx;
+  border-radius: 9rpx;
+  font-size: 20rpx;
+}
+
+.is-sublet-detail .info-grid{
+  margin-top: 10rpx;
+  gap: 8rpx;
+}
+
+.is-sublet-detail .sublet-info-grid{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.is-sublet-detail .info-cell{
+  min-height: 64rpx;
+  padding: 12rpx 14rpx;
+  border-radius: 14rpx;
+  gap: 12rpx;
+  align-items: center;
+}
+
+.is-sublet-detail .info-cell.compact{
+  min-height: 66rpx;
+  padding: 10rpx 12rpx;
+  gap: 2rpx;
+}
+
+.is-sublet-detail .info-label{
+  font-size: 21rpx;
+  line-height: 28rpx;
+}
+
+.is-sublet-detail .info-value{
+  font-size: 23rpx;
+  line-height: 30rpx;
+}
+
+.is-sublet-detail .info-cell.compact .info-value{
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-sublet-detail .section-card{
+  margin-top: 10rpx;
+}
+
+.is-sublet-detail .section-title{
+  font-size: 27rpx;
+  line-height: 34rpx;
+}
+
+.is-sublet-detail .desc-text{
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 34rpx;
+}
+
+.is-sublet-detail .quick-actions{
+  margin-top: 10rpx;
+  gap: 10rpx;
+}
+
+.is-sublet-detail .quick-btn{
+  min-height: 64rpx;
+  border-radius: 14rpx;
+  font-size: 23rpx;
+  line-height: 30rpx;
+}
+
+.is-sublet-detail .detail-dock{
+  margin-top: 12rpx;
+}
+
+.is-sublet-detail .owner-actions{
+  gap: 10rpx;
+}
+
+.is-sublet-detail .dock-btn{
+  height: 76rpx;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+}
+
+.is-sublet-detail .bottom-space{
+  height: calc(20rpx + env(safe-area-inset-bottom));
 }
 
 .pressable{

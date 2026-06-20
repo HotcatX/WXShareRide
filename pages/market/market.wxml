@@ -2,15 +2,22 @@
   <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="topbar">
       <view class="brand">
-        <text class="brand-kicker">Campus resale</text>
-        <text class="brand-title">二手市场</text>
-      </view>
-      <view class="topbar-actions">
-        <view class="topbar-action secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onMyGoods">
-          我的
-        </view>
-        <view class="topbar-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">
-          发布
+        <text class="brand-kicker">{{brandKicker}}</text>
+        <view class="brand-title-row">
+          <text class="brand-title">{{brandTitle}}</text>
+          <view class="market-segment">
+            <view
+              class="market-segment-item {{item.className}} pressable"
+              wx:for="{{listingTypeTabs}}"
+              wx:key="type"
+              data-type="{{item.type}}"
+              hover-class="is-pressed"
+              hover-stay-time="80"
+              bindtap="onSelectListingType"
+            >
+              {{item.label}}
+            </view>
+          </view>
         </view>
       </view>
     </view>
@@ -21,7 +28,7 @@
         <input
           class="search-input"
           value="{{keyword}}"
-          placeholder="搜索商品、品牌或关键词"
+          placeholder="{{searchPlaceholder}}"
           placeholder-class="search-placeholder"
           bindinput="onKeywordInput"
           confirm-type="search"
@@ -47,11 +54,11 @@
           <text class="control-value">{{activeRegionLabel}}</text>
         </view>
         <view class="control-chip pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTogglePriceSort">
-          <text class="control-label">价格</text>
+          <text class="control-label">{{priceControlLabel}}</text>
           <text class="control-value">{{priceSortLabel}}</text>
         </view>
         <view class="control-chip {{distanceSortClass}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
-          <text class="control-label">距离</text>
+          <text class="control-label">{{distanceControlLabel}}</text>
           <text class="control-value">{{distanceSortLabel}}</text>
         </view>
       </view>
@@ -109,9 +116,9 @@
         </view>
 
         <view class="goods-body">
-          <text class="goods-title">{{item.title}}</text>
-          <view wx:if="{{item.distanceText}}" class="meta-line">
-            <text class="distance">{{item.distanceText}}</text>
+          <view class="goods-title-row">
+            <text class="goods-title">{{item.title}}</text>
+            <text wx:if="{{item.distanceText}}" class="distance">{{item.distanceText}}</text>
           </view>
         </view>
       </view>
@@ -127,8 +134,8 @@
 
     <view class="empty-state" wx:if="{{showEmpty}}">
       <view class="empty-mark">⌕</view>
-      <view class="empty-title">没有找到商品</view>
-      <view class="empty-subtitle">换个关键词或筛选条件再试试</view>
+      <view class="empty-title">{{emptyTitle}}</view>
+      <view class="empty-subtitle">{{emptySubtitle}}</view>
       <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onResetMarketFilters">
         重置筛选
       </view>
@@ -150,6 +157,11 @@
 
     <view class="bottom-spacer"></view>
   </scroll-view>
+
+  <view class="market-float-actions">
+    <view class="float-action secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onMyGoods">我的</view>
+    <view class="float-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">发布</view>
+  </view>
 
   <view wx:if="{{regionPickerVisible}}">
     <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
@@ -182,5 +194,5 @@
     </view>
   </view>
 
-  <app-tabbar active="market"></app-tabbar>
+  <app-tabbar active="market" market-type="{{activeListingType}}" bindmarketchange="onMarketTabTypeChange"></app-tabbar>
 </view>

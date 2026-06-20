@@ -1,129 +1,33 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
 
-// ====================== ✅ 所住区域 bigregion：云端 regionTree 优先 ======================
-// - 云端集合：regionTree
-// - 优先 doc("default")，否则取第一条
-// - 字段：tree（结构：[{label, children:[{label, children:[...]}]}]）
-const NONE_REGION_NODE = { label: "无", children: [{ label: "无", children: ["无"] }] }
-
-// REGION_TREE 改成可变：云端拉到后覆盖
-let REGION_TREE = [NONE_REGION_NODE]
-
-const REGION_TREE_CACHE_KEY = "region_tree_cache_v1"
-const REGION_TREE_CACHE_AT_KEY = "region_tree_cache_at_v1"
-const REGION_TREE_CACHE_TTL_MS = 12 * 60 * 60 * 1000 // 12h
-
-function normalizeRegionTree(raw) {
-  let tree = raw
-  if (tree && Array.isArray(tree.tree)) tree = tree.tree
-  if (!Array.isArray(tree)) throw new Error("regionTree 数据格式错误")
-
-  const out = tree
-    .map(x => ({
-      label: (x && (x.label || x.name)) || "",
-      children: Array.isArray(x?.children) ? x.children : []
-    }))
-    .filter(x => x.label)
-    .map(x => ({
-      label: x.label,
-      children: (x.children || [])
-        .map(y => ({
-          label: (y && (y.label || y.name)) || "",
-          children: Array.isArray(y?.children) ? y.children.filter(Boolean) : []
-        }))
-        .filter(y => y.label)
-    }))
-
-  if (!out.length) throw new Error("regionTree 为空")
-
-  // 确保“无/无/无”在最前面（避免你原 UI 行为变化）
-  const hasNone = out[0] && out[0].label === "无"
-  return hasNone ? out : [NONE_REGION_NODE, ...out]
-}
-
-async function getRegionTreeFromCloud() {
-  // 先走缓存
-  try {
-    const cache = wx.getStorageSync(REGION_TREE_CACHE_KEY)
-    const at = Number(wx.getStorageSync(REGION_TREE_CACHE_AT_KEY) || 0)
-    if (cache && Date.now() - at < REGION_TREE_CACHE_TTL_MS) {
-      return normalizeRegionTree(cache)
-    }
-  } catch (e) {}
-
-  // 再拉云端
-  try {
-    const db = wx.cloud.database()
-    let docData = null
-
-    try {
-      const doc = await db.collection("regionTree").doc("default").get()
-      docData = doc?.data || null
-    } catch (e) {}
-
-    if (!docData) {
-      const res = await db.collection("regionTree").limit(1).get()
-      docData = (res.data || [])[0] || null
-    }
-
-    const tree = normalizeRegionTree(docData)
-
-    // 写缓存
-    try {
-      wx.setStorageSync(REGION_TREE_CACHE_KEY, tree)
-      wx.setStorageSync(REGION_TREE_CACHE_AT_KEY, Date.now())
-    } catch (e) {}
-
-    return tree
-  } catch (e) {
-    throw e
-  }
-}
-
-function safeArr(arr) {
-  return Array.isArray(arr) && arr.length ? arr : ["—"]
-}
-
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
 
-function buildLocationFromChooseResult(res = {}) {
-  const lat = Number(res.latitude)
-  const lng = Number(res.longitude)
-  const displayName = normalizeText(res.name || res.address)
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
 
-  return {
-    displayName,
-    name: normalizeText(res.name || displayName),
-    address: normalizeText(res.address || displayName),
-    lat: Number.isFinite(lat) ? lat : null,
-    lng: Number.isFinite(lng) ? lng : null,
-    source: 'chooseLocation',
-    updatedAtMs: Date.now()
-  }
+function hasLatLng(location = {}) {
+  return toFiniteNumber(location.lat ?? location.latitude) !== null &&
+    toFiniteNumber(location.lng ?? location.longitude) !== null
 }
 
 function getLocationDisplay(location = {}, address = '') {
   return normalizeText(
     location.displayName ||
     location.name ||
+    location.buildingName ||
     location.address ||
     address
   )
 }
 
-function buildCols(v0, v1) {
-  const col1 = REGION_TREE.map(x => x.label)
-
-  const lv1 = REGION_TREE[v0] || REGION_TREE[0]
-  const col2 = safeArr((lv1.children || []).map(x => x.label))
-
-  const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0] || { children: ["—"] }
-  const col3 = safeArr(lv2.children)
-
-  return { col1, col2, col3 }
+function isMarketLocationRequired(from) {
+  return String(from || '').indexOf('market') === 0
 }
 
 Page({
@@ -138,6 +42,13 @@ Page({
 
     // ✅ 所住区域（存到 userInfo.bigregion）
     bigregion: '',
+    locationPicking: false,
+    regionTree: [],
+    regionPickerVisible: false,
+    regionPickerValue: [0, 0, 0],
+    regionCol1: ['加载中'],
+    regionCol2: ['加载中'],
+    regionCol3: ['加载中'],
 
     phone: '',
     regionIndex: 0,
@@ -159,14 +70,7 @@ Page({
     customPriceNonCore: '',
     customPriceCore: '',
 
-    unsaved: false,
-
-    // ====== bigregion 三列滑动选择器 ======
-    bigRegionPickerVisible: false,
-    bigRegionPickerValue: [0, 0, 0],
-    bigRegionCol1: [],
-    bigRegionCol2: [],
-    bigRegionCol3: []
+    unsaved: false
   },
 
   goBack() {
@@ -182,40 +86,9 @@ Page({
     const from = options.from || 'profile'
     this.setData({ from })
 
-    this.setData({
-      bigRegionCol1: ["加载中"],
-      bigRegionCol2: ["加载中"],
-      bigRegionCol3: ["加载中"]
-    })
-
-    this._loadRegionTree()
-
     // 拉取云端 userInfo
     this.loadUserInfo()
-  },
-
-  async _loadRegionTree() {
-    try {
-      const tree = await getRegionTreeFromCloud()
-      REGION_TREE = tree
-
-      const [v0, v1] = this.data.bigRegionPickerValue || [0, 0]
-      const { col1, col2, col3 } = buildCols(v0, v1)
-
-      this.setData({
-        bigRegionCol1: col1,
-        bigRegionCol2: col2,
-        bigRegionCol3: col3
-      })
-    } catch (e) {
-      console.error("regionTree 加载失败：", e)
-      showDataError("地区加载失败", e, "地区配置从数据库加载失败，请稍后重试。")
-      this.setData({
-        bigRegionCol1: ["加载失败"],
-        bigRegionCol2: ["加载失败"],
-        bigRegionCol3: ["加载失败"]
-      })
-    }
+    this.loadRegionTreeFromCloud()
   },
 
   // 上传头像
@@ -252,12 +125,13 @@ Page({
       if (res.result && res.result.data && res.result.data.length > 0) {
         const user = res.result.data[0]
         const cp = user.customPrice || {}
+        const location = user.location || {}
 
         this.setData({
           wechat: user.wechatID || '',
           address: user.address || '',
-          location: user.location || {},
-          locationDisplay: getLocationDisplay(user.location || {}, user.address || ''),
+          location,
+          locationDisplay: hasLatLng(location) ? getLocationDisplay(location, user.address || '') : '',
           bigregion: user.bigregion || '',
 
           phone: user.phone || '',
@@ -285,8 +159,7 @@ Page({
     if (field === 'address') {
       this.setData({
         address: value,
-        location: {},
-        locationDisplay: normalizeText(value),
+        bigregion: value,
         unsaved: true
       })
       return
@@ -294,88 +167,178 @@ Page({
     this.setData({ [field]: value, unsaved: true })
   },
 
-  async onChooseLocation() {
+  async loadRegionTreeFromCloud() {
     try {
-      const res = await wx.chooseLocation({})
-      if (!res) return
+      const db = wx.cloud.database()
+      let docData = null
+      try {
+        const doc = await db.collection('regionTree').doc('default').get()
+        docData = doc?.data || null
+      } catch (e) {}
 
-      const location = buildLocationFromChooseResult(res)
-      const display = getLocationDisplay(location)
-      if (!display) return
+      if (!docData) {
+        const res = await db.collection('regionTree').limit(1).get()
+        docData = (res.data || [])[0] || null
+      }
+
+      let tree = docData
+      if (tree && Array.isArray(tree.tree)) tree = tree.tree
+      tree = (Array.isArray(tree) ? tree : []).filter(x => x && x.label && x.label !== '全部')
+      if (!tree.length) throw new Error('regionTree 数据为空或格式错误')
+
+      const lv1 = tree[0]
+      const col1 = tree.map(x => x.label)
+      const col2 = (lv1.children || []).map(x => x.label)
+      const lv2 = (lv1.children || [])[0] || { children: [] }
+      const col3 = (lv2.children || []).filter(Boolean)
 
       this.setData({
-        address: display,
-        location,
-        locationDisplay: display,
-        unsaved: true
+        regionTree: tree,
+        regionPickerValue: [0, 0, 0],
+        regionCol1: col1,
+        regionCol2: col2.length ? col2 : ['未设置'],
+        regionCol3: col3.length ? col3 : ['未设置']
       })
     } catch (e) {
+      console.error('regionTree 加载失败：', e)
+      this.setData({
+        regionTree: [],
+        regionPickerValue: [0, 0, 0],
+        regionCol1: ['加载失败'],
+        regionCol2: ['加载失败'],
+        regionCol3: ['加载失败']
+      })
     }
+  },
+
+  async onTapRegionPicker() {
+    if (!this.data.regionTree.length) {
+      await this.loadRegionTreeFromCloud()
+    }
+
+    if (!this.data.regionTree.length) {
+      wx.showToast({ title: '地区配置加载失败', icon: 'none' })
+      return
+    }
+
+    this.setData({ regionPickerVisible: true })
+  },
+
+  onRegionPickerChange(e) {
+    const v = Array.isArray(e.detail.value) ? e.detail.value : [0, 0, 0]
+    const [v0, v1] = v
+    const tree = this.data.regionTree || []
+    const lv1 = tree[v0] || tree[0] || { children: [] }
+    const col2 = (lv1.children || []).map(x => x.label)
+    const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0] || { children: [] }
+    const col3 = (lv2.children || []).filter(Boolean)
+
+    this.setData({
+      regionPickerValue: v,
+      regionCol2: col2.length ? col2 : ['未设置'],
+      regionCol3: col3.length ? col3 : ['未设置']
+    })
+  },
+
+  onRegionPickerCancel() {
+    this.setData({ regionPickerVisible: false })
+  },
+
+  onRegionPickerConfirm() {
+    const pickerValue = Array.isArray(this.data.regionPickerValue) ? this.data.regionPickerValue : [0, 0, 0]
+    const [v0, v1, v2] = pickerValue
+    const tree = this.data.regionTree || []
+    const lv1 = tree[v0] || tree[0]
+    const lv2 = (lv1?.children || [])[v1] || (lv1?.children || [])[0]
+    const lv3 = (this.data.regionCol3 || [])[v2]
+    const parts = [
+      lv1?.label,
+      lv2?.label,
+      lv3
+    ].map(normalizeText).filter(x => x && x !== '全部' && x !== '未设置')
+    const address = parts.join(' / ')
+
+    if (!address) {
+      wx.showToast({ title: '请选择具体地区', icon: 'none' })
+      return
+    }
+
+    this.setData({
+      address,
+      bigregion: address,
+      regionPickerVisible: false,
+      unsaved: true
+    })
+  },
+
+  stopTouchMove() {},
+
+  onChooseLocation() {
+    if (this.data.locationPicking) return
+    if (typeof wx.chooseLocation !== 'function') {
+      wx.showToast({ title: '当前版本不支持选点', icon: 'none' })
+      return
+    }
+
+    this.setData({ locationPicking: true })
+    wx.chooseLocation({
+      success: res => {
+        const lat = toFiniteNumber(res.latitude)
+        const lng = toFiniteNumber(res.longitude)
+        if (lat === null || lng === null) {
+          wx.showToast({ title: '未获取到坐标', icon: 'none' })
+          return
+        }
+
+        const name = normalizeText(res.name)
+        const address = normalizeText(res.address)
+        const displayName = name || address || '已选择位置'
+        const currentAddress = normalizeText(this.data.address)
+        const location = {
+          displayName,
+          name,
+          address,
+          lat,
+          lng,
+          source: 'wxChooseLocation',
+          coordinateAccuracy: 'userSelected',
+          provider: 'wx.chooseLocation',
+          updatedAtMs: Date.now()
+        }
+
+        this.setData({
+          address: currentAddress || displayName,
+          bigregion: currentAddress || this.data.bigregion || displayName,
+          location,
+          locationDisplay: getLocationDisplay(location, currentAddress || displayName),
+          unsaved: true
+        })
+        wx.showToast({ title: '位置已选择', icon: 'success' })
+      },
+      fail: err => {
+        const msg = String(err?.errMsg || '')
+        if (msg.includes('cancel')) return
+        console.error('选择位置失败：', err)
+        wx.showToast({ title: '选择位置失败', icon: 'none' })
+      },
+      complete: () => {
+        this.setData({ locationPicking: false })
+      }
+    })
   },
 
   onRegionChange(e) {
     this.setData({ regionIndex: e.detail.value, unsaved: true })
   },
 
-  // ====== bigregion：打开三列滚动选择器 ======
-  onChooseBigRegion() {
-    const [v0, v1] = this.data.bigRegionPickerValue || [0, 0]
-    const { col1, col2, col3 } = buildCols(v0, v1)
-    this.setData({
-      bigRegionPickerVisible: true,
-      bigRegionCol1: col1,
-      bigRegionCol2: col2,
-      bigRegionCol3: col3
-    })
-  },
-
-  onBigRegionPickerChange(e) {
-    const newVal = e.detail.value || [0, 0, 0]
-    const oldVal = this.data.bigRegionPickerValue || [0, 0, 0]
-
-    let [v0, v1, v2] = newVal
-
-    if (v0 !== oldVal[0]) {
-      v1 = 0
-      v2 = 0
-    } else if (v1 !== oldVal[1]) {
-      v2 = 0
-    }
-
-    const { col2, col3 } = buildCols(v0, v1)
-
-    this.setData({
-      bigRegionPickerValue: [v0, v1, v2],
-      bigRegionCol2: col2,
-      bigRegionCol3: col3
-    })
-  },
-
-  onBigRegionPickerCancel() {
-    this.setData({ bigRegionPickerVisible: false })
-  },
-
-  onBigRegionPickerConfirm() {
-    const [v0, v1, v2] = this.data.bigRegionPickerValue || [0, 0, 0]
-
-    const lv1 = REGION_TREE[v0] || REGION_TREE[0]
-    const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0]
-    const lv3 = safeArr(lv2?.children)[v2] || safeArr(lv2?.children)[0]
-
-    const bigregion = `${lv1.label} / ${lv2.label} / ${lv3}`
-
-    this.setData({
-      bigregion,
-      bigRegionPickerVisible: false,
-      unsaved: true
-    })
-  },
-
   // 手机号选填；微信号必填
   validateAll() {
-    const { wechat, phone, regionIndex } = this.data
+    const { wechat, phone, regionIndex, from, location } = this.data
 
     if (!wechat) return '请填写微信号'
+    if (isMarketLocationRequired(from) && !hasLatLng(location || {})) {
+      return '请选择位置用于计算距离'
+    }
 
     if (phone) {
       if (regionIndex == 0 && !/^\d{10}$/.test(phone)) return '请输入正确美国手机号'
@@ -431,7 +394,7 @@ Page({
     }
 
     updateData.address = address || ''
-    if (location && typeof location === 'object' && (location.displayName || location.address || location.lat || location.lng)) {
+    if (location && typeof location === 'object') {
       updateData.location = location
     }
     updateData.bigregion = bigregion || ''

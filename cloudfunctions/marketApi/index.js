@@ -9,14 +9,19 @@ const GOODS_COLLECTION = "market_goods"
 const FILES_COLLECTION = "MarketFiles"
 const USER_COLLECTION = "userInfo"
 const MAX_PICKUP_MONTHS = 2
+const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 50
+const DISTANCE_SORT_BATCH_SIZE = 100
+const DISTANCE_SORT_SCAN_LIMIT = 2000
 const VISIBLE_STATUSES = new Set(["", "online"])
 const MUTABLE_STATUSES = new Set(["online", "offline", "sold"])
+const LISTING_TYPES = new Set(["goods", "sublet"])
 
 const LIST_FIELDS = {
   _id: true,
   _openid: true,
+  listingType: true,
   title: true,
   price: true,
   category: true,
@@ -40,7 +45,16 @@ const LIST_FIELDS = {
   buyerOpenid: true,
   buyer_openid: true,
   isSold: true,
-  sold: true
+  sold: true,
+  availableStartDate: true,
+  leaseEndDate: true,
+  deposit: true,
+  roomType: true,
+  housingType: true,
+  furnished: true,
+  utilitiesIncluded: true,
+  genderPreference: true,
+  roommateCount: true
 }
 
 function ok(data = {}) {
@@ -61,6 +75,16 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function normalizeListingType(value) {
+  const type = normalizeText(value).toLowerCase()
+  return LISTING_TYPES.has(type) ? type : "goods"
+}
+
+function getEventListingType(event = {}) {
+  const filters = event.filters || {}
+  return normalizeListingType(event.listingType || filters.listingType)
+}
+
 function normalizeFileID(fileID) {
   const value = normalizeText(fileID)
   return value.startsWith("cloud://") ? value : ""
@@ -76,9 +100,79 @@ function toFiniteNumber(value) {
   return Number.isFinite(n) ? n : null
 }
 
+function normalizeOptionalAmount(value) {
+  const text = normalizeText(value)
+  if (!text) return { ok: true, value: "" }
+  const n = Number(text)
+  if (!Number.isFinite(n) || n < 0) return { ok: false }
+  return { ok: true, value: Number(n.toFixed(2)) }
+}
+
+function normalizeOptionalInteger(value) {
+  const text = normalizeText(value)
+  if (!text) return { ok: true, value: "" }
+  const n = Number(text)
+  if (!Number.isFinite(n) || n < 0) return { ok: false }
+  return { ok: true, value: Math.floor(n) }
+}
+
+function normalizeBoolean(value) {
+  if (value === true || value === false) return value
+  const text = normalizeText(value).toLowerCase()
+  if (!text) return false
+  if (["true", "1", "yes", "y", "是", "有", "带", "include", "included"].includes(text)) return true
+  if (["false", "0", "no", "n", "否", "无", "不带", "exclude", "excluded"].includes(text)) return false
+  return !!value
+}
+
 function hasLatLng(location = {}) {
   return toFiniteNumber(location.lat ?? location.latitude) !== null &&
     toFiniteNumber(location.lng ?? location.longitude) !== null
+}
+
+function normalizeLatLng(location = {}) {
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
+  if (lat === null || lng === null) return null
+  return { lat, lng }
+}
+
+function distanceMiles(a = {}, b = {}) {
+  const p1 = normalizeLatLng(a)
+  const p2 = normalizeLatLng(b)
+  if (!p1 || !p2) return null
+
+  const toRad = deg => deg * Math.PI / 180
+  const earthMiles = 3958.8
+  const dLat = toRad(p2.lat - p1.lat)
+  const dLng = toRad(p2.lng - p1.lng)
+  const s1 = Math.sin(dLat / 2)
+  const s2 = Math.sin(dLng / 2)
+  const h = s1 * s1 + Math.cos(toRad(p1.lat)) * Math.cos(toRad(p2.lat)) * s2 * s2
+  return earthMiles * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function timestampMs(value) {
+  if (!value) return 0
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0
+  if (typeof value === "string") {
+    const t = Date.parse(value)
+    return Number.isFinite(t) ? t : 0
+  }
+  if (value.$date) return timestampMs(value.$date)
+  if (value.$numberLong) {
+    const n = Number(value.$numberLong)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
+function getDistanceSortOrigin(event = {}) {
+  const sort = event.sort || {}
+  const by = normalizeText(sort.by || sort.type || event.sortBy).toLowerCase()
+  if (by !== "distance" && by !== "nearest") return null
+  return normalizeLatLng(sort.origin || event.origin || event.myLocation || {})
 }
 
 function buildLocationForSave(regionStr, location = {}) {
@@ -98,6 +192,9 @@ function buildLocationForSave(regionStr, location = {}) {
     lng: toFiniteNumber(location.lng ?? location.longitude),
     address: normalizeText(location.address),
     source: normalizeText(location.source || "manual"),
+    region: normalizeText(location.region || location.bigregion),
+    coordinateAccuracy: normalizeText(location.coordinateAccuracy),
+    provider: normalizeText(location.provider),
     updatedAtMs: Date.now()
   }
 }
@@ -181,8 +278,10 @@ function addMonths(date, months) {
 }
 
 function buildPickupWindow(payload = {}, oldItem = {}) {
+  const listingType = normalizeListingType(payload.listingType || oldItem.listingType)
+  const maxMonths = listingType === "sublet" ? MAX_SUBLET_MONTHS : MAX_PICKUP_MONTHS
   const today = startOfDay(new Date())
-  const maxEnd = addMonths(today, MAX_PICKUP_MONTHS)
+  const maxEnd = addMonths(today, maxMonths)
   const fallbackEnd = new Date(today.getTime())
   fallbackEnd.setDate(fallbackEnd.getDate() + 14)
   const safeFallbackEnd = fallbackEnd > maxEnd ? maxEnd : fallbackEnd
@@ -191,7 +290,7 @@ function buildPickupWindow(payload = {}, oldItem = {}) {
   const end = parseDateOnly(payload.pickupEndDate || oldItem.pickupEndDate || oldItem.expiresAtText) || safeFallbackEnd
 
   if (end < start) return { ok: false, error: "pickup_end_before_start" }
-  if (end > maxEnd) return { ok: false, error: "pickup_range_over_2_months" }
+  if (end > maxEnd) return { ok: false, error: listingType === "sublet" ? "lease_range_over_18_months" : "pickup_range_over_2_months" }
 
   const pickupStartDate = formatDateOnly(start)
   const pickupEndDate = formatDateOnly(end)
@@ -326,28 +425,85 @@ function formatPrice(value) {
   return Number.isFinite(n) ? n.toFixed(n % 1 === 0 ? 0 : 2) : "0"
 }
 
+function formatAmountText(value, suffix = "") {
+  const text = normalizeText(value)
+  if (!text && text !== "0") return ""
+  const n = Number(value)
+  if (!Number.isFinite(n)) return text
+  const amount = n.toFixed(n % 1 === 0 ? 0 : 2)
+  return suffix ? `${amount}${suffix}` : amount
+}
+
+function buildLeaseText(item = {}) {
+  const start = normalizeText(item.availableStartDate || item.pickupStartDate)
+  const end = normalizeText(item.leaseEndDate || item.pickupEndDate || item.expiresAtText)
+  if (start && end) return `${start} 至 ${end}`
+  if (start) return `${start} 可入住`
+  if (end) return `${end} 前有效`
+  return "联系发布者确认"
+}
+
+function buildSubletMetaList(item = {}) {
+  const rows = []
+  const depositText = formatAmountText(item.deposit)
+  if (depositText) rows.push({ label: "押金", value: `$ ${depositText}` })
+  if (item.housingType) rows.push({ label: "房源类型", value: normalizeText(item.housingType) })
+  if (item.roomType) rows.push({ label: "房间类型", value: normalizeText(item.roomType) })
+  rows.push({ label: "家具", value: item.furnished ? "带家具" : "未标注" })
+  rows.push({ label: "水电网", value: item.utilitiesIncluded ? "已包含" : "未包含/未标注" })
+  if (item.genderPreference) rows.push({ label: "室友要求", value: normalizeText(item.genderPreference) })
+  const roommateCountText = formatAmountText(item.roommateCount)
+  if (roommateCountText) rows.push({ label: "室友数", value: `${roommateCountText} 人` })
+  return rows
+}
+
+function buildSubletSummary(item = {}) {
+  const parts = [
+    item.housingType,
+    item.roomType || item.category,
+    item.furnished ? "带家具" : "",
+    item.utilitiesIncluded ? "包水电网" : ""
+  ].map(normalizeText).filter(Boolean)
+  return parts.slice(0, 3).join(" · ")
+}
+
 function normalizeMarketItem(item = {}) {
-  const title = normalizeText(item.title) || "未命名商品"
+  const listingType = normalizeListingType(item.listingType)
+  const title = normalizeText(item.title) || (listingType === "sublet" ? "未命名房源" : "未命名商品")
   const priceText = formatPrice(item.price)
   const status = normalizeText(item.status) || "online"
+  const category = normalizeText(item.category) || (listingType === "sublet" ? "转租" : "其他")
+  const availableStartDate = normalizeText(item.availableStartDate || item.pickupStartDate)
+  const leaseEndDate = normalizeText(item.leaseEndDate || item.pickupEndDate || item.expiresAtText)
+  const depositText = formatAmountText(item.deposit)
+  const subletMetaList = listingType === "sublet" ? buildSubletMetaList(item) : []
+  const subletSummary = listingType === "sublet" ? buildSubletSummary({ ...item, category }) : ""
+  const leaseText = listingType === "sublet" ? buildLeaseText({ ...item, availableStartDate, leaseEndDate }) : ""
+  const defaultCondition = listingType === "sublet"
+    ? (subletSummary || availableStartDate || "转租")
+    : "成色未填"
+  const defaultDesc = listingType === "sublet" ? "发布者暂未填写详细描述。" : "卖家暂未填写详细描述。"
   return {
     ...item,
     _id: item._id,
     id: item._id,
+    listingType,
     title,
     titleDisplay: title,
     price: Number(item.price) || 0,
     priceText,
     priceDisplay: priceText,
-    category: normalizeText(item.category) || "其他",
-    categoryDisplay: normalizeText(item.category) || "二手",
+    priceDisplayWithUnit: listingType === "sublet" ? `${priceText}/月` : priceText,
+    priceUnitText: listingType === "sublet" ? "月租" : "价格",
+    category,
+    categoryDisplay: category || (listingType === "sublet" ? "转租" : "二手"),
     region: normalizeText(item.region),
     location: item.location || {},
-    condition: normalizeText(item.condition) || "成色未填",
-    conditionText: normalizeText(item.condition) || "成色未填",
-    conditionDisplay: normalizeText(item.condition) || "成色未填",
+    condition: normalizeText(item.condition) || defaultCondition,
+    conditionText: normalizeText(item.condition) || defaultCondition,
+    conditionDisplay: normalizeText(item.condition) || defaultCondition,
     desc: item.desc || "",
-    descDisplay: item.desc || "卖家暂未填写详细描述。",
+    descDisplay: item.desc || defaultDesc,
     postDate: item.postDate || "刚刚发布",
     postDateDisplay: item.postDate || "刚刚发布",
     imageFileID: normalizeFileID(item.imageFileID),
@@ -358,19 +514,39 @@ function normalizeMarketItem(item = {}) {
     pickupStartDate: item.pickupStartDate || "",
     pickupEndDate: item.pickupEndDate || item.expiresAtText || "",
     pickupRangeText: item.pickupRangeText || "",
-    pickupText: item.pickupRangeText || item.pickupEndDate || item.expiresAtText || "联系卖家确认",
-    locationText: item.pickup || item.region || "卖家未填写",
+    pickupText: listingType === "sublet"
+      ? (leaseText || "联系发布者确认")
+      : (item.pickupRangeText || item.pickupEndDate || item.expiresAtText || "联系卖家确认"),
+    locationText: item.pickup || item.region || (listingType === "sublet" ? "发布者未填写" : "卖家未填写"),
     expireTime: Number(item.expireTime) || 0,
     expiresAtText: item.expiresAtText || "",
     status,
     wantCount: Number(item.wantCount) || 0,
-    wantCountText: `${Number(item.wantCount) || 0} 人想要`,
+    wantCountText: listingType === "sublet" ? `${Number(item.wantCount) || 0} 人关注` : `${Number(item.wantCount) || 0} 人想要`,
     viewCount: Number(item.viewCount) || 0,
     viewCountText: `${Number(item.viewCount) || 0} 人浏览`,
     pickup: item.pickup || item.region || "",
-    imageSrc: "/images/market.png",
+    imageSrc: listingType === "sublet" ? "/images/sublease.png" : "/images/market.png",
     thumbUrl: "",
-    imageUrls: []
+    imageUrls: [],
+    availableStartDate,
+    leaseEndDate,
+    leaseText,
+    deposit: item.deposit || "",
+    depositText: depositText ? `$ ${depositText}` : "",
+    roomType: normalizeText(item.roomType),
+    housingType: normalizeText(item.housingType),
+    furnished: item.furnished === true,
+    furnishedText: item.furnished ? "带家具" : "未标注",
+    utilitiesIncluded: item.utilitiesIncluded === true,
+    utilitiesIncludedText: item.utilitiesIncluded ? "已包含" : "未包含/未标注",
+    genderPreference: normalizeText(item.genderPreference),
+    genderPreferenceDisplay: normalizeText(item.genderPreference) || "不限",
+    roommateCount: item.roommateCount || "",
+    roommateCountText: item.roommateCount || item.roommateCount === 0 ? `${item.roommateCount} 人` : "",
+    subletMetaList,
+    hasSubletMeta: subletMetaList.length > 0,
+    subletSummary
   }
 }
 
@@ -408,7 +584,7 @@ async function enrichImageUrls(items, options = {}) {
   return list.map(item => {
     const primary = primaryFileID(item)
     const imageUrls = detail ? item.imageFileIDs.map(fileID => urlMap[fileID]).filter(Boolean) : []
-    const imageSrc = (primary && urlMap[primary]) || primary || "/images/market.png"
+    const imageSrc = (primary && urlMap[primary]) || primary || (item.listingType === "sublet" ? "/images/sublease.png" : "/images/market.png")
     return {
       ...item,
       thumbUrl: primary ? (urlMap[primary] || "") : "",
@@ -421,6 +597,11 @@ async function enrichImageUrls(items, options = {}) {
 
 function normalizePayloadForSave(payload = {}, oldItem = {}) {
   const data = {}
+  const listingType = normalizeListingType(payload.listingType !== undefined ? payload.listingType : oldItem.listingType)
+
+  if (payload.listingType !== undefined) {
+    data.listingType = listingType
+  }
 
   if (payload.title !== undefined) {
     data.title = normalizeText(payload.title)
@@ -441,6 +622,24 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   if (payload.condition !== undefined) data.condition = normalizeText(payload.condition) || "99新"
   if (payload.desc !== undefined) data.desc = String(payload.desc || "")
 
+  if (payload.availableStartDate !== undefined) data.availableStartDate = normalizeText(payload.availableStartDate)
+  if (payload.leaseEndDate !== undefined) data.leaseEndDate = normalizeText(payload.leaseEndDate)
+  if (payload.deposit !== undefined) {
+    const deposit = normalizeOptionalAmount(payload.deposit)
+    if (!deposit.ok) return fail("invalid_deposit")
+    data.deposit = deposit.value
+  }
+  if (payload.roomType !== undefined) data.roomType = normalizeText(payload.roomType)
+  if (payload.housingType !== undefined) data.housingType = normalizeText(payload.housingType)
+  if (payload.furnished !== undefined) data.furnished = normalizeBoolean(payload.furnished)
+  if (payload.utilitiesIncluded !== undefined) data.utilitiesIncluded = normalizeBoolean(payload.utilitiesIncluded)
+  if (payload.genderPreference !== undefined) data.genderPreference = normalizeText(payload.genderPreference)
+  if (payload.roommateCount !== undefined) {
+    const roommateCount = normalizeOptionalInteger(payload.roommateCount)
+    if (!roommateCount.ok) return fail("invalid_roommate_count")
+    data.roommateCount = roommateCount.value
+  }
+
   if (payload.status !== undefined) {
     const status = normalizeText(payload.status || "online")
     if (!MUTABLE_STATUSES.has(status)) return fail("invalid_status")
@@ -450,6 +649,12 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   const pickupWindow = buildPickupWindow(payload, oldItem)
   if (!pickupWindow.ok) return fail(pickupWindow.error)
   Object.assign(data, pickupWindow)
+  if (listingType === "sublet") {
+    data.availableStartDate = data.availableStartDate || pickupWindow.pickupStartDate
+    data.leaseEndDate = data.leaseEndDate || pickupWindow.pickupEndDate
+    data.roomType = data.roomType || normalizeText(payload.roomType || oldItem.roomType || data.category || oldItem.category)
+    data.condition = data.condition || "转租"
+  }
 
   const nextImageFiles = uniqFileIDs([
     payload.imageFileID !== undefined ? payload.imageFileID : oldItem.imageFileID,
@@ -486,6 +691,7 @@ async function createItem(event, openid) {
   const idempotentGoodsId = buildIdempotentGoodsId(openid, clientRequestId)
   const data = {
     ...normalized.data,
+    listingType: normalized.data.listingType || normalizeListingType(payload.listingType),
     title,
     category,
     region,
@@ -536,6 +742,7 @@ async function updateItem(event, openid) {
 
   const allowed = new Set([
     "title",
+    "listingType",
     "price",
     "category",
     "region",
@@ -549,7 +756,16 @@ async function updateItem(event, openid) {
     "hasImage",
     "pickupStartDate",
     "pickupEndDate",
-    "status"
+    "status",
+    "availableStartDate",
+    "leaseEndDate",
+    "deposit",
+    "roomType",
+    "housingType",
+    "furnished",
+    "utilitiesIncluded",
+    "genderPreference",
+    "roommateCount"
   ])
   const safePatch = {}
   Object.keys(patch).forEach(key => {
@@ -609,6 +825,7 @@ async function deleteItem(event, openid) {
 
 function buildVisibleConditions(filters = {}) {
   const conditions = [{ status: "online" }]
+  conditions.push(buildListingTypeCondition(filters.listingType))
   if (filters.category && filters.category !== "全部") {
     conditions.push({ category: filters.category })
   }
@@ -631,6 +848,28 @@ function buildVisibleConditions(filters = {}) {
   return conditions.length === 1 ? conditions[0] : _.and(conditions)
 }
 
+function buildListingTypeCondition(value) {
+  const listingType = normalizeListingType(value)
+  if (listingType === "sublet") return { listingType: "sublet" }
+  return _.or([
+    { listingType: _.exists(false) },
+    { listingType: "" },
+    { listingType: "goods" }
+  ])
+}
+
+function buildOwnerListCondition(openid, listingType, visibleOnly = false) {
+  const conditions = [{ _openid: openid }, buildListingTypeCondition(listingType)]
+  if (visibleOnly) conditions.push({ status: "online" })
+  return _.and(conditions)
+}
+
+function buildListBaseQuery(condition) {
+  let query = db.collection(GOODS_COLLECTION).where(condition)
+  if (typeof query.field === "function") query = query.field(LIST_FIELDS)
+  return query
+}
+
 async function queryPaged(query, event = {}) {
   const limit = clampLimit(event.limit)
   const skip = Math.max(0, Number(event.skip) || 0)
@@ -651,9 +890,58 @@ async function queryPaged(query, event = {}) {
   })
 }
 
+async function queryDistancePaged(condition, event = {}, origin) {
+  const limit = clampLimit(event.limit)
+  const skip = Math.max(0, Number(event.skip) || 0)
+  const scanLimit = DISTANCE_SORT_SCAN_LIMIT
+  const rows = []
+  let offset = 0
+
+  while (rows.length < scanLimit) {
+    const batchLimit = Math.min(DISTANCE_SORT_BATCH_SIZE, scanLimit - rows.length)
+    const res = await buildListBaseQuery(condition)
+      .orderBy("createTime", "desc")
+      .skip(offset)
+      .limit(batchLimit)
+      .get()
+    const batch = res.data || []
+    if (!batch.length) break
+    rows.push(...batch)
+    offset += batch.length
+    if (batch.length < batchLimit) break
+  }
+
+  const sorted = rows.map(item => {
+    const miles = distanceMiles(origin, item.location || {})
+    return Number.isFinite(miles) ? { ...item, distanceMiles: miles } : { ...item, distanceMiles: null }
+  }).sort((a, b) => {
+    const da = Number.isFinite(a.distanceMiles) ? a.distanceMiles : Number.POSITIVE_INFINITY
+    const db = Number.isFinite(b.distanceMiles) ? b.distanceMiles : Number.POSITIVE_INFINITY
+    if (da !== db) return da - db
+    return timestampMs(b.createTime) - timestampMs(a.createTime)
+  })
+
+  const pageRows = sorted.slice(skip, skip + limit)
+  const items = await enrichImageUrls(pageRows)
+  return ok({
+    items,
+    data: items,
+    skip,
+    limit,
+    nextSkip: skip + pageRows.length,
+    hasMore: skip + pageRows.length < sorted.length,
+    distanceSorted: true,
+    distanceScanCount: rows.length,
+    distanceScanLimit: DISTANCE_SORT_SCAN_LIMIT
+  })
+}
+
 async function listItems(event) {
-  let query = db.collection(GOODS_COLLECTION).where(buildVisibleConditions(event.filters || {}))
-  if (typeof query.field === "function") query = query.field(LIST_FIELDS)
+  const condition = buildVisibleConditions(event.filters || {})
+  const origin = getDistanceSortOrigin(event)
+  if (origin) return queryDistancePaged(condition, event, origin)
+
+  const query = buildListBaseQuery(condition)
   return queryPaged(query, event)
 }
 
@@ -677,7 +965,7 @@ async function detail(event, openid) {
 
 async function myList(event, openid) {
   if (!openid) return fail("not_logged_in")
-  let query = db.collection(GOODS_COLLECTION).where({ _openid: openid })
+  let query = db.collection(GOODS_COLLECTION).where(buildOwnerListCondition(openid, getEventListingType(event)))
   if (typeof query.field === "function") query = query.field(LIST_FIELDS)
   return queryPaged(query, event)
 }
@@ -685,7 +973,7 @@ async function myList(event, openid) {
 async function sellerList(event) {
   const sellerOpenid = normalizeText(event.openid || event.sellerOpenid)
   if (!sellerOpenid) return fail("missing_openid")
-  let query = db.collection(GOODS_COLLECTION).where({ _openid: sellerOpenid, status: "online" })
+  let query = db.collection(GOODS_COLLECTION).where(buildOwnerListCondition(sellerOpenid, getEventListingType(event), true))
   if (typeof query.field === "function") query = query.field(LIST_FIELDS)
   const result = await queryPaged(query, event)
   if (!result.ok) return result

@@ -154,6 +154,16 @@
   word-break: break-all;
 }
 
+.item-meta{
+  color: #69727d;
+  font-size: 22rpx;
+  line-height: 28rpx;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .price{
   color: #f05d4f;
   font-size: 32rpx;

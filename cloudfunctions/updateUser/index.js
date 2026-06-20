@@ -34,10 +34,18 @@ function normalizeLocationForSave(location) {
   return {
     displayName: displayName || address,
     name: normalizeLocationText(location.name || displayName || address),
+    buildingName: normalizeLocationText(location.buildingName),
     address,
+    region: normalizeLocationText(location.region || location.bigregion),
+    city: normalizeLocationText(location.city),
+    state: normalizeLocationText(location.state),
+    zip: normalizeLocationText(location.zip),
+    country: normalizeLocationText(location.country || 'US'),
     lat,
     lng,
-    source: normalizeLocationText(location.source || 'chooseLocation'),
+    source: normalizeLocationText(location.source || 'wxChooseLocation'),
+    coordinateAccuracy: normalizeLocationText(location.coordinateAccuracy),
+    provider: normalizeLocationText(location.provider),
     updatedAtMs: Date.now()
   }
 }
@@ -155,7 +163,9 @@ async function handleNormalUpdate(openid, event) {
     if (typeof zelleName === 'string')     updateData.zelleName = zelleName
     if (typeof zelleAccount === 'string')  updateData.zelleAccount = zelleAccount
     if (typeof address === 'string')       updateData.address = address
-    if (normalizedLocation)                updateData.location = normalizedLocation
+    if (Object.prototype.hasOwnProperty.call(event || {}, 'location')) {
+      updateData.location = normalizedLocation || {}
+    }
     if (typeof bigregion === 'string')    updateData.bigregion = bigregion
 
     if (typeof carNumber === 'string') updateData.carNumber = carNumber

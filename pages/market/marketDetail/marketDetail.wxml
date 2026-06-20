@@ -1,8 +1,8 @@
-<view class="market-detail-page">
+<view class="market-detail-page {{item.detailPageClass}}">
   <view class="detail-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="detail-nav">
       <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
-      <text class="nav-title">商品详情</text>
+      <text class="nav-title">{{detailNavTitle}}</text>
       <view class="nav-spacer"></view>
     </view>
   </view>
@@ -73,26 +73,33 @@
 
         <view class="info-grid">
           <view class="info-cell">
-            <text class="info-label">可取时间</text>
+            <text class="info-label">{{item.pickupLabel}}</text>
             <text class="info-value">{{item.pickupText}}</text>
           </view>
           <view class="info-cell">
-            <text class="info-label">取货位置</text>
+            <text class="info-label">{{item.locationLabel}}</text>
             <text class="info-value">{{item.locationText}}</text>
           </view>
         </view>
 
+        <view wx:if="{{item.hasSubletMeta}}" class="info-grid sublet-info-grid">
+          <view class="info-cell compact" wx:for="{{item.subletMetaList}}" wx:key="label">
+            <text class="info-label">{{item.label}}</text>
+            <text class="info-value">{{item.value}}</text>
+          </view>
+        </view>
+
         <view class="section-card">
-          <text class="section-title">商品描述</text>
+          <text class="section-title">{{item.descTitle}}</text>
           <text class="desc-text">{{item.descDisplay}}</text>
         </view>
 
         <view class="quick-actions">
           <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onViewSellerOther">
-            查看卖家其他商品
+            {{item.sellerOtherText}}
           </view>
           <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onPickupInfo">
-            查看取货位置
+            {{item.locationActionText}}
           </view>
         </view>
 
@@ -106,7 +113,7 @@
 
           <block wx:else>
             <view class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onContactBuy">
-              联系购买
+              {{item.contactText}}
             </view>
           </block>
         </view>

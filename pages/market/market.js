@@ -1,14 +1,92 @@
 // 与 marketPost 保持一致：分类顺序固定
 const { showDataError } = require("../../utils/error")
 
-const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
+const GOODS_CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
+const SUBLET_CATEGORY_OPTIONS = ["单间", "主卧", "客厅", "Studio", "1B1B", "2B2B", "整租", "其他"]
+const LISTING_TYPE_STORAGE_KEY = "market_active_listing_type_v1"
+const LISTING_TYPE_CONFIG = {
+  goods: {
+    type: "goods",
+    label: "二手",
+    brandKicker: "Campus market",
+    brandTitle: "二手市场",
+    searchPlaceholder: "搜索商品、品牌或关键词",
+    resultTitle: "最新闲置",
+    resultUnit: "件",
+    priceLabel: "价格",
+    distanceLabel: "距离",
+    emptyTitle: "没有找到商品",
+    emptySubtitle: "换个关键词或筛选条件再试试",
+    categories: GOODS_CATEGORY_OPTIONS
+  },
+  sublet: {
+    type: "sublet",
+    label: "转租",
+    brandKicker: "Campus market",
+    brandTitle: "转租房源",
+    searchPlaceholder: "搜索公寓、区域或关键词",
+    resultTitle: "最新转租",
+    resultUnit: "套",
+    priceLabel: "月租",
+    distanceLabel: "距离",
+    emptyTitle: "没有找到房源",
+    emptySubtitle: "换个区域或关键词再试试",
+    categories: SUBLET_CATEGORY_OPTIONS
+  }
+}
 
 // ====== Performance / Cache ======
-const GOODS_CACHE_KEY = "market_goods_list_cache_v4"
+const GOODS_CACHE_KEY_PREFIX = "market_goods_list_cache_v5"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
+const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内切换类型只用缓存，不再打云函数
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
+const FIRST_PAGE_FETCH_COOLDOWN_MS = 8 * 1000      // 同一筛选条件短时间防重复请求
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getListingTypeConfig(type) {
+  return LISTING_TYPE_CONFIG[normalizeListingType(type)] || LISTING_TYPE_CONFIG.goods
+}
+
+function getGoodsCacheKey(type) {
+  return `${GOODS_CACHE_KEY_PREFIX}_${normalizeListingType(type)}`
+}
+
+function normalizeCoordKey(location = {}) {
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
+  if (lat === null || lng === null) return ""
+  return `${lat.toFixed(5)},${lng.toFixed(5)}`
+}
+
+function buildListQueryKey(filters = {}, sort = {}) {
+  return [
+    normalizeListingType(filters.listingType),
+    String(filters.category || "全部"),
+    String(filters.region || "全部"),
+    String(filters.keyword || "").trim(),
+    String(sort.by || ""),
+    normalizeCoordKey(sort.origin || {})
+  ].join("|")
+}
+
+function getStoredListingType() {
+  try {
+    return normalizeListingType(wx.getStorageSync(LISTING_TYPE_STORAGE_KEY))
+  } catch (e) {
+    return "goods"
+  }
+}
+
+function setStoredListingType(type) {
+  try {
+    wx.setStorageSync(LISTING_TYPE_STORAGE_KEY, normalizeListingType(type))
+  } catch (e) {}
+}
 
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === "") return null
@@ -40,9 +118,9 @@ function distanceMiles(a = {}, b = {}) {
 
 function formatDistanceText(miles) {
   if (!Number.isFinite(miles)) return ""
-  if (miles < 0.1) return "0.1 mi内"
-  if (miles < 10) return `${miles.toFixed(1)} mi`
-  return `${Math.round(miles)} mi`
+  if (miles < 0.1) return "<0.1mi"
+  if (miles < 10) return `${miles.toFixed(1)}mi`
+  return `${Math.round(miles)}mi`
 }
 
 function getMarketGoodsChangedAt() {
@@ -69,17 +147,33 @@ function buildCategoryTabs(categories = [], activeCategory = "全部") {
   }))
 }
 
+function buildListingTypeTabs(activeType = "goods") {
+  const current = normalizeListingType(activeType)
+  return ["goods", "sublet"].map(type => ({
+    type,
+    label: LISTING_TYPE_CONFIG[type].label,
+    className: type === current ? "active" : ""
+  }))
+}
+
+function buildSubletStartText(item = {}) {
+  const startText = String(item.availableStartDate || item.pickupStartDate || "").trim()
+  if (!startText) return String(item.roomType || item.category || "转租").trim() || "转租"
+  return `${startText}起`
+}
+
 function buildMarketListFlags(state = {}) {
   const displayGoods = Array.isArray(state.displayGoods) ? state.displayGoods : []
   const displayCount = displayGoods.length
   const isLoadingGoods = !!state.isLoadingGoods
+  const isLoadingMore = !!state.isLoadingMore
   const canViewMore = !!state.canViewMore
 
   return {
     hasDisplayGoods: displayCount > 0,
     showSkeleton: isLoadingGoods && displayCount === 0,
     showEmpty: !isLoadingGoods && displayCount === 0,
-    showLoadingMore: isLoadingGoods && displayCount > 0,
+    showLoadingMore: isLoadingMore && displayCount > 0,
     showViewMore: canViewMore && !isLoadingGoods && displayCount > 0
   }
 }
@@ -101,6 +195,16 @@ Page({
   data: {
     statusBarHeight: 0,
 
+    activeListingType: "goods",
+    listingTypeTabs: buildListingTypeTabs("goods"),
+    brandKicker: LISTING_TYPE_CONFIG.goods.brandKicker,
+    brandTitle: LISTING_TYPE_CONFIG.goods.brandTitle,
+    searchPlaceholder: LISTING_TYPE_CONFIG.goods.searchPlaceholder,
+    priceControlLabel: LISTING_TYPE_CONFIG.goods.priceLabel,
+    distanceControlLabel: LISTING_TYPE_CONFIG.goods.distanceLabel,
+    emptyTitle: LISTING_TYPE_CONFIG.goods.emptyTitle,
+    emptySubtitle: LISTING_TYPE_CONFIG.goods.emptySubtitle,
+
     // Filters
     keyword: "",
     activeCategory: "全部",
@@ -108,11 +212,11 @@ Page({
     activeRegionLabel: "全部",
     priceSortLabel: "默认",
     distanceSortLabel: "默认",
-    resultTitle: "最新闲置",
-    resultCountText: "0 件",
+    resultTitle: LISTING_TYPE_CONFIG.goods.resultTitle,
+    resultCountText: `0 ${LISTING_TYPE_CONFIG.goods.resultUnit}`,
     regions: ["全部"],
-    categories: ["全部", ...CATEGORY_OPTIONS],
-    categoryTabs: buildCategoryTabs(["全部", ...CATEGORY_OPTIONS], "全部"),
+    categories: ["全部", ...LISTING_TYPE_CONFIG.goods.categories],
+    categoryTabs: buildCategoryTabs(["全部", ...LISTING_TYPE_CONFIG.goods.categories], "全部"),
     skeletonItems: [0, 1, 2, 3],
 
     // RegionTree (from cloud)
@@ -139,6 +243,7 @@ Page({
     cloudSkip: 0,
     cloudHasMore: true,
     isLoadingGoods: false,
+    isLoadingMore: false,
 
     priceSortOrder: 'none', // 'none' | 'asc' | 'desc'
     distanceSortActive: false,
@@ -166,29 +271,111 @@ Page({
     }, 300)
   },
 
+  _applyListingTypeUi(type, options = {}) {
+    const listingType = normalizeListingType(type)
+    const config = getListingTypeConfig(listingType)
+    const categories = ["全部", ...config.categories]
+    const requestedCategory = options.category || this.data.activeCategory || "全部"
+    const activeCategory = categories.includes(requestedCategory) ? requestedCategory : "全部"
+
+    this.setData({
+      activeListingType: listingType,
+      listingTypeTabs: buildListingTypeTabs(listingType),
+      brandKicker: config.brandKicker,
+      brandTitle: config.brandTitle,
+      searchPlaceholder: config.searchPlaceholder,
+      priceControlLabel: config.priceLabel,
+      distanceControlLabel: config.distanceLabel,
+      emptyTitle: config.emptyTitle,
+      emptySubtitle: config.emptySubtitle,
+      categories,
+      activeCategory,
+      categoryTabs: buildCategoryTabs(categories, activeCategory)
+    })
+  },
+
+  _resetGoodsStateForFetch(extra = {}) {
+    this.setData({
+      allGoods: [],
+      filteredGoods: [],
+      displayGoods: [],
+      cloudSkip: 0,
+      cloudHasMore: true,
+      canViewMore: true,
+      ...extra
+    })
+  },
+
+  _buildListSort() {
+    if (!this.data.distanceSortActive) return {}
+    const lat = toFiniteNumber(this.data.myLocation?.lat ?? this.data.myLocation?.latitude)
+    const lng = toFiniteNumber(this.data.myLocation?.lng ?? this.data.myLocation?.longitude)
+    if (lat === null || lng === null) return {}
+    return {
+      by: "distance",
+      origin: { lat, lng }
+    }
+  },
+
+  _switchListingType(type, options = {}) {
+    const listingType = normalizeListingType(type)
+    const prevType = this.data.activeListingType || "goods"
+    const force = !!options.force
+    if (!force && listingType === prevType) {
+      setStoredListingType(listingType)
+      return
+    }
+
+    setStoredListingType(listingType)
+    this._applyListingTypeUi(listingType, {
+      category: options.category || "全部"
+    })
+    this._resetGoodsStateForFetch({
+      keyword: options.keepKeyword ? this.data.keyword : "",
+      priceSortOrder: "none",
+      priceSortLabel: "默认",
+      distanceSortActive: false,
+      distanceSortClass: "",
+      distanceSortLabel: "默认"
+    })
+    this.updateMarketHeaderState(0)
+
+    if (!this._marketBootstrapped && !options.allowBeforeBootstrap) return
+
+    const cacheState = this._restoreGoodsFromCache()
+    if (cacheState.restored) this.applyFilters(true)
+    if (!cacheState.restored || !cacheState.isFresh) {
+      this._fetchFirstPage({ reason: "switchType" })
+    }
+  },
+
   onShareAppMessage() {
-    const { activeCategory = '', activeRegion = '' } = this.data
+    const { activeCategory = '', activeRegion = '', activeListingType = 'goods' } = this.data
+    const config = getListingTypeConfig(activeListingType)
 
     const qs = []
+    if (activeListingType !== "goods") qs.push(`type=${encodeURIComponent(activeListingType)}`)
     if (activeCategory && activeCategory !== "全部") qs.push(`cat=${encodeURIComponent(activeCategory)}`)
     if (activeRegion && activeRegion !== "全部") qs.push(`region=${encodeURIComponent(activeRegion)}`)
 
     const path = `/pages/market/market${qs.length ? `?${qs.join('&')}` : ''}`
 
     return getApp().withReferralShare({
-      title: '二手市场｜看看有没有你想要的',
+      title: `${config.brandTitle}｜看看有没有你想要的`,
       path
     })
   },
 
   onShareTimeline() {
-    const { activeCategory = '', activeRegion = '' } = this.data
+    const { activeCategory = '', activeRegion = '', activeListingType = 'goods' } = this.data
+    const config = getListingTypeConfig(activeListingType)
     const qs = []
+    if (activeListingType !== "goods") qs.push(`type=${encodeURIComponent(activeListingType)}`)
     if (activeCategory && activeCategory !== "全部") qs.push(`cat=${encodeURIComponent(activeCategory)}`)
     if (activeRegion && activeRegion !== "全部") qs.push(`region=${encodeURIComponent(activeRegion)}`)
 
     return getApp().withReferralShare({
-      title: '二手市场｜看看有没有你想要的',
+      title: `${config.brandTitle}｜看看有没有你想要的`,
       query: qs.join('&')
     })
   },
@@ -196,6 +383,7 @@ Page({
   onTogglePriceSort() {
     const cur = this.data.priceSortOrder || 'none'
     const next = cur === 'none' ? 'asc' : (cur === 'asc' ? 'desc' : 'none')
+    const wasDistanceSortActive = !!this.data.distanceSortActive
     this.setData({
       priceSortOrder: next,
       priceSortLabel: next === 'asc' ? '低到高' : (next === 'desc' ? '高到低' : '默认'),
@@ -203,7 +391,12 @@ Page({
       distanceSortClass: "",
       distanceSortLabel: '默认'
     })
-    // 排序不需要重新拉云端，直接对当前已拉取结果排序+切片即可
+    if (wasDistanceSortActive) {
+      this._resetGoodsStateForFetch()
+      this._fetchFirstPage({ force: true, reason: "priceSort" })
+      return
+    }
+
     this.applyFilters(true)
   },
 
@@ -216,7 +409,7 @@ Page({
     if (next && !hasLatLng(this.data.myLocation || {})) {
       wx.showModal({
         title: "请先设置定位",
-        content: "需要在个人资料里选择精确定位后，才能按距离排序。",
+        content: "需要在个人资料里选择位置后，才能按距离排序。",
         confirmText: "去设置",
         cancelText: "取消",
         success: res => {
@@ -233,14 +426,17 @@ Page({
       priceSortOrder: next ? "none" : this.data.priceSortOrder,
       priceSortLabel: next ? "默认" : this.data.priceSortLabel
     })
-    this.applyFilters(true)
+    this._resetGoodsStateForFetch()
+    this._fetchFirstPage({ force: true, reason: next ? "distanceSort" : "distanceSortOff" })
   },
 
   onLoad(options = {}) {
     const initialCategory = options.cat ? safeDecode(options.cat) : ""
     const initialRegion = options.region ? safeDecode(options.region) : ""
+    const initialType = options.type || options.listingType || getStoredListingType()
 
     this.setData({ statusBarHeight: this._getStatusBarHeight() })
+    this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
@@ -250,34 +446,34 @@ Page({
     this._marketBootstrapped = false
 
     this._runAfterFirstPaint(() => {
-      this._bootstrapMarketData(initialCategory, initialRegion)
+      this._bootstrapMarketData(initialCategory, initialRegion, initialType)
     })
   },
 
   onShow() {
     if (!this._marketBootstrapped) return
 
+    const storedType = getStoredListingType()
+    if (storedType !== this.data.activeListingType) {
+      this._switchListingType(storedType, { force: true })
+      return
+    }
+
     this._loadMyLocationFromProfile()
     const changedAt = getMarketGoodsChangedAt()
     if (changedAt && changedAt !== this._lastHandledGoodsChangeAt) {
       this._lastHandledGoodsChangeAt = changedAt
       this._lastRefreshAt = 0
-      this._fetchFirstPage()
+      this._fetchFirstPage({ force: true, reason: "changed" })
       return
     }
     this._maybeRefreshGoods(false)
   },
 
-  _bootstrapMarketData(initialCategory = "", initialRegion = "") {
+  _bootstrapMarketData(initialCategory = "", initialRegion = "", initialType = "goods") {
     this._marketBootstrapped = true
 
-    this.initCategoriesFromGoods()
-    if (initialCategory && ["全部", ...CATEGORY_OPTIONS].includes(initialCategory)) {
-      this.setData({
-        activeCategory: initialCategory,
-        categoryTabs: buildCategoryTabs(this.data.categories, initialCategory)
-      })
-    }
+    this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
     if (initialRegion) {
       this.setData({ activeRegion: initialRegion, activeRegionLabel: initialRegion })
     }
@@ -285,16 +481,18 @@ Page({
     this.loadRegionTreeFromCloud()
     this._loadMyLocationFromProfile()
 
-    const restored = this._restoreGoodsFromCache()
-    if (restored) this.applyFilters(true)
+    const cacheState = this._restoreGoodsFromCache()
+    if (cacheState.restored) this.applyFilters(true)
 
-    this._maybeRefreshGoods(true)
+    if (!cacheState.restored || !cacheState.isFresh) {
+      this._maybeRefreshGoods(!cacheState.restored)
+    }
   },
 
   onPullDownRefresh() {
     // 下拉刷新：强制重新拉第一页（按当前筛选条件）
     Promise.resolve()
-      .then(() => this._fetchFirstPage())
+      .then(() => this._fetchFirstPage({ force: true, reason: "pullDown" }))
       .catch(() => {})
       .finally(() => {
         try { wx.stopPullDownRefresh() } catch (e) {}
@@ -316,7 +514,7 @@ Page({
       cloudHasMore: true,
       canViewMore: true
     })
-    await this._fetchFirstPage()
+    await this._fetchFirstPage({ reason: "search" })
   },
 
   onClearKeyword() {
@@ -330,7 +528,7 @@ Page({
       cloudHasMore: true,
       canViewMore: true
     })
-    this._fetchFirstPage()
+    this._fetchFirstPage({ reason: "clearKeyword" })
   },
 
   onResetMarketFilters() {
@@ -352,7 +550,7 @@ Page({
       cloudHasMore: true,
       canViewMore: true
     })
-    this._fetchFirstPage()
+    this._fetchFirstPage({ reason: "resetFilters" })
   },
 
   async onSelectCat(e) {
@@ -370,7 +568,18 @@ Page({
       canViewMore: true
     })
     this.updateMarketHeaderState(0)
-    await this._fetchFirstPage()
+    await this._fetchFirstPage({ reason: "category" })
+  },
+
+  onSelectListingType(e) {
+    const type = e.currentTarget.dataset.type || "goods"
+    this._switchListingType(type)
+  },
+
+  onMarketTabTypeChange(e) {
+    const type = e.detail && e.detail.type
+    if (!type) return
+    this._switchListingType(type)
   },
 
   onTapItem(e) {
@@ -380,18 +589,19 @@ Page({
   },
 
   onMyGoods() {
-    wx.navigateTo({ url: "/pages/market/marketMy/marketMy" })
+    wx.navigateTo({ url: `/pages/market/marketMy/marketMy?type=${this.data.activeListingType || "goods"}` })
   },
 
   onSellIdle() {
-    wx.navigateTo({ url: "/pages/market/marketPost/marketPost" })
+    wx.navigateTo({ url: `/pages/market/marketPost/marketPost?type=${this.data.activeListingType || "goods"}` })
   },
 
   stopTouchMove() {},
 
   // ====== 分类初始化 ======
   initCategoriesFromGoods() {
-    const categories = ["全部", ...CATEGORY_OPTIONS]
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const categories = ["全部", ...config.categories]
     const activeCategory = categories.includes(this.data.activeCategory) ? this.data.activeCategory : "全部"
     this.setData({
       categories,
@@ -508,23 +718,30 @@ Page({
     })
     this.updateMarketHeaderState(0)
     // 切换地区后：按新筛选条件重新拉第一页
-    this._fetchFirstPage()
+    this._fetchFirstPage({ reason: "region" })
   },
 
   // ====== 核心：映射商品（✅缩略图优先）======
   _mapDocToGood(x) {
+    const listingType = normalizeListingType(x.listingType)
+    const config = getListingTypeConfig(listingType)
     const thumbKey = (x.thumbFileID || x.imageFileID || "")
     const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
-    const title = String(x.title || "").trim() || "未命名商品"
+    const title = String(x.title || "").trim() || (listingType === "sublet" ? "未命名房源" : "未命名商品")
     const priceNumber = Number(x.price)
-    const priceText = Number.isFinite(priceNumber) ? priceNumber.toFixed(priceNumber % 1 === 0 ? 0 : 2) : "0"
-    const conditionText = x.condition || "成色未填"
+    const basePriceText = Number.isFinite(priceNumber) ? priceNumber.toFixed(priceNumber % 1 === 0 ? 0 : 2) : "0"
+    const priceText = listingType === "sublet" ? `${basePriceText}/月` : basePriceText
+    const conditionText = listingType === "sublet"
+      ? buildSubletStartText(x)
+      : (x.condition || "成色未填")
+    const category = config.categories.includes(x.category) ? x.category : "其他"
     return this._withDistance({
       id: x._id,
+      listingType,
       title,
       price: x.price,
       priceText,
-      category: CATEGORY_OPTIONS.includes(x.category) ? x.category : "其他",
+      category,
       region: x.region,
       location: x.location || {},
       condition: conditionText,
@@ -547,7 +764,7 @@ Page({
       status: x.status || "online",
 
       thumbUrl: x.thumbUrl || (thumbKey ? (this._thumbUrlCache[thumbKey] || "") : ""),
-      imageSrc: x.imageSrc || x.thumbUrl || (thumbKey ? (this._thumbUrlCache[thumbKey] || thumbKey) : "/images/market.png")
+      imageSrc: x.imageSrc || x.thumbUrl || (thumbKey ? (this._thumbUrlCache[thumbKey] || thumbKey) : (listingType === "sublet" ? "/images/sublease.png" : "/images/market.png"))
     })
   },
 
@@ -591,6 +808,9 @@ Page({
 
   _isVisibleMarketDoc(x) {
     if (!x) return false
+    const activeListingType = normalizeListingType(this.data.activeListingType)
+    const itemListingType = normalizeListingType(x.listingType)
+    if (itemListingType !== activeListingType) return false
     const status = String(x.status || "online").toLowerCase()
     if (status === "deleted" || status === "offline" || status === "expired" || status === "sold") return false
     const expireTime = Number(x.expireTime) || 0
@@ -598,27 +818,56 @@ Page({
     return true
   },
 
-  async _fetchFirstPage() {
+  async _fetchFirstPage(options = {}) {
+    const filters = {
+      listingType: this.data.activeListingType,
+      category: this.data.activeCategory,
+      region: this.data.activeRegion,
+      keyword: this.data.keyword
+    }
+    const sort = this._buildListSort()
+    const requestKey = buildListQueryKey(filters, sort)
+    const now = Date.now()
+    const force = !!options.force
+
+    if (!force) {
+      if (this._firstPageInFlightKey === requestKey) return false
+      const lastAt = this._firstPageFetchAtByKey && this._firstPageFetchAtByKey[requestKey]
+      if (lastAt && now - lastAt < FIRST_PAGE_FETCH_COOLDOWN_MS) return false
+    }
+
+    this._firstPageInFlightKey = requestKey
+    this._firstPageFetchAtByKey = this._firstPageFetchAtByKey || {}
+    this._firstPageFetchAtByKey[requestKey] = now
+    const requestToken = `${requestKey}|first|${now}`
+    this._activeGoodsRequestToken = requestToken
+
     try {
       this.setData({
         isLoadingGoods: true,
-        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true })
+        isLoadingMore: false,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true, isLoadingMore: false })
       })
 
       const res = await wx.cloud.callFunction({
         name: "marketApi",
         data: {
           action: "list",
-          filters: {
-            category: this.data.activeCategory,
-            region: this.data.activeRegion,
-            keyword: this.data.keyword
-          },
+          filters,
+          sort,
           skip: 0,
           limit: INITIAL_LOAD_SIZE
         }
       })
       const result = getMarketApiResult(res)
+      const currentKey = buildListQueryKey({
+        listingType: this.data.activeListingType,
+        category: this.data.activeCategory,
+        region: this.data.activeRegion,
+        keyword: this.data.keyword
+      }, this._buildListSort())
+      if (currentKey !== requestKey) return false
+
       const rawRows = result.items || result.data || []
       const rows = rawRows.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
 
@@ -628,31 +877,53 @@ Page({
         cloudHasMore: !!result.hasMore
       })
 
-      if (this.data.activeCategory === "全部" && this.data.activeRegion === "全部" && !(this.data.keyword || "").trim()) {
-        this._saveGoodsToCache(rawRows)
+      if (!sort.by && filters.category === "全部" && filters.region === "全部" && !String(filters.keyword || "").trim()) {
+        this._saveGoodsToCache(rawRows, {
+          type: filters.listingType,
+          nextSkip: result.nextSkip || rawRows.length,
+          hasMore: !!result.hasMore
+        })
       }
 
       this.initRegionsFromGoods()
       this.applyFilters(true)
+      return true
     } catch (e) {
       console.error(e)
-      showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
+      showDataError("市场加载失败", e, "市场列表从数据库加载失败，请稍后重试。")
+      return false
     } finally {
-      this.setData({
-        isLoadingGoods: false,
-        ...buildMarketListFlags({ ...this.data, isLoadingGoods: false })
-      })
+      if (this._firstPageInFlightKey === requestKey) this._firstPageInFlightKey = ""
+      if (this._activeGoodsRequestToken === requestToken) {
+        this._activeGoodsRequestToken = ""
+        this.setData({
+          isLoadingGoods: false,
+          isLoadingMore: false,
+          ...buildMarketListFlags({ ...this.data, isLoadingGoods: false, isLoadingMore: false })
+        })
+      }
     }
   },
 
   async _fetchNextPage(resetPagingAfterAppend = false) {
     if (!this.data.cloudHasMore) return
     if (this.data.isLoadingGoods) return
+    const filters = {
+      listingType: this.data.activeListingType,
+      category: this.data.activeCategory,
+      region: this.data.activeRegion,
+      keyword: this.data.keyword
+    }
+    const sort = this._buildListSort()
+    const requestKey = buildListQueryKey(filters, sort)
+    const requestToken = `${requestKey}|next|${Date.now()}`
+    this._activeGoodsRequestToken = requestToken
 
     try {
       this.setData({
         isLoadingGoods: true,
-        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true })
+        isLoadingMore: true,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true, isLoadingMore: true })
       })
 
       const skip = this.data.cloudSkip || 0
@@ -660,16 +931,21 @@ Page({
         name: "marketApi",
         data: {
           action: "list",
-          filters: {
-            category: this.data.activeCategory,
-            region: this.data.activeRegion,
-            keyword: this.data.keyword
-          },
+          filters,
+          sort,
           skip,
           limit: CLOUD_PAGE_SIZE
         }
       })
       const result = getMarketApiResult(res)
+      const currentKey = buildListQueryKey({
+        listingType: this.data.activeListingType,
+        category: this.data.activeCategory,
+        region: this.data.activeRegion,
+        keyword: this.data.keyword
+      }, this._buildListSort())
+      if (currentKey !== requestKey) return
+
       const rawBatch = result.items || result.data || []
       const batch = rawBatch.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
       const all = [...(this.data.allGoods || []), ...batch]
@@ -680,20 +956,29 @@ Page({
         cloudHasMore: !!result.hasMore
       })
 
-      if (this.data.activeCategory === "全部" && this.data.activeRegion === "全部" && !(this.data.keyword || "").trim()) {
-        this._saveGoodsToCache([...(wx.getStorageSync(GOODS_CACHE_KEY)?.list || []), ...rawBatch])
+      if (!sort.by && filters.category === "全部" && filters.region === "全部" && !String(filters.keyword || "").trim()) {
+        const cached = wx.getStorageSync(getGoodsCacheKey(filters.listingType)) || {}
+        this._saveGoodsToCache([...(cached.list || []), ...rawBatch], {
+          type: filters.listingType,
+          nextSkip: result.nextSkip || (skip + rawBatch.length),
+          hasMore: !!result.hasMore
+        })
       }
 
       this.initRegionsFromGoods()
       this.applyFilters(resetPagingAfterAppend)
     } catch (e) {
       console.error(e)
-      showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
+      showDataError("市场加载失败", e, "市场列表从数据库加载失败，请稍后重试。")
     } finally {
-      this.setData({
-        isLoadingGoods: false,
-        ...buildMarketListFlags({ ...this.data, isLoadingGoods: false })
-      })
+      if (this._activeGoodsRequestToken === requestToken) {
+        this._activeGoodsRequestToken = ""
+        this.setData({
+          isLoadingGoods: false,
+          isLoadingMore: false,
+          ...buildMarketListFlags({ ...this.data, isLoadingGoods: false, isLoadingMore: false })
+        })
+      }
     }
   },
 
@@ -817,9 +1102,10 @@ Page({
   updateMarketHeaderState(count) {
     const activeCategory = this.data.activeCategory || "全部"
     const activeRegion = this.data.activeRegion || "全部"
+    const config = getListingTypeConfig(this.data.activeListingType)
     this.setData({
-      resultTitle: activeCategory === "全部" ? "最新闲置" : activeCategory,
-      resultCountText: `${Number(count) || 0} 件`,
+      resultTitle: activeCategory === "全部" ? config.resultTitle : activeCategory,
+      resultCountText: `${Number(count) || 0} ${config.resultUnit}`,
       activeRegionLabel: activeRegion === "全部" ? "全部" : activeRegion
     })
   },
@@ -871,28 +1157,38 @@ Page({
   // ====== 缓存 ======
   _restoreGoodsFromCache() {
     try {
-      const cached = wx.getStorageSync(GOODS_CACHE_KEY)
-      if (!cached || !cached.ts || !Array.isArray(cached.list)) return false
+      const cached = wx.getStorageSync(getGoodsCacheKey(this.data.activeListingType))
+      if (!cached || !cached.ts || !Array.isArray(cached.list)) return { restored: false, isFresh: false }
       const cacheAge = Date.now() - cached.ts
-      if (cacheAge > GOODS_CACHE_MAX_STALE_MS) return false
+      if (cacheAge > GOODS_CACHE_MAX_STALE_MS) return { restored: false, isFresh: false }
 
       const rows = (cached.list || []).filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
       this.setData({
         allGoods: rows,
-        cloudSkip: rows.length,
-        cloudHasMore: true
+        cloudSkip: Number(cached.nextSkip) || cached.list.length || rows.length,
+        cloudHasMore: typeof cached.hasMore === "boolean" ? cached.hasMore : true
       })
       this.initRegionsFromGoods()
       this._fillThumbUrlsFor(rows).catch(() => {})
-      return true
+      return {
+        restored: true,
+        isFresh: cacheAge <= GOODS_CACHE_FRESH_MS,
+        cacheAge
+      }
     } catch (e) {
-      return false
+      return { restored: false, isFresh: false }
     }
   },
 
-  _saveGoodsToCache(list) {
+  _saveGoodsToCache(list, meta = {}) {
     try {
-      wx.setStorageSync(GOODS_CACHE_KEY, { ts: Date.now(), list })
+      const type = meta.type || this.data.activeListingType
+      wx.setStorageSync(getGoodsCacheKey(type), {
+        ts: Date.now(),
+        list,
+        nextSkip: Number(meta.nextSkip) || (Array.isArray(list) ? list.length : 0),
+        hasMore: typeof meta.hasMore === "boolean" ? meta.hasMore : true
+      })
     } catch (e) {}
   },
 
@@ -900,6 +1196,6 @@ Page({
     const now = Date.now()
     if (!force && now - (this._lastRefreshAt || 0) < REFRESH_DEBOUNCE_MS) return
     this._lastRefreshAt = now
-    this._fetchFirstPage()
+    this._fetchFirstPage({ force: !!force, reason: force ? "forceRefresh" : "backgroundRefresh" })
   }
 })

@@ -1,8 +1,69 @@
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const LISTING_TYPE_STORAGE_KEY = "market_active_listing_type_v1"
 const defaultAvatarUrl =
   'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+const LISTING_TYPE_CONFIG = {
+  goods: {
+    label: "二手",
+    navTitle: "我的市场",
+    sectionTitle: "我发布的商品",
+    emptyTitle: "还没有发布商品",
+    emptySubtitle: "发布第一件闲置，让附近同学看到",
+    manageText: "管理我的商品",
+    deleteConfirmName: "商品",
+    shareTitle: "二手商品",
+    shareRole: "卖家",
+    fallbackTitle: "未命名商品",
+    fallbackImage: "/images/market.png",
+    metaFallback: "闲置"
+  },
+  sublet: {
+    label: "转租",
+    navTitle: "我的市场",
+    sectionTitle: "我发布的转租",
+    emptyTitle: "还没有发布转租",
+    emptySubtitle: "发布第一套房源，让附近同学看到",
+    manageText: "管理我的转租",
+    deleteConfirmName: "房源",
+    shareTitle: "转租房源",
+    shareRole: "发布者",
+    fallbackTitle: "未命名房源",
+    fallbackImage: "/images/sublease.png",
+    metaFallback: "转租"
+  }
+}
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getStoredListingType() {
+  try {
+    return normalizeListingType(wx.getStorageSync(LISTING_TYPE_STORAGE_KEY))
+  } catch (e) {
+    return "goods"
+  }
+}
+
+function setStoredListingType(type) {
+  try {
+    wx.setStorageSync(LISTING_TYPE_STORAGE_KEY, normalizeListingType(type))
+  } catch (e) {}
+}
+
+function getListingTypeConfig(type) {
+  return LISTING_TYPE_CONFIG[normalizeListingType(type)] || LISTING_TYPE_CONFIG.goods
+}
+
+function buildListingTypeTabs(activeType) {
+  return ["goods", "sublet"].map(type => ({
+    type,
+    label: LISTING_TYPE_CONFIG[type].label,
+    selectedClass: normalizeListingType(activeType) === type ? "selected" : ""
+  }))
+}
 
 function getMarketGoodsChangedAt() {
   try {
@@ -32,20 +93,29 @@ function formatMarketPrice(value) {
 }
 
 function buildMyGoodsItem(x = {}) {
-  const title = String(x.title || '').trim() || '未命名商品'
+  const listingType = normalizeListingType(x.listingType)
+  const config = getListingTypeConfig(listingType)
+  const title = String(x.title || '').trim() || config.fallbackTitle
   const imageKey = x.thumbFileID || x.imageFileID || ''
+  const priceText = formatMarketPrice(x.price)
+  const metaText = listingType === "sublet"
+    ? (x.leaseText || x.availableStartDate || x.roomType || x.category || config.metaFallback)
+    : (x.condition || x.pickupEndDate || config.metaFallback)
   return {
     id: x._id || x.id || '',
+    listingType,
     title,
     price: x.price,
-    priceText: formatMarketPrice(x.price),
-    priceDisplay: formatMarketPrice(x.price),
+    priceText,
+    priceDisplay: listingType === "sublet" ? `${priceText}/月` : priceText,
+    metaText,
+    typeTagText: config.label,
     imageFileID: x.imageFileID || '',
     imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
     thumbFileID: x.thumbFileID || '',
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
     hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-    imageSrc: x.imageSrc || x.thumbUrl || imageKey || '/images/market.png',
+    imageSrc: x.imageSrc || x.thumbUrl || imageKey || config.fallbackImage,
     pickupEndDate: x.pickupEndDate || x.expiresAtText || '',
     expireTime: Number(x.expireTime) || 0,
     status: x.status || 'online',
@@ -67,7 +137,10 @@ function withSelectionState(goods = [], selectedMap = {}) {
 function buildMyDisplayPatch(state = {}) {
   const goods = Array.isArray(state.goods) ? state.goods : []
   const selectedCount = Number(state.selectedCount) || 0
+  const activeListingType = normalizeListingType(state.activeListingType)
+  const config = getListingTypeConfig(activeListingType)
   return {
+    navTitle: config.navTitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
     regionDisplay: state.region || '地址未填',
@@ -75,6 +148,11 @@ function buildMyDisplayPatch(state = {}) {
     saveStateText: state.isSavingBio ? '保存中' : '自动保存',
     hasGoods: goods.length > 0,
     goodsEmpty: goods.length === 0,
+    goodsTitleMain: config.sectionTitle,
+    goodsEmptyTitle: config.emptyTitle,
+    goodsEmptySubtitle: config.emptySubtitle,
+    manageButtonText: config.manageText,
+    listingTypeTabs: buildListingTypeTabs(activeListingType),
     allSelectedText: state.allSelected ? '取消全选' : '全选',
     deleteDisabledClass: selectedCount > 0 ? '' : 'disabled'
   }
@@ -94,7 +172,9 @@ Page({
     bioOriginal: '',
     isSavingBio: false,
 
-    openid: '',
+	    openid: '',
+    activeListingType: 'goods',
+    listingTypeTabs: buildListingTypeTabs('goods'),
     goods: [],
 
     // ✅ 管理模式 = 多选模式
@@ -112,6 +192,11 @@ Page({
     hasGoods: false,
     goodsEmpty: true,
     allSelectedText: '全选',
+    navTitle: '我的市场',
+    goodsTitleMain: '我发布的商品',
+    goodsEmptyTitle: '还没有发布商品',
+    goodsEmptySubtitle: '发布第一件闲置，让附近同学看到',
+    manageButtonText: '管理我的商品',
     deleteDisabledClass: 'disabled',
     dockVisibleClass: 'dock-hidden'
   },
@@ -142,9 +227,11 @@ Page({
     })
   },
 
-  onLoad() {
+  onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
+    const activeListingType = normalizeListingType(options?.type || options?.listingType || getStoredListingType())
+    setStoredListingType(activeListingType)
+    this._setMyData({ statusBarHeight: sys.statusBarHeight || 0, activeListingType })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
@@ -165,14 +252,16 @@ Page({
 
   onShareAppMessage() {
     const openid = this.data.openid || ''
-    const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}` })
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
+    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onShareTimeline() {
     const openid = this.data.openid || ''
-    const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}` })
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
+    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onPullDownRefresh() {
@@ -196,7 +285,22 @@ Page({
   },
 
   onAddGood() {
-    wx.navigateTo({ url: '/pages/market/marketPost/marketPost' })
+    wx.navigateTo({ url: `/pages/market/marketPost/marketPost?type=${this.data.activeListingType || "goods"}` })
+  },
+
+  onSelectListingType(e) {
+    const type = normalizeListingType(e.currentTarget.dataset.type)
+    if (type === this.data.activeListingType) return
+    setStoredListingType(type)
+    this._setMyData({
+      activeListingType: type,
+      goods: [],
+      selectedMap: {},
+      selectedCount: 0,
+      allSelected: false,
+      manageMode: false
+    })
+    this.fetchMyGoods()
   },
 
   // ✅ 进入/退出多选管理
@@ -262,13 +366,13 @@ Page({
   async onDeleteSelected() {
     const ids = Object.keys(this.data.selectedMap || {})
     if (!ids.length) {
-      wx.showToast({ title: '请先选择要删除的商品', icon: 'none' })
+      wx.showToast({ title: `请先选择要删除的${getListingTypeConfig(this.data.activeListingType).deleteConfirmName}`, icon: 'none' })
       return
     }
 
     const confirm = await new Promise((resolve) => {
       wx.showModal({
-        title: `确认删除 ${ids.length} 个商品？`,
+        title: `确认删除 ${ids.length} 个${getListingTypeConfig(this.data.activeListingType).deleteConfirmName}？`,
         content: '删除后无法恢复',
         confirmText: '删除',
         confirmColor: '#d9644a',
@@ -415,7 +519,13 @@ Page({
       while (true) {
         const res = await wx.cloud.callFunction({
           name: 'marketApi',
-          data: { action: 'myList', skip, limit: PAGE }
+          data: {
+            action: 'myList',
+            listingType: this.data.activeListingType,
+            filters: { listingType: this.data.activeListingType },
+            skip,
+            limit: PAGE
+          }
         })
         const result = getMarketApiResult(res)
 
@@ -437,7 +547,7 @@ Page({
       })
     } catch (err) {
       console.error('fetchMyGoods failed', err)
-      showDataError('商品加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
+      showDataError('发布加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
     }
   }
 })

@@ -95,6 +95,24 @@
   margin-top: 4rpx;
 }
 
+.msg-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14rpx;
+}
+
+.msg-action-btn {
+  margin: 0;
+  height: 56rpx !important;
+  line-height: 56rpx !important;
+  padding: 0 22rpx;
+  border-radius: 16rpx;
+  background: #111418;
+  color: #ffffff;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
 .top-actions {
   display: flex;
   justify-content: space-between; align-items: center;

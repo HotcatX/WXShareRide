@@ -2,6 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
+const { blockRideUser } = require("../../../utils/tripManage")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -62,6 +63,7 @@ Page({
     submitting: false,
 
     driverInfo: null,
+    driverOpenid: '',
     defaultAvatarUrl: '/images/profile.png',
 
     departAddress: '',
@@ -238,6 +240,7 @@ Page({
       hasJoined: false,
       isOwner: false,
       driverInfo: null,
+      driverOpenid: '',
       departAddress: '',
       destAddress: '',
       formattedDepartTime: '',
@@ -283,6 +286,17 @@ Page({
       returnUrl: pendingUrl
     })
 
+    wx.navigateTo({ url: LOGIN_PAGE })
+    return false
+  },
+
+  ensureLoginForBlock() {
+    const openid = wx.getStorageSync('openid') || ''
+    if (openid) return true
+
+    const { tripId, trip } = this.data
+    const id = tripId || (trip && trip._id) || ''
+    wx.setStorageSync('pendingPage', { url: `/pages/home/tripDetail/tripDetail?id=${id}` })
     wx.navigateTo({ url: LOGIN_PAGE })
     return false
   },
@@ -335,6 +349,7 @@ Page({
         hasJoined = trip.passengers.some(p => p && p._openid === myOpenid)
       }
     }
+    const driverOpenid = trip._openid || trip.driverOpenid || trip.driverID || ''
 
     let departAddress = ''
     let destAddress = ''
@@ -368,6 +383,7 @@ Page({
       hasJoined,
       isOwner,
       driverInfo: options.fromPreview ? this.data.driverInfo : null,
+      driverOpenid,
       departAddress,
       destAddress,
       formattedDepartTime,
@@ -565,6 +581,27 @@ Page({
     } finally {
       this.setData({ submitting: false })
     }
+  },
+
+  async onBlockDriver() {
+    const { tripId, trip, driverOpenid, driverInfo, isOwner } = this.data
+    const targetOpenid = driverOpenid || (trip && (trip._openid || trip.driverOpenid || trip.driverID)) || ''
+    if (isOwner) {
+      wx.showToast({ title: '不能拉黑自己', icon: 'none' })
+      return
+    }
+    if (!targetOpenid) {
+      wx.showToast({ title: '缺少拉黑对象', icon: 'none' })
+      return
+    }
+    if (!this.ensureLoginForBlock()) return
+
+    await blockRideUser({
+      type: 'carpool',
+      tripId: tripId || (trip && trip._id) || '',
+      targetOpenid,
+      targetName: (driverInfo && (driverInfo.name || driverInfo.nickName)) || '司机'
+    })
   },
 
   copyWeChat() {

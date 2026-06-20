@@ -53,7 +53,7 @@
           </view>
         </view>
 
-        <view class="ride-meta">
+        <view class="ride-meta history-meta">
           <text class="ride-chip ride-chip--accent">{{trip._roleLabel}}</text>
         </view>
       </view>

@@ -45,6 +45,16 @@
       <view class="msg-content">
         {{item.content}}
       </view>
+      <view wx:if="{{item.canRate && item.rateTripId}}" class="msg-actions">
+        <button
+          class="msg-action-btn"
+          size="mini"
+          data-id="{{item._id}}"
+          data-index="{{index}}"
+          data-tripid="{{item.rateTripId}}"
+          catchtap="onGoRating"
+        >去评价</button>
+      </view>
     </view>
   </block>
 

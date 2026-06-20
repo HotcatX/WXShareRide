@@ -1,16 +1,25 @@
 // pages/profile/tripHistory/tripHistory.js
 
+function cleanText(value) {
+  return String(value || '').trim()
+}
+
 Page({
   data: {
     historyTrips: [],
     loading: false,
     statusBarHeight: 80,
-    pageTitle: '历史行程'
+    pageTitle: '历史行程',
+    ratingTripId: '',
+    ratingPrompted: false
   },
 
-  async onLoad() {
+  async onLoad(options = {}) {
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: info.statusBarHeight || 80 })
+    this.setData({
+      statusBarHeight: info.statusBarHeight || 80,
+      ratingTripId: cleanText(options.rateTripId || options.tripId || options.requestId || options.id)
+    })
     await this.loadHistoryTrips()
   },
 
@@ -105,7 +114,6 @@ Page({
 
   _formatTripForCard(trip) {
     const { _fromAddress, _toAddress } = this._buildFromTo(trip)
-
     return {
       ...trip,
       _fromAddress,
@@ -136,6 +144,7 @@ Page({
         const displayList = cleaned.map((t) => this._formatTripForCard(t))
 
         this.setData({ historyTrips: displayList })
+        this._maybeOpenRatingDetail()
       } else {
         wx.showToast({
           title: res.result?.errorMsg || '历史行程加载失败',
@@ -153,36 +162,39 @@ Page({
   // =========================
   // 卡片点击跳转：复用首页我的行程详情页分流
   // =========================
-  goTripDetail(e) {
-    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
-    const index = Number(ds.index)
-    const trip = this.data.historyTrips[index] || {}
-    const id = ds.id || trip._id || trip.tripId || ''
+  _buildDetailUrl(trip = {}, id = trip._id || trip.tripId || '') {
     const role = trip._detailRole || this._buildDetailRole(trip)
     const sourceType = trip._sourceType || this._buildSourceType(trip)
 
+    if (role === 'driverCreate') return `/pages/profile/myTripDetailDriver/myTripDetailDriver?tripId=${id}`
+    if (role === 'driverJoin') return `/pages/profile/myRequestDetailDriver/myRequestDetailDriver?tripId=${id}`
+    if (role === 'passengerCreate') return `/pages/profile/myTripRequestPassenger/myTripRequestPassenger?id=${id}`
+    return `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${id}&sourceType=${sourceType}`
+  },
+
+  _openTripDetail(trip = {}, id = trip._id || trip.tripId || '') {
     if (!id) {
       wx.showToast({ title: '缺少路线ID', icon: 'none' })
       return
     }
+    wx.navigateTo({ url: this._buildDetailUrl(trip, id) })
+  },
 
-    if (role === 'driverCreate') {
-      wx.navigateTo({ url: `/pages/profile/myTripDetailDriver/myTripDetailDriver?tripId=${id}` })
-      return
-    }
+  goTripDetail(e) {
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const index = Number(ds.index)
+    const trip = this.data.historyTrips[index] || {}
+    this._openTripDetail(trip, ds.id || trip._id || trip.tripId || '')
+  },
 
-    if (role === 'driverJoin') {
-      wx.navigateTo({ url: `/pages/profile/myRequestDetailDriver/myRequestDetailDriver?tripId=${id}` })
-      return
-    }
-
-    if (role === 'passengerCreate') {
-      wx.navigateTo({ url: `/pages/profile/myTripRequestPassenger/myTripRequestPassenger?id=${id}` })
-      return
-    }
-
-    wx.navigateTo({
-      url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${id}&sourceType=${sourceType}`
-    })
+  _maybeOpenRatingDetail() {
+    const { ratingTripId, ratingPrompted, historyTrips } = this.data
+    if (!ratingTripId || ratingPrompted || !Array.isArray(historyTrips) || historyTrips.length === 0) return
+    const index = historyTrips.findIndex(item => item && item._id === ratingTripId)
+    if (index < 0) return
+    this.setData({ ratingPrompted: true })
+    setTimeout(() => {
+      this._openTripDetail(historyTrips[index], ratingTripId)
+    }, 240)
   }
 })

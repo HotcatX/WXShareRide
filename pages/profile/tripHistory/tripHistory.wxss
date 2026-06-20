@@ -13,3 +13,8 @@ page{
 .history-card{
   margin-bottom: 14rpx;
 }
+
+.history-meta{
+  align-items: center;
+  justify-content: flex-start;
+}

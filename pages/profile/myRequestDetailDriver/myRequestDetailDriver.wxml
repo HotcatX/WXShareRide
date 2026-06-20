@@ -19,7 +19,7 @@
     <view class="ride-card ride-card-pad">
       <view class="ride-row-between my-hero-head">
         <text class="ride-list-kind">我接的求车</text>
-        <text class="ride-chip ride-chip--accent">司机</text>
+        <text class="ride-chip {{isRequestCompleted ? 'ride-chip--warn' : 'ride-chip--accent'}}">{{isRequestCompleted ? '已结束' : '司机'}}</text>
       </view>
 
       <view class="ride-route">
@@ -62,6 +62,7 @@
           <image class="ride-avatar" src="{{p.avatarUrl || '/images/profile.png'}}" mode="aspectFill" />
           <view class="ride-person-main">
             <text class="ride-person-name">{{p.name || '未设置昵称'}}</text>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
                 <text class="ride-info-label">地址</text>
@@ -78,6 +79,10 @@
                 <text class="ride-info-value">{{p.phone || '未填写'}}</text>
                 <view wx:if="{{p.phone}}" class="ride-copy" data-phone="{{p.phone}}" bindtap="onCopyPhone">复制</view>
               </view>
+            </view>
+            <view class="ride-person-actions">
+              <view wx:if="{{isRequestCompleted}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || '该用户'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>
         </view>
@@ -97,9 +102,12 @@
     <view class="ride-bottom-space"></view>
   </scroll-view>
 
-  <view class="ride-bottom" wx:if="{{isMyRequest && !loading && !loadError}}">
-    <button class="ride-btn ride-btn--danger" bindtap="onQuitRequest">
+  <view class="ride-bottom" wx:if="{{isMyRequest && !isRequestCompleted && !loading && !loadError}}">
+    <button class="ride-btn ride-btn--secondary" bindtap="onQuitRequest">
       退出路线
+    </button>
+    <button class="ride-btn ride-btn--accent" bindtap="onCompleteRequest">
+      结束路线
     </button>
   </view>
 </view>

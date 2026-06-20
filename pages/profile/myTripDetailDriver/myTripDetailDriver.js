@@ -1,5 +1,6 @@
 // pages/profile/myTripDetailDriver/myTripDetailDriver.js
 const { showDataError } = require("../../../utils/error")
+const { callTripManage, askReason, attachRideStats, rateTripUser } = require("../../../utils/tripManage")
 
 Page({
   data: {
@@ -158,6 +159,7 @@ Page({
           nickName: u.nickName || p.nickName || '',
           wechatID: u.wechatID || p.wechatID || '',
           phone: u.phone || p.phone || '',
+          ...attachRideStats(u, 'passenger'),
 
           // ✅ 头像：userInfo 优先，其次 passenger 自带
           avatarUrl: u.avatarUrl || p.avatarUrl || '',
@@ -176,6 +178,7 @@ Page({
         weekdayText,
         timeText,
         isTripCompleted,
+        kickMode: isTripCompleted ? false : this.data.kickMode,
         showFortLeeCoreTip,
         loading: false
       })
@@ -212,32 +215,29 @@ Page({
     const { tripId } = this.data
     if (!targetOpenid || !tripId) return
 
-    wx.showModal({
+    const reason = await askReason({
       title: '剔除乘客',
-      content: '确认将该乘客从出行计划中移除吗？',
-      confirmText: '确定',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-
-        try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyTripDetailDriver',
-            data: { tripId, action: 'kickPassenger', targetOpenid }
-          })
-
-          if (res.result && res.result.ok) {
-            wx.showToast({ title: '已剔除', icon: 'success' })
-            await this.loadTripDetail(tripId)
-          } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
-          }
-        } catch (e2) {
-          console.error('kickPassenger error:', e2)
-          wx.showToast({ title: '操作失败', icon: 'none' })
-        }
-      }
+      content: '理由会作为消息发送给该乘客。',
+      placeholder: '例如长期未回复、信息不匹配',
+      confirmText: '剔除'
     })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在处理...', mask: true })
+      const result = await callTripManage({ type: 'carpool', tripId, action: 'kickPassenger', targetOpenid, reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已剔除', icon: 'success' })
+        await this.loadTripDetail(tripId)
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
+      }
+    } catch (e2) {
+      wx.hideLoading()
+      console.error('kickPassenger error:', e2)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
   },
 
   async onCompleteTrip() {
@@ -254,17 +254,14 @@ Page({
 
         try {
           wx.showLoading({ title: '正在结束...', mask: true })
-          const res = await wx.cloud.callFunction({
-            name: 'editMyTripDetailDriver',
-            data: { tripId, action: 'completeTrip' }
-          })
+          const result = await callTripManage({ type: 'carpool', tripId, action: 'completeTrip' })
 
           wx.hideLoading()
-          if (res.result && res.result.ok) {
+          if (result && (result.ok || result.success)) {
             wx.showToast({ title: '已结束路线', icon: 'success' })
             await this.loadTripDetail(tripId)
           } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
+            wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
           wx.hideLoading()
@@ -279,30 +276,69 @@ Page({
     const { tripId } = this.data
     if (!tripId) return
 
-    wx.showModal({
+    const reason = await askReason({
       title: '删除路线',
-      content: '删除后，所有乘客将无法再看到此出行记录，确认删除？',
-      confirmText: '确定',
+      content: '理由会作为消息发送给已加入乘客。',
+      placeholder: '例如临时取消、路线调整',
+      confirmText: '删除'
+    })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在删除...', mask: true })
+      const result = await callTripManage({ type: 'carpool', tripId, action: 'deleteTrip', reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已删除路线', icon: 'success' })
+        setTimeout(() => this.goBack(), 500)
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
+      }
+    } catch (e2) {
+      wx.hideLoading()
+      console.error('deleteTrip error:', e2)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
+  },
+
+  async onBlockUser(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
+    const { tripId } = this.data
+    if (!targetOpenid) return
+
+    wx.showModal({
+      title: '拉黑用户',
+      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
         try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyTripDetailDriver',
-            data: { tripId }
-          })
-
-          if (res.result && res.result.ok) {
-            wx.showToast({ title: '已删除路线', icon: 'success' })
-            setTimeout(() => this.goBack(), 500)
-          } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
-          }
+          const result = await callTripManage({ type: 'carpool', tripId, action: 'blockUser', targetOpenid })
+          wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e2) {
-          console.error('deleteTrip error:', e2)
+          console.error('blockUser error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
       }
+    })
+  },
+
+  async onRatePassenger(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该乘客'
+    const { tripId, isTripCompleted } = this.data
+    if (!isTripCompleted) {
+      wx.showToast({ title: '只能评价过往行程', icon: 'none' })
+      return
+    }
+    await rateTripUser({
+      type: 'carpool',
+      tripId,
+      targetOpenid,
+      targetRole: 'passenger',
+      targetName
     })
   },
 

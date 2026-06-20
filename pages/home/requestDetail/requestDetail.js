@@ -2,6 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
+const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -198,6 +199,16 @@ Page({
       returnUrl: pendingUrl
     })
 
+    wx.navigateTo({ url: LOGIN_PAGE })
+    return false
+  },
+
+  ensureLoginForBlock() {
+    const openid = wx.getStorageSync('openid') || ''
+    if (openid) return true
+
+    const { tripId } = this.data
+    wx.setStorageSync('pendingPage', { url: `/pages/home/requestDetail/requestDetail?id=${tripId}` })
     wx.navigateTo({ url: LOGIN_PAGE })
     return false
   },
@@ -422,7 +433,7 @@ Page({
   },
 
   // =========================
-  // ✅ 司机加入（acceptCarpoolRequest）
+  // ✅ 司机加入（tripManage）
   // =========================
   async acceptAsDriver() {
     const {
@@ -461,13 +472,9 @@ Page({
     this.setData({ submittingDriver: true })
 
     try {
-      const ret = await wx.cloud.callFunction({
-        name: 'acceptCarpoolRequest',
-        data: { requestId: tripId }
-      })
+      const result = await callTripManage({ type: 'request', requestId: tripId, action: 'acceptRequest' })
 
-
-      if (ret.result && ret.result.success) {
+      if (result && (result.success || result.ok)) {
         this.showToast('接单成功', 'success', 1200)
         setTimeout(() => {
           wx.reLaunch({ url: '/pages/home/home' })
@@ -475,7 +482,7 @@ Page({
         return
       }
 
-      const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '接单失败'
+      const msg = (result && result.errorMsg) ? result.errorMsg : '接单失败'
       this.showToast(msg, 'none')
     } catch (e) {
       console.error('acceptAsDriver error:', e)
@@ -483,6 +490,21 @@ Page({
     } finally {
       this.setData({ submittingDriver: false })
     }
+  },
+
+  async onBlockRequestOwner() {
+    const { tripId, ownerOpenid, isOwner, trip } = this.data
+    if (isOwner) return this.showToast('不能拉黑自己', 'none')
+    if (!ownerOpenid) return this.showToast('缺少拉黑对象', 'none')
+    if (!this.ensureLoginForBlock()) return
+
+    await blockRideUser({
+      type: 'request',
+      requestId: tripId,
+      tripId,
+      targetOpenid: ownerOpenid,
+      targetName: (trip && (trip.name || trip.nickName)) || '求车发布者'
+    })
   },
 
   // =========================

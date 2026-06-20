@@ -57,6 +57,24 @@
       </view>
     </view>
 
+    <view class="profile-score ride-card ride-card-pad">
+      <view class="profile-section-head">
+        <text class="ride-section-title">拼车信用</text>
+      </view>
+      <view class="profile-score-grid">
+        <view class="profile-score-item">
+          <text class="profile-score-role">司机</text>
+          <text class="profile-score-value">{{isLoggedIn ? driverRatingText : '未登录'}}</text>
+          <text class="profile-score-sub">{{isLoggedIn ? driverCompletedText : '登录后查看'}}</text>
+        </view>
+        <view class="profile-score-item">
+          <text class="profile-score-role">乘客</text>
+          <text class="profile-score-value">{{isLoggedIn ? passengerRatingText : '未登录'}}</text>
+          <text class="profile-score-sub">{{isLoggedIn ? passengerCompletedText : '登录后查看'}}</text>
+        </view>
+      </view>
+    </view>
+
     <view class="profile-section ride-card ride-card-pad">
       <view class="profile-section-head">
         <text class="ride-section-title">我的出行</text>
@@ -85,6 +103,16 @@
             </view>
           </view>
           <text class="profile-grid-text">消息提醒</text>
+        </view>
+
+        <view class="profile-grid-item" bindtap="goBlockList" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap profile-badge-wrap">
+            <image class="profile-grid-icon" src="/images/icon_setting.png" mode="aspectFit" />
+            <view wx:if="{{blockedCount > 0}}" class="profile-badge">
+              <text class="profile-badge-number">{{ blockedCount > 99 ? '99+' : blockedCount }}</text>
+            </view>
+          </view>
+          <text class="profile-grid-text">黑名单</text>
         </view>
       </view>
     </view>

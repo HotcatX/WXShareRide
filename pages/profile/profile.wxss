@@ -145,6 +145,54 @@ page{
   margin-top: 16rpx;
 }
 
+.profile-score{
+  margin-top: 16rpx;
+}
+
+.profile-score-grid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 12rpx;
+}
+
+.profile-score-item{
+  min-width: 0;
+  min-height: 128rpx;
+  padding: 16rpx;
+  border-radius: 16rpx;
+  background: #f4f6f8;
+  border: 1rpx solid rgba(20,23,26,0.05);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
+}
+
+.profile-score-role{
+  font-size: 23rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  color: #0f746f;
+}
+
+.profile-score-value{
+  font-size: 32rpx;
+  line-height: 40rpx;
+  font-weight: 900;
+  color: #111418;
+}
+
+.profile-score-sub{
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  color: #69727d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profile-section-head{
   margin-bottom: 18rpx;
 }

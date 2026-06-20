@@ -44,6 +44,43 @@ function getDisplayName(user) {
   return (user && (user.name || user.nickName || user.nickname)) || '一位乘客'
 }
 
+async function getUser(openid) {
+  if (!openid) return null
+  const res = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  return res.data && res.data[0] ? res.data[0] : null
+}
+
+function addBlockedId(set, value) {
+  const id = String(value || '').trim()
+  if (id) set.add(id)
+}
+
+function getBlockedUsers(user) {
+  const out = new Set()
+  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addBlockedId(out, id))
+  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addBlockedId(out, item && item.openid))
+  return out
+}
+
+async function checkBlockBetween(openidA, openidB) {
+  if (!openidA || !openidB || openidA === openidB) return { blocked: false }
+  const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
+  const aBlocks = getBlockedUsers(a)
+  const bBlocks = getBlockedUsers(b)
+  if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
+  if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
+  return { blocked: false }
+}
+
+async function checkBlockWithMany(actorOpenid, targetOpenids) {
+  const targets = Array.from(new Set((targetOpenids || []).filter(Boolean))).filter(id => id !== actorOpenid)
+  for (const target of targets) {
+    const res = await checkBlockBetween(actorOpenid, target)
+    if (res.blocked) return res
+  }
+  return { blocked: false }
+}
+
 function buildRouteText(doc, fallback) {
   const dep = (doc && doc.departures || [])[0] || {}
   const des = (doc && doc.destinations || [])[0] || {}
@@ -87,6 +124,22 @@ async function upsertPassengerUser(transaction, openid, tripId) {
 async function joinCarpool(event, openid) {
   const tripId = String(event.tripId || event.id || '').trim()
   if (!tripId) return { ok: false, success: false, errorMsg: '缺少 tripId' }
+
+  const preTripRes = await db.collection('Carpool').doc(tripId).get().catch(() => null)
+  const preTrip = preTripRes && preTripRes.data
+  if (preTrip) {
+    const prePassengers = Array.isArray(preTrip.passengers) ? preTrip.passengers.filter(Boolean) : []
+    const alreadyInPre = prePassengers.some(p => p && p._openid === openid)
+    if (!alreadyInPre) {
+      const existingPassengerOpenids = prePassengers
+        .map(p => (typeof p === 'string' ? p : p && p._openid))
+        .filter(Boolean)
+      const blockCheck = await checkBlockWithMany(openid, [preTrip._openid || preTrip.driverOpenid || ''].concat(existingPassengerOpenids))
+      if (blockCheck.blocked) {
+        return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
+      }
+    }
+  }
 
   let tripSnapshot = null
   let passengerForMsg = null
@@ -168,6 +221,18 @@ async function joinCarpool(event, openid) {
 async function joinRequest(event, openid) {
   const requestId = String(event.requestId || event.tripId || event.id || '').trim()
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
+
+  const preReqRes = await db.collection('CarpoolRequest').doc(requestId).get().catch(() => null)
+  const preReq = preReqRes && preReqRes.data
+  if (preReq) {
+    const passengerIds = Array.isArray(preReq.passengerID) ? preReq.passengerID.filter(Boolean) : []
+    if (!passengerIds.includes(openid)) {
+      const blockCheck = await checkBlockWithMany(openid, [preReq._openid || '', preReq.driverOpenid || preReq.driverID || ''].concat(passengerIds))
+      if (blockCheck.blocked) {
+        return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
+      }
+    }
+  }
 
   let reqForMsg = null
   let notifyTargets = []

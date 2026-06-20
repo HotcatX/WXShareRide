@@ -21,6 +21,7 @@
     "pages/profile/myTripRequestPassenger/myTripRequestPassenger",
     "pages/profile/myTripDetailPassenger/myTripDetailPassenger",
     "pages/profile/notification/notification",
+    "pages/profile/blockList/blockList",
     "pages/market/market",
     "pages/market/marketDetail/marketDetail",
     "pages/market/marketPost/marketPost",

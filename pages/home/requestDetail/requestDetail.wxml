@@ -24,7 +24,16 @@
     <view class="ride-card ride-card-pad request-hero">
       <view class="ride-row-between request-hero-head">
         <text class="ride-list-kind">乘客求车</text>
-        <text class="ride-chip ride-chip--accent">余位 {{seatLeft}}</text>
+        <view class="ride-head-actions">
+          <view
+            wx:if="{{ownerOpenid && !isOwner}}"
+            class="ride-chip ride-chip--warn ride-chip--small"
+            bindtap="onBlockRequestOwner"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >拉黑发布者</view>
+          <text class="ride-chip ride-chip--accent">余位 {{seatLeft}}</text>
+        </view>
       </view>
 
       <view class="ride-route">
@@ -61,24 +70,27 @@
       <text class="ride-notice-text">优先查看拼车列表是否有合适路线。短距离可自行打车，长距离求车等待司机接单。</text>
     </view>
 
-    <view class="ride-bottom-space ride-bottom-space--double"></view>
+    <view class="ride-bottom-space"></view>
   </scroll-view>
 
-  <view wx:if="{{!loading && !loadError}}" class="ride-bottom ride-bottom--stack">
+  <view wx:if="{{!loading && !loadError}}" class="ride-bottom request-bottom">
     <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
-      无法接自己的求车
+      自己发布的求车
+    </button>
+    <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
+      你已接单
+    </button>
+    <button wx:elif="{{joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
+      你已加入该路线
     </button>
     <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
       已被其他司机接单
     </button>
-    <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      你已成为该路线司机
-    </button>
-    <button wx:elif="{{joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      已作为乘客加入
+    <button wx:elif="{{isClosed}}" disabled="true" class="ride-btn ride-btn--disabled">
+      该路线已结束
     </button>
     <button
-      wx:else
+      wx:elif="{{isFull}}"
       class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
       bindtap="acceptAsDriver"
       disabled="{{submittingDriver}}"
@@ -86,30 +98,23 @@
     >
       {{ submittingDriver ? '接单中' : '司机接单' }}
     </button>
-
-    <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
-      无法加入自己创建的路线
-    </button>
-    <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      你已是该路线司机
-    </button>
-    <button wx:elif="{{isClosed}}" disabled="true" class="ride-btn ride-btn--disabled">
-      该路线已结束
-    </button>
-    <button wx:elif="{{isFull && !joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      该路线已满员
-    </button>
-    <button wx:elif="{{joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      你已加入该路线
-    </button>
-    <button
-      wx:else
-      class="ride-btn ride-btn--accent {{submittingPassenger ? 'ride-btn--disabled' : ''}}"
-      bindtap="joinAsPassenger"
-      disabled="{{submittingPassenger}}"
-      loading="{{submittingPassenger}}"
-    >
-      {{ submittingPassenger ? '加入中' : '乘客加入' }}
-    </button>
+    <block wx:else>
+      <button
+        class="ride-btn ride-btn--accent {{submittingPassenger ? 'ride-btn--disabled' : ''}}"
+        bindtap="joinAsPassenger"
+        disabled="{{submittingPassenger || submittingDriver}}"
+        loading="{{submittingPassenger}}"
+      >
+        {{ submittingPassenger ? '加入中' : '乘客加入' }}
+      </button>
+      <button
+        class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
+        bindtap="acceptAsDriver"
+        disabled="{{submittingDriver || submittingPassenger}}"
+        loading="{{submittingDriver}}"
+      >
+        {{ submittingDriver ? '接单中' : '司机接单' }}
+      </button>
+    </block>
   </view>
 </view>

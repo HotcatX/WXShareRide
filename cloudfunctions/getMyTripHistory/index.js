@@ -4,6 +4,7 @@
 // - tripDriverHistory       -> Carpool
 // - tripDriverJoinHistory   -> CarpoolRequest
 // - tripPassengerHistory    -> 可能是 Carpool 或 CarpoolRequest（两边都查，Carpool优先）
+// - tripPassengerCreateHistory -> CarpoolRequest
 //
 // 返回：{ ok: true, data: [...] }
 // 每条都会带：historyRole, historySource；缺失则 missing:true
@@ -62,11 +63,13 @@ exports.main = async (event, context) => {
     const tripDriverHistory = Array.isArray(u.tripDriverHistory) ? u.tripDriverHistory : []
     const tripDriverJoinHistory = Array.isArray(u.tripDriverJoinHistory) ? u.tripDriverJoinHistory : []
     const tripPassengerHistory = Array.isArray(u.tripPassengerHistory) ? u.tripPassengerHistory : []
+    const tripPassengerCreateHistory = Array.isArray(u.tripPassengerCreateHistory) ? u.tripPassengerCreateHistory : []
 
     // 去重（各自集合内部即可；合并时再去一次）
     const driverCreateIds = uniq(tripDriverHistory)
     const driverJoinIds = uniq(tripDriverJoinHistory)
     const passengerIds = uniq(tripPassengerHistory)
+    const passengerCreateIds = uniq(tripPassengerCreateHistory)
 
     // 2) 分别回填详情
     // 2.1 司机创建：只查 Carpool
@@ -76,6 +79,10 @@ exports.main = async (event, context) => {
     // 2.2 司机加入：只查 CarpoolRequest
     const requestDriverJoinDocs = await batchGetByIds('CarpoolRequest', driverJoinIds)
     const requestMap = buildMapById(requestDriverJoinDocs)
+
+    // 2.2.1 乘客发布求车历史：只查 CarpoolRequest
+    const requestPassengerCreateDocs = await batchGetByIds('CarpoolRequest', passengerCreateIds)
+    const requestPassengerCreateMap = buildMapById(requestPassengerCreateDocs)
 
     // 2.3 乘客历史：两边都查
     const passengerCarpoolDocs = await batchGetByIds('Carpool', passengerIds)
@@ -112,6 +119,11 @@ exports.main = async (event, context) => {
     // 3.2 driver_join
     for (const id of driverJoinIds) {
       pushOne(id, 'driver_join', 'CarpoolRequest', requestMap.get(id))
+    }
+
+    // 3.2.1 passenger_create
+    for (const id of passengerCreateIds) {
+      pushOne(id, 'passenger_create', 'CarpoolRequest', requestPassengerCreateMap.get(id))
     }
 
     // 3.3 passenger（Carpool 优先；如需 CarpoolRequest 优先，把下面两行顺序对调即可）

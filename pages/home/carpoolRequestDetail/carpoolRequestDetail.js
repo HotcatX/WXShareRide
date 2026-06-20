@@ -1,6 +1,7 @@
 // pages/home/carpoolRequestDetail/carpoolRequestDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
+const { blockRideUser } = require("../../../utils/tripManage")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -172,6 +173,16 @@ Page({
       returnUrl: pendingUrl
     })
 
+    wx.navigateTo({ url: LOGIN_PAGE })
+    return false
+  },
+
+  ensureLoginForBlock() {
+    const openid = wx.getStorageSync('openid') || ''
+    if (openid) return true
+
+    const { tripId } = this.data
+    wx.setStorageSync('pendingPage', { url: `/pages/home/carpoolRequestDetail/carpoolRequestDetail?id=${tripId}` })
     wx.navigateTo({ url: LOGIN_PAGE })
     return false
   },
@@ -356,6 +367,27 @@ Page({
     } finally {
       this.setData({ submitting: false })
     }
+  },
+
+  async onBlockRequestOwner() {
+    const { tripId, ownerOpenid, isOwner, trip } = this.data
+    if (isOwner) {
+      this.showToast('不能拉黑自己', 'none')
+      return
+    }
+    if (!ownerOpenid) {
+      this.showToast('缺少拉黑对象', 'none')
+      return
+    }
+    if (!this.ensureLoginForBlock()) return
+
+    await blockRideUser({
+      type: 'request',
+      requestId: tripId,
+      tripId,
+      targetOpenid: ownerOpenid,
+      targetName: (trip && (trip.name || trip.nickName)) || '求车发布者'
+    })
   },
 
   onShareAppMessage() {

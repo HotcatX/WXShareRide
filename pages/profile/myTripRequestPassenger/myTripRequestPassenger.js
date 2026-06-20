@@ -1,4 +1,6 @@
 // pages/profile/myTripRequestPassenger/myTripRequestPassenger.js
+const { callTripManage, askReason, attachRideStats, rateTripUser } = require("../../../utils/tripManage")
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -28,7 +30,8 @@ Page({
     defaultAvatarUrl: '/images/profile.png',
 
     // 剔除模式
-    kickMode: false
+    kickMode: false,
+    isRequestCompleted: false
   },
 
   getWeekdayCN(dateStr) {
@@ -94,7 +97,8 @@ Page({
       showFortLeeCoreTip: false,
       driverInfo: null,
       otherPassengers: [],
-      kickMode: false
+      kickMode: false,
+      isRequestCompleted: false
     })
   },
 
@@ -172,6 +176,8 @@ Page({
       // ✅ myOpenid 必须可靠：云函数不返回则调用 login 获取
       const myOpenid = rr.openid || (await this.getMyOpenid()) || ''
       const creatorOpenid = trip._openid || trip.creatorOpenid || trip.passengerOpenid || ''
+      const rawStatus = String(trip.status || 'open').toLowerCase()
+      const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
 
       // 基础字段
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
@@ -210,7 +216,8 @@ Page({
             carBrand: u.carBrand || '',
             carModel: u.carModel || '',
             zelleName: u.zelleName || '',
-            zelleAccount: u.zelleAccount || ''
+            zelleAccount: u.zelleAccount || '',
+            ...attachRideStats(u, 'driver')
           }
         }
       }
@@ -245,7 +252,8 @@ Page({
               phone: u.phone || '',
               wechatID: u.wechatID || '',
               avatarUrl: u.avatarUrl || '',
-              address: u.address || ''
+              address: u.address || '',
+              ...attachRideStats(u, 'passenger')
             }
           })
         }
@@ -263,6 +271,8 @@ Page({
         showFortLeeCoreTip,
         driverInfo,
         otherPassengers,
+        isRequestCompleted,
+        kickMode: isRequestCompleted ? false : this.data.kickMode,
         loadError: '',
         loading: false
       })
@@ -306,7 +316,7 @@ Page({
   },
 
   // ===== 剔除司机：仅 kickMode 下可用 =====
-  onKickDriver() {
+  async onKickDriver() {
     if (!this.data.kickMode) return
     const { requestId, driverInfo } = this.data
     if (!driverInfo || !driverInfo._openid) {
@@ -314,58 +324,115 @@ Page({
       return
     }
 
-    wx.showModal({
+    const reason = await askReason({
       title: '剔除司机',
-      content: '确认剔除该司机吗？剔除后路线将重新对其他司机开放。',
-      confirmText: '确定',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-        try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyRequestDetailCreate',
-            data: { requestId, action: 'kickDriver' }
-          })
-          if (res.result && res.result.ok) {
-            wx.showToast({ title: '已剔除', icon: 'success' })
-            await this.loadRequestDetail(requestId)
-          } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
-          }
-        } catch (e) {
-          console.error(e)
-          wx.showToast({ title: '操作失败', icon: 'none' })
-        }
-      }
+      content: '理由会作为消息发送给该司机。',
+      placeholder: '例如沟通不畅、临时调整',
+      confirmText: '剔除'
     })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在处理...', mask: true })
+      const result = await callTripManage({ type: 'request', requestId, action: 'kickDriver', reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已剔除', icon: 'success' })
+        await this.loadRequestDetail(requestId)
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
+      }
+    } catch (e) {
+      wx.hideLoading()
+      console.error(e)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
   },
 
   // ===== 剔除乘客：仅 kickMode 下可用 =====
-  onKickPassenger(e) {
+  async onKickPassenger(e) {
     if (!this.data.kickMode) return
     const { requestId } = this.data
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     if (!targetOpenid) return
 
-    wx.showModal({
+    const reason = await askReason({
       title: '剔除乘客',
-      content: '确认将该乘客移出路线吗？',
-      confirmText: '确定',
+      content: '理由会作为消息发送给该乘客。',
+      placeholder: '例如信息不匹配、长期未回复',
+      confirmText: '剔除'
+    })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在处理...', mask: true })
+      const result = await callTripManage({ type: 'request', requestId, action: 'kickPassenger', targetOpenid, reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已剔除', icon: 'success' })
+        await this.loadRequestDetail(requestId)
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
+      }
+    } catch (e) {
+      wx.hideLoading()
+      console.error(e)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
+  },
+
+  // ===== 创建者退出并删除路线 =====
+  async onQuitAndDelete() {
+    const { requestId } = this.data
+    if (!requestId) return
+
+    const reason = await askReason({
+      title: '退出并删除路线',
+      content: '理由会作为消息发送给司机和已加入乘客。',
+      placeholder: '例如临时取消、时间变更',
+      confirmText: '删除'
+    })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在删除...', mask: true })
+      const result = await callTripManage({ type: 'request', requestId, action: 'deleteTrip', reason })
+      wx.hideLoading()
+
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已删除', icon: 'success' })
+        setTimeout(() => this.goBack(), 500)
+        return
+      }
+
+      wx.showModal({
+        title: '删除未完成',
+        content: (result && result.errorMsg) || '删除未完成，请稍后重试',
+        showCancel: false
+      })
+    } catch (e) {
+      wx.hideLoading()
+      console.error(e)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
+  },
+
+  async onBlockUser(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
+    const { requestId } = this.data
+    if (!targetOpenid) return
+
+    wx.showModal({
+      title: '拉黑用户',
+      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
         if (!r.confirm) return
         try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyRequestDetailCreate',
-            data: { requestId, action: 'kickPassenger', targetOpenid }
-          })
-
-          if (res.result && res.result.ok) {
-            wx.showToast({ title: '已剔除', icon: 'success' })
-            await this.loadRequestDetail(requestId)
-          } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
-          }
+          const result = await callTripManage({ type: 'request', requestId, action: 'blockUser', targetOpenid })
+          wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e) {
           console.error(e)
           wx.showToast({ title: '操作失败', icon: 'none' })
@@ -374,44 +441,20 @@ Page({
     })
   },
 
-  // ===== 创建者退出并删除路线 =====
-  onQuitAndDelete() {
-    const { requestId } = this.data
-    if (!requestId) return
-
-    wx.showModal({
-      title: '退出并删除路线',
-      content: '确认删除该求车路线吗？将同步清理司机/乘客的加入记录，并删除该路线记录。',
-      confirmText: '删除',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-        try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyRequestDetailCreate',
-            data: { requestId, action: 'creatorQuitAndDelete' }
-          })
-
-
-          const result = res && res.result ? res.result : {}
-
-          if (result.ok === true) {
-            wx.showToast({ title: '已删除', icon: 'success' })
-            setTimeout(() => this.goBack(), 500)
-            return
-          }
-
-          const msg = (result && result.errorMsg) || '删除未完成，请稍后重试'
-          wx.showModal({
-            title: '删除未完成',
-            content: msg,
-            showCancel: false
-          })
-        } catch (e) {
-          console.error(e)
-          wx.showToast({ title: '操作失败', icon: 'none' })
-        }
-      }
+  async onRateDriver(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
+    const { requestId, isRequestCompleted } = this.data
+    if (!isRequestCompleted) {
+      wx.showToast({ title: '只能评价过往行程', icon: 'none' })
+      return
+    }
+    await rateTripUser({
+      type: 'request',
+      tripId: requestId,
+      targetOpenid,
+      targetRole: 'driver',
+      targetName
     })
   },
 

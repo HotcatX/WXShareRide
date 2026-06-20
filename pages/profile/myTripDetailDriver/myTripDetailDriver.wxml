@@ -59,12 +59,13 @@
             <view class="ride-row-between">
               <text class="ride-person-name">{{p.name || p.nickName || '未设置昵称'}}</text>
               <view
-                wx:if="{{kickMode}}"
+                wx:if="{{kickMode && !isTripCompleted}}"
                 class="ride-copy my-kick"
                 data-openid="{{p._openid}}"
                 bindtap="onKickPassenger"
               >剔除</view>
             </view>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
 
             <view class="ride-info-grid">
               <view class="ride-info-row">
@@ -83,6 +84,11 @@
                 <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" bindtap="onCopyText">复制</view>
               </view>
             </view>
+
+            <view wx:if="{{!kickMode}}" class="ride-person-actions">
+              <view wx:if="{{isTripCompleted}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+            </view>
           </view>
         </view>
       </block>
@@ -96,7 +102,7 @@
     <view class="ride-bottom-space"></view>
   </scroll-view>
 
-  <view wx:if="{{!loading && trip}}" class="ride-bottom">
+  <view wx:if="{{!isTripCompleted && !loading && trip}}" class="ride-bottom">
     <button class="ride-btn ride-btn--secondary" bindtap="toggleKickMode">
       {{kickMode ? '完成剔除' : '剔除乘客'}}
     </button>

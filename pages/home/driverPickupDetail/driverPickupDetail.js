@@ -1,6 +1,7 @@
 // pages/home/driverPickupDetail/driverPickupDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
+const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
 
 function getWeekdayStr(dateStr) {
   if (!dateStr) return ''
@@ -154,6 +155,16 @@ Page({
     return false
   },
 
+  ensureLoginForBlock() {
+    const openid = wx.getStorageSync('openid') || ''
+    if (openid) return true
+
+    const { requestId } = this.data
+    wx.setStorageSync('pendingPage', { url: `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}` })
+    wx.navigateTo({ url: LOGIN_PAGE })
+    return false
+  },
+
   // 读取 CarpoolRequest 详情
   async loadRequestDetail(id, options = {}) {
     const { silent = false } = options
@@ -298,14 +309,8 @@ Page({
     this.setData({ submitting: true })
 
     try {
-      const ret = await wx.cloud.callFunction({
-        name: 'acceptCarpoolRequest',
-        data: { requestId }
-      })
-
-
-      const result = ret && ret.result ? ret.result : {}
-      if (result.success) {
+      const result = await callTripManage({ type: 'request', requestId, action: 'acceptRequest' })
+      if (result && (result.success || result.ok)) {
         wx.showToast({ title: '接单成功', icon: 'success', duration: 1200 })
         setTimeout(() => {
           wx.reLaunch({ url: '/pages/home/home' })
@@ -326,6 +331,27 @@ Page({
     } finally {
       this.setData({ submitting: false })
     }
+  },
+
+  async onBlockRequestOwner() {
+    const { requestId, requestOwnerOpenid, isOwner, request } = this.data
+    if (isOwner) {
+      wx.showToast({ title: '不能拉黑自己', icon: 'none' })
+      return
+    }
+    if (!requestOwnerOpenid) {
+      wx.showToast({ title: '缺少拉黑对象', icon: 'none' })
+      return
+    }
+    if (!this.ensureLoginForBlock()) return
+
+    await blockRideUser({
+      type: 'request',
+      requestId,
+      tripId: requestId,
+      targetOpenid: requestOwnerOpenid,
+      targetName: (request && (request.name || request.nickName)) || '求车发布者'
+    })
   },
 
   onShareAppMessage() {

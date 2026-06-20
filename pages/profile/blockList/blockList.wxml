@@ -1,0 +1,49 @@
+<view class="ride-shell block-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+  </view>
+
+  <scroll-view class="ride-scroll block-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view wx:if="{{loading}}" class="ride-state">
+      正在加载黑名单
+    </view>
+
+    <view wx:elif="{{!list || list.length === 0}}" class="ride-state">
+      <text class="ride-state-title">暂无拉黑用户</text>
+      <text class="block-state-sub">拉黑后，对方会出现在这里，可以随时解除。</text>
+    </view>
+
+    <block wx:else>
+      <view class="ride-card ride-card-pad block-card" wx:for="{{list}}" wx:key="targetOpenid">
+        <view class="block-person">
+          <image class="ride-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
+          <view class="block-main">
+            <view class="ride-row-between">
+              <view class="block-name-wrap">
+                <text class="ride-person-name">{{item.name}}</text>
+                <text wx:if="{{item.wechatID}}" class="ride-social-line">{{item.wechatID}}</text>
+              </view>
+              <view
+                class="ride-mini-btn ride-mini-btn--accent block-unblock"
+                data-openid="{{item.targetOpenid}}"
+                data-name="{{item.name}}"
+                bindtap="onUnblockUser"
+              >解除</view>
+            </view>
+            <view class="block-meta">
+              <text wx:if="{{item.reason}}" class="block-meta-text">原因：{{item.reason}}</text>
+              <text wx:if="{{item.blockedAtText}}" class="block-meta-text">拉黑时间：{{item.blockedAtText}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </block>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+</view>

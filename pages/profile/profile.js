@@ -1,5 +1,17 @@
 const defaultAvatarUrl =
   '/images/profile.png'
+const { formatRideStats } = require("../../utils/tripManage")
+
+function countBlockedUsers(user = {}) {
+  const ids = new Set()
+  ;(Array.isArray(user.blockedUsers) ? user.blockedUsers : []).forEach(id => {
+    if (id) ids.add(String(id))
+  })
+  ;(Array.isArray(user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => {
+    if (item && item.openid) ids.add(String(item.openid))
+  })
+  return ids.size
+}
 
 function getProfileNavMetrics() {
   const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync()
@@ -38,6 +50,11 @@ Page({
 
     unreadCount: 0,
     walletUnreadCount: 0,
+    driverRatingText: '暂无评分',
+    driverCompletedText: '司机完成 0 次',
+    passengerRatingText: '暂无评分',
+    passengerCompletedText: '已作为乘客 0 次',
+    blockedCount: 0,
 
     statusBarHeight: 80,
     menuRightSpace: 28,
@@ -129,7 +146,12 @@ Page({
       apartment: '',
 
       unreadCount: 0,
-      walletUnreadCount: 0
+      walletUnreadCount: 0,
+      driverRatingText: '暂无评分',
+      driverCompletedText: '司机完成 0 次',
+      passengerRatingText: '暂无评分',
+      passengerCompletedText: '已作为乘客 0 次',
+      blockedCount: 0
     })
 
     wx.setStorageSync('customTabMarketBadge', 0)
@@ -192,6 +214,8 @@ Page({
 
         const user = list[0] || {}
         const priceObj = user.customPrice || {}
+        const driverStats = formatRideStats(user.rideStats || {}, 'driver')
+        const passengerStats = formatRideStats(user.rideStats || {}, 'passenger')
 
         this.setData({
           isLoggedIn: true,
@@ -206,7 +230,13 @@ Page({
           customPriceCore: priceObj.fortLeeCore || '',
 
           region: user.bigregion || '',
-          apartment: user.address || ''
+          apartment: user.address || '',
+
+          driverRatingText: driverStats.ratingCount > 0 ? `${driverStats.ratingAvg} 分` : '暂无评分',
+          driverCompletedText: driverStats.completeText,
+          passengerRatingText: passengerStats.ratingCount > 0 ? `${passengerStats.ratingAvg} 分` : '暂无评分',
+          passengerCompletedText: passengerStats.completeText,
+          blockedCount: countBlockedUsers(user)
         })
 
         wx.setStorageSync('userInfo', user)
@@ -270,6 +300,11 @@ Page({
   goNotification() {
     if (!this.ensureLoggedIn()) return
     wx.navigateTo({ url: '/pages/profile/notification/notification' })
+  },
+
+  goBlockList() {
+    if (!this.ensureLoggedIn()) return
+    wx.navigateTo({ url: '/pages/profile/blockList/blockList' })
   },
 
   goFeedback() {

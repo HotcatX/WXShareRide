@@ -31,7 +31,16 @@
     <view class="ride-card ride-card-pad detail-hero">
       <view class="ride-row-between detail-hero-head">
         <text class="ride-list-kind">司机发车</text>
-        <text class="ride-chip ride-chip--accent">余位 {{trip.availSeatNum || 0}}</text>
+        <view class="ride-head-actions">
+          <view
+            wx:if="{{driverOpenid && !isOwner}}"
+            class="ride-chip ride-chip--warn ride-chip--small"
+            bindtap="onBlockDriver"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >拉黑司机</view>
+          <text class="ride-chip ride-chip--accent">余位 {{trip.availSeatNum || 0}}</text>
+        </view>
       </view>
 
       <view class="ride-route">

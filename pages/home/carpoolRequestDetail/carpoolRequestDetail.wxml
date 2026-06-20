@@ -19,7 +19,16 @@
     <view class="ride-card ride-card-pad request-hero">
       <view class="ride-row-between request-hero-head">
         <text class="ride-list-kind">乘客求车</text>
-        <text class="ride-chip ride-chip--accent">余位 {{seatLeft}}</text>
+        <view class="ride-head-actions">
+          <view
+            wx:if="{{ownerOpenid && !isOwner}}"
+            class="ride-chip ride-chip--warn ride-chip--small"
+            bindtap="onBlockRequestOwner"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >拉黑发布者</view>
+          <text class="ride-chip ride-chip--accent">余位 {{seatLeft}}</text>
+        </view>
       </view>
 
       <view class="ride-route">

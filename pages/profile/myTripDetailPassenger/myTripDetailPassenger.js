@@ -1,5 +1,6 @@
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
 const { showDataError } = require("../../../utils/error")
+const { callTripManage, attachRideStats, rateTripUser } = require("../../../utils/tripManage")
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
@@ -32,7 +33,8 @@ Page({
 
     defaultAvatarUrl: '/images/profile.png',
 
-    showFortLeeCoreTip: false
+    showFortLeeCoreTip: false,
+    isTripCompleted: false
   },
 
   // --------- 日期格式 ---------
@@ -100,7 +102,8 @@ Page({
       driverInfo: null,
       otherPassengers: [],
       passengerList: [],
-      showFortLeeCoreTip: false
+      showFortLeeCoreTip: false,
+      isTripCompleted: false
     })
   },
 
@@ -204,6 +207,8 @@ Page({
     const timeText = dep0.time || ''
 
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
+    const rawStatus = String(trip.status || 'open').toLowerCase()
+    const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
 
     // Carpool 的司机一般就是 trip._openid（创建者），也兼容 driver 字段
     const driverOpenid =
@@ -225,7 +230,8 @@ Page({
           carNumber: u.carNumber || '',
           zelleName: u.zelleName || '',
           zelleAccount: u.zelleAccount || '',
-          avatarUrl: u.avatarUrl || ''
+          avatarUrl: u.avatarUrl || '',
+          ...attachRideStats(u, 'driver')
         }
       }
     }
@@ -245,6 +251,7 @@ Page({
       weekdayText,
       timeText,
       showFortLeeCoreTip,
+      isTripCompleted,
       loadError: '',
       loading: false
     })
@@ -264,6 +271,8 @@ Page({
     const timeText = dep0.time || ''
 
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
+    const rawStatus = String(trip.status || 'open').toLowerCase()
+    const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
 
     // 当前用户 openid：优先 rr.openid，否则调用 login 获取
     const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
@@ -288,7 +297,8 @@ Page({
           carNumber: u.carNumber || '',
           zelleName: u.zelleName || '',
           zelleAccount: u.zelleAccount || '',
-          avatarUrl: u.avatarUrl || ''
+          avatarUrl: u.avatarUrl || '',
+          ...attachRideStats(u, 'driver')
         }
       }
     }
@@ -326,7 +336,8 @@ Page({
             phone: u.phone || '',
             wechatID: u.wechatID || '',
             avatarUrl: u.avatarUrl || '',
-            address: u.address || ''
+            address: u.address || '',
+            ...attachRideStats(u, 'passenger')
           }
         })
       }
@@ -346,6 +357,7 @@ Page({
       weekdayText,
       timeText,
       showFortLeeCoreTip,
+      isTripCompleted,
       loadError: '',
       loading: false
     })
@@ -379,7 +391,7 @@ Page({
 
   // ====== 统一退出：Carpool 或 CarpoolRequest ======
   async onDeleteOrQuit() {
-    const { tripId } = this.data
+    const { tripId, sourceType } = this.data
     if (!tripId) return
 
     wx.showModal({
@@ -390,22 +402,60 @@ Page({
       success: async (r) => {
         if (!r.confirm) return
         try {
-          const res = await wx.cloud.callFunction({
-            name: 'editMyTripDetailPassenger',
-            data: { tripId }
-          })
+          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'quitTrip' })
 
-          if (res.result && res.result.ok) {
+          if (result && (result.ok || result.success)) {
             wx.showToast({ title: '已退出路线', icon: 'success' })
             setTimeout(() => this.goBack(), 500)
           } else {
-            wx.showToast({ title: (res.result && res.result.errorMsg) || '操作失败', icon: 'none' })
+            wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
           }
         } catch (e2) {
           console.error('quitTrip error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
         }
       }
+    })
+  },
+
+  async onBlockUser(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
+    const { tripId, sourceType } = this.data
+    if (!targetOpenid) return
+
+    wx.showModal({
+      title: '拉黑用户',
+      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      confirmText: '拉黑',
+      cancelText: '取消',
+      success: async (r) => {
+        if (!r.confirm) return
+        try {
+          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'blockUser', targetOpenid })
+          wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
+        } catch (e2) {
+          console.error('blockUser error:', e2)
+          wx.showToast({ title: '操作失败', icon: 'none' })
+        }
+      }
+    })
+  },
+
+  async onRateDriver(e) {
+    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
+    const { tripId, sourceType, isTripCompleted } = this.data
+    if (!isTripCompleted) {
+      wx.showToast({ title: '只能评价过往行程', icon: 'none' })
+      return
+    }
+    await rateTripUser({
+      type: sourceType,
+      tripId,
+      targetOpenid,
+      targetRole: 'driver',
+      targetName
     })
   },
 

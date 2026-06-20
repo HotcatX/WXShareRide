@@ -252,6 +252,23 @@ button {
   color: #cf3d2f;
 }
 
+.ride-chip--small{
+  height: 44rpx;
+  padding: 0 12rpx;
+  border-radius: 12rpx;
+  font-size: 21rpx;
+  line-height: 28rpx;
+}
+
+.ride-head-actions{
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8rpx;
+  min-width: 0;
+}
+
 .ride-route{
   display: grid;
   grid-template-columns: 34rpx minmax(0,1fr);
@@ -622,6 +639,48 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ride-social-line{
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  color: #69727d;
+}
+
+.ride-person-actions{
+  margin-top: 12rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.ride-mini-btn{
+  min-width: 92rpx;
+  height: 46rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  background: #eef1f4;
+  color: #111418;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  box-sizing: border-box;
+}
+
+.ride-mini-btn--danger{
+  background: rgba(230,76,60,0.10);
+  color: #cf3d2f;
+}
+
+.ride-mini-btn--accent{
+  background: rgba(15,155,149,0.12);
+  color: #0f746f;
 }
 
 .ride-info-grid{

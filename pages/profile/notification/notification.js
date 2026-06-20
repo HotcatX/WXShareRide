@@ -68,9 +68,13 @@ Page({
       const rawList = res.data || []
 
       const list = rawList.map(item => {
+        const extra = item.extra || {}
+        const rateTripId = extra.tripId || extra.requestId || item.carpoolId || ''
         return {
           ...item,
-          createdAtText: this.formatTime(item.createdAt)
+          createdAtText: this.formatTime(item.createdAt),
+          canRate: item.type === 'RATING_INVITE' || extra.action === 'rateUser',
+          rateTripId
         }
       })
 
@@ -146,6 +150,33 @@ Page({
         icon: 'none'
       })
     }
+  },
+
+  async onGoRating(e) {
+    const { id, index, tripid } = e.currentTarget.dataset || {}
+    const item = this.data.list[index]
+    const rateTripId = tripid || (item && item.rateTripId) || ''
+    if (!rateTripId) {
+      wx.showToast({ title: '缺少历史行程', icon: 'none' })
+      return
+    }
+
+    if (id && item && !item.read) {
+      try {
+        const db = wx.cloud.database()
+        await db.collection('Notifications').doc(id).update({
+          data: { read: true }
+        })
+        this.setData({ [`list[${index}].read`]: true })
+        this.syncUnreadFromList()
+      } catch (err) {
+        console.error('标记评价通知已读失败：', err)
+      }
+    }
+
+    wx.navigateTo({
+      url: `/pages/profile/tripHistory/tripHistory?rateTripId=${encodeURIComponent(rateTripId)}`
+    })
   },
 
   /**

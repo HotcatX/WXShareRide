@@ -46,6 +46,18 @@
       "timeout": 15
     },
     {
+      "name": "tripManage",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "getMyTripHistory",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
       "name": "marketApi",
       "runtime": "Nodejs16.13",
       "handler": "index.main",

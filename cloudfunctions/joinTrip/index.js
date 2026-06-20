@@ -62,6 +62,19 @@ function getBlockedUsers(user) {
   return out
 }
 
+async function hasActiveBlock(blockerOpenid, targetOpenid) {
+  if (!blockerOpenid || !targetOpenid || blockerOpenid === targetOpenid) return false
+  const res = await db.collection('UserBlocks')
+    .where({
+      _openid: blockerOpenid,
+      targetOpenid,
+      active: true
+    })
+    .limit(1)
+    .get()
+  return !!(res.data && res.data.length)
+}
+
 async function checkBlockBetween(openidA, openidB) {
   if (!openidA || !openidB || openidA === openidB) return { blocked: false }
   const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
@@ -69,6 +82,12 @@ async function checkBlockBetween(openidA, openidB) {
   const bBlocks = getBlockedUsers(b)
   if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
   if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
+  const [aActiveBlock, bActiveBlock] = await Promise.all([
+    hasActiveBlock(openidA, openidB),
+    hasActiveBlock(openidB, openidA)
+  ])
+  if (aActiveBlock) return { blocked: true, blocker: openidA, target: openidB }
+  if (bActiveBlock) return { blocked: true, blocker: openidB, target: openidA }
   return { blocked: false }
 }
 

@@ -18,6 +18,9 @@ const TYPE_CONFIG = {
       destinations: true,
       availSeatNum: true,
       passengerCount: true,
+      passengers: true,
+      passengerID: true,
+      passengerIDs: true,
       referencePrice: true,
       price: true,
       displayPrice: true,
@@ -25,7 +28,11 @@ const TYPE_CONFIG = {
       latestDepartureAtMs: true,
       firstDepartureDate: true,
       firstDepartureTime: true,
-      createdAt: true
+      createdAt: true,
+      _openid: true,
+      driverOpenid: true,
+      driverID: true,
+      driverId: true
     }
   },
   request: {
@@ -37,6 +44,9 @@ const TYPE_CONFIG = {
       destinations: true,
       passengerCount: true,
       requestPassengerCount: true,
+      passengerID: true,
+      passengerIDs: true,
+      passengers: true,
       referencePrice: true,
       price: true,
       displayPrice: true,
@@ -44,7 +54,15 @@ const TYPE_CONFIG = {
       latestDepartureAtMs: true,
       firstDepartureDate: true,
       firstDepartureTime: true,
-      createdAt: true
+      createdAt: true,
+      _openid: true,
+      creatorOpenid: true,
+      passengerOpenid: true,
+      openid: true,
+      driverOpenid: true,
+      driverID: true,
+      driverId: true,
+      driver: true
     }
   }
 }
@@ -101,6 +119,165 @@ function mergeById(lists) {
   return Array.from(map.values())
 }
 
+function cleanOpenid(value) {
+  const id = String(value || '').trim()
+  return id ? id : ''
+}
+
+function addOpenid(set, value) {
+  const id = cleanOpenid(value)
+  if (id) set.add(id)
+}
+
+async function getUser(openid) {
+  const id = cleanOpenid(openid)
+  if (!id) return null
+  const res = await db.collection('userInfo').where({ _openid: id }).limit(1).get()
+  return res.data && res.data[0] ? res.data[0] : null
+}
+
+function getBlockedOpenidsFromUser(user = {}) {
+  const out = new Set()
+  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addOpenid(out, id))
+  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addOpenid(out, item && item.openid))
+  return out
+}
+
+function addPassengerOpenids(set, passengers) {
+  ;(Array.isArray(passengers) ? passengers : []).forEach(item => {
+    if (typeof item === 'string') addOpenid(set, item)
+    else {
+      addOpenid(set, item && item._openid)
+      addOpenid(set, item && item.openid)
+      addOpenid(set, item && item.passengerOpenid)
+    }
+  })
+}
+
+function getCarpoolPartyOpenids(doc = {}) {
+  const ids = new Set()
+  addOpenid(ids, doc._openid || doc.driverOpenid || doc.driverID || doc.driverId)
+  addPassengerOpenids(ids, doc.passengers)
+  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addOpenid(ids, id))
+  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addOpenid(ids, id))
+  return Array.from(ids)
+}
+
+function getRequestPartyOpenids(doc = {}) {
+  const ids = new Set()
+  addOpenid(ids, doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid)
+  addOpenid(ids, doc.driverOpenid || doc.driverID || doc.driverId || doc.driver)
+  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addOpenid(ids, id))
+  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addOpenid(ids, id))
+  addPassengerOpenids(ids, doc.passengers)
+  return Array.from(ids)
+}
+
+function getTripPartyOpenids(type, doc) {
+  return type === 'request' ? getRequestPartyOpenids(doc) : getCarpoolPartyOpenids(doc)
+}
+
+function stripPrivateListFields(item) {
+  const out = Object.assign({}, item)
+  delete out._openid
+  delete out.creatorOpenid
+  delete out.passengerOpenid
+  delete out.openid
+  delete out.driverOpenid
+  delete out.driverID
+  delete out.driverId
+  delete out.driver
+  delete out.passengerID
+  delete out.passengerIDs
+  delete out.passengers
+  return out
+}
+
+async function addForwardBlocksFromUserBlocks(actorOpenid, blockedSet) {
+  const res = await db.collection('UserBlocks')
+    .where({
+      _openid: actorOpenid,
+      active: true
+    })
+    .limit(100)
+    .get()
+  ;(res.data || []).forEach(item => addOpenid(blockedSet, item && item.targetOpenid))
+}
+
+async function getReverseBlocksFromUserBlocks(actorOpenid, routePartyIds) {
+  const reverse = new Set()
+  if (!routePartyIds.length) return reverse
+
+  const partySet = new Set(routePartyIds)
+  const res = await db.collection('UserBlocks')
+    .where({
+      targetOpenid: actorOpenid,
+      active: true
+    })
+    .limit(200)
+    .get()
+
+  ;(res.data || []).forEach(item => {
+    const blocker = cleanOpenid(item && (item.blockerOpenid || item._openid))
+    if (partySet.has(blocker)) addOpenid(reverse, blocker)
+  })
+  return reverse
+}
+
+async function getReverseBlocksFromUserInfo(actorOpenid, routePartyIds) {
+  const reverse = new Set()
+  if (!routePartyIds.length) return reverse
+
+  for (let i = 0; i < routePartyIds.length; i += 20) {
+    const chunk = routePartyIds.slice(i, i + 20)
+    const res = await db.collection('userInfo')
+      .where({ _openid: _.in(chunk) })
+      .limit(20)
+      .get()
+    ;(res.data || []).forEach(user => {
+      if (getBlockedOpenidsFromUser(user).has(actorOpenid)) addOpenid(reverse, user && user._openid)
+    })
+  }
+  return reverse
+}
+
+async function buildBlockContext(actorOpenid, typedLists) {
+  const actor = cleanOpenid(actorOpenid)
+  if (!actor) return { actor: '', blockedByMe: new Set(), blockedMe: new Set() }
+
+  const user = await getUser(actor)
+  const blockedByMe = getBlockedOpenidsFromUser(user)
+  await addForwardBlocksFromUserBlocks(actor, blockedByMe)
+
+  const partyIds = new Set()
+  ;(typedLists || []).forEach(pair => {
+    ;(pair.items || []).forEach(item => {
+      getTripPartyOpenids(pair.type, item)
+        .filter(id => id && id !== actor)
+        .forEach(id => partyIds.add(id))
+    })
+  })
+
+  const routePartyIds = Array.from(partyIds)
+  const blockedMe = await getReverseBlocksFromUserBlocks(actor, routePartyIds)
+  const legacyBlockedMe = await getReverseBlocksFromUserInfo(actor, routePartyIds)
+  legacyBlockedMe.forEach(id => addOpenid(blockedMe, id))
+
+  return { actor, blockedByMe, blockedMe }
+}
+
+function applyBlockFilter(type, list, blockContext) {
+  const actor = blockContext && blockContext.actor
+  if (!actor) return (list || []).map(stripPrivateListFields)
+
+  return (list || [])
+    .filter(item => {
+      const ids = getTripPartyOpenids(type, item).filter(id => id && id !== actor)
+      return !ids.some(id => blockContext.blockedByMe.has(id) || blockContext.blockedMe.has(id))
+    })
+    .map(stripPrivateListFields)
+}
+
 async function readType(type, event) {
   const config = TYPE_CONFIG[type]
   const limit = getLimit(event)
@@ -133,6 +310,7 @@ async function readType(type, event) {
 
 exports.main = async (event = {}) => {
   const type = normalizeType(event.type || event.kind || event.routeType)
+  const { OPENID: openid } = cloud.getWXContext()
 
   try {
     if (type === 'all') {
@@ -140,20 +318,27 @@ exports.main = async (event = {}) => {
         readType('carpool', event),
         readType('request', event)
       ])
+      const blockContext = await buildBlockContext(openid, [
+        { type: 'carpool', items: results[0] },
+        { type: 'request', items: results[1] }
+      ])
+      const carpool = applyBlockFilter('carpool', results[0], blockContext)
+      const request = applyBlockFilter('request', results[1], blockContext)
       return {
         ok: true,
         success: true,
         data: {
-          carpool: results[0],
-          request: results[1]
+          carpool,
+          request
         },
-        carpoolList: results[0],
-        requestList: results[1]
+        carpoolList: carpool,
+        requestList: request
       }
     }
 
     const data = await readType(type, event)
-    return { ok: true, success: true, type, data }
+    const blockContext = await buildBlockContext(openid, [{ type, items: data }])
+    return { ok: true, success: true, type, data: applyBlockFilter(type, data, blockContext) }
   } catch (e) {
     console.error('getTripList error:', e)
     return {

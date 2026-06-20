@@ -9,6 +9,7 @@ const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
 const LIST_CACHE_TTL = 2 * 60 * 1000
+const LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 
 const DEFAULT_FROM_PLACES = [
@@ -126,8 +127,29 @@ Page({
   onShow() {
     // onLoad 已经负责首屏；返回页面时只做轻量刷新，避免重复卡首屏。
     if (!this.data.hasLoadedOnce) return
+    const refreshAt = this.getRideListRefreshAt()
+    if (refreshAt && refreshAt > this._loadedOnceAt) {
+      this.clearListCache()
+      this.loadBothLists({ showLoading: false })
+      return
+    }
     if (Date.now() - this._loadedOnceAt < LIST_REFRESH_INTERVAL) return
     this.loadBothLists({ showLoading: false })
+  },
+
+  getRideListRefreshAt() {
+    try {
+      return Number(wx.getStorageSync(LIST_REFRESH_KEY) || 0)
+    } catch (e) {
+      return 0
+    }
+  },
+
+  clearListCache() {
+    try {
+      wx.removeStorageSync(LIST_CACHE_KEY)
+    } catch (e) {
+    }
   },
 
   buildFilterOptionData(fromList, toList) {
@@ -176,6 +198,8 @@ Page({
     try {
       const cached = wx.getStorageSync(LIST_CACHE_KEY)
       if (!cached || !cached.savedAt) return false
+      const refreshAt = this.getRideListRefreshAt()
+      if (refreshAt && refreshAt >= Number(cached.savedAt)) return false
       if (Date.now() - Number(cached.savedAt) > LIST_CACHE_TTL) return false
 
       const carpoolList = Array.isArray(cached.carpoolList) ? cached.carpoolList : []
@@ -203,6 +227,7 @@ Page({
         carpoolList: Array.isArray(carpoolList) ? carpoolList : [],
         requestList: Array.isArray(requestList) ? requestList : []
       })
+      wx.removeStorageSync(LIST_REFRESH_KEY)
     } catch (e) {
     }
   },

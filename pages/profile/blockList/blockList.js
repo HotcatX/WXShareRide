@@ -1,4 +1,4 @@
-const { callTripManage } = require("../../../utils/tripManage")
+const { callTripManage, markRideListStale } = require("../../../utils/tripManage")
 
 function formatTime(value) {
   if (!value) return ""
@@ -103,6 +103,7 @@ Page({
           wx.hideLoading()
 
           if (result && (result.ok || result.success)) {
+            markRideListStale()
             const list = this.data.list.filter(item => item.targetOpenid !== targetOpenid)
             this.setData({ list })
             wx.showToast({ title: "已解除", icon: "success" })

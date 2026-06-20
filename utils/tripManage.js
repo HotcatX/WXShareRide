@@ -6,12 +6,23 @@ function getResult(res) {
   return (res && res.result) || {}
 }
 
+const RIDE_LIST_CACHE_KEY = "carpoolListDataV1"
+const RIDE_LIST_REFRESH_KEY = "rideListShouldRefreshAt"
+
 async function callTripManage(data = {}) {
   const res = await wx.cloud.callFunction({
     name: "tripManage",
     data
   })
   return getResult(res)
+}
+
+function markRideListStale() {
+  try {
+    wx.removeStorageSync(RIDE_LIST_CACHE_KEY)
+    wx.setStorageSync(RIDE_LIST_REFRESH_KEY, Date.now())
+  } catch (e) {
+  }
 }
 
 function askReason(options = {}) {
@@ -139,6 +150,7 @@ async function blockRideUser(options = {}) {
           wx.hideLoading()
 
           if (result && (result.ok || result.success)) {
+            markRideListStale()
             wx.showToast({ title: "已拉黑", icon: "success" })
             resolve(true)
             return
@@ -222,6 +234,7 @@ module.exports = {
   askRating,
   rateTripUser,
   blockRideUser,
+  markRideListStale,
   formatScore,
   formatRideStats,
   attachRideStats

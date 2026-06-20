@@ -1,6 +1,13 @@
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
 const { showDataError } = require("../../../utils/error")
-const { callTripManage, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
+const {
+  callTripManage,
+  attachRideStats,
+  rateTripUser,
+  markRideListStale,
+  buildRatedTargetMap,
+  isTargetRated
+} = require("../../../utils/tripManage")
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
@@ -26,6 +33,7 @@ Page({
     timeText: '',
 
     driverInfo: null,
+    ratedTargetMap: {},
 
     // CarpoolRequest：显示除自己外的其他乘客
     otherPassengers: [],
@@ -100,6 +108,7 @@ Page({
       weekdayText: '',
       timeText: '',
       driverInfo: null,
+      ratedTargetMap: {},
       otherPassengers: [],
       passengerList: [],
       showFortLeeCoreTip: false,
@@ -180,7 +189,7 @@ Page({
         : null
 
       if (carpoolTrip) {
-        await this.applyCarpoolTrip(carpoolTrip)
+        await this.applyCarpoolTrip(carpoolTrip, carpoolRes.result)
         return
       }
 
@@ -194,7 +203,7 @@ Page({
   },
 
   // ========== Carpool 场景：只显示司机信息 ==========
-  async applyCarpoolTrip(trip) {
+  async applyCarpoolTrip(trip, detailResult = {}) {
     const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
     const des0 = (trip.destinations && trip.destinations[0]) ? trip.destinations[0] : {}
 
@@ -209,6 +218,7 @@ Page({
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
     const rawStatus = String(trip.status || 'open').toLowerCase()
     const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+    const ratedTargetMap = buildRatedTargetMap(detailResult)
 
     // Carpool 的司机一般就是 trip._openid（创建者），也兼容 driver 字段
     const driverOpenid =
@@ -231,7 +241,8 @@ Page({
           zelleName: u.zelleName || '',
           zelleAccount: u.zelleAccount || '',
           avatarUrl: u.avatarUrl || '',
-          ...attachRideStats(u, 'driver')
+          ...attachRideStats(u, 'driver'),
+          hasRated: isTargetRated(ratedTargetMap, driverOpenid)
         }
       }
     }
@@ -240,6 +251,7 @@ Page({
       sourceType: 'carpool',
       trip,
       driverInfo,
+      ratedTargetMap,
 
       // Carpool：不展示乘客列表
       otherPassengers: [],
@@ -273,6 +285,7 @@ Page({
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
     const rawStatus = String(trip.status || 'open').toLowerCase()
     const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+    const ratedTargetMap = buildRatedTargetMap(rr)
 
     // 当前用户 openid：优先 rr.openid，否则调用 login 获取
     const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
@@ -298,7 +311,8 @@ Page({
           zelleName: u.zelleName || '',
           zelleAccount: u.zelleAccount || '',
           avatarUrl: u.avatarUrl || '',
-          ...attachRideStats(u, 'driver')
+          ...attachRideStats(u, 'driver'),
+          hasRated: isTargetRated(ratedTargetMap, driverOpenid)
         }
       }
     }
@@ -347,6 +361,7 @@ Page({
       sourceType: 'request',
       trip,
       driverInfo,
+      ratedTargetMap,
 
       otherPassengers,
       passengerList: otherPassengers, // ✅ 给 WXML 直接照抄 passengerList
@@ -446,18 +461,24 @@ Page({
   async onRateDriver(e) {
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
-    const { tripId, sourceType, isTripCompleted } = this.data
+    const { tripId, sourceType, isTripCompleted, ratedTargetMap } = this.data
     if (!isTripCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    await rateTripUser({
+    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+      wx.showToast({ title: '已经评价过', icon: 'none' })
+      return
+    }
+    const ok = await rateTripUser({
       type: sourceType,
       tripId,
       targetOpenid,
       targetRole: 'driver',
-      targetName
+      targetName,
+      ratedTargetMap
     })
+    if (ok) await this.loadTripDetail(tripId, sourceType)
   },
 
   onShareAppMessage() {

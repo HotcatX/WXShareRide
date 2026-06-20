@@ -683,6 +683,11 @@ button {
   color: #0f746f;
 }
 
+.ride-mini-btn--disabled{
+  background: #eef1f4;
+  color: #9aa3ad;
+}
+
 .ride-info-grid{
   margin-top: 12rpx;
   display: flex;

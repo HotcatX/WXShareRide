@@ -89,7 +89,8 @@
             </view>
           </view>
           <view wx:if="{{!kickMode}}" class="ride-person-actions">
-            <view wx:if="{{isRequestCompleted}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '司机'}}" bindtap="onRateDriver">评价</view>
+            <view wx:if="{{isRequestCompleted && !driverInfo.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '司机'}}" bindtap="onRateDriver">评价</view>
+            <view wx:if="{{isRequestCompleted && driverInfo.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '司机'}}" bindtap="onRateDriver">已评价</view>
             <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '该用户'}}" bindtap="onBlockUser">拉黑</view>
           </view>
         </view>

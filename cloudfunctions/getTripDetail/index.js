@@ -144,6 +144,25 @@ async function shouldBlockDetail(actorOpenid, type, doc) {
   return false
 }
 
+async function getRatedTargetOpenids(type, tripId, actorOpenid) {
+  const actor = cleanText(actorOpenid, 80)
+  const id = cleanText(tripId, 80)
+  if (!actor || !id) return []
+
+  const res = await db.collection('TripRatings')
+    .where({
+      tripId: id,
+      type,
+      raterOpenid: actor
+    })
+    .limit(100)
+    .get()
+
+  const ids = new Set()
+  ;(res.data || []).forEach(item => addId(ids, item && item.targetOpenid))
+  return Array.from(ids)
+}
+
 exports.main = async (event = {}) => {
   const wxContext = cloud.getWXContext()
   const id = String(event.id || event.tripId || event.requestId || '').trim()
@@ -185,13 +204,19 @@ exports.main = async (event = {}) => {
       }
     }
 
+    const ratedTargetOpenids = await getRatedTargetOpenids(type, id, wxContext.OPENID || '')
+
     return {
       ok: true,
       success: true,
       data: res.data,
       openid: wxContext.OPENID || '',
       type,
-      from: config.collection
+      from: config.collection,
+      ratedTargetOpenids,
+      ratingState: {
+        ratedTargetOpenids
+      }
     }
   } catch (e) {
     console.error('getTripDetail error:', e)

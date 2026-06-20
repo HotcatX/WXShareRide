@@ -1,5 +1,12 @@
 // pages/profile/myRequestDetailDriver/myRequestDetailDriver.js
-const { callTripManage, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
+const {
+  callTripManage,
+  attachRideStats,
+  rateTripUser,
+  markRideListStale,
+  buildRatedTargetMap,
+  isTargetRated
+} = require("../../../utils/tripManage")
 
 Page({
   data: {
@@ -22,6 +29,7 @@ Page({
 
     // 乘客信息
     passengers: [],
+    ratedTargetMap: {},
 
     // 是否为该路线司机（只有为 true 才展示乘客信息 + 退出按钮）
     isMyRequest: false,
@@ -76,6 +84,7 @@ Page({
       timeText: '',
       largeLuggageCount: 0,
       passengers: [],
+      ratedTargetMap: {},
       isMyRequest: false,
       isRequestCompleted: false,
       showFortLeeCoreTip: false
@@ -139,6 +148,7 @@ Page({
         this.setLoadError('该求车路线不存在或已被删除')
         return
       }
+      const ratedTargetMap = buildRatedTargetMap(rawResult)
 
       // 2) 基础展示字段
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
@@ -195,7 +205,8 @@ Page({
               wechatID: u.wechatID || '',
               address: u.address || '',
               avatarUrl: u.avatarUrl || '',
-              ...attachRideStats(u, 'passenger')
+              ...attachRideStats(u, 'passenger'),
+              hasRated: isTargetRated(ratedTargetMap, op)
             }
           })
         }
@@ -216,6 +227,7 @@ Page({
         isMyRequest,
         isRequestCompleted,
         passengers,
+        ratedTargetMap,
 
         loadError: '',
         loading: false
@@ -352,18 +364,24 @@ Page({
   async onRatePassenger(e) {
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该乘客'
-    const { requestId, isRequestCompleted } = this.data
+    const { requestId, isRequestCompleted, ratedTargetMap } = this.data
     if (!isRequestCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    await rateTripUser({
+    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+      wx.showToast({ title: '已经评价过', icon: 'none' })
+      return
+    }
+    const ok = await rateTripUser({
       type: 'request',
       tripId: requestId,
       targetOpenid,
       targetRole: 'passenger',
-      targetName
+      targetName,
+      ratedTargetMap
     })
+    if (ok) await this.loadRequestDetail(requestId)
   },
 
   onShareAppMessage() {

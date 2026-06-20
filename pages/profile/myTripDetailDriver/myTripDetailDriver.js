@@ -1,6 +1,14 @@
 // pages/profile/myTripDetailDriver/myTripDetailDriver.js
 const { showDataError } = require("../../../utils/error")
-const { callTripManage, askReason, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
+const {
+  callTripManage,
+  askReason,
+  attachRideStats,
+  rateTripUser,
+  markRideListStale,
+  buildRatedTargetMap,
+  isTargetRated
+} = require("../../../utils/tripManage")
 
 Page({
   data: {
@@ -18,6 +26,7 @@ Page({
     timeText: '',
 
     passengers: [],
+    ratedTargetMap: {},
     kickMode: false,
     isTripCompleted: false,
 
@@ -86,18 +95,23 @@ Page({
   async loadTripDetail(tripId) {
     this.setData({ loading: true })
 
-    const db = wx.cloud.database()
-
     try {
-      const docRes = await db.collection('Carpool').doc(tripId).get()
-      const trip = docRes && docRes.data ? docRes.data : null
+      const detailRes = await wx.cloud.callFunction({
+        name: 'getTripDetail',
+        data: { type: 'carpool', id: tripId }
+      })
+      const detailResult = detailRes && detailRes.result ? detailRes.result : null
+      const success = !!(detailResult && (detailResult.ok || detailResult.success))
+      const trip = success ? (Array.isArray(detailResult.data) ? detailResult.data[0] : detailResult.data) : null
 
       if (!trip) {
         console.error('[loadTripDetail] NOT FOUND. tripId=', tripId)
-        wx.showToast({ title: '未找到该路线（ID不匹配）', icon: 'none' })
-        this.setData({ loading: false, trip: null, passengers: [] })
+        wx.showToast({ title: (detailResult && (detailResult.errorMsg || detailResult.msg)) || '未找到该路线', icon: 'none' })
+        this.setData({ loading: false, trip: null, passengers: [], ratedTargetMap: {} })
         return
       }
+
+      const ratedTargetMap = buildRatedTargetMap(detailResult)
 
       // ===== 解析抬头信息 =====
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
@@ -160,6 +174,7 @@ Page({
           wechatID: u.wechatID || p.wechatID || '',
           phone: u.phone || p.phone || '',
           ...attachRideStats(u, 'passenger'),
+          hasRated: isTargetRated(ratedTargetMap, p._openid),
 
           // ✅ 头像：userInfo 优先，其次 passenger 自带
           avatarUrl: u.avatarUrl || p.avatarUrl || '',
@@ -172,6 +187,7 @@ Page({
       this.setData({
         trip,
         passengers,
+        ratedTargetMap,
         fromText,
         toText,
         dateText,
@@ -329,18 +345,24 @@ Page({
   async onRatePassenger(e) {
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该乘客'
-    const { tripId, isTripCompleted } = this.data
+    const { tripId, isTripCompleted, ratedTargetMap } = this.data
     if (!isTripCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    await rateTripUser({
+    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+      wx.showToast({ title: '已经评价过', icon: 'none' })
+      return
+    }
+    const ok = await rateTripUser({
       type: 'carpool',
       tripId,
       targetOpenid,
       targetRole: 'passenger',
-      targetName
+      targetName,
+      ratedTargetMap
     })
+    if (ok) await this.loadTripDetail(tripId)
   },
 
   onShareAppMessage() {

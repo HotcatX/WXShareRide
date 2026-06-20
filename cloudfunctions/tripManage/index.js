@@ -1289,35 +1289,26 @@ async function rateUser(event, actorOpenid) {
   const oldRating = existing.data && existing.data[0] ? existing.data[0] : null
 
   if (oldRating) {
-    await db.collection('TripRatings').doc(oldRating._id).update({
-      data: {
-        score,
-        comment,
-        raterRole: actorRole,
-        targetRole,
-        updatedAt: db.serverDate()
-      }
-    })
-    await updateRatingSummary(targetOpenid, targetRole, score - Number(oldRating.score || 0), 0)
-  } else {
-    await db.collection('TripRatings').add({
-      data: {
-        _openid: actorOpenid,
-        tripId,
-        type,
-        collection: trip.collection,
-        raterOpenid: actorOpenid,
-        targetOpenid,
-        raterRole: actorRole,
-        targetRole,
-        score,
-        comment,
-        createdAt: db.serverDate(),
-        updatedAt: db.serverDate()
-      }
-    })
-    await updateRatingSummary(targetOpenid, targetRole, score, 1)
+    return { ok: false, success: false, alreadyRated: true, errorMsg: '已经评价过' }
   }
+
+  await db.collection('TripRatings').add({
+    data: {
+      _openid: actorOpenid,
+      tripId,
+      type,
+      collection: trip.collection,
+      raterOpenid: actorOpenid,
+      targetOpenid,
+      raterRole: actorRole,
+      targetRole,
+      score,
+      comment,
+      createdAt: db.serverDate(),
+      updatedAt: db.serverDate()
+    }
+  })
+  await updateRatingSummary(targetOpenid, targetRole, score, 1)
 
   await sendNotification(
     targetOpenid,

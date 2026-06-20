@@ -1,5 +1,13 @@
 // pages/profile/myTripRequestPassenger/myTripRequestPassenger.js
-const { callTripManage, askReason, attachRideStats, rateTripUser, markRideListStale } = require("../../../utils/tripManage")
+const {
+  callTripManage,
+  askReason,
+  attachRideStats,
+  rateTripUser,
+  markRideListStale,
+  buildRatedTargetMap,
+  isTargetRated
+} = require("../../../utils/tripManage")
 
 Page({
   data: {
@@ -25,6 +33,7 @@ Page({
 
     // 信息
     driverInfo: null,
+    ratedTargetMap: {},
     otherPassengers: [],
 
     defaultAvatarUrl: '/images/profile.png',
@@ -96,6 +105,7 @@ Page({
       timeText: '',
       showFortLeeCoreTip: false,
       driverInfo: null,
+      ratedTargetMap: {},
       otherPassengers: [],
       kickMode: false,
       isRequestCompleted: false
@@ -178,6 +188,7 @@ Page({
       const creatorOpenid = trip._openid || trip.creatorOpenid || trip.passengerOpenid || ''
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+      const ratedTargetMap = buildRatedTargetMap(rr)
 
       // 基础字段
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
@@ -217,7 +228,8 @@ Page({
             carModel: u.carModel || '',
             zelleName: u.zelleName || '',
             zelleAccount: u.zelleAccount || '',
-            ...attachRideStats(u, 'driver')
+            ...attachRideStats(u, 'driver'),
+            hasRated: isTargetRated(ratedTargetMap, driverOpenid)
           }
         }
       }
@@ -270,6 +282,7 @@ Page({
         timeText,
         showFortLeeCoreTip,
         driverInfo,
+        ratedTargetMap,
         otherPassengers,
         isRequestCompleted,
         kickMode: isRequestCompleted ? false : this.data.kickMode,
@@ -445,18 +458,24 @@ Page({
   async onRateDriver(e) {
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
-    const { requestId, isRequestCompleted } = this.data
+    const { requestId, isRequestCompleted, ratedTargetMap } = this.data
     if (!isRequestCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    await rateTripUser({
+    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+      wx.showToast({ title: '已经评价过', icon: 'none' })
+      return
+    }
+    const ok = await rateTripUser({
       type: 'request',
       tripId: requestId,
       targetOpenid,
       targetRole: 'driver',
-      targetName
+      targetName,
+      ratedTargetMap
     })
+    if (ok) await this.loadRequestDetail(requestId)
   },
 
   onShareAppMessage() {

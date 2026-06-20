@@ -86,7 +86,8 @@
             </view>
 
             <view wx:if="{{!kickMode}}" class="ride-person-actions">
-              <view wx:if="{{isTripCompleted}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view wx:if="{{isTripCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view wx:if="{{isTripCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">已评价</view>
               <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>

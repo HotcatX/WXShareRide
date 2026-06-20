@@ -69,6 +69,47 @@ function askRating() {
   })
 }
 
+function addRatedTarget(map, value) {
+  const id = cleanText(value)
+  if (id) map[id] = true
+}
+
+function buildRatedTargetMap(detailResult = {}) {
+  const map = {}
+  const ratingState = detailResult.ratingState || {}
+  const sources = [
+    detailResult.ratedTargetOpenids,
+    ratingState.ratedTargetOpenids,
+    detailResult.ratedTargets,
+    ratingState.ratedTargets
+  ]
+
+  sources.forEach(source => {
+    if (Array.isArray(source)) {
+      source.forEach(item => {
+        if (typeof item === "string") addRatedTarget(map, item)
+        else addRatedTarget(map, item && (item.targetOpenid || item.openid || item._openid))
+      })
+      return
+    }
+
+    if (source && typeof source === "object") {
+      Object.keys(source).forEach(key => {
+        if (source[key]) addRatedTarget(map, key)
+      })
+    }
+  })
+
+  return map
+}
+
+function isTargetRated(ratedTargetMap, targetOpenid) {
+  const id = cleanText(targetOpenid)
+  if (!id || !ratedTargetMap) return false
+  if (Array.isArray(ratedTargetMap)) return ratedTargetMap.some(item => cleanText(item) === id)
+  return !!ratedTargetMap[id]
+}
+
 async function rateTripUser(options = {}) {
   const targetOpenid = cleanText(options.targetOpenid)
   const tripId = cleanText(options.tripId || options.requestId || options.id)
@@ -81,6 +122,10 @@ async function rateTripUser(options = {}) {
   }
   if (!tripId) {
     wx.showToast({ title: "缺少路线ID", icon: "none" })
+    return false
+  }
+  if (options.hasRated || isTargetRated(options.ratedTargetMap || options.ratedTargets, targetOpenid)) {
+    wx.showToast({ title: "已经评价过", icon: "none" })
     return false
   }
 
@@ -237,5 +282,7 @@ module.exports = {
   markRideListStale,
   formatScore,
   formatRideStats,
-  attachRideStats
+  attachRideStats,
+  buildRatedTargetMap,
+  isTargetRated
 }

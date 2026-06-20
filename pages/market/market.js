@@ -325,6 +325,17 @@ Page({
     }
   },
 
+  _getDefaultSortPatch(location = this.data.myLocation) {
+    const distanceActive = hasLatLng(location || {})
+    return {
+      priceSortOrder: "none",
+      priceSortLabel: "默认",
+      distanceSortActive: distanceActive,
+      distanceSortClass: "",
+      distanceSortLabel: distanceActive ? "最近" : "默认"
+    }
+  },
+
   _switchListingType(type, options = {}) {
     const listingType = normalizeListingType(type)
     const prevType = this.data.activeListingType || "goods"
@@ -335,16 +346,13 @@ Page({
     }
 
     setStoredListingType(listingType)
+    this._userSortTouched = false
     this._applyListingTypeUi(listingType, {
       category: options.category || "全部"
     })
     this._resetGoodsStateForFetch({
       keyword: options.keepKeyword ? this.data.keyword : "",
-      priceSortOrder: "none",
-      priceSortLabel: "默认",
-      distanceSortActive: false,
-      distanceSortClass: "",
-      distanceSortLabel: "默认"
+      ...this._getDefaultSortPatch()
     })
     this.updateMarketHeaderState(0)
 
@@ -389,6 +397,7 @@ Page({
   },
 
   onTogglePriceSort() {
+    this._userSortTouched = true
     const cur = this.data.priceSortOrder || 'none'
     const next = cur === 'none' ? 'asc' : (cur === 'asc' ? 'desc' : 'none')
     const wasDistanceSortActive = !!this.data.distanceSortActive
@@ -409,6 +418,7 @@ Page({
   },
 
   async onToggleDistanceSort() {
+    this._userSortTouched = true
     const next = !this.data.distanceSortActive
     if (next && !hasLatLng(this.data.myLocation || {})) {
       await this._loadMyLocationFromProfile()
@@ -429,7 +439,7 @@ Page({
 
     this.setData({
       distanceSortActive: next,
-      distanceSortClass: next ? "active" : "",
+      distanceSortClass: next ? "" : "active",
       distanceSortLabel: next ? "最近" : "默认",
       priceSortOrder: next ? "none" : this.data.priceSortOrder,
       priceSortLabel: next ? "默认" : this.data.priceSortLabel
@@ -452,13 +462,14 @@ Page({
     this._lastRefreshAt = 0
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._marketBootstrapped = false
+    this._userSortTouched = false
 
     this._runAfterFirstPaint(() => {
       this._bootstrapMarketData(initialCategory, initialRegion, initialType)
     })
   },
 
-  onShow() {
+  async onShow() {
     if (!this._marketBootstrapped) return
 
     const storedType = getStoredListingType()
@@ -467,7 +478,9 @@ Page({
       return
     }
 
-    this._loadMyLocationFromProfile()
+    const locationState = await this._loadMyLocationFromProfile({
+      applyDefaultSort: !this._userSortTouched
+    })
     const changedAt = getMarketGoodsChangedAt()
     if (changedAt && changedAt !== this._lastHandledGoodsChangeAt) {
       this._lastHandledGoodsChangeAt = changedAt
@@ -475,10 +488,15 @@ Page({
       this._fetchFirstPage({ force: true, reason: "changed" })
       return
     }
+    if (this.data.distanceSortActive && (locationState?.sortChanged || locationState?.locationChanged)) {
+      this._resetGoodsStateForFetch()
+      this._fetchFirstPage({ force: true, reason: "locationChanged" })
+      return
+    }
     this._maybeRefreshGoods(false)
   },
 
-  _bootstrapMarketData(initialCategory = "", initialRegion = "", initialType = "goods") {
+  async _bootstrapMarketData(initialCategory = "", initialRegion = "", initialType = "goods") {
     this._marketBootstrapped = true
 
     this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
@@ -487,7 +505,7 @@ Page({
     }
 
     this.loadRegionTreeFromCloud()
-    this._loadMyLocationFromProfile()
+    await this._loadMyLocationFromProfile({ applyDefaultSort: true })
 
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
@@ -540,17 +558,14 @@ Page({
   },
 
   onResetMarketFilters() {
+    this._userSortTouched = false
     this.setData({
       keyword: "",
       activeCategory: "全部",
       categoryTabs: buildCategoryTabs(this.data.categories, "全部"),
       activeRegion: "全部",
       activeRegionLabel: "全部",
-      priceSortOrder: "none",
-      priceSortLabel: "默认",
-      distanceSortActive: false,
-      distanceSortClass: "",
-      distanceSortLabel: "默认",
+      ...this._getDefaultSortPatch(),
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
@@ -806,12 +821,24 @@ Page({
     }
   },
 
-  async _loadMyLocationFromProfile() {
+  async _loadMyLocationFromProfile(options = {}) {
+    const applyDefaultSort = !!options.applyDefaultSort
+    const previousLocationKey = normalizeCoordKey(this.data.myLocation || {})
+    const previousDistanceSortActive = !!this.data.distanceSortActive
     const openid = wx.getStorageSync("openid") || ""
     const isGuest = !!wx.getStorageSync("isGuest")
     if (!openid || isGuest) {
-      this.setData({ myLocation: null, distanceSortActive: false, distanceSortClass: "", distanceSortLabel: "默认" })
-      return null
+      const patch = {
+        myLocation: null,
+        ...(applyDefaultSort || previousDistanceSortActive ? this._getDefaultSortPatch(null) : {})
+      }
+      const nextSortActive = !!patch.distanceSortActive
+      this.setData(patch)
+      return {
+        myLocation: null,
+        locationChanged: !!previousLocationKey,
+        sortChanged: previousDistanceSortActive !== nextSortActive
+      }
     }
 
     try {
@@ -819,11 +846,27 @@ Page({
       const user = (res?.result?.data || [])[0] || {}
       const location = user.location || {}
       const myLocation = hasLatLng(location) ? location : null
-      this.setData({ myLocation })
+      const patch = { myLocation }
+      if (applyDefaultSort || (previousDistanceSortActive && !myLocation)) {
+        Object.assign(patch, this._getDefaultSortPatch(myLocation))
+      }
+      const nextLocationKey = normalizeCoordKey(myLocation || {})
+      const nextSortActive = Object.prototype.hasOwnProperty.call(patch, "distanceSortActive")
+        ? !!patch.distanceSortActive
+        : previousDistanceSortActive
+      this.setData(patch)
       this._refreshGoodsDistance()
-      return myLocation
+      return {
+        myLocation,
+        locationChanged: previousLocationKey !== nextLocationKey,
+        sortChanged: previousDistanceSortActive !== nextSortActive
+      }
     } catch (e) {
-      return null
+      return {
+        myLocation: this.data.myLocation || null,
+        locationChanged: false,
+        sortChanged: false
+      }
     }
   },
 
@@ -1197,9 +1240,10 @@ Page({
       })
       this.initRegionsFromGoods()
       this._fillThumbUrlsFor(rows).catch(() => {})
+      const sortRequiresCloudRefresh = !!this._buildListSort().by
       return {
         restored: true,
-        isFresh: cacheAge <= GOODS_CACHE_FRESH_MS,
+        isFresh: !sortRequiresCloudRefresh && cacheAge <= GOODS_CACHE_FRESH_MS,
         cacheAge
       }
     } catch (e) {

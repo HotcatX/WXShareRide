@@ -160,16 +160,51 @@
   margin-bottom: 0;
 }
 
-.image-uploader{
+.image-grid{
   grid-column: 1;
   grid-row: 2 / span 2;
   width: 220rpx;
-  height: 220rpx;
-  border-radius: 16rpx;
+  min-height: 220rpx;
+  display: grid;
+  grid-template-columns: repeat(2, 104rpx);
+  grid-auto-rows: 104rpx;
+  align-content: start;
+  gap: 12rpx;
+  position: relative;
+}
+
+.image-tile{
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 14rpx;
   overflow: hidden;
   background: #f4f6f8;
-  position: relative;
   border: 1rpx solid rgba(20,23,26,0.06);
+  box-sizing: border-box;
+  position: relative;
+}
+
+.image-preview-tile{
+  background: #eef2f4;
+}
+
+.image-uploader{
+  color: #69727d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3rpx;
+  text-align: center;
+}
+
+.image-uploader.large{
+  grid-column: 1 / span 2;
+  grid-row: span 2;
+  width: 220rpx;
+  height: 220rpx;
+  gap: 5rpx;
+  border-radius: 16rpx;
 }
 
 .preview-img{
@@ -178,39 +213,58 @@
   display: block;
 }
 
-.image-placeholder{
-  width: 100%;
-  height: 100%;
+.image-remove{
+  position: absolute;
+  top: 5rpx;
+  right: 5rpx;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 999rpx;
+  background: rgba(17,20,24,0.72);
+  color: #ffffff;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5rpx;
-  color: #69727d;
-  text-align: center;
+  font-size: 24rpx;
+  line-height: 28rpx;
+  font-weight: 900;
+  z-index: 1;
 }
 
 .image-plus{
-  width: 52rpx;
-  height: 52rpx;
-  border-radius: 16rpx;
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 13rpx;
   background: #ffffff;
   color: #0f9b95;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 38rpx;
-  line-height: 50rpx;
+  font-size: 32rpx;
+  line-height: 40rpx;
   font-weight: 900;
   box-shadow: 0 8rpx 20rpx rgba(20,23,26,0.07);
 }
 
+.image-uploader.large .image-plus{
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 16rpx;
+  font-size: 38rpx;
+  line-height: 50rpx;
+}
+
 .image-title{
-  margin-top: 6rpx;
   color: #111418;
+  font-size: 21rpx;
+  line-height: 26rpx;
+  font-weight: 900;
+}
+
+.image-uploader.large .image-title{
+  margin-top: 6rpx;
   font-size: 25rpx;
   line-height: 32rpx;
-  font-weight: 900;
 }
 
 .image-subtitle{

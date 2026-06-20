@@ -1,5 +1,6 @@
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
+const MARKET_MAX_IMAGE_COUNT = 6
 const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
@@ -150,6 +151,30 @@ function uniqFileIDs(fileIDs) {
   return Array.from(new Set((fileIDs || []).map(normalizeFileID).filter(Boolean)))
 }
 
+function previewImagesFromState(state = {}) {
+  const images = Array.isArray(state.images) ? state.images.filter(Boolean) : []
+  if (!images.length && state.image) images.push(state.image)
+  return Array.from(new Set(images))
+}
+
+function orderedImageFileIDsFromState(state = {}) {
+  const fromList = Array.isArray(state.imageFileIDs) ? state.imageFileIDs.map(normalizeFileID).filter(Boolean) : []
+  if (fromList.length) return Array.from(new Set(fromList))
+  const primary = normalizeFileID(state.imageFileID)
+  return primary ? [primary] : []
+}
+
+function orderedThumbFileIDsFromState(state = {}) {
+  const fromList = Array.isArray(state.thumbFileIDs) ? state.thumbFileIDs.map(normalizeFileID) : []
+  if (fromList.length) return fromList
+  const primary = normalizeFileID(state.thumbFileID)
+  return primary ? [primary] : []
+}
+
+function firstValidFileID(fileIDs = []) {
+  return fileIDs.map(normalizeFileID).find(Boolean) || ""
+}
+
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
@@ -268,6 +293,10 @@ function buildPostDisplayPatch(state = {}) {
   const regionInput = normalizeLocationText(state.region)
   const housingType = normalizeLocationText(state.housingType)
   const genderPreference = normalizeLocationText(state.genderPreference) || "不限"
+  const imageCount = Math.min(MARKET_MAX_IMAGE_COUNT, Math.max(
+    previewImagesFromState(state).length,
+    orderedImageFileIDsFromState(state).length
+  ))
 
   return {
     postModeKicker: isEdit ? config.editKicker : config.createKicker,
@@ -294,6 +323,8 @@ function buildPostDisplayPatch(state = {}) {
     locationMutedClass: locationInput ? "" : "muted",
     regionLocationDisplay: regionInput || "去个人资料选择地区",
     regionLocationMutedClass: regionInput ? "" : "muted",
+    imageCountText: `${imageCount}/${MARKET_MAX_IMAGE_COUNT}`,
+    canAddImage: imageCount < MARKET_MAX_IMAGE_COUNT && !state.imageUploading,
     submitDisabledClass: submitting ? "disabled" : "",
     submitText: submitting
       ? (isEdit ? config.submittingEdit : config.submittingCreate)
@@ -387,6 +418,8 @@ Page({
     imageUploading: false,
     imageUploadProgress: 0,
     imageUploadText: "上传中",
+    imageCountText: `0/${MARKET_MAX_IMAGE_COUNT}`,
+    canAddImage: true,
 
     title: "",
     desc: "",
@@ -575,12 +608,15 @@ Page({
 
       // 图片：回填 fileIDs + 预览 temp urls
       const fileIds = Array.isArray(x.imageFileIDs) && x.imageFileIDs.length
-        ? x.imageFileIDs.filter(Boolean)
+        ? x.imageFileIDs.map(normalizeFileID).filter(Boolean)
         : (x.imageFileID ? [x.imageFileID] : [])
+      const thumbIds = Array.isArray(x.thumbFileIDs) && x.thumbFileIDs.length
+        ? x.thumbFileIDs.map(normalizeFileID)
+        : (x.thumbFileID ? [x.thumbFileID] : [])
 
       const tempUrls = Array.isArray(result.imgUrls) && result.imgUrls.length
         ? result.imgUrls
-        : (Array.isArray(x.imageUrls) ? x.imageUrls : [])
+        : (Array.isArray(x.imageUrls) && x.imageUrls.length ? x.imageUrls : (x.imageUrl ? [x.imageUrl] : []))
 
       this._setPostData({
         activeListingType,
@@ -609,11 +645,11 @@ Page({
         images: tempUrls,
 
         // 提交用 fileID
-        imageFileID: x.imageFileID || (Array.isArray(x.imageFileIDs) ? (x.imageFileIDs[0] || '') : ''),
-        imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+        imageFileID: fileIds[0] || '',
+        imageFileIDs: fileIds,
 
-        thumbFileID: x.thumbFileID || '',
-        thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+        thumbFileID: firstValidFileID(thumbIds),
+        thumbFileIDs: thumbIds,
 
         ...normalizePickupWindow(
           x.pickupStartDate || '',
@@ -724,7 +760,7 @@ Page({
     })
   },
 
-  // ========== 选择图片（改为单图上传：其他提交流程不动） ==========
+  // ========== 选择图片（最多 6 张，首图字段兼容旧列表） ==========
   async onChooseImage() {
     if (!this.ensureLoginBeforePost()) return
     if (this.data.imageUploading) {
@@ -733,89 +769,156 @@ Page({
     }
 
     try {
+      const baseImages = previewImagesFromState(this.data)
+      const baseImageFileIDs = orderedImageFileIDsFromState(this.data)
+      const baseThumbFileIDs = orderedThumbFileIDsFromState(this.data)
+      const currentCount = Math.max(baseImages.length, baseImageFileIDs.length)
+      const remaining = MARKET_MAX_IMAGE_COUNT - currentCount
+      if (remaining <= 0) {
+        wx.showToast({ title: `最多上传${MARKET_MAX_IMAGE_COUNT}张`, icon: "none" })
+        return
+      }
+
       const res = await wx.chooseMedia({
-        count: 1,
+        count: remaining,
         mediaType: ["image"],
         sourceType: ["album", "camera"],
         sizeType: ["compressed"]
       })
 
-      const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean)
+      const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean).slice(0, remaining)
       if (!tempFiles.length) return
 
-      const localPath = tempFiles[0]
-
-      this.setData({
-        image: localPath,
-        images: [localPath],
-        imageFileID: "",
-        imageFileIDs: [],
-        thumbFileID: "",
-        thumbFileIDs: [],
+      this._lastImageUploadProgressAt = 0
+      const previewImages = baseImages.concat(tempFiles)
+      this._setPostData({
+        image: previewImages[0] || "",
+        images: previewImages,
         imageUploading: true,
-        imageUploadProgress: 2,
-        imageUploadText: "压缩中"
+        imageUploadProgress: 1,
+        imageUploadText: tempFiles.length > 1 ? `准备上传 1/${tempFiles.length}` : "准备上传"
       })
 
-      const [mainUploadPath, thumbLocal] = await Promise.all([
-        prepareMainImageForUpload(this, localPath),
-        genThumbFromFirstImage(this, localPath)
-      ])
+      const uploaded = []
+      let failedCount = 0
+      for (let i = 0; i < tempFiles.length; i += 1) {
+        const localPath = tempFiles[i]
+        const stepBase = (i / tempFiles.length) * 100
+        const stepSize = 100 / tempFiles.length
+        const labelSuffix = tempFiles.length > 1 ? ` ${i + 1}/${tempFiles.length}` : ""
+        try {
+          this._setImageUploadProgress(stepBase + stepSize * 0.04, `压缩${labelSuffix}`)
+          const [mainUploadPath, thumbLocal] = await Promise.all([
+            prepareMainImageForUpload(this, localPath),
+            genThumbFromFirstImage(this, localPath)
+          ])
 
-      this._setImageUploadProgress(18, "上传中")
+          let mainProgress = 0
+          let thumbProgress = thumbLocal ? 0 : 100
+          const updateUploadProgress = () => {
+            const weighted = 16 + mainProgress * 0.74 + thumbProgress * 0.10
+            this._setImageUploadProgress(
+              Math.min(99, stepBase + stepSize * (weighted / 100)),
+              `上传${labelSuffix}`
+            )
+          }
 
-      let mainProgress = 0
-      let thumbProgress = thumbLocal ? 0 : 100
-      const updateUploadProgress = () => {
-        const weighted = 18 + mainProgress * 0.72 + thumbProgress * 0.10
-        this._setImageUploadProgress(Math.min(98, weighted), "上传中")
-      }
+          const thumbUploadPromise = thumbLocal
+            ? compressForUpload(thumbLocal, MARKET_THUMB_IMAGE_QUALITY)
+              .then(path => {
+                thumbProgress = 18
+                updateUploadProgress()
+                return uploadOne(path, "market_thumb", progress => {
+                  thumbProgress = progress
+                  updateUploadProgress()
+                })
+              })
+            : Promise.resolve("")
 
-      const thumbUploadPromise = thumbLocal
-        ? compressForUpload(thumbLocal, MARKET_THUMB_IMAGE_QUALITY)
-          .then(path => {
-            thumbProgress = 18
-            updateUploadProgress()
-            return uploadOne(path, "market_thumb", progress => {
-              thumbProgress = progress
+          const [fileID, thumbFID] = await Promise.all([
+            uploadOne(mainUploadPath, "market", progress => {
+              mainProgress = progress
               updateUploadProgress()
-            })
-          })
-        : Promise.resolve("")
+            }),
+            thumbUploadPromise
+          ])
 
-      const [fileID, thumbFID] = await Promise.all([
-        uploadOne(mainUploadPath, "market", progress => {
-          mainProgress = progress
-          updateUploadProgress()
-        }),
-        thumbUploadPromise
-      ])
-
-      if (!fileID) {
-        wx.showToast({ title: "上传失败", icon: "none" })
-        this.setData({ imageUploading: false })
-        return
+          if (!fileID) throw new Error("empty_file_id")
+          uploaded.push({ localPath, fileID, thumbFID: thumbFID || "" })
+        } catch (uploadError) {
+          failedCount += 1
+          console.error("[marketPost] image upload failed:", uploadError)
+        }
       }
 
-      this._setImageUploadProgress(100, "已完成")
-      this.setData({
-        imageFileID: fileID,
-        imageFileIDs: [fileID],
-        thumbFileID: thumbFID || "",
-        thumbFileIDs: thumbFID ? [thumbFID] : []
+      const nextImages = baseImages.concat(uploaded.map(item => item.localPath))
+      const nextImageFileIDs = uniqFileIDs(baseImageFileIDs.concat(uploaded.map(item => item.fileID)))
+      const nextThumbFileIDs = baseThumbFileIDs.concat(uploaded.map(item => item.thumbFID || ""))
+      const uploadText = failedCount ? "部分完成" : "已完成"
+      this._setPostData({
+        image: nextImages[0] || "",
+        images: nextImages,
+        imageFileID: nextImageFileIDs[0] || "",
+        imageFileIDs: nextImageFileIDs,
+        thumbFileID: firstValidFileID(nextThumbFileIDs),
+        thumbFileIDs: nextThumbFileIDs,
+        imageUploading: false,
+        imageUploadProgress: uploaded.length ? 100 : 0,
+        imageUploadText: uploadText
       })
 
-      wx.showToast({ title: "上传成功", icon: "success" })
-      setTimeout(() => {
-        if (this.data.imageFileID === fileID) {
-          this.setData({ imageUploading: false })
-        }
-      }, 450)
+      if (!uploaded.length) {
+        wx.showToast({ title: "上传失败", icon: "none" })
+      } else if (failedCount) {
+        wx.showToast({ title: "部分图片上传失败", icon: "none" })
+      } else {
+        wx.showToast({ title: "上传成功", icon: "success" })
+      }
     } catch (e) {
+      if (String(e && e.errMsg || "").toLowerCase().includes("cancel")) return
       console.error(e)
       wx.showToast({ title: "选择/上传失败", icon: "none" })
-      this.setData({ imageUploading: false })
+      this._setPostData({
+        imageUploading: false,
+        images: previewImagesFromState(this.data),
+        image: previewImagesFromState(this.data)[0] || ""
+      })
     }
+  },
+
+  onPreviewPostImage(e) {
+    const images = previewImagesFromState(this.data)
+    if (!images.length) return
+    const index = Number(e.currentTarget?.dataset?.index || 0)
+    wx.previewImage({
+      urls: images,
+      current: images[index] || images[0]
+    })
+  },
+
+  onRemoveImage(e) {
+    if (this.data.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
+    }
+    const index = Number(e.currentTarget?.dataset?.index)
+    const images = previewImagesFromState(this.data)
+    if (!Number.isInteger(index) || index < 0 || index >= images.length) return
+
+    const imageFileIDs = orderedImageFileIDsFromState(this.data)
+    const thumbFileIDs = orderedThumbFileIDsFromState(this.data)
+    images.splice(index, 1)
+    if (index < imageFileIDs.length) imageFileIDs.splice(index, 1)
+    if (index < thumbFileIDs.length) thumbFileIDs.splice(index, 1)
+
+    this._setPostData({
+      image: images[0] || "",
+      images,
+      imageFileID: imageFileIDs[0] || "",
+      imageFileIDs,
+      thumbFileID: firstValidFileID(thumbFileIDs),
+      thumbFileIDs
+    })
   },
 
   // ========== 输入 ==========

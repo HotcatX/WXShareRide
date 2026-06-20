@@ -20,12 +20,31 @@
             <text class="section-kicker">Photo</text>
             <text class="section-title">{{photoSectionTitle}}</text>
           </view>
-          <text class="section-note">可选</text>
+          <text class="section-note">{{imageCountText}}</text>
         </view>
 
-        <view class="image-uploader pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onChooseImage">
-          <image wx:if="{{image}}" class="preview-img" src="{{image}}" mode="aspectFill" />
-          <view wx:else class="image-placeholder">
+        <view class="image-grid">
+          <view
+            wx:for="{{images}}"
+            wx:key="*this"
+            wx:for-index="index"
+            class="image-tile image-preview-tile pressable"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            data-index="{{index}}"
+            bindtap="onPreviewPostImage"
+          >
+            <image class="preview-img" src="{{item}}" mode="aspectFill" />
+            <view class="image-remove" catchtap="onRemoveImage" data-index="{{index}}">×</view>
+          </view>
+
+          <view
+            wx:if="{{canAddImage}}"
+            class="image-tile image-uploader {{images.length ? '' : 'large'}} pressable"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onChooseImage"
+          >
             <text class="image-plus">＋</text>
             <text class="image-title">添加图片</text>
             <text class="image-subtitle">无图也可以发布</text>

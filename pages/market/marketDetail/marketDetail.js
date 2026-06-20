@@ -62,9 +62,13 @@ function formatAmountText(value) {
   return n.toFixed(n % 1 === 0 ? 0 : 2)
 }
 
-function buildSubletStartText(x = {}) {
+function buildSubletLeaseText(x = {}) {
   const startText = normalizeText(x.availableStartDate || x.pickupStartDate)
-  return startText ? `${startText}起` : ""
+  const endText = normalizeText(x.leaseEndDate || x.pickupEndDate || x.expiresAtText)
+  if (startText && endText) return `${startText} 至 ${endText}`
+  if (startText) return `${startText}起`
+  if (endText) return `${endText}前有效`
+  return ""
 }
 
 function buildSubletMetaList(x = {}) {
@@ -86,9 +90,9 @@ function buildDetailItem(x = {}) {
   const listingType = normalizeListingType(x.listingType)
   const copy = getDetailCopy(listingType)
   const title = String(x.title || '').trim() || copy.defaultTitle
-  const subletStartText = buildSubletStartText(x)
+  const subletLeaseText = buildSubletLeaseText(x)
   const pickupText = listingType === "sublet"
-    ? (subletStartText || x.leaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
+    ? (x.leaseText || subletLeaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
     : (x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系卖家确认")
   const locationText = x.pickup || x.region || (listingType === "sublet" ? "发布者未填写" : "卖家未填写")
   const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))

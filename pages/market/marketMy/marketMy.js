@@ -134,6 +134,15 @@ function withSelectionState(goods = [], selectedMap = {}) {
   })
 }
 
+function stripSelectionState(goods = []) {
+  return (Array.isArray(goods) ? goods : []).map(g => {
+    const copy = { ...(g || {}) }
+    delete copy.selected
+    delete copy.selectedClass
+    return copy
+  })
+}
+
 function buildMyDisplayPatch(state = {}) {
   const goods = Array.isArray(state.goods) ? state.goods : []
   const selectedCount = Number(state.selectedCount) || 0
@@ -245,8 +254,9 @@ Page({
     const changedAt = getMarketGoodsChangedAt()
     if (!changedAt || changedAt === this._lastHandledGoodsChangeAt) return
     this._lastHandledGoodsChangeAt = changedAt
+    this._clearMyGoodsCache()
     this.loadUserInfo().then(() => {
-      this.fetchMyGoods()
+      this.fetchMyGoods({ force: true })
     })
   },
 
@@ -267,7 +277,7 @@ Page({
   onPullDownRefresh() {
     Promise.resolve()
       .then(() => this.loadUserInfo())
-      .then(() => this.fetchMyGoods(true))
+      .then(() => this.fetchMyGoods({ force: true }))
       .finally(() => wx.stopPullDownRefresh())
   },
 
@@ -292,9 +302,10 @@ Page({
     const type = normalizeListingType(e.currentTarget.dataset.type)
     if (type === this.data.activeListingType) return
     setStoredListingType(type)
+    const cached = this._getFreshMyGoodsCache(type)
     this._setMyData({
       activeListingType: type,
-      goods: [],
+      goods: cached ? cached.goods : [],
       selectedMap: {},
       selectedCount: 0,
       allSelected: false,
@@ -401,13 +412,18 @@ Page({
       const failedSet = new Set(failed.map(x => x.id))
       const successIds = ids.filter(id => !failedSet.has(id))
       const nextGoods = goods.filter(g => !successIds.includes(g.id))
-      if (successIds.length) markMarketGoodsChanged()
+      if (successIds.length) {
+        markMarketGoodsChanged()
+        this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
+        this._clearMyGoodsCache()
+      }
       this._setMyData({
         goods: nextGoods,
         selectedMap: {},
         selectedCount: 0,
         allSelected: false
       })
+      if (successIds.length) this._setMyGoodsCache(this.data.activeListingType, nextGoods)
 
       wx.showToast({
         title: failed.length ? `已删${successIds.length}个，失败${failed.length}个` : '已删除',
@@ -501,13 +517,78 @@ Page({
     })
   },
 
+  _getMyGoodsCache(type) {
+    this._myGoodsCache = this._myGoodsCache || {}
+    return this._myGoodsCache[normalizeListingType(type)] || null
+  },
+
+  _getFreshMyGoodsCache(type) {
+    const cache = this._getMyGoodsCache(type)
+    if (!cache) return null
+    if (cache.changedAt !== getMarketGoodsChangedAt()) return null
+    return cache
+  },
+
+  _setMyGoodsCache(type, goods) {
+    this._myGoodsCache = this._myGoodsCache || {}
+    this._myGoodsCache[normalizeListingType(type)] = {
+      goods: stripSelectionState(goods),
+      changedAt: getMarketGoodsChangedAt(),
+      cachedAt: Date.now()
+    }
+  },
+
+  _clearMyGoodsCache(type) {
+    if (!this._myGoodsCache) return
+    if (type) {
+      delete this._myGoodsCache[normalizeListingType(type)]
+      return
+    }
+    this._myGoodsCache = {}
+  },
+
   // ✅ 取 goods 时多带几个字段，方便删文件
-  async fetchMyGoods() {
+  async fetchMyGoods(options = {}) {
+    const force = typeof options === 'boolean' ? !!options : !!options.force
     const openid = this.data.openid
     if (!openid) {
       this._setMyData({ goods: [] })
       return
     }
+
+    const listingType = normalizeListingType(this.data.activeListingType)
+    const cached = !force ? this._getFreshMyGoodsCache(listingType) : null
+    if (cached) {
+      this._setMyData({
+        goods: cached.goods,
+        selectedMap: {},
+        selectedCount: 0,
+        allSelected: false
+      })
+      return
+    }
+
+    this._myGoodsRequests = this._myGoodsRequests || {}
+    if (!force && this._myGoodsRequests[listingType]) {
+      try {
+        await this._myGoodsRequests[listingType]
+      } catch (err) {
+        return
+      }
+      const nextCached = this._getFreshMyGoodsCache(listingType)
+      if (nextCached && normalizeListingType(this.data.activeListingType) === listingType) {
+        this._setMyData({
+          goods: nextCached.goods,
+          selectedMap: {},
+          selectedCount: 0,
+          allSelected: false
+        })
+      }
+      return
+    }
+
+    const requestToken = `${listingType}|${Date.now()}`
+    this._activeMyGoodsRequestToken = requestToken
 
     try {
       const PAGE = 50
@@ -516,28 +597,39 @@ Page({
       let rows = []
       let skip = 0
 
-      while (true) {
-        const res = await wx.cloud.callFunction({
-          name: 'marketApi',
-          data: {
-            action: 'myList',
-            listingType: this.data.activeListingType,
-            filters: { listingType: this.data.activeListingType },
-            skip,
-            limit: PAGE
-          }
-        })
-        const result = getMarketApiResult(res)
+      const requestPromise = (async () => {
+        while (true) {
+          const res = await wx.cloud.callFunction({
+            name: 'marketApi',
+            data: {
+              action: 'myList',
+              listingType,
+              filters: { listingType },
+              skip,
+              limit: PAGE
+            }
+          })
+          const result = getMarketApiResult(res)
 
-        const batch = result.items || result.data || []
-        rows = rows.concat(batch)
+          const batch = result.items || result.data || []
+          rows = rows.concat(batch)
 
-        if (!result.hasMore || batch.length < PAGE) break
-        skip = result.nextSkip || (skip + batch.length)
-        if (rows.length >= MAX_TOTAL) break
-      }
+          if (!result.hasMore || batch.length < PAGE) break
+          skip = result.nextSkip || (skip + batch.length)
+          if (rows.length >= MAX_TOTAL) break
+        }
+        return rows
+      })()
+      this._myGoodsRequests[listingType] = requestPromise
+      rows = await requestPromise
 
       const goods = rows.map(buildMyGoodsItem)
+      this._setMyGoodsCache(listingType, goods)
+
+      if (normalizeListingType(this.data.activeListingType) !== listingType ||
+        this._activeMyGoodsRequestToken !== requestToken) {
+        return
+      }
 
       this._setMyData({
         goods,
@@ -548,6 +640,13 @@ Page({
     } catch (err) {
       console.error('fetchMyGoods failed', err)
       showDataError('发布加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
+    } finally {
+      if (this._myGoodsRequests && this._myGoodsRequests[listingType]) {
+        delete this._myGoodsRequests[listingType]
+      }
+      if (this._activeMyGoodsRequestToken === requestToken) {
+        this._activeMyGoodsRequestToken = ''
+      }
     }
   }
 })

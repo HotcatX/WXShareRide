@@ -2,17 +2,17 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: -8rpx;
   width: 100%;
   z-index: 9999;
-  padding: 12rpx 42rpx calc(14rpx + env(safe-area-inset-bottom));
+  padding: 8rpx 46rpx calc(8rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   pointer-events: none;
 }
 
 .app-tabbar{
-  height: 112rpx;
-  border-radius: 32rpx;
+  height: 104rpx;
+  border-radius: 30rpx;
   background: rgba(255,255,255,0.98);
   border: 1rpx solid rgba(20,23,26,0.08);
   box-shadow: 0 18rpx 44rpx rgba(20,23,26,0.16);
@@ -24,9 +24,9 @@
 }
 
 .tab-item{
-  height: 96rpx;
+  height: 88rpx;
   margin: 8rpx;
-  border-radius: 26rpx;
+  border-radius: 24rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -62,7 +62,7 @@
   top: 0;
   width: 50%;
   height: 100%;
-  border-radius: 24rpx;
+  border-radius: 22rpx;
   background: #111418;
   z-index: 0;
   opacity: 0;
@@ -82,7 +82,7 @@
   position: relative;
   z-index: 2;
   min-width: 0;
-  height: 96rpx;
+  height: 88rpx;
   color: #69727d;
   display: flex;
   flex-direction: column;
@@ -98,8 +98,8 @@
 }
 
 .market-tab-icon{
-  width: 42rpx;
-  height: 42rpx;
+  width: 38rpx;
+  height: 38rpx;
   display: block;
   filter: brightness(0) opacity(0.62);
   transition: transform 160ms ease, opacity 160ms ease, filter 160ms ease;
@@ -111,8 +111,8 @@
 }
 
 .market-tab-text{
-  font-size: 22rpx;
-  line-height: 28rpx;
+  font-size: 21rpx;
+  line-height: 27rpx;
   font-weight: 900;
 }
 
@@ -123,13 +123,13 @@
 
 .tab-icon-wrap{
   position: relative;
-  width: 42rpx;
-  height: 42rpx;
+  width: 38rpx;
+  height: 38rpx;
 }
 
 .tab-icon{
-  width: 42rpx;
-  height: 42rpx;
+  width: 38rpx;
+  height: 38rpx;
   display: block;
   transition: transform 160ms ease, opacity 160ms ease;
 }
@@ -139,8 +139,8 @@
 }
 
 .tab-text{
-  font-size: 22rpx;
-  line-height: 28rpx;
+  font-size: 21rpx;
+  line-height: 27rpx;
   font-weight: 900;
 }
 

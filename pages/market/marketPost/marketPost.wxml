@@ -191,17 +191,17 @@
           </picker>
 
           <view class="form-row location-row pressable" hover-class="row-pressed" hover-stay-time="80" bindtap="onTapProfileLocation">
-            <view class="row-label">{{mapLocationLabel}}</view>
+            <view class="row-label">{{regionLocationLabel}}</view>
             <view class="row-value location-value">
-              <text class="{{locationMutedClass}}">{{locationDisplay}}</text>
+              <text class="{{regionLocationMutedClass}}">{{regionLocationDisplay}}</text>
               <text class="row-arrow">›</text>
             </view>
           </view>
 
           <view class="form-row location-row pressable" hover-class="row-pressed" hover-stay-time="80" bindtap="onTapProfileLocation">
-            <view class="row-label">{{regionLocationLabel}}</view>
+            <view class="row-label">{{mapLocationLabel}}</view>
             <view class="row-value location-value">
-              <text class="{{regionLocationMutedClass}}">{{regionLocationDisplay}}</text>
+              <text class="{{locationMutedClass}}">{{locationDisplay}}</text>
               <text class="row-arrow">›</text>
             </view>
           </view>

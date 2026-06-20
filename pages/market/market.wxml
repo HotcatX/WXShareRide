@@ -81,7 +81,7 @@
     </scroll-view>
   </view>
 
-  <scroll-view class="goods-scroll" scroll-y lower-threshold="140" bindscrolltolower="onGoodsScrollToLower">
+  <scroll-view class="goods-scroll" scroll-y lower-threshold="140" bindscroll="onGoodsScroll" bindscrolltolower="onGoodsScrollToLower">
     <view class="result-row">
       <text class="result-title">{{resultTitle}}</text>
       <text class="result-count">{{resultCountText}}</text>
@@ -112,7 +112,6 @@
             <text class="price-badge">$ {{item.priceText}}</text>
             <text class="condition-badge">{{item.conditionText}}</text>
           </view>
-          <view class="category-badge">{{item.category}}</view>
         </view>
 
         <view class="goods-body">
@@ -158,8 +157,7 @@
     <view class="bottom-spacer"></view>
   </scroll-view>
 
-  <view class="market-float-actions">
-    <view class="float-action secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onMyGoods">我的</view>
+  <view class="market-float-actions {{publishFabVisibleClass}}">
     <view class="float-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">发布</view>
   </view>
 

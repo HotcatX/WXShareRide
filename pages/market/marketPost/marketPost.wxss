@@ -448,10 +448,10 @@
 
 .location-row{
   grid-column: 1 / -1;
-  min-height: 86rpx;
+  min-height: 102rpx;
   align-items: stretch;
-  padding-top: 12rpx;
-  padding-bottom: 12rpx;
+  padding: 14rpx 16rpx;
+  gap: 6rpx;
 }
 
 .location-value text:first-child{
@@ -459,6 +459,16 @@
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+.location-row .row-label{
+  font-size: 24rpx;
+  line-height: 30rpx;
+}
+
+.location-row .row-value{
+  font-size: 28rpx;
+  line-height: 35rpx;
 }
 
 .muted{

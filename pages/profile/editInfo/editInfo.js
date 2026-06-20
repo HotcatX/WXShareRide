@@ -26,10 +26,6 @@ function getLocationDisplay(location = {}, address = '') {
   )
 }
 
-function isMarketLocationRequired(from) {
-  return String(from || '').indexOf('market') === 0
-}
-
 Page({
   data: {
     from: 'profile',
@@ -73,7 +69,10 @@ Page({
     unsaved: false
   },
 
-  goBack() {
+  async goBack() {
+    if (this.data.unsaved) {
+      await this.saveToCloud({ silent: true, waitForActive: true })
+    }
     wx.navigateBack()
   },
 
@@ -89,6 +88,28 @@ Page({
     // 拉取云端 userInfo
     this.loadUserInfo()
     this.loadRegionTreeFromCloud()
+  },
+
+  onHide() {
+    if (this.data.unsaved) this.saveToCloud({ silent: true })
+  },
+
+  onUnload() {
+    if (this.data.unsaved) this.saveToCloud({ silent: true })
+  },
+
+  markDirty() {
+    this.setData({ unsaved: true })
+  },
+
+  async markDirtyAndSave() {
+    this.markDirty()
+    return this.saveToCloud({ silent: true, waitForActive: true })
+  },
+
+  markCurrentAsSaved() {
+    this._lastSavedPayloadKey = this.getSavePayloadKey()
+    this.setData({ unsaved: false })
   },
 
   // 上传头像
@@ -108,9 +129,9 @@ Page({
       })
 
       this.setData({
-        avatarUrl: uploadRes.fileID,
-        unsaved: true
+        avatarUrl: uploadRes.fileID
       })
+      this.markDirtyAndSave()
     } catch (err) {
       console.error('上传头像失败：', err)
       wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
@@ -131,7 +152,7 @@ Page({
           wechat: user.wechatID || '',
           address: user.address || '',
           location,
-          locationDisplay: hasLatLng(location) ? getLocationDisplay(location, user.address || '') : '',
+          locationDisplay: hasLatLng(location) ? getLocationDisplay(location, '') : '',
           bigregion: user.bigregion || '',
 
           phone: user.phone || '',
@@ -145,7 +166,9 @@ Page({
           carModel: user.carModel || '',
           customPriceNonCore: cp.fortLeeNonCore || '',
           customPriceCore: cp.fortLeeCore || ''
-        })
+        }, () => this.markCurrentAsSaved())
+      } else {
+        this.markCurrentAsSaved()
       }
     } catch (e) {
       console.error('loadUserInfo 失败：', e)
@@ -157,18 +180,15 @@ Page({
     const { field } = e.currentTarget.dataset
     const value = e.detail.value
     if (field === 'address') {
-      const location = (this.data.location && typeof this.data.location === 'object')
-        ? { ...this.data.location, region: normalizeText(value) }
-        : {}
       this.setData({
         address: value,
-        bigregion: value,
-        location,
-        unsaved: true
+        bigregion: value
       })
+      this.markDirty()
       return
     }
-    this.setData({ [field]: value, unsaved: true })
+    this.setData({ [field]: value })
+    this.markDirty()
   },
 
   async loadRegionTreeFromCloud() {
@@ -270,12 +290,9 @@ Page({
     this.setData({
       address,
       bigregion: address,
-      location: (this.data.location && typeof this.data.location === 'object')
-        ? { ...this.data.location, region: address }
-        : {},
-      regionPickerVisible: false,
-      unsaved: true
+      regionPickerVisible: false
     })
+    this.markDirtyAndSave()
   },
 
   stopTouchMove() {},
@@ -300,12 +317,10 @@ Page({
         const name = normalizeText(res.name)
         const address = normalizeText(res.address)
         const displayName = name || address || '已选择位置'
-        const regionDisplay = normalizeText(this.data.bigregion || this.data.address)
         const location = {
           displayName,
           name,
           address,
-          region: regionDisplay,
           lat,
           lng,
           source: 'wxChooseLocation',
@@ -316,9 +331,9 @@ Page({
 
         this.setData({
           location,
-          locationDisplay: getLocationDisplay(location, address),
-          unsaved: true
+          locationDisplay: getLocationDisplay(location, address)
         })
+        this.markDirtyAndSave()
         wx.showToast({ title: '位置已选择', icon: 'success' })
       },
       fail: err => {
@@ -334,46 +349,12 @@ Page({
   },
 
   onRegionChange(e) {
-    this.setData({ regionIndex: e.detail.value, unsaved: true })
+    this.setData({ regionIndex: e.detail.value })
+    this.markDirty()
   },
 
-  // 手机号选填；微信号必填
-  validateAll() {
-    const { wechat, phone, regionIndex, from, location } = this.data
-
-    if (!wechat) return '请填写微信号'
-    if (isMarketLocationRequired(from) && !hasLatLng(location || {})) {
-      return '请选择位置用于计算距离'
-    }
-
-    if (phone) {
-      if (regionIndex == 0 && !/^\d{10}$/.test(phone)) return '请输入正确美国手机号'
-      if (regionIndex == 1 && !/^1\d{10}$/.test(phone)) return '请输入正确大陆手机号'
-    }
-
-    return ''
-  },
-
-  async onComplete() {
-    const msg = this.validateAll()
-    if (msg) {
-      wx.showToast({ title: msg, icon: 'none', duration: 2000 })
-      return
-    }
-
-    const ok = await this.saveToCloud()
-    if (!ok) {
-      wx.showToast({ title: '信息保存失败，请稍后重试', icon: 'none' })
-      return
-    }
-
-    wx.showToast({ title: '信息已更新', icon: 'success' })
-    wx.navigateBack()
-  },
-
-  async saveToCloud() {
+  buildUpdateData() {
     const {
-      wechat,
       address,
       location,
       bigregion,
@@ -384,13 +365,28 @@ Page({
     } = this.data
 
     const region = regionIndex == 0 ? 'US' : 'CN'
-    const updateData = {}
-
-    if (wechat) {
-      updateData.wechatID = wechat
+    const updateData = {
+      wechatID: this.data.wechat || '',
+      address: address || '',
+      location: location && typeof location === 'object' ? location : {},
+      bigregion: bigregion || '',
+      name: this.data.name || '',
+      avatarUrl: this.data.avatarUrl || '',
+      zelleName: this.data.zelleName || '',
+      zelleAccount: this.data.zelleAccount || '',
+      carNumber: this.data.carNumber || '',
+      carBrand: this.data.carBrand || '',
+      carModel: this.data.carModel || '',
+      customPrice: {
+        fortLeeNonCore: customPriceNonCore || '',
+        fortLeeCore: customPriceCore || ''
+      }
     }
 
-    if (phone) {
+    if (!phone) {
+      updateData.phone = ''
+      updateData.region = region
+    } else {
       const cnValid = region === 'CN' && /^1\d{10}$/.test(phone)
       const usValid = region === 'US' && /^\d{10}$/.test(phone)
       if (cnValid || usValid) {
@@ -399,50 +395,73 @@ Page({
       }
     }
 
-    updateData.address = address || ''
-    if (location && typeof location === 'object') {
-      updateData.location = location
-    }
-    updateData.bigregion = bigregion || ''
+    return updateData
+  },
 
-    updateData.name = this.data.name || ''
-    updateData.avatarUrl = this.data.avatarUrl || ''
-    updateData.zelleName = this.data.zelleName || ''
-    updateData.zelleAccount = this.data.zelleAccount || ''
+  getSavePayloadKey(updateData) {
+    return JSON.stringify(updateData || this.buildUpdateData())
+  },
 
-    updateData.carNumber = this.data.carNumber || ''
-    updateData.carBrand = this.data.carBrand || ''
-    updateData.carModel = this.data.carModel || ''
+  async saveToCloud(options = {}) {
+    const { silent = false, waitForActive = false } = options
 
-    if (customPriceNonCore || customPriceCore) {
-      updateData.customPrice = {
-        fortLeeNonCore: customPriceNonCore || '',
-        fortLeeCore: customPriceCore || ''
+    if (this._savingProfile) {
+      const currentKey = this.getSavePayloadKey()
+      if (currentKey !== this._activePayloadKey) {
+        this._saveQueued = true
       }
+      if (waitForActive && this._activeSavePromise) {
+        try {
+          await this._activeSavePromise
+        } catch (e) {}
+        await new Promise(resolve => setTimeout(resolve, 0))
+        return this.saveToCloud({ silent, waitForActive: false })
+      }
+      return true
     }
 
-    if (Object.keys(updateData).length === 0) {
-      wx.showToast({ title: '请先填写正确信息', icon: 'none' })
-      return false
+    const updateData = this.buildUpdateData()
+    const payloadKey = this.getSavePayloadKey(updateData)
+    if (!this.data.unsaved && payloadKey === this._lastSavedPayloadKey) {
+      return true
     }
+
+    this._savingProfile = true
+    this._saveQueued = false
+    this._activePayloadKey = payloadKey
 
     try {
-      const res = await wx.cloud.callFunction({
+      const savePromise = wx.cloud.callFunction({
         name: 'updateUser',
         data: updateData
       })
+      this._activeSavePromise = savePromise
+      const res = await savePromise
       const result = res.result || {}
       if (!result.ok) {
-        wx.showToast({ title: result.errorMsg || '保存失败', icon: 'none' })
+        if (!silent) wx.showToast({ title: result.errorMsg || '保存失败', icon: 'none' })
         return false
       }
 
-      this.setData({ unsaved: false })
+      this._lastSavedPayloadKey = payloadKey
+      const currentKey = this.getSavePayloadKey()
+      const stillDirty = currentKey !== payloadKey || !!this._saveQueued
+      this._saveQueued = false
+      this.setData({ unsaved: stillDirty })
+      if (stillDirty) {
+        setTimeout(() => this.saveToCloud({ silent: true }), 0)
+      }
       return true
     } catch (e) {
       console.error('updateUser 调用失败', e)
-      showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')
+      if (!silent) {
+        showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')
+      }
       return false
+    } finally {
+      this._savingProfile = false
+      this._activeSavePromise = null
+      this._activePayloadKey = null
     }
   }
 })

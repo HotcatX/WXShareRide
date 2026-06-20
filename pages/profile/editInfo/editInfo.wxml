@@ -53,11 +53,11 @@
       </view>
 
       <view class="ride-field edit-field edit-address-field">
-        <text class="ride-field-label edit-field-label">地址/公寓</text>
+        <text class="ride-field-label edit-field-label">显示位置</text>
         <view class="edit-address-control">
           <input
             class="ride-input edit-input"
-            placeholder="输入地址或公寓"
+            placeholder="地址/公寓"
             placeholder-class="ride-placeholder"
             value="{{address}}"
             data-field="address"
@@ -73,11 +73,11 @@
         hover-class="ride-card-pressed"
         hover-stay-time="80"
       >
-        <text class="ride-field-label edit-field-label">选择位置</text>
+        <text class="ride-field-label edit-field-label">精确定位</text>
         <view class="edit-value-action">
           <text wx:if="{{locationPicking}}" class="ride-field-value edit-value-text ride-placeholder">打开中</text>
           <text wx:elif="{{locationDisplay}}" class="ride-field-value edit-value-text">{{locationDisplay}}</text>
-          <text wx:else class="ride-field-value edit-value-text ride-placeholder">点击选点</text>
+          <text wx:else class="ride-field-value edit-value-text ride-placeholder">用于计算距离</text>
           <text class="edit-chevron">›</text>
         </view>
       </view>
@@ -117,7 +117,7 @@
       <text class="ride-section-subtitle">收款与车辆</text>
     </view>
 
-    <view class="ride-card ride-card-pad edit-form-card">
+    <view class="ride-card ride-card-pad edit-form-card driver-form-card">
       <view class="ride-field edit-field">
         <text class="ride-field-label edit-field-label">Zelle 姓名</text>
         <input
@@ -141,9 +141,7 @@
           bindinput="onInput"
         />
       </view>
-    </view>
 
-    <view class="ride-card ride-card-pad edit-form-card car-card">
       <view class="ride-field edit-field">
         <text class="ride-field-label edit-field-label">车牌号</text>
         <input
@@ -213,12 +211,6 @@
         </picker-view-column>
       </picker-view>
     </view>
-  </view>
-
-  <view class="bottom-bar">
-    <button class="ride-btn ride-primary ride-btn--primary save-btn" bindtap="onComplete" hover-class="ride-pressed" hover-stay-time="80">
-      保存修改
-    </button>
   </view>
 
 </view>

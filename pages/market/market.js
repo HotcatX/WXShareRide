@@ -156,8 +156,15 @@ function buildListingTypeTabs(activeType = "goods") {
   }))
 }
 
+function formatShortDateText(value) {
+  const text = String(value || "").trim()
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!match) return text
+  return `${match[2]}-${match[3]}`
+}
+
 function buildSubletStartText(item = {}) {
-  const startText = String(item.availableStartDate || item.pickupStartDate || "").trim()
+  const startText = formatShortDateText(item.availableStartDate || item.pickupStartDate)
   if (!startText) return String(item.roomType || item.category || "转租").trim() || "转租"
   return `${startText}起`
 }
@@ -248,7 +255,8 @@ Page({
     priceSortOrder: 'none', // 'none' | 'asc' | 'desc'
     distanceSortActive: false,
     distanceSortClass: "",
-    myLocation: null
+    myLocation: null,
+    publishFabVisibleClass: ""
   },
 
   _getStatusBarHeight() {
@@ -588,12 +596,31 @@ Page({
     wx.navigateTo({ url: `/pages/market/marketDetail/marketDetail?id=${id}` })
   },
 
-  onMyGoods() {
-    wx.navigateTo({ url: `/pages/market/marketMy/marketMy?type=${this.data.activeListingType || "goods"}` })
-  },
-
   onSellIdle() {
     wx.navigateTo({ url: `/pages/market/marketPost/marketPost?type=${this.data.activeListingType || "goods"}` })
+  },
+
+  _setPublishFabHidden(hidden) {
+    if (this._publishFabHidden === hidden) return
+    this._publishFabHidden = hidden
+    this.setData({ publishFabVisibleClass: hidden ? "fab-hidden" : "" })
+  },
+
+  onGoodsScroll(e) {
+    const scrollTop = Number(e?.detail?.scrollTop) || 0
+    const previous = Number(this._lastGoodsScrollTop) || 0
+    const delta = scrollTop - previous
+    this._lastGoodsScrollTop = scrollTop
+
+    if (scrollTop < 24) {
+      this._setPublishFabHidden(false)
+      return
+    }
+    if (delta > 10) {
+      this._setPublishFabHidden(true)
+    } else if (delta < -10) {
+      this._setPublishFabHidden(false)
+    }
   },
 
   stopTouchMove() {},

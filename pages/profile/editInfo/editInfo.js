@@ -157,9 +157,13 @@ Page({
     const { field } = e.currentTarget.dataset
     const value = e.detail.value
     if (field === 'address') {
+      const location = (this.data.location && typeof this.data.location === 'object')
+        ? { ...this.data.location, region: normalizeText(value) }
+        : {}
       this.setData({
         address: value,
         bigregion: value,
+        location,
         unsaved: true
       })
       return
@@ -266,6 +270,9 @@ Page({
     this.setData({
       address,
       bigregion: address,
+      location: (this.data.location && typeof this.data.location === 'object')
+        ? { ...this.data.location, region: address }
+        : {},
       regionPickerVisible: false,
       unsaved: true
     })
@@ -293,11 +300,12 @@ Page({
         const name = normalizeText(res.name)
         const address = normalizeText(res.address)
         const displayName = name || address || '已选择位置'
-        const currentAddress = normalizeText(this.data.address)
+        const regionDisplay = normalizeText(this.data.bigregion || this.data.address)
         const location = {
           displayName,
           name,
           address,
+          region: regionDisplay,
           lat,
           lng,
           source: 'wxChooseLocation',
@@ -307,10 +315,8 @@ Page({
         }
 
         this.setData({
-          address: currentAddress || displayName,
-          bigregion: currentAddress || this.data.bigregion || displayName,
           location,
-          locationDisplay: getLocationDisplay(location, currentAddress || displayName),
+          locationDisplay: getLocationDisplay(location, address),
           unsaved: true
         })
         wx.showToast({ title: '位置已选择', icon: 'success' })

@@ -31,7 +31,8 @@ const LISTING_TYPE_CONFIG = {
     conditionLabel: "新旧程度",
     startLabel: "可取开始",
     endLabel: "可取结束",
-    locationLabel: "所在位置",
+    mapLocationLabel: "手动选点",
+    regionLocationLabel: "地区树位置",
     defaultCategory: "其他",
     defaultCondition: "99新",
     categoryOptions: GOODS_CATEGORY_OPTIONS,
@@ -56,7 +57,8 @@ const LISTING_TYPE_CONFIG = {
     conditionLabel: "房源状态",
     startLabel: "入住时间",
     endLabel: "租期结束",
-    locationLabel: "房源位置",
+    mapLocationLabel: "手动选点",
+    regionLocationLabel: "地区树位置",
     defaultCategory: "单间",
     defaultCondition: "转租",
     categoryOptions: SUBLET_CATEGORY_OPTIONS,
@@ -263,6 +265,7 @@ function buildPostDisplayPatch(state = {}) {
   const showSubletFields = normalizeListingType(state.activeListingType) === "sublet"
   const category = normalizeLocationText(state.category) || "其他"
   const locationInput = normalizeLocationText(state.locationInput)
+  const regionInput = normalizeLocationText(state.region)
   const housingType = normalizeLocationText(state.housingType)
   const genderPreference = normalizeLocationText(state.genderPreference) || "不限"
 
@@ -278,7 +281,8 @@ function buildPostDisplayPatch(state = {}) {
     conditionLabel: config.conditionLabel,
     pickupStartLabel: config.startLabel,
     pickupEndLabel: config.endLabel,
-    locationLabel: config.locationLabel,
+    mapLocationLabel: config.mapLocationLabel,
+    regionLocationLabel: config.regionLocationLabel,
     showConditionRow: !!config.showConditionRow,
     showSubletFields,
     categoryDisplay: category,
@@ -286,8 +290,10 @@ function buildPostDisplayPatch(state = {}) {
     genderPreferenceDisplay: genderPreference,
     furnishedDisplay: state.furnished ? "带家具" : "未标注",
     utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
-    locationDisplay: locationInput || "去个人资料填写地址",
+    locationDisplay: locationInput || "去个人资料选择位置",
     locationMutedClass: locationInput ? "" : "muted",
+    regionLocationDisplay: regionInput || "去个人资料选择地区",
+    regionLocationMutedClass: regionInput ? "" : "muted",
     submitDisabledClass: submitting ? "disabled" : "",
     submitText: submitting
       ? (isEdit ? config.submittingEdit : config.submittingCreate)
@@ -327,20 +333,37 @@ function isEmptyProfileRegion(value) {
   return parts.every(part => part === "无" || part === "—")
 }
 
-function buildProfileLocationDisplay(user = {}) {
+function buildProfileRegionDisplay(user = {}) {
   const bigregion = normalizeLocationText(user.bigregion)
-  const address = normalizeLocationText(user.address || user.location?.displayName)
+  const address = normalizeLocationText(user.address)
   const hasRegion = bigregion && !isEmptyProfileRegion(bigregion)
 
-  if (hasRegion) {
-    const regionParts = bigregion.split("/").map(s => s.trim()).filter(Boolean)
-    if (regionParts.length >= 3 || !address) return bigregion
-    if (address.includes("/")) return address
-    if (regionParts.includes(address)) return bigregion
-    return `${bigregion} / ${address}`
-  }
+  if (hasRegion) return bigregion
 
   return address
+}
+
+function buildProfileMapLocationDisplay(user = {}) {
+  const location = user.location || {}
+  if (!hasLatLng(location)) return ""
+  return normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    ""
+  )
+}
+
+function buildItemMapLocationDisplay(item = {}) {
+  const location = item.location || {}
+  if (!location || typeof location !== "object") return ""
+  if (!hasLatLng(location)) return ""
+  return normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    ""
+  )
 }
 
 Page({
@@ -406,7 +429,8 @@ Page({
     conditionLabel: LISTING_TYPE_CONFIG.goods.conditionLabel,
     pickupStartLabel: LISTING_TYPE_CONFIG.goods.startLabel,
     pickupEndLabel: LISTING_TYPE_CONFIG.goods.endLabel,
-    locationLabel: LISTING_TYPE_CONFIG.goods.locationLabel,
+    mapLocationLabel: LISTING_TYPE_CONFIG.goods.mapLocationLabel,
+    regionLocationLabel: LISTING_TYPE_CONFIG.goods.regionLocationLabel,
     showConditionRow: true,
     showSubletFields: false,
     categoryDisplay: LISTING_TYPE_CONFIG.goods.defaultCategory,
@@ -414,8 +438,10 @@ Page({
     genderPreferenceDisplay: "不限",
     furnishedDisplay: "未标注",
     utilitiesIncludedDisplay: "未包含",
-    locationDisplay: "去个人资料填写地址",
+    locationDisplay: "去个人资料选择位置",
     locationMutedClass: "muted",
+    regionLocationDisplay: "去个人资料选择地区",
+    regionLocationMutedClass: "muted",
     submitDisabledClass: "",
     submitText: LISTING_TYPE_CONFIG.goods.submitCreate,
     dockVisibleClass: "dock-hidden"
@@ -484,21 +510,23 @@ Page({
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
       const user = (res?.result?.data || [])[0] || null
       const profileWechatID = normalizeLocationText(user?.wechatID)
-      const displayName = buildProfileLocationDisplay(user || {})
+      const regionDisplay = buildProfileRegionDisplay(user || {})
+      const locationDisplay = buildProfileMapLocationDisplay(user || {})
       if (this.data.isEdit || this._locationTouched) return false
-      if (!displayName) {
+      if (!regionDisplay && !locationDisplay) {
         this._setPostData({ profileWechatID })
         return false
       }
 
-      const location = buildLocationMeta(displayName, {
+      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user?.location || {}),
+        region: regionDisplay,
         source: user?.location ? (user.location.source || "profile") : "profile"
-      })
+      }) : {}
       this._setPostData({
         profileWechatID,
-        region: displayName,
-        locationInput: displayName,
+        region: regionDisplay,
+        locationInput: locationDisplay,
         location
       })
       return true
@@ -543,7 +571,7 @@ Page({
       const rawCategory = x.category || ''
       const category = config.categoryOptions.includes(rawCategory) ? rawCategory : config.defaultCategory
       const categoryIndex = config.categoryOptions.indexOf(category)
-      const locationDisplayName = x.location?.displayName || x.region || ''
+      const locationDisplayName = buildItemMapLocationDisplay(x)
 
       // 图片：回填 fileIDs + 预览 temp urls
       const fileIds = Array.isArray(x.imageFileIDs) && x.imageFileIDs.length
@@ -574,7 +602,7 @@ Page({
         roommateCount: (x.roommateCount === 0 || x.roommateCount) ? String(x.roommateCount) : '',
         region: x.region || '',
         locationInput: locationDisplayName,
-        location: x.location || buildLocationMeta(x.region || ''),
+        location: x.location || buildLocationMeta(locationDisplayName || x.region || '', { region: x.region || '' }),
 
         // 单图预览仍用 image
         image: tempUrls[0] || '',
@@ -637,17 +665,19 @@ Page({
 
   _applyProfileToForm(user = {}) {
     const profileWechatID = normalizeLocationText(user.wechatID)
-    const displayName = buildProfileLocationDisplay(user || {})
+    const regionDisplay = buildProfileRegionDisplay(user || {})
+    const locationDisplay = buildProfileMapLocationDisplay(user || {})
     const updates = { profileWechatID }
 
-    if (displayName && (!this._locationTouched || !this.data.locationInput)) {
-      const location = buildLocationMeta(displayName, {
+    if (!this._locationTouched && (regionDisplay || locationDisplay)) {
+      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user.location || {}),
+        region: regionDisplay,
         source: user.location ? (user.location.source || "profile") : "profile"
-      })
+      }) : {}
       Object.assign(updates, {
-        region: displayName,
-        locationInput: displayName,
+        region: regionDisplay,
+        locationInput: locationDisplay,
         location
       })
     }
@@ -907,11 +937,25 @@ onChooseCondition() {
         return
       }
 
-      const region = normalizeLocationText(profileUpdates.locationInput || this.data.locationInput || this.data.region)
-      const location = buildLocationMeta(region, profileUpdates.location || this.data.location || {})
-      if (!region) return wx.showToast({ title: "请填写地址", icon: "none" })
+      const region = normalizeLocationText(profileUpdates.region || this.data.region)
+      const locationSource = profileUpdates.location || this.data.location || {}
+      const locationName = normalizeLocationText(
+        profileUpdates.locationInput ||
+        this.data.locationInput ||
+        locationSource.displayName ||
+        locationSource.name ||
+        locationSource.address
+      )
+      const location = buildLocationMeta(locationName, {
+        ...locationSource,
+        region
+      })
+      if (!region) {
+        this._promptEditProfile("请先选择地区", `${config.submitCreate}前需要填写地区树位置，用于筛选和展示。`)
+        return
+      }
       if (!hasLatLng(location)) {
-        this._promptEditProfile("请先设置位置", `${config.submitCreate}前需要在个人资料里选择位置，用于计算距离。`)
+        this._promptEditProfile("请先手动选点", `${config.submitCreate}前需要在个人资料里选择位置，用于计算距离。`)
         return
       }
       if (!expireTime) return wx.showToast({ title: `请选择${config.pickupEndLabel}`, icon: "none" })

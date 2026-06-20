@@ -192,7 +192,7 @@ function buildLocationForSave(regionStr, location = {}) {
     lng: toFiniteNumber(location.lng ?? location.longitude),
     address: normalizeText(location.address),
     source: normalizeText(location.source || "manual"),
-    region: normalizeText(location.region || location.bigregion),
+    region: normalizeText(location.region || location.bigregion || regionStr),
     coordinateAccuracy: normalizeText(location.coordinateAccuracy),
     provider: normalizeText(location.provider),
     updatedAtMs: Date.now()
@@ -201,12 +201,10 @@ function buildLocationForSave(regionStr, location = {}) {
 
 function parseRegion(regionStr) {
   const parts = normalizeText(regionStr).split("/").map(s => s.trim()).filter(Boolean)
-  const p1 = parts[0] || ""
-  const p2 = parts[1] || ""
   const rest = parts.slice(2)
   return {
-    bigregion: [p1, p2].filter(Boolean).join(" / "),
-    address: rest.length ? rest.join(" / ") : (p2 || p1)
+    bigregion: parts.join(" / "),
+    address: rest.length ? rest.join(" / ") : (parts[1] || parts[0] || "")
   }
 }
 

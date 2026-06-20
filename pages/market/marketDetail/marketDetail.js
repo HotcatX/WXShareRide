@@ -27,7 +27,7 @@ const DETAIL_COPY = {
     locationLabel: "房源位置",
     descTitle: "房源描述",
     sellerOtherText: "查看发布者其他信息",
-    locationActionText: "查看房源位置",
+    locationActionText: "复制微信号",
     contactText: "联系转租",
     defaultTitle: "未命名房源",
     defaultCategory: "转租",
@@ -501,6 +501,13 @@ Page({
   // =========================
   onContactBuy() {
     return this.onContactSeller()
+  },
+
+  onDetailQuickAction() {
+    if (this.data.item?.listingType === "sublet") {
+      return this.onContactSeller()
+    }
+    return this.onPickupInfo()
   },
 
   onPickupInfo() {

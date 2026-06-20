@@ -98,7 +98,7 @@
           <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onViewSellerOther">
             {{item.sellerOtherText}}
           </view>
-          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onPickupInfo">
+          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDetailQuickAction">
             {{item.locationActionText}}
           </view>
         </view>

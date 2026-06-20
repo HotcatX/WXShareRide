@@ -1,4 +1,6 @@
 // pages/other/login/login.js
+const referral = require("../../../utils/referral")
+
 Page({
   data: { logging: false },
 
@@ -12,16 +14,15 @@ Page({
 
     // 没有上一页：按 url 回跳
     if (pendingUrl) {
-      // 你的主界面 home 是 tabBar，必须用 switchTab
       if (pendingUrl === '/pages/home/home') {
-        wx.switchTab({ url: '/pages/home/home' })
+        wx.reLaunch({ url: '/pages/home/home' })
         return
       }
       wx.redirectTo({ url: pendingUrl })
       return
     }
 
-    wx.switchTab({ url: '/pages/home/home' })
+    wx.reLaunch({ url: '/pages/home/home' })
   },
 
   // 兼容不同 getUserInfo 返回结构；只认可 profileCompleted === true 才算完成
@@ -64,6 +65,8 @@ Page({
 
       wx.setStorageSync('openid', openid)
       wx.setStorageSync('isGuest', false)
+      if (result.referralCode) referral.setMyReferralCode(result.referralCode)
+      await referral.bindPendingReferral()
 
       const action = wx.getStorageSync('postLoginAction') || {}
       const pending = wx.getStorageSync('pendingPage') || {}
@@ -94,7 +97,7 @@ Page({
 
       if (pendingUrl) {
         wx.removeStorageSync('pendingPage')
-        this.backToPending(pendingUrl) // 你文件里已经有兼容 switchTab 的 backToPending
+        this.backToPending(pendingUrl)
         return
       }
 
@@ -102,7 +105,7 @@ Page({
         wx.redirectTo({ url: returnUrl })
         return
       }
-      wx.switchTab({ url: '/pages/home/home' })
+      wx.reLaunch({ url: '/pages/home/home' })
     } catch (e) {
       wx.showToast({ title: e.message || '登录失败', icon: 'none' })
     } finally {

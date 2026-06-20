@@ -99,7 +99,7 @@ Page({
 
 
   onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     this.loadAllAddresses()
@@ -305,7 +305,7 @@ Page({
 
   onPassengerInput(e) {
     const v = String(e.detail.value || '')
-    this.setData({ passengerCountInput: v })
+    this.setData({ passengerCountInput: v, passengerCount: v })
   },
 
 
@@ -395,6 +395,8 @@ Page({
       const openid = wx.getStorageSync("openid") || ""
 
       const {
+        editMode,
+        templateId,
         userInfo,
         departureAddress,
         destinationAddress,
@@ -441,13 +443,26 @@ Page({
         zelle: showZelle ? "yes" : "no",
 
         // 时间戳
-        createdAt: db.serverDate()
+        updatedAt: db.serverDate()
       }
 
-      const addRes = await db.collection("CarpoolTemplate").add({ data: payload })
-      if (!addRes || !addRes._id) {
-        this.showError("模板保存失败，请重试")
-        return
+      if (editMode && templateId) {
+        const updateRes = await db.collection("CarpoolTemplate").doc(templateId).update({ data: payload })
+        if (!updateRes || !updateRes.stats || updateRes.stats.updated < 1) {
+          this.showError("模板保存失败，请重试")
+          return
+        }
+      } else {
+        const addRes = await db.collection("CarpoolTemplate").add({
+          data: {
+            ...payload,
+            createdAt: db.serverDate()
+          }
+        })
+        if (!addRes || !addRes._id) {
+          this.showError("模板保存失败，请重试")
+          return
+        }
       }
 
       // 不影响模板保存：失败也不回滚模板

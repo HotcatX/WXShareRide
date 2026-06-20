@@ -63,7 +63,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const id = (options && options.id) || ''
@@ -112,7 +112,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   setLoadError(message) {
@@ -304,19 +304,21 @@ Page({
       })
 
 
-      if (ret.result && ret.result.success) {
+      const result = ret && ret.result ? ret.result : {}
+      if (result.success) {
         wx.showToast({ title: '接单成功', icon: 'success', duration: 1200 })
         setTimeout(() => {
-          wx.switchTab({ url: '/pages/home/home' })
+          wx.reLaunch({ url: '/pages/home/home' })
         }, 1200)
         return
       }
 
-      // ✅ 接单成功：不展示乘客信息，直接回首页
-      wx.showToast({ title: '接单成功', icon: 'success', duration: 1200 })
-      setTimeout(() => {
-        wx.switchTab({ url: '/pages/home/home' })
-      }, 1200)
+      wx.showToast({
+        title: result.errorMsg || result.msg || '接单失败',
+        icon: 'none',
+        duration: 2000
+      })
+      return
 
     } catch (e) {
       console.error('acceptAsDriver error:', e)
@@ -329,19 +331,19 @@ Page({
   onShareAppMessage() {
     const { requestId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { requestId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       query: `id=${requestId}`
-    }
+    })
   }
 
 })

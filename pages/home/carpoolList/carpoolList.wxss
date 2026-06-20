@@ -1,213 +1,270 @@
-page {
-    background: #F6F1ED;
-  }
+page{
+  background: #f4f6f8;
+}
 
-  .container {
-    min-height: 100vh;
-    background: #F6F1ED;
-  }
+.list-ride{
+  background: #f4f6f8;
+}
 
-  .nav-bar {
-    width: 100%;
-    background-color: #ffffff;
-  }
+.list-filter{
+  margin: 0 16rpx 8rpx;
+}
 
-  .nav-content {
-    height: 44px;
-    display: flex;
-    align-items: center;
-    padding: 0 20rpx;
-    position: relative;
-  }
+.list-filter.ride-card-pad{
+  padding: 12rpx 14rpx;
+}
 
-  .back-icon {
-    width: 50rpx;
-    height: 50rpx;
-  }
+.list-filter-title-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
 
-  .nav-title {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 34rpx;
-    font-weight: 600;
-    color: #111;
-  }
+.list-filter-title-row .ride-section-title{
+  font-size: 25rpx;
+  line-height: 31rpx;
+}
 
-  .header {
-    display: flex;
-    align-items: center;
-    height: 80rpx;
-    padding: 0 20rpx;
-  }
-  .title {
-    flex: 1;
-    text-align: center;
-    font-size: 40rpx;
-    font-weight: bold;
-  }
+.list-filter-title-row .ride-section-subtitle{
+  display: none;
+}
 
-  .filter-bar {
-    display: flex;
-    align-items: center;
-    padding: 16rpx 24rpx;
-    background-color: #ffffff;
-    border-bottom: 1px solid #f5f5f5;
-    font-size: 24rpx;
-  }
+.list-filter-title-row .ride-chip{
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 19rpx;
+  line-height: 34rpx;
+}
 
-  .filter-bar picker {
-    flex: 1;
-  }
+.list-filter-grid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 8rpx;
+}
 
-  .filter-item {
-    flex: 1;
-  }
+.list-filter-grid picker{
+  min-width: 0;
+}
 
-  .filter-spacer {
-    width: 24rpx;
-  }
+.list-filter .ride-field{
+  height: 42rpx;
+  min-height: 42rpx;
+  padding: 0 10rpx;
+  border-radius: 10rpx;
+}
 
-  .filter-pill {
-    padding: 8rpx 16rpx;
-    border-radius: 999rpx;
-    background-color: #f5f5f5;
-    text-align: center;
-  }
+.list-filter .ride-field-label{
+  display: none;
+}
 
-  .filter-reset {
-    margin-left: 16rpx;
-    font-size: 26rpx;
-    font-weight: 800;
-    color: #ff0000;
-    text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.25);
-  }
+.list-filter .ride-field-value{
+  margin-top: 0;
+  font-size: 20rpx;
+  line-height: 40rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-  .state-text {
-    padding: 40rpx 24rpx;
-    color: #666;
-    font-size: 28rpx;
-    text-align: center;
-  }
+.list-scroll{
+  padding: 10rpx 12rpx 0;
+}
 
-  .date-header {
-    padding: 24rpx 24rpx 8rpx;
-  }
+.list-scroll .ride-card + .ride-card{
+  margin-top: 0;
+}
 
-  .date-header-text {
-    font-size: 28rpx;
-    font-weight: 600;
-    color: #333;
-  }
+.list-date-row{
+  margin: 10rpx 4rpx 5rpx;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
 
-  .trip-card {
-    background: #ffffff;
-    border-radius: 16rpx;
-    box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05);
-    padding: 20rpx 24rpx;
-    margin: 8rpx 20rpx 20rpx;
-  }
+.list-date{
+  font-size: 25rpx;
+  line-height: 31rpx;
+  font-weight: 900;
+  color: #111418;
+}
 
-  .trip-main-row {
-    display: flex;
-    align-items: center;
-  }
+.list-date-count{
+  font-size: 20rpx;
+  line-height: 26rpx;
+  font-weight: 800;
+  color: #69727d;
+}
 
-  .place-text-left,
-  .place-text-right {
-    flex: 1;
-    font-size: 30rpx;
-    font-weight: 500;
-    color: #111;
-  }
+.list-trip-card{
+  margin-bottom: 12rpx;
+  padding: 16rpx 18rpx;
+}
 
-  .place-text-left {
-    text-align: left;
-  }
+.list-trip-card .ride-list-head{
+  margin-bottom: 10rpx;
+  align-items: center;
+}
 
-  .place-text-right {
-    text-align: right;
-  }
+.list-kind-row{
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
 
-  .arrow-text {
-    width: 80rpx;
-    text-align: center;
-    font-size: 32rpx;
-    margin: 0;
-  }
+.list-trip-card .ride-list-kind{
+  display: flex;
+  align-items: center;
+  font-size: 23rpx;
+  line-height: 30rpx;
+}
 
-  .trip-sub-row {
-    margin-top: 12rpx;
-    display: flex;
-    justify-content: space-between;
-    font-size: 26rpx;
-    color: #666;
-  }
+.list-kind-row .ride-chip{
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+  display: flex;
+  align-items: center;
+}
 
-  .trip-sub-row2 {
-    margin-top: 8rpx;
-    display: flex;
-    justify-content: space-between;
-    font-size: 26rpx;
-    color: #666;
-  }
+.list-trip-card .ride-list-time{
+  font-size: 23rpx;
+  line-height: 30rpx;
+  color: #69727d;
+}
 
-  .seat-text {
-    color: #ff8c00;
-  }
+.list-route-inline{
+  min-width: 0;
+  position: relative;
+}
 
-  .price-text {
-    color: #333;
-  }
+.list-route-main{
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0,0.92fr) 96rpx minmax(0,1.08fr);
+  align-items: center;
+  column-gap: 10rpx;
+}
 
-  .status-text {
-    color: #999;
-  }
+.list-route-place{
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6rpx;
+  box-sizing: border-box;
+}
 
-  .trip-card--tag {
-    position: relative;  overflow: hidden;    }
+.list-route-main .list-route-place:first-child{
+  justify-content: flex-start;
+}
 
-  .left-tag {
-    position: absolute;
-    left: 0;
-    top: 18rpx;
-    bottom: 18rpx;
-    width: 10rpx;
-    border-radius: 999rpx;
-  }
+.list-route-main .list-route-place:last-child{
+  justify-content: flex-start;
+  padding-right: 108rpx;
+}
 
-  .left-tag--orange {
-    background: #FE814B;
-  }
+.list-route-label{
+  flex: none;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  color: #59636f;
+}
 
-  .left-tag--blue {
-    background: #2F80ED;
-  }
+.list-route-name{
+  min-width: 0;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  color: #111418;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-  .toast-bar {
-    position: fixed;
-    top: 120rpx;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: 80%;
-    padding: 16rpx 24rpx;
-    border-radius: 999rpx;
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    z-index: 999;
-    font-size: 26rpx;
-    line-height: 1.4;
-    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.3);
-  }
+.list-route-arrow{
+  width: 92rpx;
+  height: 34rpx;
+  border-radius: 999rpx;
+  background: rgba(15,155,149,0.08);
+  color: #0f746f;
+  border: 1rpx solid rgba(15,155,149,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  align-self: center;
+  font-size: 31rpx;
+  line-height: 34rpx;
+  font-weight: 900;
+  text-align: center;
+  box-sizing: border-box;
+}
 
-  .toast-icon {
-    margin-right: 12rpx;
-    font-size: 30rpx;
-  }
+.list-seat-chip{
+  flex: none;
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+}
 
-  .toast-text {
-    flex: 1;
-    word-break: break-all;
-  }
+.list-route-side{
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  max-width: 100rpx;
+}
+
+.list-price-chip{
+  max-width: 92rpx;
+  height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 10rpx;
+  font-size: 21rpx;
+  line-height: 34rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-bar{
+  position: fixed;
+  top: calc(44px + constant(safe-area-inset-top) + 32rpx);
+  top: calc(44px + env(safe-area-inset-top) + 32rpx);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 16rpx 24rpx;
+  border-radius: 16rpx;
+  background: rgba(17, 20, 24, 0.88);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  z-index: 999;
+  font-size: 26rpx;
+  line-height: 1.4;
+  box-shadow: 0 8rpx 24rpx rgba(20,23,26,0.18);
+}
+
+.toast-icon{
+  margin-right: 12rpx;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.toast-text{
+  flex: 1;
+  word-break: break-all;
+}

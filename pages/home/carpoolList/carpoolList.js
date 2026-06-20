@@ -81,7 +81,7 @@ Page({
   _initFilterFromShare: null,
 
   onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
 
     // 允许分享
     wx.showShareMenu({
@@ -116,7 +116,7 @@ Page({
     }, () => {
       this.applyShareFilters(false, () => {
         this.loadBothLists({ showLoading: true }).then(() => {
-          setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
+          if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
           setTimeout(() => this.refreshStatusInBackground(false), 800)
         })
       })
@@ -266,7 +266,7 @@ Page({
     if (pages.length > 1) {
       wx.navigateBack()
     } else {
-      wx.switchTab({ url: '/pages/home/home' })
+      wx.reLaunch({ url: '/pages/home/home' })
     }
   },
 
@@ -276,18 +276,18 @@ Page({
   onShareAppMessage() {
     const { fromFilterIndex, toFilterIndex, timeFilterIndex } = this.data
     const query = `from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
-    return {
+    return getApp().withReferralShare({
       title: '拼车/求车线路列表',
       path: `/pages/home/carpoolList/carpoolList?${query}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { fromFilterIndex, toFilterIndex, timeFilterIndex } = this.data
-    return {
+    return getApp().withReferralShare({
       title: '拼车/求车线路列表',
       query: `from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
-    }
+    })
   },
 
   // =========================
@@ -467,6 +467,14 @@ Page({
     return value === "close" || value === "closed" ? "past" : value
   },
 
+  getTripPriceText(raw) {
+    const value = raw && (raw.referencePrice || raw.price || raw.displayPrice)
+    const text = value == null ? "" : String(value).trim()
+    if (text === "请参考打车价格" || text === "参考打车价格") return "参考价"
+    if (text === "价格以司机确认为准") return "司机确认"
+    return text
+  },
+
   decorateTripCommon(trip, type) {
     const dep = this.getFirstDeparture(trip)
     const currentDate = dep && dep.date ? dep.date : ""
@@ -482,6 +490,7 @@ Page({
       d => d && String(d.address || "").trim()
     )
     trip._toAddress = firstDest ? (firstDest.address || "") : ""
+    trip._priceText = this.getTripPriceText(trip)
 
     if (type === "request") {
       trip._requestPassengerCount =
@@ -496,6 +505,60 @@ Page({
     }
 
     return trip
+  },
+
+  async hydrateMissingPriceTexts(carpoolList, requestList) {
+    const listPairs = [
+      { type: "carpool", items: carpoolList || [] },
+      { type: "request", items: requestList || [] }
+    ]
+
+    const hasMissingPrice = listPairs.some(pair =>
+      pair.items.some(item => item && item._id && !item._priceText)
+    )
+    if (!hasMissingPrice) return false
+
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "getTripList",
+        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: false }
+      })
+      const result = res && res.result ? res.result : {}
+      if (!result.success) return false
+
+      const data = result.data || {}
+      const carpoolFull = Array.isArray(data.carpool) ? data.carpool : (Array.isArray(result.carpoolList) ? result.carpoolList : [])
+      const requestFull = Array.isArray(data.request) ? data.request : (Array.isArray(result.requestList) ? result.requestList : [])
+      const priceMap = {
+        carpool: new Map(),
+        request: new Map()
+      }
+
+      carpoolFull.forEach(item => {
+        const price = this.getTripPriceText(item)
+        if (item && item._id && price) priceMap.carpool.set(item._id, price)
+      })
+      requestFull.forEach(item => {
+        const price = this.getTripPriceText(item)
+        if (item && item._id && price) priceMap.request.set(item._id, price)
+      })
+
+      let changed = false
+      listPairs.forEach(pair => {
+        pair.items.forEach(item => {
+          if (!item || !item._id || item._priceText) return
+          const price = priceMap[pair.type].get(item._id)
+          if (!price) return
+          item._priceText = price
+          changed = true
+        })
+      })
+
+      return changed
+    } catch (err) {
+      console.warn("hydrateMissingPriceTexts failed:", err)
+      return false
+    }
   },
 
   shouldShowTrip(trip) {
@@ -586,6 +649,15 @@ Page({
       this._loadedOnceAt = Date.now()
       this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
       this.applyAllFiltersAndGroup()
+      this.hydrateMissingPriceTexts(decoratedCarpool, decoratedRequest).then((changed) => {
+        if (!changed) return
+        this.setData({
+          originalCarpoolList: decoratedCarpool,
+          originalRequestList: decoratedRequest
+        })
+        this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
+        this.applyAllFiltersAndGroup()
+      })
     } catch (err) {
       console.error("loadBothLists error:", err)
       if (showLoading) showDataError("加载失败", err, "拼车列表加载失败，请稍后重试。")
@@ -887,6 +959,7 @@ Page({
       this.refreshStatusInBackground(true)
     } finally {
       this.setData({ refresherTriggered: false })
+      wx.stopPullDownRefresh()
     }
   },
 

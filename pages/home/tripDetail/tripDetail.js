@@ -46,6 +46,8 @@ Page({
   data: {
     trip: null,
     loading: true,
+    loadError: '',
+    notFound: false,
     hasJoined: false,
     isOwner: false,
 
@@ -60,6 +62,7 @@ Page({
     submitting: false,
 
     driverInfo: null,
+    defaultAvatarUrl: '/images/profile.png',
 
     departAddress: '',
     destAddress: '',
@@ -115,30 +118,29 @@ Page({
     const { tripId, trip, departAddress, destAddress, formattedDepartTime } = this.data
     const realId = tripId || (trip && trip._id) || ''
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       path: `/pages/home/tripDetail/tripDetail?id=${realId}`,
-    }
+    })
   },
 
   onShareTimeline() {
     const { tripId, trip, departAddress, destAddress, formattedDepartTime } = this.data
     const realId = tripId || (trip && trip._id) || ''
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       query: `id=${realId}`
-    }
+    })
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const tripId = (options && (options.id || options.tripId)) || ''
     if (!tripId) {
-      wx.showToast({ title: '缺少路线ID', icon: 'none' })
-      this.setData({ loading: false })
+      this.setLoadError('缺少路线ID')
       return
     }
 
@@ -164,7 +166,7 @@ Page({
 
     // ✅ 登录/完善资料回来后，静默刷新一下按钮状态（hasJoined/isOwner）
     const { tripId } = this.data
-    if (!tripId || this.data.loading) return
+    if (!tripId || this.data.loading || this.data.loadError) return
     if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
     this.loadTripDetail(tripId, { silent: true })
   },
@@ -224,7 +226,25 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
+  },
+
+  setLoadError(message, options = {}) {
+    this.setData({
+      loading: false,
+      loadError: message || '路线加载失败，请稍后重试',
+      notFound: !!options.notFound,
+      trip: null,
+      hasJoined: false,
+      isOwner: false,
+      driverInfo: null,
+      departAddress: '',
+      destAddress: '',
+      formattedDepartTime: '',
+      carBrandModel: '',
+      showFortLeeCoreTip: false,
+      submitting: false
+    })
   },
 
   showToastBar(text, type = 'success') {
@@ -343,6 +363,8 @@ Page({
 
     this.setData({
       trip,
+      loadError: '',
+      notFound: false,
       hasJoined,
       isOwner,
       driverInfo: options.fromPreview ? this.data.driverInfo : null,
@@ -360,7 +382,7 @@ Page({
 
   async loadTripDetail(id, options = {}) {
     const { silent = false } = options
-    if (!silent) this.setData({ loading: true })
+    if (!silent) this.setData({ loading: true, loadError: '', notFound: false })
 
     try {
       const res = await wx.cloud.callFunction({
@@ -368,25 +390,26 @@ Page({
         data: { type: 'carpool', id }
       })
 
-      if (!res.result || !res.result.success) {
-        if (this.data.trip) {
+      const result = res && res.result ? res.result : {}
+
+      if (!result.success) {
+        const isNotFound = !!result.notFound
+        const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
+        if (!isNotFound && this.data.trip) {
+          this.showToastBar(message, 'error')
+          this.setData({ loading: false })
           return
         }
-        this.showToastBar('加载失败', 'error')
-        this.setData({ loading: false })
+        this.setLoadError(message, { notFound: isNotFound })
         return
       }
 
-      const trip = Array.isArray(res.result.data)
-        ? res.result.data[0]
-        : res.result.data
+      const trip = Array.isArray(result.data)
+        ? result.data[0]
+        : result.data
 
       if (!trip) {
-        if (this.data.trip) {
-          return
-        }
-        this.showToastBar('未找到该路线', 'warn')
-        this.setData({ loading: false })
+        this.setLoadError('该路线不存在或已被删除', { notFound: true })
         return
       }
 
@@ -394,11 +417,12 @@ Page({
       if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
     } catch (err) {
       if (this.data.trip) {
+        this.showToastBar('网络异常', 'error')
+        this.setData({ loading: false })
         return
       }
-      this.showToastBar('网络异常', 'error')
       console.error('请求错误:', err)
-      this.setData({ loading: false })
+      this.setLoadError('网络异常，请稍后重试')
     }
   },
 

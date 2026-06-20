@@ -81,6 +81,14 @@ function formatStatNumber(value) {
   return String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
+function formatRidePriceTag(value) {
+  const text = value == null ? '' : String(value).trim()
+  if (!text) return ''
+  if (text === '请参考打车价格' || text === '参考打车价格') return '参考价'
+  if (text === '价格以司机确认为准') return '司机确认'
+  return text
+}
+
 function formatSyncAgo(syncedAt) {
   const ts = Number(syncedAt || 0)
   const diffSeconds = ts ? Math.max(0, Math.floor((Date.now() - ts) / 1000)) : 0
@@ -97,6 +105,25 @@ function normalizePublicStats(raw = {}, syncedAt = Date.now()) {
     coverageText: raw.coverageText || 'NY / NJ',
     lastSyncAt: syncedAt,
     lastSyncText: formatSyncAgo(syncedAt)
+  }
+}
+
+function getHomeNavMetrics() {
+  const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
+  let navRightReserve = 14
+
+  try {
+    const menu = wx.getMenuButtonBoundingClientRect()
+    const windowWidth = info.windowWidth || info.screenWidth || 0
+    if (menu && windowWidth && menu.left) {
+      navRightReserve = Math.max(navRightReserve, windowWidth - menu.left + 8)
+    }
+  } catch (e) {
+  }
+
+  return {
+    statusBarHeight: info.statusBarHeight || 0,
+    homeTopbarStyle: `padding-right: ${navRightReserve}px;`
   }
 }
 
@@ -137,6 +164,17 @@ function wrapTripForCard(raw, opts = {}) {
         : (dateCN || time || '')))
 
   const tripId = raw.carpoolId || raw.tripId || raw._id || raw.docId || raw.id || ''
+  const isRequest = from === 'CarpoolRequest'
+  const requestPassengerCount =
+    raw._requestPassengerCount ||
+    raw.passengerCount ||
+    raw.passengersCount ||
+    (Array.isArray(raw.passengers) ? raw.passengers.length : 0) ||
+    1
+  const seatText = isRequest
+    ? `${requestPassengerCount}人求车`
+    : `余位 ${raw.availSeatNum || raw.availableSeats || raw.seatLeft || 0}`
+  const priceText = formatRidePriceTag(raw.referencePrice || raw.price || raw.displayPrice || '')
 
   // ===== 状态识别（past / open / full）=====
   const statusText = raw.statusText || raw.status || raw.requestStatus || raw.state || ''
@@ -176,6 +214,8 @@ function wrapTripForCard(raw, opts = {}) {
     _fromAddress: fromAddress || '(未读取到出发地字段)',
     _toAddress: toAddress || '(未读取到目的地字段)',
     _timeLabel: timeLabel || '(未读取到时间字段)',
+    _seatText: seatText,
+    _priceText: priceText,
     _statusKey: safeStatusKey,
     _statusBadge: statusBadgeMap[safeStatusKey],
   }
@@ -204,13 +244,17 @@ Page({
     joinScrollable: false,
 
     loading: false,
+    refresherTriggered: false,
 
     statusBarHeight: 80,
+    homeTopbarStyle: '',
     pageTitle: '纽约生活',
 
     publicStats: normalizePublicStats(),
 
     isLoggedIn: false,
+    customTabMarketBadge: 0,
+    customTabProfileBadge: 0,
 
     // ✅ 当前展开块：'create' | 'join' | ''
     expandedSection: '',
@@ -221,6 +265,7 @@ Page({
   _statusRefreshPromise: null,
   _lastRefreshAt: 0,
   _publicStatsTimer: null,
+  _homeShowTimer: null,
 
   // =========================
   // 合并后的两块：计算 show + scrollable
@@ -261,42 +306,68 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.refreshHomeByUser()
+    wx.stopPullDownRefresh()
+  },
+
+  async onHomeRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
+    try {
+      await this.refreshHomeByUser()
+    } finally {
+      this.setData({ refresherTriggered: false })
+    }
+  },
+
+  async refreshHomeByUser() {
     try {
       await this.loadPublicStats()
       await this.refreshHomeData(true)
       await this.loadUnreadCount()
     } catch (e) {
-      console.error('onPullDownRefresh error', e)
-    } finally {
-      wx.stopPullDownRefresh()
+      console.error('refreshHomeByUser error', e)
     }
   },
 
   onLoad() {
-    const info = wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: info.statusBarHeight })
+    this.setData(getHomeNavMetrics())
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    this.loadUnreadCount()
-
     this.syncLoginState()
-    this.loadPublicStats()
+    this.scheduleHomeShowRefresh()
   },
 
   onShow() {
     this.syncLoginState()
     this.startPublicStatsTicker()
-    this.refreshHomeData(false)
-    this.loadUnreadCount()
+    this.scheduleHomeShowRefresh()
   },
 
   onHide() {
+    this.clearHomeShowRefresh()
     this.stopPublicStatsTicker()
   },
 
   onUnload() {
+    this.clearHomeShowRefresh()
     this.stopPublicStatsTicker()
+  },
+
+  scheduleHomeShowRefresh() {
+    this.clearHomeShowRefresh()
+    this._homeShowTimer = setTimeout(() => {
+      this._homeShowTimer = null
+      this.loadPublicStats()
+      this.refreshHomeData(true, { forceStatus: false })
+      this.loadUnreadCount()
+    }, 300)
+  },
+
+  clearHomeShowRefresh() {
+    if (!this._homeShowTimer) return
+    clearTimeout(this._homeShowTimer)
+    this._homeShowTimer = null
   },
 
   syncLoginState() {
@@ -394,7 +465,7 @@ Page({
   // =========================
   // ✅ 首页首屏只拉卡片数据；状态更新放后台，避免全屏 loading 卡住操作。
   // =========================
-  async refreshHomeData(force = false) {
+  async refreshHomeData(force = false, options = {}) {
     if (this._refreshPromise) return this._refreshPromise
 
     const now = Date.now()
@@ -402,11 +473,13 @@ Page({
       return Promise.resolve()
     }
 
+    const forceStatus = options.forceStatus === undefined ? force : !!options.forceStatus
+
     this.setData({ loading: true })
 
     this._refreshPromise = this.loadHomeTripLists()
       .then(() => {
-        this.refreshHomeStatusInBackground(force)
+        this.refreshHomeStatusInBackground(forceStatus)
       })
       .catch((e) => {
         console.error('[home] refreshHomeData error:', e)
@@ -533,17 +606,17 @@ Page({
   // 分享
   // =========================
   onShareAppMessage() {
-    return {
+    return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
       path: '/pages/home/home'
-    }
+    })
   },
 
   onShareTimeline() {
-    return {
+    return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
       query: ''
-    }
+    })
   },
 
   // =========================
@@ -553,10 +626,12 @@ Page({
     const openid = wx.getStorageSync('openid')
     const isGuest = wx.getStorageSync('isGuest')
 
-    wx.removeTabBarBadge({ index: 1 })
+    wx.setStorageSync('customTabMarketBadge', 0)
+    this.setData({ customTabMarketBadge: 0 })
 
     if (!openid || isGuest) {
-      wx.removeTabBarBadge({ index: 2 })
+      wx.setStorageSync('customTabProfileBadge', 0)
+      this.setData({ customTabProfileBadge: 0 })
       return Promise.resolve()
     }
 
@@ -569,16 +644,8 @@ Page({
       .count()
       .then(res => {
         const count = res.total || 0
-
-        if (count > 0) {
-          // ✅ profile = index 2
-          wx.setTabBarBadge({
-            index: 2,
-            text: count > 99 ? '99+' : String(count)
-          })
-        } else {
-          wx.removeTabBarBadge({ index: 2 })
-        }
+        wx.setStorageSync('customTabProfileBadge', count)
+        this.setData({ customTabProfileBadge: count })
       })
       .catch(err => {
         console.error('home 未读消息统计失败：', err)

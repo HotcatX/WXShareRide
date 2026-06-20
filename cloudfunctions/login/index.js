@@ -1,9 +1,15 @@
 // cloudfunctions/login/index.js
 const cloud = require('wx-server-sdk')
+const crypto = require('crypto')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const userColl = db.collection('userInfo')
+
+function buildReferralCode(openid) {
+  const hash = crypto.createHash('sha1').update(String(openid)).digest('hex').slice(0, 12)
+  return `ref_${hash}`
+}
 
 exports.main = async (event, context) => {
   const wxContext = cloud.getWXContext()
@@ -18,6 +24,7 @@ exports.main = async (event, context) => {
 
     let isNewUser = false
     let profileCompleted = false
+    let referralCode = buildReferralCode(openid)
 
     if (!queryRes.data.length) {
       isNewUser = true
@@ -44,18 +51,23 @@ exports.main = async (event, context) => {
           carBrand: '',
           carModel: '',
           carNumber: '',
-          address: ''
+          address: '',
+          referralCode
         }
       })
     } else {
       const doc = queryRes.data[0]
       profileCompleted = !!doc.profileCompleted
+      referralCode = doc.referralCode || referralCode
 
       const updateData = {
         updateTime: new Date()
       }
       if (!doc.status) {
         updateData.status = 'normal'
+      }
+      if (!doc.referralCode) {
+        updateData.referralCode = referralCode
       }
 
       if (Object.keys(updateData).length > 1) {
@@ -67,7 +79,8 @@ exports.main = async (event, context) => {
       ok: true,
       openid,
       isNewUser,
-      profileCompleted
+      profileCompleted,
+      referralCode
     }
   } catch (e) {
     console.error('【login】异常：', e)

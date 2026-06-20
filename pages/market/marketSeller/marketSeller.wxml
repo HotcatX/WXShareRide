@@ -1,72 +1,83 @@
-<view class="page">
-
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
-    <text class="nav-title">TA发布的</text>
-    <view class="nav-right"></view>
-  </view>
-</view>
-
-<scroll-view class="content" scroll-y="true">
-
-  <view class="seller-card">
-    <view class="avatar-wrap">
-      <image
-        wx:if="{{seller.avatarDisplay}}"
-        class="avatar-img"
-        src="{{seller.avatarDisplay}}"
-        mode="aspectFill"
-      />
-      <view wx:else class="avatar-fallback">🏃</view>
-    </view>
-
-    <view class="seller-info">
-      <view class="row"><text class="k">昵称：</text><text class="v">{{seller.name}}</text></view>
-      <view class="row"><text class="k">所住公寓：</text><text class="v">{{seller.apartment || '未填写'}}</text></view>
-      <view class="row"><text class="k">所住区域：</text><text class="v">{{seller.region || '未填写'}}</text></view>
+<view class="seller-page">
+  <view class="seller-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="seller-nav">
+      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <text class="nav-title">卖家主页</text>
+      <view class="nav-spacer"></view>
     </view>
   </view>
 
-  <view class="bio">
-    {{seller.bio || '这个家伙很神秘，没有写个人简介。'}}
-  </view>
-
-  <view class="divider"></view>
-
-  <view class="section-title">正在出售 ing……</view>
-
-  <view class="goods-grid">
-    <view class="goods-card"
-          wx:for="{{goods}}"
-          wx:key="id"
-          bindtap="onOpenGood"
-          data-id="{{item.id}}">
-      <image wx:if="{{item.hasImage}}"
-             class="thumb"
-             src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
-             mode="aspectFill" />
-      <view wx:else class="thumb text-thumb">
-        <text>{{item.title}}</text>
+  <scroll-view class="seller-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+    <view class="seller-card">
+      <view class="avatar-wrap">
+        <image wx:if="{{seller.avatarDisplay}}" class="avatar-img" src="{{seller.avatarDisplay}}" mode="aspectFill" />
+        <view wx:else class="avatar-fallback">{{seller.avatarInitialDisplay}}</view>
       </view>
-      <view class="goods-label">{{item.title}} ¥{{item.price}}</view>
+
+      <view class="seller-info">
+        <text class="seller-name">{{seller.nameDisplay}}</text>
+        <view class="seller-tags">
+          <text>{{seller.apartmentDisplay}}</text>
+          <text>{{seller.regionDisplay}}</text>
+        </view>
+      </view>
     </view>
-  </view>
 
-  <view class="empty" wx:if="{{goods.length === 0}}">
-    暂无在售商品
-  </view>
-
-  <view class="bottom-space"></view>
-</scroll-view>
-
-<view class="bottom-fixed">
-  <view class="bottom-bar">
-    <view class="contact-btn" bindtap="onCopyContact">
-      {{seller.wechatID ? '复制微信号' : (seller.phone ? '复制手机号' : '无联系方式')}}
+    <view class="bio-card">
+      <text class="section-title">卖家介绍</text>
+      <text class="bio-text">{{seller.bioDisplay}}</text>
     </view>
-  </view>
-</view>
 
+    <view class="goods-head">
+      <view>
+        <text class="section-kicker">Listings</text>
+        <text class="goods-title-main">正在出售</text>
+      </view>
+      <text class="goods-count">{{goodsCountText}}</text>
+    </view>
 
+    <view class="goods-grid" wx:if="{{hasGoods}}">
+      <view
+        class="goods-card pressable"
+        wx:for="{{goods}}"
+        wx:key="id"
+        hover-class="card-pressed"
+        hover-stay-time="80"
+        bindtap="onOpenGood"
+        data-id="{{item.id}}"
+      >
+        <view class="photo-wrap">
+          <image
+            wx:if="{{item.hasImage}}"
+            class="thumb"
+            src="{{item.imageSrc}}"
+            mode="aspectFill"
+            lazy-load="true"
+          />
+          <view wx:else class="thumb text-thumb">
+            <text>{{item.title}}</text>
+          </view>
+        </view>
+
+        <view class="goods-body">
+          <text class="goods-title">{{item.title}}</text>
+          <text class="goods-price">$ {{item.priceDisplay}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty-state" wx:else>
+      <view class="empty-mark">⌕</view>
+      <view class="empty-title">暂无在售商品</view>
+      <view class="empty-subtitle">可以稍后再回来看看</view>
+    </view>
+
+    <view class="contact-dock {{dockVisibleClass}}">
+      <view class="contact-btn pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onCopyContact">
+        {{contactText}}
+      </view>
+    </view>
+
+    <view class="bottom-space"></view>
+  </scroll-view>
 </view>

@@ -25,7 +25,7 @@ Page({
     driverInfo: null,
     otherPassengers: [],
 
-    defaultAvatarUrl: '/images/default_avatar.png',
+    defaultAvatarUrl: '/images/profile.png',
 
     // 剔除模式
     kickMode: false
@@ -78,7 +78,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   setLoadError(message) {
@@ -120,7 +120,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const requestId =
@@ -418,18 +418,18 @@ Page({
   onShareAppMessage() {
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       query: `id=${requestId}`
-    }
+    })
   }
 })

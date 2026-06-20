@@ -1,128 +1,125 @@
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
-    <text class="nav-title">{{pageTitle}}</text>
-  </view>
-</view>
-
-<view class="container">
-
-  <view class="filter-bar">
-    <view class="filter-item">
-      <picker
-        mode="selector"
-        range="{{fromFilterOptions}}"
-        value="{{fromFilterIndex < 0 ? 0 : fromFilterIndex}}"
-        bindchange="onFromFilterChange"
-      >
-        <view class="filter-pill">
-          {{ fromFilterIndex < 0 ? '选择出发地' : fromFilterOptions[fromFilterIndex] }}
-        </view>
-      </picker>
+<view class="ride-shell list-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
 
-    <view class="filter-spacer"></view>
-
-    <view class="filter-item">
-      <picker
-        mode="selector"
-        range="{{toFilterOptions}}"
-        value="{{toFilterIndex < 0 ? 0 : toFilterIndex}}"
-        bindchange="onToFilterChange"
-      >
-        <view class="filter-pill">
-          {{ toFilterIndex < 0 ? '选择目的地' : toFilterOptions[toFilterIndex] }}
+    <view class="list-filter ride-card ride-card-pad">
+      <view class="list-filter-title-row">
+        <view>
+          <text class="ride-section-title">找路线</text>
+          <text class="ride-section-subtitle">按地点和时间筛选可加入行程</text>
         </view>
-      </picker>
-    </view>
-
-    <view class="filter-spacer"></view>
-
-    <view class="filter-item">
-      <picker
-        mode="selector"
-        range="{{timeFilterOptions}}"
-        value="{{timeFilterIndex < 0 ? 0 : timeFilterIndex}}"
-        bindchange="onTimeFilterChange"
-      >
-        <view class="filter-pill">
-          {{ timeFilterIndex < 0 ? '选择时间' : timeFilterOptions[timeFilterIndex] }}
-        </view>
-      </picker>
-    </view>
-
-    <text class="filter-reset" bindtap="onResetFilter">重置</text>
-  </view>
-
-  <view wx:if="{{loading && !hasLoadedOnce}}" class="state-text">
-    {{loadingText}}
-  </view>
-
-  <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="state-text">
-    暂无可查看的行程
-  </view>
-
-  <block wx:else>
-    <block wx:for="{{dayGroups}}" wx:key="date">
-
-      <view class="date-header">
-        <text class="date-header-text">{{item.dateLabel}}</text>
+        <view class="ride-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">重置</view>
       </view>
 
-      <block wx:if="{{item.items && item.items.length}}">
-        <block wx:for="{{item.items}}" wx:for-item="trip" wx:key="_id">
-
-          <view
-            wx:if="{{trip._type === 'carpool'}}"
-            class="trip-card trip-card--tag"
-            bindtap="goItemDetail"
-            data-id="{{trip._id}}"
-            data-type="{{trip._type}}"
-          >
-            <view class="left-tag left-tag--orange"></view>
-
-            <view class="trip-main-row">
-              <text class="place-text-left">{{trip._fromAddress}}</text>
-              <text class="arrow-text">→</text>
-              <text class="place-text-right">{{trip._toAddress}}</text>
-            </view>
-
-            <view class="trip-sub-row">
-              <text class="time-text">{{trip._timeLabel}}</text>
-              <text class="seat-text">剩余座位：{{trip.availSeatNum}}</text>
-            </view>
+      <view class="list-filter-grid">
+        <picker
+          mode="selector"
+          range="{{fromFilterOptions}}"
+          value="{{fromFilterIndex < 0 ? 0 : fromFilterIndex}}"
+          bindchange="onFromFilterChange"
+        >
+          <view class="ride-field">
+            <text class="ride-field-label">出发地</text>
+            <text class="ride-field-value {{fromFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ fromFilterIndex < 0 ? '全部出发地' : fromFilterOptions[fromFilterIndex] }}</text>
           </view>
+        </picker>
 
-          <view
-            wx:elif="{{trip._type === 'request'}}"
-            class="trip-card trip-card--tag"
-            bindtap="goItemDetail"
-            data-id="{{trip._id}}"
-            data-type="{{trip._type}}"
-          >
-            <view class="left-tag left-tag--blue"></view>
-
-            <view class="trip-main-row">
-              <text class="place-text-left">{{trip._fromAddress}}</text>
-              <text class="arrow-text">→</text>
-              <text class="place-text-right">{{trip._toAddress}}</text>
-            </view>
-
-            <view class="trip-sub-row">
-              <text class="time-text">{{trip._timeLabel}}</text>
-              <text class="seat-text">请求人数：{{trip._requestPassengerCount}}/4人</text>
-            </view>
+        <picker
+          mode="selector"
+          range="{{toFilterOptions}}"
+          value="{{toFilterIndex < 0 ? 0 : toFilterIndex}}"
+          bindchange="onToFilterChange"
+        >
+          <view class="ride-field">
+            <text class="ride-field-label">目的地</text>
+            <text class="ride-field-value {{toFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ toFilterIndex < 0 ? '全部目的地' : toFilterOptions[toFilterIndex] }}</text>
           </view>
+        </picker>
 
-        </block>
-      </block>
-
-    </block>
-  </block>
-
-  <view class="toast-bar" wx:if="{{showToast}}">
-    <text class="toast-icon">!</text>
-    <text class="toast-text">{{toastText}}</text>
+        <picker
+          mode="selector"
+          range="{{timeFilterOptions}}"
+          value="{{timeFilterIndex < 0 ? 0 : timeFilterIndex}}"
+          bindchange="onTimeFilterChange"
+        >
+          <view class="ride-field">
+            <text class="ride-field-label">时间</text>
+            <text class="ride-field-value {{timeFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ timeFilterIndex < 0 ? '全部时间' : timeFilterOptions[timeFilterIndex] }}</text>
+          </view>
+        </picker>
+      </view>
+    </view>
   </view>
 
+  <scroll-view class="ride-scroll list-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view wx:if="{{loading && !hasLoadedOnce}}" class="ride-state">
+      {{loadingText}}
+    </view>
+
+    <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="ride-state">
+      暂无可查看的行程
+    </view>
+
+    <block wx:else>
+      <block wx:for="{{dayGroups}}" wx:key="date">
+        <view class="list-date-row">
+          <text class="list-date">{{item.dateLabel}}</text>
+          <text class="list-date-count">{{item.items.length || 0}} 条</text>
+        </view>
+
+        <block wx:if="{{item.items && item.items.length}}">
+          <block wx:for="{{item.items}}" wx:for-item="trip" wx:key="_id">
+            <view
+              class="ride-card ride-list-card list-trip-card"
+              bindtap="goItemDetail"
+              data-id="{{trip._id}}"
+              data-type="{{trip._type}}"
+              hover-class="ride-card-pressed"
+              hover-stay-time="80"
+            >
+              <view class="ride-list-head">
+                <view class="list-kind-row">
+                  <text class="ride-list-kind">{{trip._type === 'request' ? '乘客求车' : '司机发车'}}</text>
+                  <text class="ride-chip {{trip._type === 'request' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{trip._type === 'request' ? '求车' : '拼车'}}</text>
+                  <text wx:if="{{trip._priceText}}" class="ride-chip list-price-chip">{{trip._priceText}}</text>
+                </view>
+                <text class="ride-list-time">时间 {{trip._timeLabel || '待定'}}</text>
+              </view>
+
+              <view class="list-route-inline">
+                <view class="list-route-main">
+                  <view class="list-route-place">
+                    <text class="list-route-label">出发</text>
+                    <text class="list-route-name">{{trip._fromAddress || '出发地未设置'}}</text>
+                  </view>
+                  <text class="list-route-arrow">→</text>
+                  <view class="list-route-place">
+                    <text class="list-route-label">到达</text>
+                    <text class="list-route-name">{{trip._toAddress || '目的地未设置'}}</text>
+                  </view>
+                </view>
+
+                <view class="list-route-side">
+                  <text wx:if="{{trip._type === 'carpool'}}" class="ride-chip ride-chip--accent list-seat-chip">余位 {{trip.availSeatNum || 0}}</text>
+                  <text wx:else class="ride-chip ride-chip--accent list-seat-chip">{{trip._requestPassengerCount || 1}}人求车</text>
+                </view>
+              </view>
+            </view>
+          </block>
+        </block>
+      </block>
+    </block>
+
+    <view class="toast-bar" wx:if="{{showToast}}">
+      <text class="toast-icon">!</text>
+      <text class="toast-text">{{toastText}}</text>
+    </view>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
 </view>

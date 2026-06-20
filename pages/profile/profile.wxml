@@ -1,122 +1,132 @@
-<view class="page">
-
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <text class="nav-title">{{pageTitle}}</text>
-  </view>
-</view>
-
-<view class="container">
-
-  <view class="header">
-    <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" bindtap="goEditProfile" />
-
-    <view class="header-mid">
-      <block wx:if="{{isLoggedIn}}">
-        <text class="name" bindtap="goEditProfile">{{ name || '微信用户' }}</text>
-      </block>
-      <block wx:else>
-        <view class="login-btn" bindtap="onTapLoginBtn">
-          <text class="login-btn-text">一键登录</text>
-        </view>
-      </block>
-    </view>
-
-    <view class="header-actions">
-      <view class="action" bindtap="goFeedback">
-        <image class="action-icon-img" src="/images/icon_feedback.png" mode="aspectFit" />
-        <text class="action-text">反馈</text>
-      </view>
-
-      <view class="action" bindtap="goEditProfile">
-        <image class="action-icon-img" src="/images/icon_setting.png" mode="aspectFit" />
-        <text class="action-text">设置</text>
+<view class="ride-shell profile-ride">
+  <view class="ride-top profile-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar profile-topbar" style="padding-right: {{menuRightSpace}}px;">
+      <view class="ride-brand profile-brand">
+        <text class="ride-kicker">MY RIDE</text>
+        <text class="ride-title">{{pageTitle}}</text>
       </view>
     </view>
   </view>
 
-  <view class="card info-card">
-    <view class="info-row" bindtap="goEditProfile">
-      <text class="info-label">微信号</text>
-      <text class="info-value">{{ isLoggedIn ? (wechatID || '未填写') : '未登录' }}</text>
-    </view>
-    <view class="divider"></view>
+  <scroll-view class="ride-scroll profile-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view class="profile-hero ride-card ride-card-pad">
+      <image class="profile-avatar" src="{{avatarUrl}}" mode="aspectFill" bindtap="goEditProfile" />
 
-    <view class="info-row" bindtap="goEditProfile">
-      <text class="info-label">所住公寓</text>
-      <text class="info-value">{{ isLoggedIn ? (apartment || '未填写') : '未登录' }}</text>
-    </view>
-    <view class="divider"></view>
-
-    <view class="info-row" bindtap="goEditProfile">
-      <text class="info-label">所住区域</text>
-      <text class="info-value">{{ isLoggedIn ? (region || '无') : '未登录' }}</text>
-    </view>
-  </view>
-
-  <view class="card section-card">
-    <text class="section-title">我的出行</text>
-
-    <view class="grid">
-      <view class="grid-item" bindtap="goTripHistory">
-        <view class="grid-icon-wrap">
-          <image class="grid-icon-img" src="/images/icon_history.png" mode="aspectFit" />
-        </view>
-        <text class="grid-text">历史行程</text>
-      </view>
-
-      <view class="grid-item" bindtap="goCarpoolTemplate">
-        <view class="grid-icon-wrap">
-          <image class="grid-icon-img" src="/images/icon_template.png" mode="aspectFit" />
-        </view>
-        <text class="grid-text">出行模板</text>
-      </view>
-
-      <view class="grid-item" bindtap="goNotification">
-        <view class="grid-icon-wrap badge-container">
-          <image class="grid-icon-img" src="/images/icon_message.png" mode="aspectFit" />
-          <view wx:if="{{unreadCount > 0}}" class="badge-dot">
-            <text class="badge-number">{{ unreadCount > 99 ? '99+' : unreadCount }}</text>
+      <view class="profile-identity">
+        <block wx:if="{{isLoggedIn}}">
+          <text class="profile-name" bindtap="goEditProfile">{{ name || '微信用户' }}</text>
+          <text class="profile-subtitle">{{wechatID || '微信号未填写'}}</text>
+        </block>
+        <block wx:else>
+          <text class="profile-name">未登录</text>
+          <view class="profile-login ride-action ride-action--dark" bindtap="onTapLoginBtn" hover-class="ride-pressed" hover-stay-time="80">
+            <text>一键登录</text>
           </view>
+        </block>
+      </view>
+
+      <view class="profile-actions">
+        <view class="profile-action" bindtap="goFeedback" hover-class="ride-pressed" hover-stay-time="80">
+          <image class="profile-action-icon" src="/images/icon_feedback.png" mode="aspectFit" />
+          <text class="profile-action-text">反馈</text>
         </view>
-        <text class="grid-text">消息提醒</text>
+
+        <view class="profile-action" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
+          <image class="profile-action-icon" src="/images/icon_setting.png" mode="aspectFit" />
+          <text class="profile-action-text">设置</text>
+        </view>
       </view>
     </view>
-  </view>
 
-  <view class="card section-card">
-    <text class="section-title">我的交易</text>
+    <view class="profile-info ride-card ride-card-pad">
+      <view class="profile-info-row" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
+        <text class="profile-info-label">微信号</text>
+        <text class="profile-info-value">{{ isLoggedIn ? (wechatID || '未填写') : '未登录' }}</text>
+      </view>
+      <view class="profile-divider"></view>
 
-    <view class="grid">
-      <view class="grid-item" bindtap="goSold">
-        <view class="grid-icon-wrap">
-          <image class="grid-icon-img" src="/images/icon_sold.png" mode="aspectFit" />
-        </view>
-        <text class="grid-text">我卖出的</text>
+      <view class="profile-info-row" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
+        <text class="profile-info-label">所住公寓</text>
+        <text class="profile-info-value">{{ isLoggedIn ? (apartment || '未填写') : '未登录' }}</text>
+      </view>
+      <view class="profile-divider"></view>
+
+      <view class="profile-info-row" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
+        <text class="profile-info-label">所住区域</text>
+        <text class="profile-info-value">{{ isLoggedIn ? (region || '无') : '未登录' }}</text>
+      </view>
+    </view>
+
+    <view class="profile-section ride-card ride-card-pad">
+      <view class="profile-section-head">
+        <text class="ride-section-title">我的出行</text>
       </view>
 
-      <view class="grid-item" bindtap="goBought">
-        <view class="grid-icon-wrap">
-          <image class="grid-icon-img" src="/images/icon_bought.png" mode="aspectFit" />
-        </view>
-        <text class="grid-text">我买到的</text>
-      </view>
-
-      <view class="grid-item" bindtap="goPublished">
-        <view class="grid-icon-wrap badge-container">
-          <image class="grid-icon-img" src="/images/icon_publish.png" mode="aspectFit" />
-          <view wx:if="{{walletUnreadCount > 0}}" class="badge-dot">
-            <text class="badge-number">{{ walletUnreadCount > 99 ? '99+' : walletUnreadCount }}</text>
+      <view class="profile-grid">
+        <view class="profile-grid-item" bindtap="goTripHistory" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_history.png" mode="aspectFit" />
           </view>
+          <text class="profile-grid-text">历史行程</text>
         </view>
-        <text class="grid-text">我发布的</text>
+
+        <view class="profile-grid-item" bindtap="goCarpoolTemplate" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_template.png" mode="aspectFit" />
+          </view>
+          <text class="profile-grid-text">出行模板</text>
+        </view>
+
+        <view class="profile-grid-item" bindtap="goNotification" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap profile-badge-wrap">
+            <image class="profile-grid-icon" src="/images/icon_message.png" mode="aspectFit" />
+            <view wx:if="{{unreadCount > 0}}" class="profile-badge">
+              <text class="profile-badge-number">{{ unreadCount > 99 ? '99+' : unreadCount }}</text>
+            </view>
+          </view>
+          <text class="profile-grid-text">消息提醒</text>
+        </view>
       </view>
     </view>
-  </view>
 
-  <view class="privacy-link-row" bindtap="goPrivacy">
-    <text class="privacy-link-text">隐私政策</text>
-  </view>
+    <view class="profile-section ride-card ride-card-pad">
+      <view class="profile-section-head">
+        <text class="ride-section-title">我的交易</text>
+      </view>
 
-</view>
+      <view class="profile-grid">
+        <view class="profile-grid-item" bindtap="goSold" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_sold.png" mode="aspectFit" />
+          </view>
+          <text class="profile-grid-text">我卖出的</text>
+        </view>
+
+        <view class="profile-grid-item" bindtap="goBought" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap">
+            <image class="profile-grid-icon" src="/images/icon_bought.png" mode="aspectFit" />
+          </view>
+          <text class="profile-grid-text">我买到的</text>
+        </view>
+
+        <view class="profile-grid-item" bindtap="goPublished" hover-class="ride-card-pressed" hover-stay-time="80">
+          <view class="profile-grid-icon-wrap profile-badge-wrap">
+            <image class="profile-grid-icon" src="/images/icon_publish.png" mode="aspectFit" />
+            <view wx:if="{{walletUnreadCount > 0}}" class="profile-badge">
+              <text class="profile-badge-number">{{ walletUnreadCount > 99 ? '99+' : walletUnreadCount }}</text>
+            </view>
+          </view>
+          <text class="profile-grid-text">我发布的</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="profile-privacy" bindtap="goPrivacy" hover-class="ride-pressed" hover-stay-time="80">
+      <text class="profile-privacy-text">隐私政策</text>
+    </view>
+
+    <view class="profile-bottom-space"></view>
+  </scroll-view>
+
+  <app-tabbar active="profile" market-badge="{{walletUnreadCount}}" profile-badge="{{unreadCount}}"></app-tabbar>
 </view>

@@ -12,6 +12,74 @@ function getMarketGoodsChangedAt() {
   }
 }
 
+function markMarketGoodsChanged() {
+  try {
+    wx.setStorageSync(MARKET_REFRESH_KEY, Date.now())
+  } catch (e) {}
+}
+
+function getMarketApiResult(res) {
+  const result = res && res.result
+  if (!result || result.ok === false) {
+    throw new Error((result && (result.error || result.message)) || "market_api_failed")
+  }
+  return result
+}
+
+function formatMarketPrice(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(n % 1 === 0 ? 0 : 2) : '0'
+}
+
+function buildMyGoodsItem(x = {}) {
+  const title = String(x.title || '').trim() || '未命名商品'
+  const imageKey = x.thumbFileID || x.imageFileID || ''
+  return {
+    id: x._id || x.id || '',
+    title,
+    price: x.price,
+    priceText: formatMarketPrice(x.price),
+    priceDisplay: formatMarketPrice(x.price),
+    imageFileID: x.imageFileID || '',
+    imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+    thumbFileID: x.thumbFileID || '',
+    thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+    hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
+    imageSrc: x.imageSrc || x.thumbUrl || imageKey || '/images/market.png',
+    pickupEndDate: x.pickupEndDate || x.expiresAtText || '',
+    expireTime: Number(x.expireTime) || 0,
+    status: x.status || 'online',
+    thumbUrl: x.thumbUrl || ''
+  }
+}
+
+function withSelectionState(goods = [], selectedMap = {}) {
+  return goods.map(g => {
+    const selected = !!selectedMap[g.id]
+    return {
+      ...g,
+      selected,
+      selectedClass: selected ? 'on' : ''
+    }
+  })
+}
+
+function buildMyDisplayPatch(state = {}) {
+  const goods = Array.isArray(state.goods) ? state.goods : []
+  const selectedCount = Number(state.selectedCount) || 0
+  return {
+    nameDisplay: state.name || '未设置昵称',
+    wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
+    regionDisplay: state.region || '地址未填',
+    apartmentDisplay: state.apartment || '公寓未填',
+    saveStateText: state.isSavingBio ? '保存中' : '自动保存',
+    hasGoods: goods.length > 0,
+    goodsEmpty: goods.length === 0,
+    allSelectedText: state.allSelected ? '取消全选' : '全选',
+    deleteDisabledClass: selectedCount > 0 ? '' : 'disabled'
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -35,11 +103,47 @@ Page({
     // ✅ 多选状态
     selectedMap: {},   // { [id]: true }
     selectedCount: 0,
-    allSelected: false
+    allSelected: false,
+    nameDisplay: '未设置昵称',
+    wechatStatusText: '未填写微信',
+    regionDisplay: '地址未填',
+    apartmentDisplay: '公寓未填',
+    saveStateText: '自动保存',
+    hasGoods: false,
+    goodsEmpty: true,
+    allSelectedText: '全选',
+    deleteDisabledClass: 'disabled',
+    dockVisibleClass: 'dock-hidden'
+  },
+
+  onReady() {
+    setTimeout(() => {
+      this._setMyData({ dockVisibleClass: '' })
+    }, 320)
+  },
+
+  _setMyData(patch = {}) {
+    const nextState = { ...this.data, ...patch }
+    const selectedMap = nextState.selectedMap || {}
+    let patchToSet = { ...patch }
+    let goodsForDisplay = nextState.goods
+
+    if (Object.prototype.hasOwnProperty.call(patch, 'goods') ||
+      Object.prototype.hasOwnProperty.call(patch, 'selectedMap') ||
+      Object.prototype.hasOwnProperty.call(patch, 'selectedCount') ||
+      Object.prototype.hasOwnProperty.call(patch, 'allSelected')) {
+      goodsForDisplay = withSelectionState(Array.isArray(nextState.goods) ? nextState.goods : [], selectedMap)
+      patchToSet.goods = goodsForDisplay
+    }
+
+    this.setData({
+      ...patchToSet,
+      ...buildMyDisplayPatch({ ...nextState, goods: goodsForDisplay })
+    })
   },
 
   onLoad() {
-    const sys = wx.getSystemInfoSync()
+    const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
@@ -62,13 +166,13 @@ Page({
   onShareAppMessage() {
     const openid = this.data.openid || ''
     const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return { title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}` }
+    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}` })
   },
 
   onShareTimeline() {
     const openid = this.data.openid || ''
     const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return { title, query: `openid=${encodeURIComponent(openid)}` }
+    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}` })
   },
 
   onPullDownRefresh() {
@@ -86,7 +190,7 @@ Page({
     }
 
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
-    wx.switchTab({
+    wx.reLaunch({
       url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
     })
   },
@@ -98,7 +202,7 @@ Page({
   // ✅ 进入/退出多选管理
   onToggleManage() {
     const next = !this.data.manageMode
-    this.setData({
+    this._setMyData({
       manageMode: next,
       selectedMap: {},
       selectedCount: 0,
@@ -136,7 +240,7 @@ Page({
     const selectedCount = Object.keys(map).length
     const allSelected = (this.data.goods?.length || 0) > 0 && selectedCount === (this.data.goods?.length || 0)
 
-    this.setData({ selectedMap: map, selectedCount, allSelected })
+    this._setMyData({ selectedMap: map, selectedCount, allSelected })
   },
 
   // ✅ 全选/取消全选
@@ -145,13 +249,13 @@ Page({
     if (!goods.length) return
 
     if (this.data.allSelected) {
-      this.setData({ selectedMap: {}, selectedCount: 0, allSelected: false })
+      this._setMyData({ selectedMap: {}, selectedCount: 0, allSelected: false })
       return
     }
 
     const map = {}
     goods.forEach(g => { if (g?.id) map[g.id] = true })
-    this.setData({ selectedMap: map, selectedCount: goods.length, allSelected: true })
+    this._setMyData({ selectedMap: map, selectedCount: goods.length, allSelected: true })
   },
 
   // ✅ 批量删除
@@ -181,11 +285,10 @@ Page({
       for (const id of ids) {
         try {
           const res = await wx.cloud.callFunction({
-            name: 'deleteMarketItem',
-            data: { id }
+            name: 'marketApi',
+            data: { action: 'delete', id }
           })
-          const r = res?.result || {}
-          if (!r.ok) failed.push({ id, error: r.error || 'delete_failed' })
+          getMarketApiResult(res)
         } catch (e) {
           failed.push({ id, error: e && (e.errMsg || e.message) ? String(e.errMsg || e.message) : 'delete_failed' })
         }
@@ -194,7 +297,8 @@ Page({
       const failedSet = new Set(failed.map(x => x.id))
       const successIds = ids.filter(id => !failedSet.has(id))
       const nextGoods = goods.filter(g => !successIds.includes(g.id))
-      this.setData({
+      if (successIds.length) markMarketGoodsChanged()
+      this._setMyData({
         goods: nextGoods,
         selectedMap: {},
         selectedCount: 0,
@@ -233,7 +337,7 @@ Page({
     if (bio === (this.data.bioOriginal || '')) return
     if (this.data.isSavingBio) return
 
-    this.setData({ isSavingBio: true })
+    this._setMyData({ isSavingBio: true })
     try {
       await this._updateUserBioByCloudFunction(bio)
       this.setData({ bioOriginal: bio })
@@ -242,7 +346,7 @@ Page({
       console.error('save bio failed', err)
       showDataError('保存失败', err, '简介保存失败，请稍后重试。')
     } finally {
-      this.setData({ isSavingBio: false })
+      this._setMyData({ isSavingBio: false })
     }
   },
 
@@ -272,7 +376,7 @@ Page({
           const list = (res?.result?.data) || []
           const user = list[0] || {}
 
-          this.setData({
+          this._setMyData({
             avatarUrl: user.avatarUrl || defaultAvatarUrl,
             name: user.name || '',
             wechatID: user.wechatID || '',
@@ -297,56 +401,35 @@ Page({
   async fetchMyGoods() {
     const openid = this.data.openid
     if (!openid) {
-      this.setData({ goods: [] })
+      this._setMyData({ goods: [] })
       return
     }
 
-    const db = wx.cloud.database()
     try {
-      const PAGE = 20
+      const PAGE = 50
       const MAX_TOTAL = 1000
 
       let rows = []
       let skip = 0
 
       while (true) {
-        const res = await db.collection('market_goods')
-          .where({ _openid: openid })
-          .orderBy('createTime', 'desc')
-          .skip(skip)
-          .limit(PAGE)
-          .get()
+        const res = await wx.cloud.callFunction({
+          name: 'marketApi',
+          data: { action: 'myList', skip, limit: PAGE }
+        })
+        const result = getMarketApiResult(res)
 
-        const batch = res.data || []
+        const batch = result.items || result.data || []
         rows = rows.concat(batch)
 
-        if (batch.length < PAGE) break
-        skip += PAGE
+        if (!result.hasMore || batch.length < PAGE) break
+        skip = result.nextSkip || (skip + batch.length)
         if (rows.length >= MAX_TOTAL) break
       }
 
-      let goods = rows.map((x) => ({
-        id: x._id,
-        title: x.title,
-        price: x.price,
-        imageFileID: x.imageFileID || '',
-        imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
-        thumbFileID: x.thumbFileID || '',
-        thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
-        hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-        pickupEndDate: x.pickupEndDate || x.expiresAtText || '',
-        expireTime: Number(x.expireTime) || 0,
-        status: x.status || 'online',
-        thumbUrl: ''
-      }))
+      const goods = rows.map(buildMyGoodsItem)
 
-      const fileIDs = goods.map((g) => g.thumbFileID || g.imageFileID).filter(Boolean)
-      if (fileIDs.length) {
-        const urlMap = await this._batchGetTempUrl(fileIDs)
-        goods = goods.map((g) => ({ ...g, thumbUrl: urlMap[g.thumbFileID || g.imageFileID] || '' }))
-      }
-
-      this.setData({
+      this._setMyData({
         goods,
         selectedMap: {},
         selectedCount: 0,
@@ -356,20 +439,5 @@ Page({
       console.error('fetchMyGoods failed', err)
       showDataError('商品加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
     }
-  },
-
-  async _batchGetTempUrl(fileIDs) {
-    const uniq = Array.from(new Set(fileIDs))
-    const map = {}
-    const chunkSize = 50
-
-    for (let i = 0; i < uniq.length; i += chunkSize) {
-      const chunk = uniq.slice(i, i + chunkSize)
-      const res = await wx.cloud.getTempFileURL({ fileList: chunk })
-      ;(res.fileList || []).forEach((it) => {
-        if (it.fileID && it.tempFileURL) map[it.fileID] = it.tempFileURL
-      })
-    }
-    return map
   }
 })

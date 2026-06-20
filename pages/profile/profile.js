@@ -1,5 +1,26 @@
 const defaultAvatarUrl =
-  'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+  '/images/profile.png'
+
+function getProfileNavMetrics() {
+  const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync()
+  let menuRightSpace = 28
+
+  try {
+    if (typeof wx.getMenuButtonBoundingClientRect === 'function') {
+      const menu = wx.getMenuButtonBoundingClientRect()
+      if (menu && menu.left && info.windowWidth) {
+        menuRightSpace = Math.ceil(info.windowWidth - menu.left + 8)
+      }
+    }
+  } catch (e) {
+    menuRightSpace = 28
+  }
+
+  return {
+    statusBarHeight: info.statusBarHeight || 0,
+    menuRightSpace
+  }
+}
 
 Page({
   data: {
@@ -19,6 +40,7 @@ Page({
     walletUnreadCount: 0,
 
     statusBarHeight: 80,
+    menuRightSpace: 28,
     pageTitle: '个人中心',
 
     isLoggedIn: false
@@ -31,8 +53,7 @@ Page({
   },
 
   onLoad() {
-    const info = wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: info.statusBarHeight })
+    this.setData(getProfileNavMetrics())
 
     // 先用缓存的基础 userInfo（头像/昵称）快速渲染
     const basicUser = wx.getStorageSync('userInfo')
@@ -44,11 +65,33 @@ Page({
       })
     }
 
-    this.refreshAuthAndData()
+    this.scheduleProfileRefresh()
   },
 
   onShow() {
-    this.refreshAuthAndData()
+    this.scheduleProfileRefresh()
+  },
+
+  onHide() {
+    this.clearProfileRefresh()
+  },
+
+  onUnload() {
+    this.clearProfileRefresh()
+  },
+
+  scheduleProfileRefresh() {
+    this.clearProfileRefresh()
+    this._profileRefreshTimer = setTimeout(() => {
+      this._profileRefreshTimer = null
+      this.refreshAuthAndData()
+    }, 300)
+  },
+
+  clearProfileRefresh() {
+    if (!this._profileRefreshTimer) return
+    clearTimeout(this._profileRefreshTimer)
+    this._profileRefreshTimer = null
   },
 
   // =========================
@@ -89,11 +132,8 @@ Page({
       walletUnreadCount: 0
     })
 
-    // 游客态不显示 tabbar badge
-    try {
-      wx.removeTabBarBadge({ index: 1 })
-      wx.removeTabBarBadge({ index: 2 })
-    } catch (e) {}
+    wx.setStorageSync('customTabMarketBadge', 0)
+    wx.setStorageSync('customTabProfileBadge', 0)
   },
 
   // =========================
@@ -190,10 +230,8 @@ Page({
 
     if (!openid || isGuest) {
       this.setData({ unreadCount: 0 })
-      try {
-        wx.removeTabBarBadge({ index: TAB_MARKET })
-        wx.removeTabBarBadge({ index: TAB_PROFILE })
-      } catch (e) {}
+      wx.setStorageSync('customTabMarketBadge', 0)
+      wx.setStorageSync('customTabProfileBadge', 0)
       return Promise.resolve()
     }
 
@@ -208,19 +246,8 @@ Page({
       .then((r) => {
         const count = (r && r.total) || 0
         this.setData({ unreadCount: count })
-
-        try {
-          wx.removeTabBarBadge({ index: TAB_MARKET })
-
-          if (count > 0) {
-            wx.setTabBarBadge({
-              index: TAB_PROFILE,
-              text: count > 99 ? '99+' : String(count)
-            })
-          } else {
-            wx.removeTabBarBadge({ index: TAB_PROFILE })
-          }
-        } catch (e) {}
+        wx.setStorageSync('customTabMarketBadge', 0)
+        wx.setStorageSync('customTabProfileBadge', count)
       })
       .catch((err) => {
         console.error('查询未读消息失败：', err)

@@ -32,7 +32,7 @@ Page({
   },
 
   async onLoad() {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
     await this.loadByRoleIfNeeded()
   },
@@ -44,7 +44,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: "/pages/home/home" })
+    else wx.reLaunch({ url: "/pages/home/home" })
   },
 
   switchRole(e) {

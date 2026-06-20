@@ -96,6 +96,7 @@ exports.main = async (event, context) => {
       if (list.length === 0) {
         await transaction.collection('userInfo').add({
           data: {
+            _openid: driverOpenid,
             openid: driverOpenid,
             role: 'driver',
             tripDriverJoin: [requestId],

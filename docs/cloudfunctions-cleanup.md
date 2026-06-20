@@ -1,6 +1,6 @@
-# Cloud Functions Pending Removal
+# Cloud Functions Legacy Retention
 
-These functions are kept for the currently published mini program version. After the new version that calls the consolidated functions is fully released and old clients are no longer active, remove the old functions below.
+These functions are legacy entry points that must remain in their original top-level `cloudfunctions/` directories during the new-version rollout. Do not delete, move, or classify them. The right side documents the new consolidated entry point used by refactored pages.
 
 - `updateCarpoolStatus` -> `syncTripStatus`
 - `updateCarpoolRequestStatus` -> `syncTripStatus`

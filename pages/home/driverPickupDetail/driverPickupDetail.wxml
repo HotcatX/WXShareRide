@@ -1,68 +1,81 @@
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
-    <text class="nav-title">{{pageTitle}}</text>
-  </view>
-</view>
-
-<view class="ui-page">
-  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
-
-  <view wx:elif="{{loadError}}" class="state-card">
-    <text class="state-title">{{loadError}}</text>
-    <button class="state-action-btn" bindtap="goBack">返回</button>
+<view class="ride-shell pickup-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
   </view>
 
-  <view wx:else class="ui-scroll">
-    <view class="ui-card">
-      <view class="route-row">
-        <text class="route-text-left">{{departAddress || '出发地未设置'}}</text>
-        <text class="route-arrow">→</text>
-        <text class="route-text-right">{{destAddress || '目的地未设置'}}</text>
+  <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
+
+  <view wx:elif="{{loadError}}" class="ride-state">
+    <text class="ride-state-title">{{loadError}}</text>
+    <button class="ride-state-action" bindtap="goBack">返回</button>
+  </view>
+
+  <scroll-view wx:else class="ride-scroll pickup-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view class="ride-card ride-card-pad pickup-hero">
+      <view class="ride-row-between pickup-hero-head">
+        <text class="ride-list-kind">司机接单</text>
+        <text class="ride-chip ride-chip--accent">求车路线</text>
       </view>
 
-      <view class="time-seat-row">
-        <text class="time-text">{{formattedDepartTime || '时间待定'}}</text>
-        <text class="seat-text">人数 {{request.passengerCount || 1}}</text>
+      <view class="ride-route">
+        <view class="ride-route-rail">
+          <view class="ride-dot"></view>
+          <view class="ride-line"></view>
+          <view class="ride-dot ride-dot--accent"></view>
+        </view>
+        <view class="ride-route-body">
+          <view class="ride-route-point">
+            <text class="ride-route-label">出发</text>
+            <text class="ride-route-name">{{departAddress || '出发地未设置'}}</text>
+          </view>
+          <view class="ride-route-point">
+            <text class="ride-route-label">到达</text>
+            <text class="ride-route-name">{{destAddress || '目的地未设置'}}</text>
+          </view>
+        </view>
       </view>
 
-      <view class="price-row">
-        <text class="price-text-combined">
-          参考价格：{{request.referencePrice || '价格待定'}}
-        </text>
+      <view class="ride-meta">
+        <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
+        <text class="ride-chip ride-chip--warn">{{request.referencePrice || '价格待定'}}</text>
+        <text class="ride-chip">人数 {{request.passengerCount || 1}}</text>
       </view>
     </view>
 
-    <view class="ui-bottom-space"></view>
-  </view>
-
-  <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
-    <view class="ui-bottom-bar">
-      <button wx:if="{{isOwner}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
-        无法接自己的求车
-      </button>
-
-      <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
-        已被其他司机接单
-      </button>
-
-      <button wx:elif="{{acceptedByMe}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
-        你已成为该路线司机
-      </button>
-
-      <button wx:elif="{{joinedAsPassenger}}" disabled="true" class="ui-primary-btn ui-primary-btn--disabled">
-        你已作为乘客加入，无法接单
-      </button>
-
-      <button
-        wx:else
-        class="ui-primary-btn"
-        bindtap="acceptAsDriver"
-        disabled="{{submitting}}"
-        loading="{{submitting}}"
-      >
-        {{ submitting ? '接单中…' : '成为该路线司机' }}
-      </button>
+    <view class="ride-card ride-notice">
+      <text class="ride-notice-title">接单说明</text>
+      <text class="ride-notice-text">接单后你将成为该求车路线司机，乘客可在个人行程中查看进度。</text>
     </view>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view wx:if="{{!loading && !loadError}}" class="ride-bottom">
+    <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
+      无法接自己的求车
+    </button>
+    <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
+      已被其他司机接单
+    </button>
+    <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
+      你已成为该路线司机
+    </button>
+    <button wx:elif="{{joinedAsPassenger}}" disabled="true" class="ride-btn ride-btn--disabled">
+      已作为乘客加入
+    </button>
+    <button
+      wx:else
+      class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
+      bindtap="acceptAsDriver"
+      disabled="{{submitting}}"
+      loading="{{submitting}}"
+    >
+      {{ submitting ? '接单中' : '成为该路线司机' }}
+    </button>
   </view>
 </view>

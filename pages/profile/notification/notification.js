@@ -9,7 +9,7 @@ Page({
   },
 
   onLoad() {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight
     })
@@ -82,7 +82,7 @@ Page({
         unreadCount
       })
 
-      // 更新底部 tabBar 的红点
+      // 更新自绘底栏红点
       this.updateTabBarBadge(unreadCount)
 
     } catch (err) {
@@ -189,7 +189,7 @@ Page({
         unreadCount: 0
       })
 
-      // 更新 tabBar 红点、同步 profile
+        // 更新自绘底栏红点、同步 profile
       this.updateTabBarBadge(0)
       this.notifyPrevPage()
 
@@ -226,12 +226,21 @@ Page({
             data: {}
           })
 
+          const result = (callRes && callRes.result) || {}
+          if (result.success !== true) {
+            wx.showToast({
+              title: result.errorMsg || '删除失败',
+              icon: 'none'
+            })
+            return
+          }
+
           this.setData({
             list: [],
             unreadCount: 0
           })
 
-          // 更新 tabBar 红点、同步 profile
+          // 更新自绘底栏红点、同步 profile
           this.updateTabBarBadge(0)
           this.notifyPrevPage()
 
@@ -252,7 +261,7 @@ Page({
   },
 
   /**
-   * 根据当前 list 重新统计未读数量并同步到 tabBar & profile
+   * 根据当前 list 重新统计未读数量并同步到自绘底栏与 profile
    */
   syncUnreadFromList() {
     const unreadCount = this.data.list.filter(it => !it.read).length
@@ -262,23 +271,10 @@ Page({
   },
 
   /**
-   * 更新底部 tabBar 角标
+   * 更新自绘底部导航角标
    */
   updateTabBarBadge(count) {
-    if (typeof wx.setTabBarBadge !== 'function') return
-
-    const index = 2
-
-    if (count > 0) {
-      wx.setTabBarBadge({
-        index,
-        text: count > 99 ? '99+' : String(count)
-      })
-    } else {
-      wx.removeTabBarBadge({
-        index
-      })
-    }
+    wx.setStorageSync('customTabProfileBadge', Number(count || 0))
   },
 
   /**

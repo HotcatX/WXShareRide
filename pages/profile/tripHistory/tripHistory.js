@@ -9,7 +9,7 @@ Page({
   },
 
   async onLoad() {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight || 80 })
     await this.loadHistoryTrips()
   },
@@ -90,6 +90,19 @@ Page({
     return '角色：未知'
   },
 
+  _buildDetailRole(trip) {
+    const role = String(trip?.historyRole || trip?.role || '').toLowerCase()
+    if (role === 'driver_create' || role === 'drivercreate' || role === 'driver') return 'driverCreate'
+    if (role === 'driver_join' || role === 'driverjoin') return 'driverJoin'
+    if (role === 'passenger_create' || role === 'passengercreate') return 'passengerCreate'
+    return 'passenger'
+  },
+
+  _buildSourceType(trip) {
+    const source = String(trip?.historySource || trip?.source || '').toLowerCase()
+    return source === 'carpoolrequest' || source === 'request' ? 'request' : 'carpool'
+  },
+
   _formatTripForCard(trip) {
     const { _fromAddress, _toAddress } = this._buildFromTo(trip)
 
@@ -98,7 +111,9 @@ Page({
       _fromAddress,
       _toAddress,
       _timeLabel: this._buildTimeLabel(trip),
-      _roleLabel: this._buildRoleLabel(trip)
+      _roleLabel: this._buildRoleLabel(trip),
+      _detailRole: this._buildDetailRole(trip),
+      _sourceType: this._buildSourceType(trip)
     }
   },
 
@@ -136,16 +151,38 @@ Page({
   },
 
   // =========================
-  // 卡片点击跳转（按你项目实际详情页修改）
+  // 卡片点击跳转：复用首页我的行程详情页分流
   // =========================
-  // goTripDetail(e) {
-  //   const id = e?.currentTarget?.dataset?.id
-  //   if (!id) return
+  goTripDetail(e) {
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const index = Number(ds.index)
+    const trip = this.data.historyTrips[index] || {}
+    const id = ds.id || trip._id || trip.tripId || ''
+    const role = trip._detailRole || this._buildDetailRole(trip)
+    const sourceType = trip._sourceType || this._buildSourceType(trip)
 
-  //   // 你可以按实际路由改这里：
-  //   // 例如：wx.navigateTo({ url: `/pages/home/tripDetail/tripDetail?id=${id}` })
-  //   wx.navigateTo({
-  //     url: `/pages/home/tripDetail/tripDetail?id=${id}`
-  //   })
-  // }
+    if (!id) {
+      wx.showToast({ title: '缺少路线ID', icon: 'none' })
+      return
+    }
+
+    if (role === 'driverCreate') {
+      wx.navigateTo({ url: `/pages/profile/myTripDetailDriver/myTripDetailDriver?tripId=${id}` })
+      return
+    }
+
+    if (role === 'driverJoin') {
+      wx.navigateTo({ url: `/pages/profile/myRequestDetailDriver/myRequestDetailDriver?tripId=${id}` })
+      return
+    }
+
+    if (role === 'passengerCreate') {
+      wx.navigateTo({ url: `/pages/profile/myTripRequestPassenger/myTripRequestPassenger?id=${id}` })
+      return
+    }
+
+    wx.navigateTo({
+      url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${id}&sourceType=${sourceType}`
+    })
+  }
 })

@@ -1,212 +1,155 @@
-<view class="page">
-
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
-    <text class="nav-title">{{pageTitle}}</text>
-  </view>
-</view>
-
-<view class="ui-page">
-
-  <view wx:if="{{loading}}" class="state-text">正在加载...</view>
-
-  <view wx:elif="{{loadError}}" class="state-card">
-    <text class="state-title">{{loadError}}</text>
-    <button class="state-action-btn" bindtap="goBack">返回</button>
+<view class="ride-shell my-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
   </view>
 
-  <view
-  wx:else
-  class="ui-scroll"
-  >
+  <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
 
+  <view wx:elif="{{loadError}}" class="ride-state">
+    <text class="ride-state-title">{{loadError}}</text>
+    <button class="ride-state-action" bindtap="goBack">返回</button>
+  </view>
 
-    <view class="ui-card">
-      <view class="route-row">
-        <text class="route-text-left">{{fromText || '出发地未设置'}}</text>
-        <text class="route-arrow">→</text>
-        <text class="route-text-right">{{toText || '目的地未设置'}}</text>
+  <scroll-view wx:else class="ride-scroll my-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view class="ride-card ride-card-pad">
+      <view class="ride-row-between my-hero-head">
+        <text class="ride-list-kind">我发布的求车</text>
+        <text class="ride-chip ride-chip--accent">已加入 {{trip.passengerCount || 0}} 人</text>
       </view>
 
-      <view class="time-seat-row">
-        <text class="time-text">{{dateText}} {{weekdayText}} {{timeText}}</text>
-        <text class="seat-text">已加入 {{trip.passengerCount || 0}} 人</text>
+      <view class="ride-route">
+        <view class="ride-route-rail">
+          <view class="ride-dot"></view>
+          <view class="ride-line"></view>
+          <view class="ride-dot ride-dot--accent"></view>
+        </view>
+        <view class="ride-route-body">
+          <view class="ride-route-point">
+            <text class="ride-route-label">出发</text>
+            <text class="ride-route-name">{{fromText || '出发地未设置'}}</text>
+          </view>
+          <view class="ride-route-point">
+            <text class="ride-route-label">到达</text>
+            <text class="ride-route-name">{{toText || '目的地未设置'}}</text>
+          </view>
+        </view>
       </view>
 
-      <view class="price-row">
-        <text class="price-text-combined">
-          参考价格：{{trip.referencePrice || '价格待定'}}
-        </text>
+      <view class="ride-meta">
+        <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
+        <text wx:if="{{trip.referencePrice}}" class="ride-chip ride-chip--warn">{{trip.referencePrice}}</text>
       </view>
     </view>
 
-    <view wx:if="{{driverInfo}}" class="ui-card ui-card-left-green">
-      <text class="card-title">司机信息</text>
-
-      <view class="dprofile">
-        <image
-          class="dprofile-avatar"
-          src="{{driverInfo.avatarUrl || defaultAvatarUrl}}"
-        />
-        <text class="dprofile-name">{{driverInfo.name || '未设置昵称'}}</text>
-
+    <view wx:if="{{driverInfo}}" class="ride-card ride-card-pad">
+      <view class="ride-row-between my-section-head">
+        <text class="ride-section-title">司机信息</text>
         <view
           wx:if="{{kickMode}}"
-          class="kick-x"
+          class="ride-copy my-kick"
           bindtap="onKickDriver"
-        >✕</view>
+        >剔除</view>
       </view>
 
-      <view class="pgrid">
-        <text class="pgrid-label">微信：</text>
-        <text class="pgrid-value">{{driverInfo.wechatID || '未填写'}}</text>
-
-        <view
-          wx:if="{{driverInfo.wechatID}}"
-          class="copy-pill"
-          data-text="{{driverInfo.wechatID}}"
-          bindtap="onCopyText"
-        >复制</view>
-        <view wx:else class="pgrid-btn-placeholder"></view>
-      </view>
-
-      <view class="pgrid">
-        <text class="pgrid-label">手机：</text>
-        <text class="pgrid-value">{{driverInfo.phone || '未填写'}}</text>
-
-        <view
-          wx:if="{{driverInfo.phone}}"
-          class="copy-pill"
-          data-text="{{driverInfo.phone}}"
-          bindtap="onCopyText"
-        >复制</view>
-        <view wx:else class="pgrid-btn-placeholder"></view>
-      </view>
-
-      <view class="pgrid">
-        <text class="pgrid-label">车牌：</text>
-        <text class="pgrid-value">{{driverInfo.carNumber || '未填写'}}</text>
-        <view class="pgrid-btn-placeholder"></view>
-      </view>
-
-      <view class="pgrid">
-        <text class="pgrid-label">车型：</text>
-        <text class="pgrid-value">{{(driverInfo.carBrand || '') + ' ' + (driverInfo.carModel || '')}}</text>
-        <view class="pgrid-btn-placeholder"></view>
-      </view>
-
-      <view class="pgrid">
-        <text class="pgrid-label">Zelle：</text>
-        <text class="pgrid-value">{{driverInfo.zelleAccount || '未填写'}}</text>
-
-        <view
-          wx:if="{{driverInfo.zelleAccount}}"
-          class="copy-pill"
-          data-text="{{driverInfo.zelleAccount}}"
-          bindtap="onCopyText"
-        >复制</view>
-        <view wx:else class="pgrid-btn-placeholder"></view>
+      <view class="ride-person">
+        <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
+        <view class="ride-person-main">
+          <text class="ride-person-name">{{driverInfo.name || '未设置昵称'}}</text>
+          <view class="ride-info-grid">
+            <view class="ride-info-row">
+              <text class="ride-info-label">微信</text>
+              <text class="ride-info-value">{{driverInfo.wechatID || '未填写'}}</text>
+              <view wx:if="{{driverInfo.wechatID}}" class="ride-copy" data-text="{{driverInfo.wechatID}}" bindtap="onCopyText">复制</view>
+            </view>
+            <view class="ride-info-row">
+              <text class="ride-info-label">手机</text>
+              <text class="ride-info-value">{{driverInfo.phone || '未填写'}}</text>
+              <view wx:if="{{driverInfo.phone}}" class="ride-copy" data-text="{{driverInfo.phone}}" bindtap="onCopyText">复制</view>
+            </view>
+            <view class="ride-info-row">
+              <text class="ride-info-label">车牌</text>
+              <text class="ride-info-value">{{driverInfo.carNumber || '未填写'}}</text>
+              <view></view>
+            </view>
+            <view class="ride-info-row">
+              <text class="ride-info-label">车型</text>
+              <text class="ride-info-value">{{(driverInfo.carBrand || '') + ' ' + (driverInfo.carModel || '')}}</text>
+              <view></view>
+            </view>
+            <view class="ride-info-row">
+              <text class="ride-info-label">Zelle</text>
+              <text class="ride-info-value">{{driverInfo.zelleAccount || '未填写'}}</text>
+              <view wx:if="{{driverInfo.zelleAccount}}" class="ride-copy" data-text="{{driverInfo.zelleAccount}}" bindtap="onCopyText">复制</view>
+            </view>
+          </view>
+        </view>
       </view>
     </view>
 
-    <view class="ui-card ui-card-accent">
-      <text class="card-title">已加入乘客</text>
+    <view class="ride-card ride-card-pad">
+      <view class="ride-row-between my-section-head">
+        <text class="ride-section-title">已加入乘客</text>
+        <text class="ride-section-subtitle">{{otherPassengers.length || 0}} 人</text>
+      </view>
 
-      <view wx:if="{{!otherPassengers || otherPassengers.length === 0}}" class="empty-tip">
+      <view wx:if="{{!otherPassengers || otherPassengers.length === 0}}" class="my-empty">
         暂无其他乘客加入
       </view>
 
       <block wx:else>
-        <block wx:for="{{otherPassengers}}" wx:key="_openid" wx:for-item="p">
-
-          <view class="passenger-item">
-
-            <view class="passenger-left">
-              <image class="passenger-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" />
-              <text class="passenger-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+        <view class="ride-person" wx:for="{{otherPassengers}}" wx:key="_openid" wx:for-item="p">
+          <image class="ride-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
+          <view class="ride-person-main">
+            <view class="ride-row-between">
+              <text class="ride-person-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+              <view
+                wx:if="{{kickMode}}"
+                class="ride-copy my-kick"
+                data-openid="{{p._openid}}"
+                bindtap="onKickPassenger"
+              >剔除</view>
             </view>
-
-            <view class="passenger-right">
-
-              <view class="pgrid pgrid--addr">
-                <text class="pgrid-label">地址：</text>
-                <text class="pgrid-value pgrid-value--addr">{{p.address || '未填写'}}</text>
-
-                <view
-                  wx:if="{{kickMode}}"
-                  class="kick-pill"
-                  data-openid="{{p._openid}}"
-                  bindtap="onKickPassenger"
-                >
-                  剔除
-                </view>
-                <view wx:else class="pgrid-btn-placeholder"></view>
+            <view class="ride-info-grid">
+              <view class="ride-info-row">
+                <text class="ride-info-label">地址</text>
+                <text class="ride-info-value">{{p.address || '未填写'}}</text>
+                <view></view>
               </view>
-
-              <view class="pgrid">
-                <text class="pgrid-label">微信：</text>
-                <text class="pgrid-value">{{p.wechatID || '未填写'}}</text>
-
-                <view
-                  wx:if="{{p.wechatID}}"
-                  class="copy-pill"
-                  data-text="{{p.wechatID}}"
-                  bindtap="onCopyText"
-                >
-                  复制
-                </view>
-                <view wx:else class="pgrid-btn-placeholder"></view>
+              <view class="ride-info-row">
+                <text class="ride-info-label">微信</text>
+                <text class="ride-info-value">{{p.wechatID || '未填写'}}</text>
+                <view wx:if="{{p.wechatID}}" class="ride-copy" data-text="{{p.wechatID}}" bindtap="onCopyText">复制</view>
               </view>
-
-              <view class="pgrid">
-                <text class="pgrid-label">手机：</text>
-                <text class="pgrid-value">{{p.phone || '未填写'}}</text>
-
-                <view
-                  wx:if="{{p.phone}}"
-                  class="copy-pill"
-                  data-text="{{p.phone}}"
-                  bindtap="onCopyText"
-                >
-                  复制
-                </view>
-                <view wx:else class="pgrid-btn-placeholder"></view>
+              <view class="ride-info-row">
+                <text class="ride-info-label">手机</text>
+                <text class="ride-info-value">{{p.phone || '未填写'}}</text>
+                <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" bindtap="onCopyText">复制</view>
               </view>
-
             </view>
           </view>
-
-        </block>
+        </view>
       </block>
     </view>
 
-    <view wx:if="{{showFortLeeCoreTip}}" class="ui-card ui-notice">
-      <text class="notice-title">提示</text>
-      <text class="notice-text">
-        Fort Lee 核心区域仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。
-      </text>
+    <view wx:if="{{showFortLeeCoreTip}}" class="ride-card ride-notice">
+      <text class="ride-notice-title">Fort Lee 核心区</text>
+      <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
     </view>
 
-    <view class="ui-bottom-space"></view>
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
+
+  <view wx:if="{{!loading && !loadError}}" class="ride-bottom">
+    <button class="ride-btn ride-btn--secondary" bindtap="toggleKickMode">
+      {{kickMode ? '完成剔除' : '剔除成员'}}
+    </button>
+    <button class="ride-btn ride-btn--danger" bindtap="onQuitAndDelete">
+      退出并删除
+    </button>
   </view>
-
-  <view wx:if="{{!loading && !loadError}}" class="ui-bottom-fixed">
-    <view class="ui-bottom-bar">
-      <view class="ui-bottom-inner">
-        <button class="ui-bottom-btn ui-secondary-btn"
-                bindtap="toggleKickMode">
-          {{kickMode ? '完成剔除' : '剔除成员'}}
-        </button>
-
-        <button class="ui-bottom-btn ui-primary-btn"
-                bindtap="onQuitAndDelete">
-          退出并删除路线
-        </button>
-      </view>
-    </view>
-  </view>
-
 </view>
-</view>
-

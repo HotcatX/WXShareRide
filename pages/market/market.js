@@ -1,7 +1,7 @@
 // 与 marketPost 保持一致：分类顺序固定
 const { showDataError } = require("../../utils/error")
 
-const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "其他"]
+const CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
 
 // ====== Performance / Cache ======
 const GOODS_CACHE_KEY = "market_goods_list_cache_v4"
@@ -9,28 +9,6 @@ const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
-const MARKET_GOODS_LIST_FIELDS = {
-  _id: true,
-  title: true,
-  price: true,
-  category: true,
-  region: true,
-  location: true,
-  condition: true,
-  postDate: true,
-  imageFileID: true,
-  thumbFileID: true,
-  imageFileIDs: true,
-  thumbFileIDs: true,
-  hasImage: true,
-  pickupStartDate: true,
-  pickupEndDate: true,
-  pickupRangeText: true,
-  expireTime: true,
-  expiresAtText: true,
-  status: true,
-  createTime: true
-}
 
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === "") return null
@@ -75,6 +53,45 @@ function getMarketGoodsChangedAt() {
   }
 }
 
+function safeDecode(value) {
+  const text = String(value || "")
+  try {
+    return decodeURIComponent(text)
+  } catch (e) {
+    return text
+  }
+}
+
+function buildCategoryTabs(categories = [], activeCategory = "全部") {
+  return categories.map(label => ({
+    label,
+    className: label === activeCategory ? "active" : ""
+  }))
+}
+
+function buildMarketListFlags(state = {}) {
+  const displayGoods = Array.isArray(state.displayGoods) ? state.displayGoods : []
+  const displayCount = displayGoods.length
+  const isLoadingGoods = !!state.isLoadingGoods
+  const canViewMore = !!state.canViewMore
+
+  return {
+    hasDisplayGoods: displayCount > 0,
+    showSkeleton: isLoadingGoods && displayCount === 0,
+    showEmpty: !isLoadingGoods && displayCount === 0,
+    showLoadingMore: isLoadingGoods && displayCount > 0,
+    showViewMore: canViewMore && !isLoadingGoods && displayCount > 0
+  }
+}
+
+function getMarketApiResult(res) {
+  const result = res && res.result
+  if (!result || result.ok === false) {
+    throw new Error((result && (result.error || result.message)) || "market_api_failed")
+  }
+  return result
+}
+
 // 云端分页：小程序端单次 get 实际上最多 20
 const CLOUD_PAGE_SIZE = 20
 const INITIAL_LOAD_SIZE = 8                         // 首屏只拉当前可见数量
@@ -88,8 +105,15 @@ Page({
     keyword: "",
     activeCategory: "全部",
     activeRegion: "全部",
+    activeRegionLabel: "全部",
+    priceSortLabel: "默认",
+    distanceSortLabel: "默认",
+    resultTitle: "最新闲置",
+    resultCountText: "0 件",
     regions: ["全部"],
     categories: ["全部", ...CATEGORY_OPTIONS],
+    categoryTabs: buildCategoryTabs(["全部", ...CATEGORY_OPTIONS], "全部"),
+    skeletonItems: [0, 1, 2, 3],
 
     // RegionTree (from cloud)
     regionTree: [],
@@ -103,6 +127,11 @@ Page({
     allGoods: [],
     filteredGoods: [],
     displayGoods: [],
+    hasDisplayGoods: false,
+    showSkeleton: false,
+    showEmpty: false,
+    showLoadingMore: false,
+    showViewMore: false,
     pageSize: 8,
     canViewMore: true,
 
@@ -113,6 +142,7 @@ Page({
 
     priceSortOrder: 'none', // 'none' | 'asc' | 'desc'
     distanceSortActive: false,
+    distanceSortClass: "",
     myLocation: null
   },
 
@@ -130,38 +160,49 @@ Page({
     }
   },
 
+  _runAfterFirstPaint(fn) {
+    setTimeout(() => {
+      if (typeof fn === "function") fn()
+    }, 300)
+  },
+
   onShareAppMessage() {
-    // 这里把当前筛选状态带上（按你现有字段改）
-    const { selectedCategory = '', selectedRegion = '' } = this.data
+    const { activeCategory = '', activeRegion = '' } = this.data
 
     const qs = []
-    if (selectedCategory) qs.push(`cat=${encodeURIComponent(selectedCategory)}`)
-    if (selectedRegion) qs.push(`region=${encodeURIComponent(selectedRegion)}`)
+    if (activeCategory && activeCategory !== "全部") qs.push(`cat=${encodeURIComponent(activeCategory)}`)
+    if (activeRegion && activeRegion !== "全部") qs.push(`region=${encodeURIComponent(activeRegion)}`)
 
     const path = `/pages/market/market${qs.length ? `?${qs.join('&')}` : ''}`
 
-    return {
+    return getApp().withReferralShare({
       title: '二手市场｜看看有没有你想要的',
       path
-    }
+    })
   },
 
   onShareTimeline() {
-    const { selectedCategory = '', selectedRegion = '' } = this.data
-    const query = {}
-    if (selectedCategory) query.cat = selectedCategory
-    if (selectedRegion) query.region = selectedRegion
+    const { activeCategory = '', activeRegion = '' } = this.data
+    const qs = []
+    if (activeCategory && activeCategory !== "全部") qs.push(`cat=${encodeURIComponent(activeCategory)}`)
+    if (activeRegion && activeRegion !== "全部") qs.push(`region=${encodeURIComponent(activeRegion)}`)
 
-    return {
+    return getApp().withReferralShare({
       title: '二手市场｜看看有没有你想要的',
-      query
-    }
+      query: qs.join('&')
+    })
   },
 
   onTogglePriceSort() {
     const cur = this.data.priceSortOrder || 'none'
     const next = cur === 'none' ? 'asc' : (cur === 'asc' ? 'desc' : 'none')
-    this.setData({ priceSortOrder: next, distanceSortActive: false })
+    this.setData({
+      priceSortOrder: next,
+      priceSortLabel: next === 'asc' ? '低到高' : (next === 'desc' ? '高到低' : '默认'),
+      distanceSortActive: false,
+      distanceSortClass: "",
+      distanceSortLabel: '默认'
+    })
     // 排序不需要重新拉云端，直接对当前已拉取结果排序+切片即可
     this.applyFilters(true)
   },
@@ -187,12 +228,18 @@ Page({
 
     this.setData({
       distanceSortActive: next,
-      priceSortOrder: next ? "none" : this.data.priceSortOrder
+      distanceSortClass: next ? "active" : "",
+      distanceSortLabel: next ? "最近" : "默认",
+      priceSortOrder: next ? "none" : this.data.priceSortOrder,
+      priceSortLabel: next ? "默认" : this.data.priceSortLabel
     })
     this.applyFilters(true)
   },
 
-  onLoad() {
+  onLoad(options = {}) {
+    const initialCategory = options.cat ? safeDecode(options.cat) : ""
+    const initialRegion = options.region ? safeDecode(options.region) : ""
+
     this.setData({ statusBarHeight: this._getStatusBarHeight() })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
@@ -200,20 +247,16 @@ Page({
     this._thumbUrlCache = wx.getStorageSync(THUMB_CACHE_KEY) || {}
     this._lastRefreshAt = 0
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
+    this._marketBootstrapped = false
 
-    this.initCategoriesFromGoods()
-    this.loadRegionTreeFromCloud()
-    this._loadMyLocationFromProfile()
-
-    // 先用缓存秒开，再后台刷新
-    this._restoreGoodsFromCache()
-    this.applyFilters(true)
-
-    // 后台刷新一次（避免缓存为空）
-    this._maybeRefreshGoods(true)
+    this._runAfterFirstPaint(() => {
+      this._bootstrapMarketData(initialCategory, initialRegion)
+    })
   },
 
   onShow() {
+    if (!this._marketBootstrapped) return
+
     this._loadMyLocationFromProfile()
     const changedAt = getMarketGoodsChangedAt()
     if (changedAt && changedAt !== this._lastHandledGoodsChangeAt) {
@@ -223,6 +266,29 @@ Page({
       return
     }
     this._maybeRefreshGoods(false)
+  },
+
+  _bootstrapMarketData(initialCategory = "", initialRegion = "") {
+    this._marketBootstrapped = true
+
+    this.initCategoriesFromGoods()
+    if (initialCategory && ["全部", ...CATEGORY_OPTIONS].includes(initialCategory)) {
+      this.setData({
+        activeCategory: initialCategory,
+        categoryTabs: buildCategoryTabs(this.data.categories, initialCategory)
+      })
+    }
+    if (initialRegion) {
+      this.setData({ activeRegion: initialRegion, activeRegionLabel: initialRegion })
+    }
+
+    this.loadRegionTreeFromCloud()
+    this._loadMyLocationFromProfile()
+
+    const restored = this._restoreGoodsFromCache()
+    if (restored) this.applyFilters(true)
+
+    this._maybeRefreshGoods(true)
   },
 
   onPullDownRefresh() {
@@ -253,12 +319,10 @@ Page({
     await this._fetchFirstPage()
   },
 
-  async onSelectCat(e) {
-    const cat = e.currentTarget.dataset.cat
-
-    // 切类目：云端 where(category=xxx) + 分页拉取
+  onClearKeyword() {
+    if (!this.data.keyword) return
     this.setData({
-      activeCategory: cat || "全部",
+      keyword: "",
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
@@ -266,6 +330,46 @@ Page({
       cloudHasMore: true,
       canViewMore: true
     })
+    this._fetchFirstPage()
+  },
+
+  onResetMarketFilters() {
+    this.setData({
+      keyword: "",
+      activeCategory: "全部",
+      categoryTabs: buildCategoryTabs(this.data.categories, "全部"),
+      activeRegion: "全部",
+      activeRegionLabel: "全部",
+      priceSortOrder: "none",
+      priceSortLabel: "默认",
+      distanceSortActive: false,
+      distanceSortClass: "",
+      distanceSortLabel: "默认",
+      allGoods: [],
+      filteredGoods: [],
+      displayGoods: [],
+      cloudSkip: 0,
+      cloudHasMore: true,
+      canViewMore: true
+    })
+    this._fetchFirstPage()
+  },
+
+  async onSelectCat(e) {
+    const cat = e.currentTarget.dataset.cat
+
+    // 切类目：云端 where(category=xxx) + 分页拉取
+    this.setData({
+      activeCategory: cat || "全部",
+      categoryTabs: buildCategoryTabs(this.data.categories, cat || "全部"),
+      allGoods: [],
+      filteredGoods: [],
+      displayGoods: [],
+      cloudSkip: 0,
+      cloudHasMore: true,
+      canViewMore: true
+    })
+    this.updateMarketHeaderState(0)
     await this._fetchFirstPage()
   },
 
@@ -288,9 +392,11 @@ Page({
   // ====== 分类初始化 ======
   initCategoriesFromGoods() {
     const categories = ["全部", ...CATEGORY_OPTIONS]
+    const activeCategory = categories.includes(this.data.activeCategory) ? this.data.activeCategory : "全部"
     this.setData({
       categories,
-      activeCategory: categories.includes(this.data.activeCategory) ? this.data.activeCategory : "全部"
+      activeCategory,
+      categoryTabs: buildCategoryTabs(categories, activeCategory)
     })
   },
 
@@ -355,7 +461,7 @@ Page({
   },
 
   onRegionPickerChange(e) {
-    const v = e.detail.value || [0, 0, 0]
+    const v = Array.isArray(e.detail.value) ? e.detail.value : [0, 0, 0]
     const [v0, v1] = v
     const tree = this.data.regionTree || []
     const lv1 = tree[v0] || tree[0] || { children: [] }
@@ -376,7 +482,8 @@ Page({
   },
 
   onRegionPickerConfirm() {
-    const [v0, v1, v2] = this.data.regionPickerValue || [0, 0, 0]
+    const pickerValue = Array.isArray(this.data.regionPickerValue) ? this.data.regionPickerValue : [0, 0, 0]
+    const [v0, v1, v2] = pickerValue
     const tree = this.data.regionTree || []
     const lv1 = tree[v0] || tree[0]
     const lv2 = (lv1?.children || [])[v1] || (lv1?.children || [])[0]
@@ -389,6 +496,7 @@ Page({
 
     this.setData({
       activeRegion: region,
+      activeRegionLabel: region === "全部" ? "全部" : region,
       regionPickerVisible: false,
 
       allGoods: [],
@@ -398,6 +506,7 @@ Page({
       cloudHasMore: true,
       canViewMore: true
     })
+    this.updateMarketHeaderState(0)
     // 切换地区后：按新筛选条件重新拉第一页
     this._fetchFirstPage()
   },
@@ -406,14 +515,20 @@ Page({
   _mapDocToGood(x) {
     const thumbKey = (x.thumbFileID || x.imageFileID || "")
     const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
+    const title = String(x.title || "").trim() || "未命名商品"
+    const priceNumber = Number(x.price)
+    const priceText = Number.isFinite(priceNumber) ? priceNumber.toFixed(priceNumber % 1 === 0 ? 0 : 2) : "0"
+    const conditionText = x.condition || "成色未填"
     return this._withDistance({
       id: x._id,
-      title: x.title,
+      title,
       price: x.price,
+      priceText,
       category: CATEGORY_OPTIONS.includes(x.category) ? x.category : "其他",
       region: x.region,
       location: x.location || {},
-      condition: x.condition,
+      condition: conditionText,
+      conditionText,
       desc: x.desc,
       postDate: x.postDate,
 
@@ -431,8 +546,8 @@ Page({
       expireTime: Number(x.expireTime) || 0,
       status: x.status || "online",
 
-      // temp url（优先 thumbFileID，否则 imageFileID）
-      thumbUrl: thumbKey ? (this._thumbUrlCache[thumbKey] || "") : ""
+      thumbUrl: x.thumbUrl || (thumbKey ? (this._thumbUrlCache[thumbKey] || "") : ""),
+      imageSrc: x.imageSrc || x.thumbUrl || (thumbKey ? (this._thumbUrlCache[thumbKey] || thumbKey) : "/images/market.png")
     })
   },
 
@@ -451,7 +566,7 @@ Page({
     const openid = wx.getStorageSync("openid") || ""
     const isGuest = !!wx.getStorageSync("isGuest")
     if (!openid || isGuest) {
-      this.setData({ myLocation: null, distanceSortActive: false })
+      this.setData({ myLocation: null, distanceSortActive: false, distanceSortClass: "", distanceSortLabel: "默认" })
       return null
     }
 
@@ -483,86 +598,50 @@ Page({
     return true
   },
 
-  _buildCloudWhere() {
-    const db = wx.cloud.database()
-    const _ = db.command
-
-    const { activeCategory, activeRegion, keyword } = this.data
-    const where = {}
-
-    // 1) category 精确匹配（“全部”不加条件）
-    if (activeCategory && activeCategory !== "全部") {
-      where.category = activeCategory
-    }
-
-    // 2) region：支持 “xxx / yyy / 全部” 前缀匹配
-    if (activeRegion && activeRegion !== "全部") {
-      if ((activeRegion || "").endsWith("/ 全部")) {
-        const prefix = activeRegion.replace(/\/\s*全部\s*$/, "/")
-        // startsWith：用正则前缀实现（注意转义）
-        const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        where.region = db.RegExp({ regexp: `^${esc}`, options: "i" })
-      } else {
-        where.region = activeRegion
-      }
-    }
-
-    const kw = (keyword || "").trim()
-    if (kw) {
-      const safe = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const reg = db.RegExp({ regexp: safe, options: "i" })
-      where[_.or] = [{ title: reg }, { desc: reg }]
-    }
-
-    return where
-  },
-
-  _getMarketGoodsPage(col, where, options = {}) {
-    let query = col.where(where)
-    if (typeof query.field === "function") {
-      query = query.field(MARKET_GOODS_LIST_FIELDS)
-    }
-    if (options.order !== false) {
-      query = query.orderBy("createTime", "desc")
-    }
-    if (options.skip) {
-      query = query.skip(options.skip)
-    }
-    return query.limit(options.limit || CLOUD_PAGE_SIZE).get()
-  },
-
   async _fetchFirstPage() {
     try {
-      this.setData({ isLoadingGoods: true })
+      this.setData({
+        isLoadingGoods: true,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true })
+      })
 
-      const db = wx.cloud.database()
-      const col = db.collection("market_goods")
-      const where = this._buildCloudWhere()
-
-      const res = await this._getMarketGoodsPage(col, where, { limit: INITIAL_LOAD_SIZE })
-
-      const rawRows = res.data || []
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: {
+          action: "list",
+          filters: {
+            category: this.data.activeCategory,
+            region: this.data.activeRegion,
+            keyword: this.data.keyword
+          },
+          skip: 0,
+          limit: INITIAL_LOAD_SIZE
+        }
+      })
+      const result = getMarketApiResult(res)
+      const rawRows = result.items || result.data || []
       const rows = rawRows.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
 
       this.setData({
-        // allGoods 代表“当前筛选条件下已加载到前端的全集（分页累积）”
         allGoods: rows,
-        cloudSkip: rawRows.length,
-        cloudHasMore: rawRows.length === INITIAL_LOAD_SIZE
+        cloudSkip: result.nextSkip || rawRows.length,
+        cloudHasMore: !!result.hasMore
       })
 
       if (this.data.activeCategory === "全部" && this.data.activeRegion === "全部" && !(this.data.keyword || "").trim()) {
-        this._saveGoodsToCache(res.data || [])
+        this._saveGoodsToCache(rawRows)
       }
 
       this.initRegionsFromGoods()
-      // 云端已筛选，这里只做排序 + 前端切片展示。图片链接后台补，不能阻塞首屏。
       this.applyFilters(true)
     } catch (e) {
       console.error(e)
       showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
     } finally {
-      this.setData({ isLoadingGoods: false })
+      this.setData({
+        isLoadingGoods: false,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: false })
+      })
     }
   },
 
@@ -571,30 +650,38 @@ Page({
     if (this.data.isLoadingGoods) return
 
     try {
-      this.setData({ isLoadingGoods: true })
-
-      const db = wx.cloud.database()
-      const col = db.collection("market_goods")
-      const where = this._buildCloudWhere()
-
-      const res = await this._getMarketGoodsPage(col, where, {
-        skip: this.data.cloudSkip || 0,
-        limit: CLOUD_PAGE_SIZE
+      this.setData({
+        isLoadingGoods: true,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: true })
       })
 
-      const rawBatch = res.data || []
+      const skip = this.data.cloudSkip || 0
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: {
+          action: "list",
+          filters: {
+            category: this.data.activeCategory,
+            region: this.data.activeRegion,
+            keyword: this.data.keyword
+          },
+          skip,
+          limit: CLOUD_PAGE_SIZE
+        }
+      })
+      const result = getMarketApiResult(res)
+      const rawBatch = result.items || result.data || []
       const batch = rawBatch.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
       const all = [...(this.data.allGoods || []), ...batch]
 
       this.setData({
         allGoods: all,
-        cloudSkip: (this.data.cloudSkip || 0) + rawBatch.length,
-        cloudHasMore: rawBatch.length === CLOUD_PAGE_SIZE
+        cloudSkip: result.nextSkip || (skip + rawBatch.length),
+        cloudHasMore: !!result.hasMore
       })
 
-      // 同上：只缓存“全量列表”的结果
       if (this.data.activeCategory === "全部" && this.data.activeRegion === "全部" && !(this.data.keyword || "").trim()) {
-        this._saveGoodsToCache([...(wx.getStorageSync(GOODS_CACHE_KEY)?.list || []), ...(res.data || [])])
+        this._saveGoodsToCache([...(wx.getStorageSync(GOODS_CACHE_KEY)?.list || []), ...rawBatch])
       }
 
       this.initRegionsFromGoods()
@@ -603,7 +690,10 @@ Page({
       console.error(e)
       showDataError("商品加载失败", e, "商品列表从数据库加载失败，请稍后重试。")
     } finally {
-      this.setData({ isLoadingGoods: false })
+      this.setData({
+        isLoadingGoods: false,
+        ...buildMarketListFlags({ ...this.data, isLoadingGoods: false })
+      })
     }
   },
 
@@ -630,9 +720,15 @@ Page({
     const nextLen = cur + (this.data.pageSize || 8)
 
     const next = filtered.slice(0, nextLen)
+    const nextCanViewMore = next.length < filtered.length || !!this.data.cloudHasMore
     this.setData({
       displayGoods: next,
-      canViewMore: next.length < filtered.length || !!this.data.cloudHasMore
+      canViewMore: nextCanViewMore,
+      ...buildMarketListFlags({
+        ...this.data,
+        displayGoods: next,
+        canViewMore: nextCanViewMore
+      })
     })
 
     // 如果本地不够了，继续拉云端
@@ -701,14 +797,31 @@ Page({
       canViewMore = filtered.length > cur
     }
 
+    const nextCanViewMore = canViewMore || !!this.data.cloudHasMore
     this.setData({
       filteredGoods: filtered,
       displayGoods: display,
       // 既要考虑本地还有没展示的，也要考虑云端还有未拉取的
-      canViewMore: canViewMore || !!this.data.cloudHasMore
+      canViewMore: nextCanViewMore,
+      ...buildMarketListFlags({
+        ...this.data,
+        displayGoods: display,
+        canViewMore: nextCanViewMore
+      })
     })
+    this.updateMarketHeaderState(filtered.length)
 
     this._fillThumbUrlsFor(display).catch(() => {})
+  },
+
+  updateMarketHeaderState(count) {
+    const activeCategory = this.data.activeCategory || "全部"
+    const activeRegion = this.data.activeRegion || "全部"
+    this.setData({
+      resultTitle: activeCategory === "全部" ? "最新闲置" : activeCategory,
+      resultCountText: `${Number(count) || 0} 件`,
+      activeRegionLabel: activeRegion === "全部" ? "全部" : activeRegion
+    })
   },
 
   // ====== thumb temp url ======
@@ -744,7 +857,7 @@ Page({
       if (!key) return g
       const url = this._thumbUrlCache[key]
       if (!url) return g
-      return { ...g, thumbUrl: url }
+      return { ...g, thumbUrl: url, imageSrc: url }
     }
 
     const nextAll = (this.data.allGoods || []).map(attachThumbUrl)

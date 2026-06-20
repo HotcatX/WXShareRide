@@ -1,204 +1,44 @@
-.ui-page{
-  height: 100vh;
-  overflow: hidden;
-  background: #F6EFE8;
-  display: flex;
-  flex-direction: column;
+page{
+  background: #f4f6f8;
 }
 
-.ui-scroll{
-  flex: 1;
-  min-height: 0;
-  padding: 22rpx 22rpx 0 22rpx;
-  box-sizing: border-box;
+.edit-template-ride{
+  background: #f4f6f8;
 }
 
-.ui-card{
-  background: #fff;
-  border-radius: 26rpx;
-  padding: 22rpx;
-  box-sizing: border-box;
-  box-shadow: 0 14rpx 30rpx rgba(0,0,0,0.06);
-  margin-top: 18rpx;
+.edit-template-scroll{
+  padding-top: 14rpx;
 }
 
-.ui-bottom-space{
-  height: calc(140rpx + env(safe-area-inset-bottom));
+.edit-template-head{
+  margin-bottom: 16rpx;
 }
 
-.ui-bottom-fixed{
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9999;
+.edit-template-head .ride-section-subtitle{
+  display: block;
+  margin-top: 2rpx;
 }
 
-.ui-bottom-bar{
-  background: #fff;
-  height: 160rpx;
-  box-sizing: border-box;
-  border-top: 2rpx solid rgba(0,0,0,0.10);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.edit-template-textarea{
+  min-height: 138rpx;
+  justify-content: flex-start;
 }
 
-.ui-primary-btn{
-  width: 93%;
-  height: 96rpx;
-  border-radius: 999rpx;
-  background: #9CB06A;
-  color: #fff;
-  font-size: 36rpx;
-  font-weight: 900;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 3rpx 6rpx 2rpx 0 rgba(0,0,0,0.25);
-}
-
-.ui-primary-btn--disabled{
-  opacity: 0.75;
-}
-
-.nav-bar {
-  width: 100%;
-  background-color: #ffffff;
-}
-.nav-content {
-  height: 44px;
-  display: flex;
-  align-items: center;
-  padding: 0 20rpx;
-  position: relative;
-}
-.back-icon {
-  width: 50rpx;
-  height: 50rpx;
-}
-.nav-title {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #111;
-}
-
-.route-row{
-  display: flex;
-  align-items: center;
-  padding-bottom: 6rpx;
-  border-bottom: 2rpx solid rgba(0,0,0,0.08);
-}
-
-.route-item{ flex: 1; }
-
-.route-arrow{
-  width: 80rpx;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.route-arrow-empty{ width: 80rpx; }
-
-.route-arrow-icon{
-  font-size: 34rpx;
-  color: rgba(0,0,0,0.75);
-  line-height: 34rpx;
-}
-
-.route-line{
-  padding: 10rpx 0;
-  display: flex;
-  align-items: center;
-}
-
-.route-line-text{
-  font-size: 28rpx;
-  font-weight: 800;
-}
-
-.route-placeholder{ color: rgba(0,0,0,0.30); }
-.route-filled{ color: rgba(0,0,0,0.78); }
-
-.datetime-row{
-  display: flex;
-  align-items: center;
-  margin-top: 6rpx;
-  padding-bottom: 6rpx;
-  border-bottom: 2rpx solid rgba(0,0,0,0.08);
-}
-
-.passenger-inline-row{
+.edit-template-zelle{
   margin-top: 16rpx;
+}
+
+.edit-template-check{
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12rpx;
 }
 
-.passenger-label{
-  font-size: 26rpx;
-  font-weight: 800;
-  color: rgba(0,0,0,0.75);
-}
-
-.passenger-input{
-  width: 160rpx;
-  text-align: center;
-  border-radius: 999rpx;
-  border: 2rpx solid rgba(0,0,0,0.10);
-  padding: 6rpx 0;
-  font-size: 26rpx;
-  font-weight: 800;
-  background-color: #f7f8fa;
-}
-
-.field-row{
-  display: flex;
-  align-items: center;
-  margin-bottom: 12rpx;
-}
-
-.field-label{
-  width: 140rpx;
-  font-size: 26rpx;
-  font-weight: 900;
-  color: rgba(0,0,0,0.75);
-}
-
-.field-input{
+.edit-template-check-text{
   flex: 1;
-  border-radius: 12rpx;
-  border: 2rpx solid rgba(0,0,0,0.10);
-  padding: 8rpx 14rpx;
+  min-width: 0;
   font-size: 26rpx;
-  color: rgba(0,0,0,0.80);
-  background-color: #f7f8fa;
-}
-
-.field-textarea{ align-items: flex-start; }
-
-.comment-textarea{
-  flex: 1;
-  min-height: 90rpx;
-  max-height: 380rpx;
-  padding: 8rpx 14rpx;
-  border-radius: 12rpx;
-  border: 2rpx solid rgba(0,0,0,0.10);
-  font-size: 26rpx;
-  background-color: #f7f8fa;
-}
-
-.zelle-card{ padding: 18rpx 22rpx; }
-.zelle-label{
-  display: flex;
-  align-items: center;
-}
-.zelle-text{
-  margin-left: 12rpx;
-  font-size: 26rpx;
+  line-height: 34rpx;
   font-weight: 800;
-  color: rgba(0,0,0,0.75);
+  color: #111418;
 }

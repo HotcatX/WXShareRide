@@ -80,7 +80,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const id = (options && options.id) || ''
@@ -126,7 +126,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   // 系统默认 toast
@@ -343,7 +343,7 @@ Page({
         // ✅ 不展示任何成员信息，直接回首页
         this.showToast('加入成功', 'success', 1200)
         setTimeout(() => {
-          wx.switchTab({ url: '/pages/home/home' })
+          wx.reLaunch({ url: '/pages/home/home' })
         }, 1200)
         return
       }
@@ -361,21 +361,21 @@ Page({
   onShareAppMessage() {
     const { tripId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       // ✅ 导向本页面
       path: `/pages/home/carpoolRequestDetail/carpoolRequestDetail?id=${tripId}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { tripId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       // ✅ 朋友圈用 query
       query: `id=${tripId}`
-    }
+    })
   }
 
 

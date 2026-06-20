@@ -174,7 +174,7 @@ Page({
   },
 
   onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight
     })

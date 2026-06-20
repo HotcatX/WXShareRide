@@ -90,7 +90,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const id = (options && options.id) || ''
@@ -138,7 +138,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   // 系统 toast（简单）
@@ -406,7 +406,7 @@ Page({
       if (ret.result && ret.result.success) {
         this.showToast('加入成功', 'success', 1200)
         setTimeout(() => {
-          wx.switchTab({ url: '/pages/home/home' })
+          wx.reLaunch({ url: '/pages/home/home' })
         }, 1200)
         return
       }
@@ -470,7 +470,7 @@ Page({
       if (ret.result && ret.result.success) {
         this.showToast('接单成功', 'success', 1200)
         setTimeout(() => {
-          wx.switchTab({ url: '/pages/home/home' })
+          wx.reLaunch({ url: '/pages/home/home' })
         }, 1200)
         return
       }
@@ -491,18 +491,18 @@ Page({
   onShareAppMessage() {
     const { tripId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜路线详情` : '路线详情',
       path: `/pages/home/requestDetail/requestDetail?id=${tripId}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { tripId, departAddress, destAddress, formattedDepartTime } = this.data
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜路线详情` : '路线详情',
       query: `id=${tripId}`
-    }
+    })
   }
 })

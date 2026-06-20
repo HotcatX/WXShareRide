@@ -42,32 +42,23 @@
   "requiredPrivateInfos": [
     "chooseLocation"
   ],
-  "entryPagePath": "pages/home/home",
   "tabBar": {
-    "color": "#8A8A8A",
-    "selectedColor": "#1F1F1F",
-    "backgroundColor": "#FFFFFF",
-    "borderStyle": "white",
+    "custom": true,
     "list": [
       {
         "pagePath": "pages/home/home",
-        "text": "主页",
-        "iconPath": "images/home.png",
-        "selectedIconPath": "images/home_press.png"
+        "text": "主页"
       },
       {
         "pagePath": "pages/market/market",
-        "text": "二手",
-        "iconPath": "images/market.png",
-        "selectedIconPath": "images/market_press.png"
+        "text": "二手"
       },
       {
         "pagePath": "pages/profile/profile",
-        "text": "我的",
-        "iconPath": "images/profile.png",
-        "selectedIconPath": "images/profile_press.png"
+        "text": "我的"
       }
     ]
   },
+  "entryPagePath": "pages/home/home",
   "cloud": true
 }

@@ -1,8 +1,5 @@
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
-const MARKET_MAIN_IMAGE_MAX_SIDE = 1280
-const MARKET_MAIN_CANVAS_QUALITY = 0.78
-const MARKET_THUMB_CANVAS_QUALITY = 0.72
 const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
@@ -18,6 +15,14 @@ function markMarketGoodsChanged() {
   } catch (e) {}
 }
 
+function getMarketApiResult(res) {
+  const result = res && res.result
+  if (!result || result.ok === false) {
+    throw new Error((result && (result.error || result.message)) || "market_api_failed")
+  }
+  return result
+}
+
 // ========== 图片压缩（上传前压缩，压缩失败使用原图，保证不出错） ==========
 function compressForUpload(srcPath, quality = 70) {
   return new Promise(resolve => {
@@ -31,99 +36,13 @@ function compressForUpload(srcPath, quality = 70) {
   })
 }
 
-function resizeMainImageForUpload(page, imgPath) {
-  return new Promise(resolve => {
-    if (!imgPath) return resolve("")
-
-    wx.getImageInfo({
-      src: imgPath,
-      success: info => {
-        const w = Number(info.width) || 0
-        const h = Number(info.height) || 0
-        if (!w || !h) {
-          resolve(imgPath)
-          return
-        }
-
-        const longest = Math.max(w, h)
-        if (longest <= MARKET_MAIN_IMAGE_MAX_SIDE) {
-          resolve(imgPath)
-          return
-        }
-
-        const scale = MARKET_MAIN_IMAGE_MAX_SIDE / longest
-        const targetW = Math.max(1, Math.round(w * scale))
-        const targetH = Math.max(1, Math.round(h * scale))
-        const ctx = wx.createCanvasContext("mainCompressCanvas", page)
-
-        ctx.clearRect(0, 0, MARKET_MAIN_IMAGE_MAX_SIDE, MARKET_MAIN_IMAGE_MAX_SIDE)
-        ctx.drawImage(imgPath, 0, 0, w, h, 0, 0, targetW, targetH)
-        ctx.draw(false, () => {
-          wx.canvasToTempFilePath(
-            {
-              canvasId: "mainCompressCanvas",
-              width: targetW,
-              height: targetH,
-              destWidth: targetW,
-              destHeight: targetH,
-              fileType: "jpg",
-              quality: MARKET_MAIN_CANVAS_QUALITY,
-              success: r => resolve(r.tempFilePath || imgPath),
-              fail: () => resolve(imgPath)
-            },
-            page
-          )
-        })
-      },
-      fail: () => resolve(imgPath)
-    })
-  })
-}
-
 async function prepareMainImageForUpload(page, imgPath) {
-  const resizedPath = await resizeMainImageForUpload(page, imgPath)
-  return compressForUpload(resizedPath || imgPath, MARKET_MAIN_IMAGE_QUALITY)
+  return compressForUpload(imgPath, MARKET_MAIN_IMAGE_QUALITY)
 }
 
-// ========== 生成缩略图（canvas，把第一张图做成 300x300） ==========
+// ========== 生成缩略图 ==========
 function genThumbFromFirstImage(page, imgPath) {
-  return new Promise(resolve => {
-    if (!imgPath) return resolve("")
-    const ctx = wx.createCanvasContext("thumbCanvas", page)
-    const size = 300
-
-    wx.getImageInfo({
-      src: imgPath,
-      success: info => {
-        const w = info.width
-        const h = info.height
-        // 中心裁剪成正方形
-        const side = Math.min(w, h)
-        const sx = (w - side) / 2
-        const sy = (h - side) / 2
-
-        ctx.clearRect(0, 0, size, size)
-        ctx.drawImage(imgPath, sx, sy, side, side, 0, 0, size, size)
-        ctx.draw(false, () => {
-          wx.canvasToTempFilePath(
-            {
-              canvasId: "thumbCanvas",
-              width: size,
-              height: size,
-              destWidth: size,
-              destHeight: size,
-              fileType: "jpg",
-              quality: MARKET_THUMB_CANVAS_QUALITY,
-              success: r => resolve(r.tempFilePath || ""),
-              fail: () => resolve("")
-            },
-            page
-          )
-        })
-      },
-      fail: () => resolve("")
-    })
-  })
+  return compressForUpload(imgPath, MARKET_THUMB_IMAGE_QUALITY)
 }
 
 // ========== 上传单张到云存储 ==========
@@ -243,22 +162,25 @@ function normalizePickupWindow(startText, endText) {
   }
 }
 
-function registerUploadedMarketFiles(files, goodsId = "") {
-  const payload = (files || []).filter(file => file && file.fileID)
-  if (!payload.length) return Promise.resolve()
-  return wx.cloud.callFunction({
-    name: "trackMarketFiles",
-    data: {
-      goodsId,
-      status: goodsId ? "attached" : "uploaded",
-      files: payload
-    }
-  }).catch(e => {
-  })
-}
-
 function normalizeLocationText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
+}
+
+function buildPostDisplayPatch(state = {}) {
+  const isEdit = !!state.isEdit
+  const submitting = !!state.submitting
+  const category = normalizeLocationText(state.category) || "其他"
+  const locationInput = normalizeLocationText(state.locationInput)
+
+  return {
+    postModeKicker: isEdit ? "Edit listing" : "New listing",
+    postPageTitle: isEdit ? "编辑商品" : "发布闲置",
+    categoryDisplay: category,
+    locationDisplay: locationInput || "去个人资料填写地址",
+    locationMutedClass: locationInput ? "" : "muted",
+    submitDisabledClass: submitting ? "disabled" : "",
+    submitText: submitting ? (isEdit ? "保存中..." : "发布中...") : (isEdit ? "保存修改" : "发布闲置")
+  }
 }
 
 function buildLocationMeta(displayName, source = {}) {
@@ -308,7 +230,7 @@ function buildProfileLocationDisplay(user = {}) {
 
 // ========== 分类 / 常用语 / 新旧程度 ==========
 const CATEGORY_OPTIONS = [
- "家具", "厨具", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
+ "家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
 ]
 const QUICK_PHRASES = [
   "几乎全新，使用很少",
@@ -337,7 +259,6 @@ Page({
     thumbFileIDs: [],
     imageUploading: false,
     imageUploadProgress: 0,
-    imageUploadProgressDeg: 0,
     imageUploadText: "上传中",
 
     title: "",
@@ -361,16 +282,38 @@ Page({
     conditionSheetVisible: false,
     conditionOptions: CONDITION_OPTIONS,
 
-    submitting: false
+    submitting: false,
+    postModeKicker: "New listing",
+    postPageTitle: "发布闲置",
+    categoryDisplay: "其他",
+    locationDisplay: "去个人资料填写地址",
+    locationMutedClass: "muted",
+    submitDisabledClass: "",
+    submitText: "发布闲置",
+    dockVisibleClass: "dock-hidden"
+  },
+
+  onReady() {
+    setTimeout(() => {
+      this._setPostData({ dockVisibleClass: "" })
+    }, 320)
+  },
+
+  _setPostData(patch = {}) {
+    const nextState = { ...this.data, ...patch }
+    this.setData({
+      ...patch,
+      ...buildPostDisplayPatch(nextState)
+    })
   },
 
   onLoad(options) {
-    const sys = wx.getSystemInfoSync()
+    const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const id = options?.id || ''
     const mode = options?.mode || ''
     const isEdit = !!id && String(mode).toLowerCase() === 'edit'
 
-    this.setData({
+    this._setPostData({
       statusBarHeight: sys.statusBarHeight || 0,
       isEdit,
       editId: isEdit ? id : '',
@@ -404,7 +347,7 @@ Page({
       const displayName = buildProfileLocationDisplay(user || {})
       if (this.data.isEdit || this._locationTouched) return false
       if (!displayName) {
-        this.setData({ profileWechatID })
+        this._setPostData({ profileWechatID })
         return false
       }
 
@@ -412,7 +355,7 @@ Page({
         ...(user?.location || {}),
         source: user?.location ? (user.location.source || "profile") : "profile"
       })
-      this.setData({
+      this._setPostData({
         profileWechatID,
         region: displayName,
         locationInput: displayName,
@@ -441,18 +384,21 @@ Page({
 
     try {
       this.setData({ editLoading: true })
-      const db = wx.cloud.database()
-      const res = await db.collection('market_goods').doc(id).get()
-      const x = res?.data || {}
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: { action: "detail", id }
+      })
+      const result = getMarketApiResult(res)
+      const x = result.item || result.data || {}
 
-      // 只能编辑自己发布的
-      if (x._openid && x._openid !== myOpenid) {
+      if (!result.isOwner) {
         wx.showToast({ title: '只能编辑自己发布的商品', icon: 'none' })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 600)
         return
       }
 
-      const category = x.category || ''
+      const rawCategory = x.category || ''
+      const category = CATEGORY_OPTIONS.includes(rawCategory) ? rawCategory : '其他'
       const categoryIndex = CATEGORY_OPTIONS.indexOf(category)
       const locationDisplayName = x.location?.displayName || x.region || ''
 
@@ -461,17 +407,15 @@ Page({
         ? x.imageFileIDs.filter(Boolean)
         : (x.imageFileID ? [x.imageFileID] : [])
 
-      let tempUrls = []
-      if (fileIds.length) {
-        const tmp = await wx.cloud.getTempFileURL({ fileList: fileIds })
-        tempUrls = (tmp.fileList || []).map(z => z?.tempFileURL).filter(Boolean)
-      }
+      const tempUrls = Array.isArray(result.imgUrls) && result.imgUrls.length
+        ? result.imgUrls
+        : (Array.isArray(x.imageUrls) ? x.imageUrls : [])
 
-      this.setData({
+      this._setPostData({
         title: x.title || '',
         desc: x.desc || '',
         category,
-        categoryIndex: categoryIndex >= 0 ? categoryIndex : -1,
+        categoryIndex,
         price: (x.price === 0 || x.price) ? String(x.price) : '',
         condition: x.condition || '99新',
         region: x.region || '',
@@ -553,7 +497,7 @@ Page({
       })
     }
 
-    this.setData(updates)
+    this._setPostData(updates)
     return updates
   },
 
@@ -591,7 +535,6 @@ Page({
     this._lastImageUploadProgressAt = now
     this.setData({
       imageUploadProgress: nextProgress,
-      imageUploadProgressDeg: Math.round(nextProgress * 3.6),
       imageUploadText: text
     })
   },
@@ -626,7 +569,6 @@ Page({
         thumbFileIDs: [],
         imageUploading: true,
         imageUploadProgress: 2,
-        imageUploadProgressDeg: 7,
         imageUploadText: "压缩中"
       })
 
@@ -678,11 +620,6 @@ Page({
         thumbFileIDs: thumbFID ? [thumbFID] : []
       })
 
-      registerUploadedMarketFiles([
-        { fileID, type: "image", folder: "market" },
-        thumbFID ? { fileID: thumbFID, type: "thumb", folder: "market_thumb" } : null
-      ]).catch(() => {})
-
       wx.showToast({ title: "上传成功", icon: "success" })
       setTimeout(() => {
         if (this.data.imageFileID === fileID) {
@@ -727,8 +664,9 @@ Page({
   // ========== 分类 picker ==========
   onCategoryPickerChange(e) {
     const idx = Number(e.detail.value)
-    const category = CATEGORY_OPTIONS[idx] || ""
-    this.setData({ categoryIndex: idx, category })
+    const categoryIndex = idx >= 0 && idx < CATEGORY_OPTIONS.length ? idx : CATEGORY_OPTIONS.indexOf("其他")
+    const category = CATEGORY_OPTIONS[categoryIndex] || "其他"
+    this._setPostData({ categoryIndex, category })
   },
 
   // ========== 新旧程度 ==========
@@ -772,7 +710,7 @@ onChooseCondition() {
     if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
 
     this._submitInFlight = true
-    this.setData({ submitting: true })
+    this._setPostData({ submitting: true })
     let keepSubmitLocked = false
 
     try {
@@ -781,7 +719,7 @@ onChooseCondition() {
       const profileUpdates = this.data.isEdit
         ? { profileWechatID: normalizeLocationText(profile.wechatID) }
         : this._applyProfileToForm(profile)
-      if (this.data.isEdit) this.setData(profileUpdates)
+      if (this.data.isEdit) this._setPostData(profileUpdates)
       if (!normalizeLocationText(profile.wechatID)) {
         this._promptEditProfile("请先填写微信号", "发布闲置前需要在个人资料里填写微信号，方便买家联系。")
         return
@@ -819,15 +757,11 @@ onChooseCondition() {
 
       if (this.data.isEdit && this.data.editId) {
         const updRes = await wx.cloud.callFunction({
-          name: "updateMarketItem",
-          data: { id: this.data.editId, patch: payload }
+          name: "marketApi",
+          data: { action: "update", id: this.data.editId, patch: payload }
         })
 
-        const ur = updRes?.result || {}
-        if (!ur.ok) {
-          wx.showToast({ title: ur.error || "保存失败", icon: "none" })
-          return
-        }
+        getMarketApiResult(updRes)
 
         markMarketGoodsChanged()
         keepSubmitLocked = true
@@ -837,23 +771,11 @@ onChooseCondition() {
       }
 
       const checkRes = await wx.cloud.callFunction({
-        name: "createMarketItem",
-        data: payload
+        name: "marketApi",
+        data: { action: "create", payload }
       })
 
-      const r = checkRes?.result || {}
-      if (r.ok === false) {
-        wx.showToast({ title: r.message || "发布失败", icon: "none" })
-        return
-      }
-
-      const createdId = r.itemId || r.id || r.docId || r._id || ""
-      if (createdId && hasImage) {
-        registerUploadedMarketFiles([
-          ...imageFileIDs.map(fileID => ({ fileID, type: "image", folder: "market" })),
-          ...thumbFileIDs.map(fileID => ({ fileID, type: "thumb", folder: "market_thumb" }))
-        ], createdId).catch(() => {})
-      }
+      getMarketApiResult(checkRes)
 
       markMarketGoodsChanged()
       keepSubmitLocked = true
@@ -865,7 +787,7 @@ onChooseCondition() {
     } finally {
       if (!keepSubmitLocked) {
         this._submitInFlight = false
-        this.setData({ submitting: false })
+        this._setPostData({ submitting: false })
       }
     }
   }

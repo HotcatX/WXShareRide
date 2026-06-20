@@ -1,39 +1,64 @@
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
-    <text class="nav-title">{{pageTitle}}</text>
-  </view>
-</view>
-
-<view class="container">
-  <view wx:if="{{loading}}" class="state-text">
-    正在加载历史行程...
-  </view>
-
-  <view wx:elif="{{!historyTrips || historyTrips.length === 0}}" class="state-text">
-    暂无历史行程
-  </view>
-
-  <block wx:else>
-    <block
-      wx:for="{{historyTrips}}"
-      wx:for-item="trip"
-      wx:for-index="index"
-      wx:key="tripId"
-    >
-    <view class="trip-card">
-      <view class="trip-main-row">
-        <text class="place-text-left">{{trip._fromAddress}}</text>
-        <text class="arrow-text">➡️</text>
-        <text class="place-text-right">{{trip._toAddress}}</text>
+<view class="ride-shell history-ride">
+  <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
+        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
       </view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
+    </view>
+  </view>
 
-      <view class="trip-sub-row">
-        <text class="time-text">{{trip._timeLabel}}</text>
-        <text class="seat-text">{{trip._roleLabel}}</text>
-      </view>
+  <scroll-view class="ride-scroll history-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+    <view wx:if="{{loading}}" class="ride-state">
+      正在加载历史行程
     </view>
 
+    <view wx:elif="{{!historyTrips || historyTrips.length === 0}}" class="ride-state">
+      暂无历史行程
+    </view>
+
+    <block wx:else>
+      <view
+        class="ride-card ride-list-card history-card"
+        wx:for="{{historyTrips}}"
+        wx:for-item="trip"
+        wx:for-index="index"
+        wx:key="_id"
+        data-id="{{trip._id}}"
+        data-index="{{index}}"
+        bindtap="goTripDetail"
+        hover-class="ride-card-pressed"
+        hover-stay-time="80"
+      >
+        <view class="ride-list-head">
+          <text class="ride-list-kind">历史行程</text>
+          <text class="ride-list-time">{{trip._timeLabel || '时间待定'}}</text>
+        </view>
+
+        <view class="ride-route">
+          <view class="ride-route-rail">
+            <view class="ride-dot"></view>
+            <view class="ride-line"></view>
+            <view class="ride-dot ride-dot--accent"></view>
+          </view>
+          <view class="ride-route-body">
+            <view class="ride-route-point">
+              <text class="ride-route-label">出发</text>
+              <text class="ride-route-name">{{trip._fromAddress}}</text>
+            </view>
+            <view class="ride-route-point">
+              <text class="ride-route-label">到达</text>
+              <text class="ride-route-name">{{trip._toAddress}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="ride-meta">
+          <text class="ride-chip ride-chip--accent">{{trip._roleLabel}}</text>
+        </view>
+      </view>
     </block>
-  </block>
+
+    <view class="ride-bottom-space"></view>
+  </scroll-view>
 </view>

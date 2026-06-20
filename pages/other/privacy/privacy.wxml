@@ -1,19 +1,27 @@
-<view class="page">
-  <view class="hero">
-    <text class="title">隐私政策</text>
-    <text class="updated">最近更新：{{updatedAt}}</text>
-    <text class="intro">
-      本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和服务运营中如何收集、使用、存储和保护你的信息。
-    </text>
-    <button class="contract-btn" bindtap="openWechatPrivacyContract">查看微信隐私保护指引</button>
-  </view>
+<view class="ride-page privacy-page">
+  <view class="privacy-container">
+    <view class="privacy-header">
+      <text class="ride-title privacy-title">隐私政策</text>
+      <view class="privacy-meta">
+        <text class="ride-chip ride-chip--accent privacy-updated">最近更新：{{updatedAt}}</text>
+      </view>
+      <text class="privacy-intro">
+        本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和服务运营中如何收集、使用、存储和保护你的信息。
+      </text>
+      <button class="ride-btn ride-primary ride-btn--primary privacy-contract" bindtap="openWechatPrivacyContract" hover-class="ride-pressed" hover-stay-time="80">查看微信隐私保护指引</button>
+    </view>
 
-  <view class="content">
-    <view class="section" wx:for="{{sections}}" wx:for-item="section" wx:key="title">
-      <text class="section-title">{{section.title}}</text>
-      <view class="line" wx:for="{{section.lines}}" wx:for-item="line" wx:key="*this">
-        <text class="dot"></text>
-        <text class="line-text">{{line}}</text>
+    <view class="privacy-content">
+      <view class="ride-card ride-card-pad privacy-section" wx:for="{{sections}}" wx:for-item="section" wx:key="title">
+        <view class="privacy-section-head">
+          <text class="ride-section-title privacy-section-title">{{section.title}}</text>
+        </view>
+        <view class="privacy-lines">
+          <view class="privacy-line" wx:for="{{section.lines}}" wx:for-item="line" wx:key="*this">
+            <view class="privacy-marker"></view>
+            <text class="privacy-line-text">{{line}}</text>
+          </view>
+        </view>
       </view>
     </view>
   </view>

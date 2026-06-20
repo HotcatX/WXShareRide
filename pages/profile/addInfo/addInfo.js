@@ -22,7 +22,7 @@ Page({
   },
 
   onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight
     })
@@ -148,12 +148,12 @@ Page({
 
       // 没有 pendingPage 时，按来源决定去向
       if (this.data.from === 'login') {
-        wx.switchTab({ url: '/pages/home/home' })
+        wx.reLaunch({ url: '/pages/home/home' })
       } else {
         if (pages.length > 1) {
           wx.navigateBack()
         } else {
-          wx.switchTab({ url: '/pages/home/home' })
+          wx.reLaunch({ url: '/pages/home/home' })
         }
       }
     }, 800)

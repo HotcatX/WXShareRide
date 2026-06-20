@@ -1,110 +1,117 @@
-<view class="page">
-
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="onBack" />
-    <text class="nav-title">我的商品</text>
-    <view class="nav-right"></view>
+<view class="market-my-page">
+  <view class="my-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="my-nav">
+      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <text class="nav-title">我的商品</text>
+      <view class="nav-spacer"></view>
+    </view>
   </view>
-</view>
 
-<view class="content">
-
-  <view class="seller-card">
-    <view class="seller-top">
+  <scroll-view class="my-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+    <view class="profile-card">
       <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
-      <view class="seller-info">
-        <view class="row"><text class="k">昵称：</text><text class="v">{{name || '—'}}</text></view>
-        <view class="row"><text class="k">微信：</text><text class="v">{{wechatID || '—'}}</text></view>
-        <view class="row"><text class="k">地区：</text><text class="v">{{region || '—'}}</text></view>
-        <view class="row"><text class="k">公寓：</text><text class="v">{{apartment || '—'}}</text></view>
+      <view class="profile-info">
+        <text class="profile-name">{{nameDisplay}}</text>
+        <view class="profile-meta">
+          <text>{{wechatStatusText}}</text>
+          <text>{{regionDisplay}}</text>
+        </view>
+        <text class="profile-apartment">{{apartmentDisplay}}</text>
       </view>
     </view>
 
-    <view class="bio-editor">
+    <view class="bio-card">
+      <view class="section-head">
+        <text class="section-title">个人介绍</text>
+        <text class="save-state">{{saveStateText}}</text>
+      </view>
       <textarea
         class="bio-textarea"
         value="{{bio}}"
-        placeholder="写一句个人介绍（可选）"
-        placeholder-class="bio"
+        placeholder="写一句给买家的介绍"
+        placeholder-class="input-placeholder"
         auto-height
         maxlength="120"
         bindinput="onBioInput"
         bindblur="onBioBlur"
       />
     </view>
-  </view>
 
-  <view class="divider"></view>
-  <view class="section-title">我发布的宝贝</view>
-
-  <view wx:if="{{!goods || goods.length===0}}" class="empty">你还没有发布商品</view>
-
-  <view class="goods-grid" wx:else>
-    <view
-      class="goods-card"
-      wx:for="{{goods}}"
-      wx:key="id"
-      bindtap="onOpenGood"
-      data-id="{{item.id}}"
-    >
-      <image wx:if="{{item.hasImage}}"
-             class="thumb"
-             src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
-             mode="aspectFill"
-             lazy-load="true" />
-      <view wx:else class="thumb text-thumb">
-        <text>{{item.title}}</text>
+    <view class="goods-head">
+      <view>
+        <text class="section-kicker">Listings</text>
+        <text class="goods-title-main">我发布的商品</text>
       </view>
+      <view class="add-small pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">发布</view>
+    </view>
 
-      <view wx:if="{{manageMode}}"
-            class="select-box {{selectedMap[item.id] ? 'on' : ''}}"
+    <view wx:if="{{goodsEmpty}}" class="empty-state">
+      <view class="empty-mark">＋</view>
+      <view class="empty-title">还没有发布商品</view>
+      <view class="empty-subtitle">发布第一件闲置，让附近同学看到</view>
+      <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">去发布</view>
+    </view>
+
+    <view class="goods-grid" wx:if="{{hasGoods}}">
+      <view
+        class="goods-card pressable"
+        wx:for="{{goods}}"
+        wx:key="id"
+        hover-class="card-pressed"
+        hover-stay-time="80"
+        bindtap="onOpenGood"
+        data-id="{{item.id}}"
+      >
+        <view class="photo-wrap">
+          <image
+            wx:if="{{item.hasImage}}"
+            class="thumb"
+            src="{{item.imageSrc}}"
+            mode="aspectFill"
+            lazy-load="true"
+          />
+          <view wx:else class="thumb text-thumb">
+            <text>{{item.title}}</text>
+          </view>
+
+          <view
+            wx:if="{{manageMode}}"
+            class="select-box {{item.selectedClass}}"
             catchtap="onToggleSelect"
-            data-id="{{item.id}}">
-        <text wx:if="{{selectedMap[item.id]}}" class="check">✓</text>
-      </view>
+            data-id="{{item.id}}"
+          >
+            <text wx:if="{{item.selected}}" class="check">✓</text>
+          </view>
+        </view>
 
-      <view class="goods-label">{{item.title}} ${{item.price}}</view>
+        <view class="goods-body">
+          <text class="goods-title">{{item.title}}</text>
+          <text class="goods-price">$ {{item.priceDisplay}}</text>
+        </view>
+      </view>
     </view>
 
-    <view class="goods-card add-card" bindtap="onAddGood">
-      <view class="add-inner">
-        <view class="add-plus">＋</view>
-        <view class="add-text">添加宝贝</view>
+    <view class="manage-dock {{dockVisibleClass}}">
+      <view wx:if="{{manageMode}}" class="manage-actions">
+        <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleManage">退出</view>
+        <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleSelectAll">
+          {{allSelectedText}}
+        </view>
+        <view
+          class="dock-btn danger {{deleteDisabledClass}} pressable"
+          hover-class="is-pressed"
+          hover-stay-time="80"
+          bindtap="onDeleteSelected"
+        >
+          删除 {{selectedCount}}
+        </view>
+      </view>
+
+      <view wx:else class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onToggleManage">
+        管理我的商品
       </view>
     </view>
-  </view>
 
-  <view class="bottom-space"></view>
-
-</view>
-
-<view class="bottom-fixed">
-  <view class="bottom-bar">
-
-    <view wx:if="{{manageMode}}" class="manage-actions">
-
-      <view class="manage-exit" bindtap="onToggleManage">
-        退出
-      </view>
-
-      <view class="manage-left" bindtap="onToggleSelectAll">
-        {{allSelected ? '取消全选' : '全选'}}
-      </view>
-
-      <view class="manage-right {{selectedCount>0 ? '' : 'disabled'}}"
-            bindtap="onDeleteSelected">
-        删除（已选{{selectedCount}}）
-      </view>
-
-    </view>
-
-
-    <view wx:else class="manage-btn" bindtap="onToggleManage">
-      一键管理我的宝贝
-    </view>
-
-  </view>
-</view>
-
+    <view class="bottom-space"></view>
+  </scroll-view>
 </view>

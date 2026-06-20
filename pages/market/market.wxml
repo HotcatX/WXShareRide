@@ -1,141 +1,186 @@
-<view class="page">
-
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <text class="nav-title">二手市场</text>
-    <view class="nav-right"></view>
-  </view>
-</view>
-
-<view class="search-row">
-  <view class="search-box">
-    <input
-      class="search-input"
-      value="{{keyword}}"
-      placeholder="搜索您喜欢的商品"
-      placeholder-class="ph"
-      bindinput="onKeywordInput"
-      confirm-type="search"
-      bindconfirm="onSearch"
-    />
-    <view class="search-btn" bindtap="onSearch">搜索</view>
-  </view>
-</view>
-
-<view class="filter-row">
-  <view class="filter-left-group">
-    <text class="filter-left">分类</text>
-    <text class="filter-arrow">▶</text>
-
-    <view class="filter-pill" bindtap="onTapRegion">
-      <text class="pill-text">{{activeRegion==='全部'?'区域':activeRegion}}</text>
-      <text class="pill-caret">▼</text>
-    </view>
-
-    <view class="filter-pill" bindtap="onTogglePriceSort">
-      <text class="pill-text"> {{priceSortOrder === 'asc' ? '价格↑' : (priceSortOrder === 'desc' ? '价格↓' : '价格')}}
-      </text>
-    </view>
-
-    <view class="filter-pill {{distanceSortActive ? 'active' : ''}}" bindtap="onToggleDistanceSort">
-      <text class="pill-text">{{distanceSortActive ? '距离↑' : '距离'}}</text>
-    </view>
-
-  </view>
-
-  <view class="my-btn" bindtap="onMyGoods">我的商品</view>
-</view>
-
-<view class="main">
-
-  <view class="left">
-    <scroll-view class="cat-scroll" scroll-y>
-      <view
-        class="cat-item {{activeCategory===item?'active':''}}"
-        wx:for="{{categories}}"
-        wx:key="*this"
-        data-cat="{{item}}"
-        bindtap="onSelectCat"
-      >
-        {{item}}
+<view class="market-page">
+  <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="topbar">
+      <view class="brand">
+        <text class="brand-kicker">Campus resale</text>
+        <text class="brand-title">二手市场</text>
       </view>
+      <view class="topbar-actions">
+        <view class="topbar-action secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onMyGoods">
+          我的
+        </view>
+        <view class="topbar-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">
+          发布
+        </view>
+      </view>
+    </view>
 
-      <view class="line-placeholder" wx:for="{{10}}" wx:key="*this"></view>
-    </scroll-view>
-  </view>
-
-  <view class="right">
-    <scroll-view class="goods-scroll" scroll-y lower-threshold="120" bindscrolltolower="onGoodsScrollToLower">
-      <view class="grid">
+    <view class="search-card">
+      <view class="search-box">
+        <text class="search-symbol">⌕</text>
+        <input
+          class="search-input"
+          value="{{keyword}}"
+          placeholder="搜索商品、品牌或关键词"
+          placeholder-class="search-placeholder"
+          bindinput="onKeywordInput"
+          confirm-type="search"
+          bindconfirm="onSearch"
+        />
         <view
-          class="card"
-          wx:for="{{displayGoods}}"
-          wx:key="id"
-          data-id="{{item.id}}"
-          bindtap="onTapItem"
+          wx:if="{{keyword}}"
+          class="clear-keyword pressable"
+          hover-class="is-pressed"
+          hover-stay-time="80"
+          bindtap="onClearKeyword"
         >
-          <view class="card-img">
-            <image
-              wx:if="{{item.hasImage}}"
-              class="thumb"
-              lazy-load="true"
-              src="{{item.thumbUrl || item.thumbFileID || item.imageFileID || '/images/market.png'}}"
-              mode="aspectFill"
-            />
-            <view wx:else class="thumb text-thumb">
-              <text>{{item.title}}</text>
-            </view>
-            <view class="goods-label">
-              <text>{{item.title}}: ${{item.price}}</text>
-              <text wx:if="{{item.distanceText}}" class="goods-distance">距你 {{item.distanceText}}</text>
-            </view>
-          </view>
+          ×
+        </view>
+        <view class="search-submit pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSearch">
+          搜索
         </view>
       </view>
 
-      <view class="view-more" wx:if="{{canViewMore}}" bindtap="onViewMore">
-        查看更多<text class="caret">▼</text>
+      <view class="control-row">
+        <view class="control-chip pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
+          <text class="control-label">区域</text>
+          <text class="control-value">{{activeRegionLabel}}</text>
+        </view>
+        <view class="control-chip pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTogglePriceSort">
+          <text class="control-label">价格</text>
+          <text class="control-value">{{priceSortLabel}}</text>
+        </view>
+        <view class="control-chip {{distanceSortClass}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
+          <text class="control-label">距离</text>
+          <text class="control-value">{{distanceSortLabel}}</text>
+        </view>
       </view>
+    </view>
 
-      <view class="bottom-spacer"></view>
+    <scroll-view class="category-scroll" scroll-x show-scrollbar="{{false}}">
+      <view class="category-track">
+        <view
+          class="category-pill {{item.className}} pressable"
+          wx:for="{{categoryTabs}}"
+          wx:key="label"
+          data-cat="{{item.label}}"
+          hover-class="is-pressed"
+          hover-stay-time="80"
+          bindtap="onSelectCat"
+        >
+          {{item.label}}
+        </view>
+      </view>
     </scroll-view>
   </view>
 
-</view>
-
-<view class="bottom-fixed">
-  <view class="sell-btn" bindtap="onSellIdle">卖闲置</view>
-</view>
-
-<view wx:if="{{regionPickerVisible}}">
-  <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
-
-  <view class="rp-panel" catchtouchmove="stopTouchMove">
-    <view class="rp-header">
-      <text class="rp-btn" bindtap="onRegionPickerCancel">取消</text>
-      <text class="rp-title">选择地区</text>
-      <text class="rp-btn ok" bindtap="onRegionPickerConfirm">确定</text>
+  <scroll-view class="goods-scroll" scroll-y lower-threshold="140" bindscrolltolower="onGoodsScrollToLower">
+    <view class="result-row">
+      <text class="result-title">{{resultTitle}}</text>
+      <text class="result-count">{{resultCountText}}</text>
     </view>
 
-    <picker-view
-      class="rp-picker"
-      indicator-style="height: 44px;"
-      value="{{regionPickerValue}}"
-      bindchange="onRegionPickerChange"
+    <view class="goods-grid" wx:if="{{hasDisplayGoods}}">
+      <view
+        class="goods-card pressable"
+        wx:for="{{displayGoods}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        hover-class="card-pressed"
+        hover-stay-time="80"
+        bindtap="onTapItem"
+      >
+        <view class="photo-wrap">
+          <image
+            wx:if="{{item.hasImage}}"
+            class="goods-photo"
+            lazy-load="true"
+            src="{{item.imageSrc}}"
+            mode="aspectFill"
+          />
+          <view wx:else class="goods-photo no-photo">
+            <text>{{item.title}}</text>
+          </view>
+          <view class="corner-stack">
+            <text class="price-badge">$ {{item.priceText}}</text>
+            <text class="condition-badge">{{item.conditionText}}</text>
+          </view>
+          <view class="category-badge">{{item.category}}</view>
+        </view>
+
+        <view class="goods-body">
+          <text class="goods-title">{{item.title}}</text>
+          <view class="meta-line">
+            <text wx:if="{{item.distanceText}}" class="distance">{{item.distanceText}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="skeleton-grid" wx:if="{{showSkeleton}}">
+      <view class="skeleton-card" wx:for="{{skeletonItems}}" wx:key="*this">
+        <view class="skeleton-img"></view>
+        <view class="skeleton-line wide"></view>
+        <view class="skeleton-line short"></view>
+      </view>
+    </view>
+
+    <view class="empty-state" wx:if="{{showEmpty}}">
+      <view class="empty-mark">⌕</view>
+      <view class="empty-title">没有找到商品</view>
+      <view class="empty-subtitle">换个关键词或筛选条件再试试</view>
+      <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onResetMarketFilters">
+        重置筛选
+      </view>
+    </view>
+
+    <view class="loading-more" wx:if="{{showLoadingMore}}">
+      正在加载更多...
+    </view>
+
+    <view
+      class="view-more pressable"
+      wx:if="{{showViewMore}}"
+      hover-class="is-pressed"
+      hover-stay-time="80"
+      bindtap="onViewMore"
     >
-      <picker-view-column>
-        <view class="rp-item" wx:for="{{regionCol1}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
+      查看更多
+    </view>
 
-      <picker-view-column>
-        <view class="rp-item" wx:for="{{regionCol2}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
+    <view class="bottom-spacer"></view>
+  </scroll-view>
 
-      <picker-view-column>
-        <view class="rp-item" wx:for="{{regionCol3}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
-    </picker-view>
+  <view wx:if="{{regionPickerVisible}}">
+    <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
+
+    <view class="rp-panel" catchtouchmove="stopTouchMove">
+      <view class="rp-header">
+        <text class="rp-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onRegionPickerCancel">取消</text>
+        <text class="rp-title">选择地区</text>
+        <text class="rp-btn ok pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onRegionPickerConfirm">确定</text>
+      </view>
+
+      <picker-view
+        class="rp-picker"
+        indicator-style="height: 44px;"
+        value="{{regionPickerValue}}"
+        bindchange="onRegionPickerChange"
+      >
+        <picker-view-column>
+          <view class="rp-item" wx:for="{{regionCol1}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+
+        <picker-view-column>
+          <view class="rp-item" wx:for="{{regionCol2}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+
+        <picker-view-column>
+          <view class="rp-item" wx:for="{{regionCol3}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+      </picker-view>
+    </view>
   </view>
-</view>
 
+  <app-tabbar active="market"></app-tabbar>
 </view>

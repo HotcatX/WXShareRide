@@ -30,7 +30,7 @@ Page({
     otherPassengers: [],
     passengerList: [],
 
-    defaultAvatarUrl: '/images/default_avatar.png',
+    defaultAvatarUrl: '/images/profile.png',
 
     showFortLeeCoreTip: false
   },
@@ -84,7 +84,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   setLoadError(message) {
@@ -105,7 +105,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const tripId = (options && (options.tripId || options.id)) || ''
@@ -416,17 +416,17 @@ Page({
 
     // ✅ Carpool：分享公共详情页 tripDetail
     if (sourceType === 'carpool') {
-      return {
+      return getApp().withReferralShare({
         title,
         path: `/pages/home/tripDetail/tripDetail?id=${tripId}`
-      }
+      })
     }
 
     // 乘客求车记录分享指向接单详情
-    return {
+    return getApp().withReferralShare({
       title,
       path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${tripId}`
-    }
+    })
   },
 
   onShareTimeline() {
@@ -434,16 +434,16 @@ Page({
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
 
     if (sourceType === 'carpool') {
-      return {
+      return getApp().withReferralShare({
         title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
         query: `id=${tripId}`
-      }
+      })
     }
 
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
       query: `id=${tripId}`
-    }
+    })
   }
 
 })

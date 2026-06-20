@@ -47,7 +47,7 @@ Page({
   // 生命周期
   // -------------------------
   onLoad() {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     // 地址可对游客开放加载

@@ -7,7 +7,7 @@
   </view>
 </view>
 
-<view scroll-y class="content">
+<scroll-view class="content" scroll-y enhanced="true" show-scrollbar="{{false}}">
 
   <view class="top-actions" wx:if="{{!loading && list.length > 0}}">
     <button class="delete-btn" size="mini" bindtap="onDeleteAll">
@@ -48,7 +48,6 @@
     </view>
   </block>
 
-</view>
+</scroll-view>
 
 </view>
-

@@ -59,7 +59,7 @@ Page({
   goBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) wx.navigateBack()
-    else wx.switchTab({ url: '/pages/home/home' })
+    else wx.reLaunch({ url: '/pages/home/home' })
   },
 
   setLoadError(message) {
@@ -80,7 +80,7 @@ Page({
   },
 
   async onLoad(options) {
-    const info = wx.getSystemInfoSync()
+    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
     const requestId =
@@ -291,18 +291,18 @@ Page({
   onShareAppMessage() {
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       path: `/pages/home/carpoolRequestDetail/carpoolRequestDetail?id=${requestId}`
-    }
+    })
   },
 
   onShareTimeline() {
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
-    return {
+    return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
       query: `id=${requestId}`
-    }
+    })
   }
 })

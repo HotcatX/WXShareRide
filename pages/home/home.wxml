@@ -30,27 +30,29 @@
     <view class="home-service-grid">
       <view class="home-service ride-card" bindtap="goNewTrip" hover-class="ride-card-pressed" hover-stay-time="80">
         <view class="home-service-icon-slot">
-          <image
-            class="home-service-image"
-            src="/images/post_trip.png"
-            mode="aspectFit"
-          />
+          <image class="home-service-icon-img" src="/images/post_trip.png" mode="aspectFit" />
         </view>
         <view class="home-service-title-slot">
-          <text class="home-service-title">发布路线</text>
+          <text class="home-service-title">发起路线</text>
+        </view>
+        <view class="home-service-desc-slot">
+          <text class="home-service-desc">司机发车/乘客求车</text>
         </view>
       </view>
 
       <view class="home-service ride-card" bindtap="goCarpoolList" hover-class="ride-card-pressed" hover-stay-time="80">
         <view class="home-service-icon-slot">
           <image
-            class="home-service-image"
+            class="home-service-icon-img home-service-icon-share"
             src="/images/share_ride.png"
             mode="aspectFit"
           />
         </view>
         <view class="home-service-title-slot">
-          <text class="home-service-title">加入路线</text>
+          <text class="home-service-title">加入拼车</text>
+        </view>
+        <view class="home-service-desc-slot">
+          <text class="home-service-desc">加入已有拼车路线</text>
         </view>
       </view>
     </view>
@@ -60,14 +62,14 @@
         <view>
           <text class="ride-section-title">我的创建</text>
         </view>
-        <view
-          wx:if="{{createTrips.length > 0}}"
-          class="ride-chip {{expandedSection === 'create' ? 'ride-chip--dark' : ''}}"
-          bindtap="onToggleSection"
-          data-key="create"
-          hover-class="ride-pressed"
-          hover-stay-time="80"
-        >{{expandedSection === 'create' ? '收起' : '全部'}}</view>
+          <view
+            wx:if="{{createTrips.length > 0}}"
+            class="ride-chip home-toggle-chip {{expandedSection === 'create' ? 'home-toggle-chip--close' : 'home-toggle-chip--open'}}"
+            bindtap="onToggleSection"
+            data-key="create"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >{{expandedSection === 'create' ? '收起' : '展开'}}</view>
       </view>
 
       <view class="home-trip-list {{expandedSection === 'create' ? 'home-trip-list--open' : ''}}">
@@ -90,20 +92,20 @@
             <view class="ride-list-head">
               <view class="home-kind-row">
                 <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车请求' : '发车路线'}}</text>
-                <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text>
+                <!-- <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text> -->
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
               </view>
-              <text class="ride-list-time">时间 {{item._timeLabel || '待定'}}</text>
+              <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
             </view>
             <view class="home-route-inline">
               <view class="home-route-main">
                 <view class="home-route-place">
-                  <text class="ride-route-label">出发</text>
+                  <!-- <text class="ride-route-label">出发</text> -->
                   <text class="ride-route-name">{{item._fromAddress}}</text>
                 </view>
                 <text class="home-route-arrow">→</text>
                 <view class="home-route-place">
-                  <text class="ride-route-label">到达</text>
+                  <!-- <text class="ride-route-label">到达</text> -->
                   <text class="ride-route-name">{{item._toAddress}}</text>
                 </view>
               </view>
@@ -121,14 +123,14 @@
         <view>
           <text class="ride-section-title">我的加入</text>
         </view>
-        <view
-          wx:if="{{joinTrips.length > 0}}"
-          class="ride-chip {{expandedSection === 'join' ? 'ride-chip--dark' : ''}}"
-          bindtap="onToggleSection"
-          data-key="join"
-          hover-class="ride-pressed"
-          hover-stay-time="80"
-        >{{expandedSection === 'join' ? '收起' : '全部'}}</view>
+          <view
+            wx:if="{{joinTrips.length > 0}}"
+            class="ride-chip home-toggle-chip {{expandedSection === 'join' ? 'home-toggle-chip--close' : 'home-toggle-chip--open'}}"
+            bindtap="onToggleSection"
+            data-key="join"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >{{expandedSection === 'join' ? '收起' : '展开'}}</view>
       </view>
 
       <view class="home-trip-list {{expandedSection === 'join' ? 'home-trip-list--open' : ''}}">
@@ -151,20 +153,20 @@
             <view class="ride-list-head">
               <view class="home-kind-row">
                 <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车路线' : '拼车路线'}}</text>
-                <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text>
+                <!-- <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text> -->
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
               </view>
-              <text class="ride-list-time">时间 {{item._timeLabel || '待定'}}</text>
+              <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
             </view>
             <view class="home-route-inline">
               <view class="home-route-main">
                 <view class="home-route-place">
-                  <text class="ride-route-label">出发</text>
+                  <!-- <text class="ride-route-label">出发</text> -->
                   <text class="ride-route-name">{{item._fromAddress}}</text>
                 </view>
                 <text class="home-route-arrow">→</text>
                 <view class="home-route-place">
-                  <text class="ride-route-label">到达</text>
+                  <!-- <text class="ride-route-label">到达</text> -->
                   <text class="ride-route-name">{{item._toAddress}}</text>
                 </view>
               </view>
@@ -198,7 +200,7 @@
       </view>
     </view>
 
-    <text class="home-refresh-tip">下拉同步路线</text>
+    <text class="home-refresh-tip">下拉刷新</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
   <app-tabbar active="home" market-badge="{{customTabMarketBadge}}" profile-badge="{{customTabProfileBadge}}"></app-tabbar>

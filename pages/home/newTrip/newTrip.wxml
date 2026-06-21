@@ -25,8 +25,7 @@
     <block wx:if="{{mode==='driver'}}">
       <view class="ride-card ride-card-pad create-route-card">
         <view class="create-card-head">
-          <text class="ride-section-title">路线</text>
-          <text class="ride-section-subtitle">选择出发、到达和发车时间</text>
+          <text class="ride-section-title">请选择起始地和时间</text>
         </view>
 
         <view class="ride-form-grid">
@@ -55,7 +54,7 @@
             <view class="ride-field">
               <text class="ride-field-label">目的地</text>
               <text class="ride-field-value {{destinationAddress ? '' : 'ride-placeholder'}}">
-                {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择到达') }}
+                {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择目的地') }}
               </text>
             </view>
           </picker>
@@ -105,24 +104,24 @@
               class="ride-input"
               value="{{referencePrice}}"
               bindinput="onReferencePriceInput"
-              placeholder="例如: 10 / 11-13$ / 价格私议"
+              placeholder="请填写每一位乘客支付的美元价格或“价格私议”"
               placeholder-class="ride-placeholder"
             />
           </view>
 
           <view class="ride-field">
             <text class="ride-field-label">车牌号</text>
-            <input class="ride-input" value="{{carNumber}}" bindinput="onCarNumberInput" placeholder="车牌" placeholder-class="ride-placeholder" />
+            <input class="ride-input" value="{{carNumber}}" bindinput="onCarNumberInput" />
           </view>
 
           <view class="ride-field">
             <text class="ride-field-label">车辆品牌</text>
-            <input class="ride-input" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="Toyota" placeholder-class="ride-placeholder" />
+            <input class="ride-input" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="如 Toyota" placeholder-class="ride-placeholder" />
           </view>
 
           <view class="ride-field ride-field--full">
             <text class="ride-field-label">车辆型号</text>
-            <input class="ride-input" value="{{carModel}}" bindinput="onCarModelInput" placeholder="RAV4 / Civic" placeholder-class="ride-placeholder" />
+            <input class="ride-input" value="{{carModel}}" bindinput="onCarModelInput" placeholder="如 RAV4 / Civic" placeholder-class="ride-placeholder" />
           </view>
 
           <view class="ride-field ride-field--full create-textarea-field">

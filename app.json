@@ -3,6 +3,7 @@
     "pages/home/home",
     "pages/other/login/login",
     "pages/other/privacy/privacy",
+    "pages/other/webview/webview",
     "pages/profile/profile",
     "pages/home/newTrip/newTrip",
     "pages/home/requestDetail/requestDetail",

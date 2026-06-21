@@ -93,3 +93,105 @@ The expected API behavior:
 - `marketApi` `detail` returns `leaseText`, `depositText`, `subletMetaList`, and `/月` display helpers.
 - `marketApi` `myList` and `sellerList` filter by `listingType`.
 - `marketApi` `delete` removes the document and marks attached `MarketFiles` deleted.
+
+## `market_ads` Fields
+
+Market feed ads are independent from `market_goods`. Goods and sublets share the
+same `market_ads` pool and card style. The mini program reads ads through
+`marketApi` action `listAds`, caches them locally, then inserts at most one ad
+card into the rendered feed. Ads do not have a detail page.
+
+Recommended fields:
+
+- `status`: `online` to show; any other value is ignored.
+- `placement`: currently `market_feed`.
+- `title`: card title.
+- `subtitle`: optional internal/admin note or future second line.
+- `badgeText`: defaults to `广告`.
+- `ctaText`: defaults to `查看`.
+- `imageFileID`: cloud storage file ID for the main creative.
+- `thumbFileID`: optional cloud storage file ID for a smaller creative.
+- `imageUrl`: optional direct image URL fallback.
+- `targetType`: `page`, `tab`, `miniProgram`, `web`, `copy`, `contact`,
+  `serviceChat`, `copyWechat`, or `none`.
+- `targetPath`: mini program page path, tab path, or mini-program path.
+- `targetUrl`: external URL. The client opens it through
+  `pages/other/webview/webview`; the URL domain must be configured as a WeChat
+  mini program business domain.
+- `targetAppId`: target mini program appId when `targetType` is `miniProgram`.
+- `targetExtraData`: optional object passed to `wx.navigateToMiniProgram`.
+- `contactSessionFrom`: optional source string for `targetType: "contact"`.
+- `contactMessageTitle`, `contactMessagePath`, `contactMessageImg`,
+  `showMessageCard`: optional mini program customer service message card fields.
+- `serviceCorpId`, `serviceUrl`: required by `targetType: "serviceChat"` to
+  open WeChat/WeCom customer service through `wx.openCustomerServiceChat`.
+- `wechatId` or `targetWechat`: copied to clipboard by
+  `targetType: "copyWechat"`. Mini programs cannot directly open an arbitrary
+  personal WeChat account; use `contact`/`serviceChat` for official customer
+  service, or `copyWechat` as the personal-WeChat fallback.
+- `weight`: positive number for weighted random selection. Default `1`.
+- `priority`: number used to sort candidate ads before weighted selection.
+- `startAtMs`, `endAtMs`: optional millisecond timestamps for schedule windows.
+- `createTime`, `updateTime`: server dates.
+
+Ad image storage paths:
+
+- `market_ad/`: main creative images.
+- `market_ad_thumb/`: optional smaller creative images.
+
+Optional file library collection:
+
+- `MarketAdFiles`: reserve this collection if an admin uploader is added later.
+  Suggested fields are `fileID`, `adId`, `type`, `folder`, `status`,
+  `_openid`, `createdAt`, `updatedAt`, `createdAtMs`, and `updatedAtMs`.
+
+Click analytics:
+
+- `market_ad_events` receives one document for each click through `marketApi`
+  action `trackAdClick`.
+- It stores `adId`, `type: "click"`, `placement`, `listingType`, `_openid`,
+  `createTime`, and `createTimeMs`.
+
+Recommended indexes:
+
+- `market_ads`: `status ASC, priority DESC, updateTime DESC`.
+- `market_ad_events`: `adId ASC, type ASC, createTimeMs DESC`.
+- `market_ad_events`: `_openid ASC, createTimeMs DESC`.
+
+Example ad document:
+
+```json
+{
+  "status": "online",
+  "placement": "market_feed",
+  "title": "校园搬家优惠",
+  "badgeText": "广告",
+  "ctaText": "查看",
+  "imageFileID": "cloud://env-id.xxx/market_ad/example.jpg",
+  "targetType": "contact",
+  "contactSessionFrom": "market_ad_moving",
+  "contactMessageTitle": "校园搬家优惠",
+  "contactMessagePath": "/pages/market/market",
+  "showMessageCard": true,
+  "weight": 1,
+  "priority": 10,
+  "createTime": "serverDate",
+  "updateTime": "serverDate"
+}
+```
+
+Personal WeChat fallback:
+
+```json
+{
+  "status": "online",
+  "placement": "market_feed",
+  "title": "校园搬家优惠",
+  "badgeText": "广告",
+  "ctaText": "复制微信",
+  "imageFileID": "cloud://env-id.xxx/market_ad/example.jpg",
+  "targetType": "copyWechat",
+  "wechatId": "hotcatplus",
+  "weight": 1
+}
+```

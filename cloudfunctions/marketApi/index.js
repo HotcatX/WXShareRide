@@ -7,16 +7,21 @@ const _ = db.command
 
 const GOODS_COLLECTION = "market_goods"
 const FILES_COLLECTION = "MarketFiles"
+const ADS_COLLECTION = "market_ads"
+const AD_EVENTS_COLLECTION = "market_ad_events"
 const USER_COLLECTION = "userInfo"
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 50
+const AD_DEFAULT_LIMIT = 20
+const AD_MAX_LIMIT = 50
 const DISTANCE_SORT_BATCH_SIZE = 100
 const DISTANCE_SORT_SCAN_LIMIT = 2000
 const VISIBLE_STATUSES = new Set(["", "online"])
 const MUTABLE_STATUSES = new Set(["online", "offline", "sold"])
 const LISTING_TYPES = new Set(["goods", "sublet"])
+const AD_TARGET_TYPES = new Set(["page", "tab", "miniProgram", "web", "copy", "contact", "serviceChat", "copyWechat", "none"])
 
 const LIST_FIELDS = {
   _id: true,
@@ -57,6 +62,42 @@ const LIST_FIELDS = {
   roommateCount: true
 }
 
+const AD_FIELDS = {
+  _id: true,
+  status: true,
+  placement: true,
+  title: true,
+  subtitle: true,
+  badgeText: true,
+  ctaText: true,
+  imageFileID: true,
+  thumbFileID: true,
+  imageUrl: true,
+  targetType: true,
+  targetPath: true,
+  targetUrl: true,
+  targetAppId: true,
+  targetExtraData: true,
+  contactSessionFrom: true,
+  contactMessageTitle: true,
+  contactMessagePath: true,
+  contactMessageImg: true,
+  showMessageCard: true,
+  serviceCorpId: true,
+  serviceUrl: true,
+  wechatId: true,
+  targetWechat: true,
+  target: true,
+  weight: true,
+  priority: true,
+  startAt: true,
+  endAt: true,
+  startAtMs: true,
+  endAtMs: true,
+  createTime: true,
+  updateTime: true
+}
+
 function ok(data = {}) {
   return { ok: true, ...data }
 }
@@ -88,6 +129,17 @@ function getEventListingType(event = {}) {
 function normalizeFileID(fileID) {
   const value = normalizeText(fileID)
   return value.startsWith("cloud://") ? value : ""
+}
+
+function normalizeTargetType(value) {
+  const raw = normalizeText(value)
+  if (AD_TARGET_TYPES.has(raw)) return raw
+  const lower = raw.toLowerCase()
+  if (lower === "miniprogram") return "miniProgram"
+  if (["servicechat", "customerservice", "wecom", "wechatservice"].includes(lower)) return "serviceChat"
+  if (["wechat", "copywechat"].includes(lower)) return "copyWechat"
+  if (AD_TARGET_TYPES.has(lower)) return lower
+  return "page"
 }
 
 function uniqFileIDs(fileIDs) {
@@ -166,6 +218,14 @@ function timestampMs(value) {
     return Number.isFinite(n) ? n : 0
   }
   return 0
+}
+
+function isTimeWindowActive(item = {}, nowMs = Date.now()) {
+  const startAtMs = Number(item.startAtMs) || timestampMs(item.startAt)
+  const endAtMs = Number(item.endAtMs) || timestampMs(item.endAt)
+  if (startAtMs && nowMs < startAtMs) return false
+  if (endAtMs && nowMs > endAtMs) return false
+  return true
 }
 
 function getDistanceSortOrigin(event = {}) {
@@ -548,6 +608,49 @@ function normalizeMarketItem(item = {}) {
   }
 }
 
+function normalizeMarketAd(ad = {}) {
+  const target = ad.target && typeof ad.target === "object" ? ad.target : {}
+  const targetType = normalizeTargetType(ad.targetType || target.type)
+  const title = normalizeText(ad.title) || "校园推荐"
+  const subtitle = normalizeText(ad.subtitle || ad.desc)
+  const thumbFileID = normalizeFileID(ad.thumbFileID)
+  const imageFileID = normalizeFileID(ad.imageFileID)
+  return {
+    _id: ad._id,
+    id: ad._id,
+    status: normalizeText(ad.status) || "online",
+    placement: normalizeText(ad.placement || "market_feed"),
+    title,
+    subtitle,
+    badgeText: normalizeText(ad.badgeText) || "广告",
+    ctaText: normalizeText(ad.ctaText) || "查看",
+    imageFileID,
+    thumbFileID,
+    imageUrl: normalizeText(ad.imageUrl),
+    targetType,
+    targetPath: normalizeText(ad.targetPath || target.path),
+    targetUrl: normalizeText(ad.targetUrl || target.url),
+    targetAppId: normalizeText(ad.targetAppId || target.appId),
+    targetExtraData: ad.targetExtraData || target.extraData || {},
+    contactSessionFrom: normalizeText(ad.contactSessionFrom || target.sessionFrom),
+    contactMessageTitle: normalizeText(ad.contactMessageTitle || target.messageTitle || title),
+    contactMessagePath: normalizeText(ad.contactMessagePath || target.messagePath || target.path),
+    contactMessageImg: normalizeText(ad.contactMessageImg || target.messageImg || ad.imageUrl),
+    showMessageCard: ad.showMessageCard !== false,
+    serviceCorpId: normalizeText(ad.serviceCorpId || target.corpId),
+    serviceUrl: normalizeText(ad.serviceUrl || target.serviceUrl || target.url),
+    wechatId: normalizeText(ad.wechatId || ad.targetWechat || target.wechatId || target.wechat),
+    weight: Math.max(1, Number(ad.weight) || 1),
+    priority: Number(ad.priority) || 0,
+    startAtMs: Number(ad.startAtMs) || timestampMs(ad.startAt),
+    endAtMs: Number(ad.endAtMs) || timestampMs(ad.endAt),
+    createTime: ad.createTime || null,
+    updateTime: ad.updateTime || null,
+    imageSrc: normalizeText(ad.imageUrl) || imageFileID || thumbFileID || "/images/market.png",
+    hasImage: !!(ad.imageUrl || imageFileID || thumbFileID)
+  }
+}
+
 function primaryFileID(item = {}) {
   return item.thumbFileID || item.imageFileID || (Array.isArray(item.thumbFileIDs) ? item.thumbFileIDs[0] : "") || (Array.isArray(item.imageFileIDs) ? item.imageFileIDs[0] : "")
 }
@@ -589,6 +692,37 @@ async function enrichImageUrls(items, options = {}) {
       imageSrc,
       imageUrl: imageUrls[0] || imageSrc,
       imageUrls
+    }
+  })
+}
+
+async function enrichAdImageUrls(ads) {
+  const list = (Array.isArray(ads) ? ads : []).map(normalizeMarketAd)
+  const fileIDs = Array.from(new Set(
+    list
+      .map(ad => ad.thumbFileID || ad.imageFileID)
+      .filter(Boolean)
+  ))
+  const urlMap = {}
+  for (let i = 0; i < fileIDs.length; i += 50) {
+    const chunk = fileIDs.slice(i, i + 50)
+    try {
+      const res = await cloud.getTempFileURL({ fileList: chunk })
+      ;(res.fileList || []).forEach(row => {
+        if (row.fileID && row.tempFileURL) urlMap[row.fileID] = row.tempFileURL
+      })
+    } catch (e) {
+      console.error("[marketApi] get ad tempFileURL failed:", e)
+    }
+  }
+  return list.map(ad => {
+    const key = ad.thumbFileID || ad.imageFileID
+    const imageSrc = ad.imageUrl || (key && urlMap[key]) || ad.imageSrc
+    return {
+      ...ad,
+      thumbUrl: key ? (urlMap[key] || "") : "",
+      imageSrc,
+      hasImage: !!imageSrc
     }
   })
 }
@@ -979,6 +1113,56 @@ async function sellerList(event) {
   return ok({ ...result, items: visible, data: visible, hasMore: result.hasMore })
 }
 
+async function listAds(event = {}) {
+  const placement = normalizeText(event.placement || "market_feed")
+  const limit = Math.min(AD_MAX_LIMIT, Math.max(1, Number(event.limit) || AD_DEFAULT_LIMIT))
+  const nowMs = Date.now()
+
+  try {
+    let query = db.collection(ADS_COLLECTION).where({ status: "online" })
+    if (typeof query.field === "function") query = query.field(AD_FIELDS)
+    const res = await query.limit(limit).get()
+    const rows = (res.data || [])
+      .map(normalizeMarketAd)
+      .filter(ad => {
+        if (ad.status !== "online") return false
+        if (ad.placement && ad.placement !== placement) return false
+        return isTimeWindowActive(ad, nowMs)
+      })
+      .sort((a, b) => {
+        if (b.priority !== a.priority) return b.priority - a.priority
+        return timestampMs(b.updateTime || b.createTime) - timestampMs(a.updateTime || a.createTime)
+      })
+
+    const ads = await enrichAdImageUrls(rows)
+    return ok({ ads, data: ads, placement })
+  } catch (e) {
+    console.error("[marketApi] listAds failed:", e)
+    return ok({ ads: [], data: [], placement, warning: "ads_unavailable" })
+  }
+}
+
+async function trackAdClick(event = {}, openid = "") {
+  const adId = normalizeText(event.adId || event.id)
+  if (!adId) return fail("missing_ad_id")
+  const data = {
+    adId,
+    type: "click",
+    placement: normalizeText(event.placement || "market_feed"),
+    listingType: getEventListingType(event),
+    _openid: openid || "",
+    createTime: db.serverDate(),
+    createTimeMs: Date.now()
+  }
+  try {
+    await db.collection(AD_EVENTS_COLLECTION).add({ data })
+    return ok({ recorded: true })
+  } catch (e) {
+    console.error("[marketApi] trackAdClick failed:", e)
+    return ok({ recorded: false, warning: "ad_click_untracked" })
+  }
+}
+
 async function getWechatMap(openids) {
   const uniq = Array.from(new Set((openids || []).filter(Boolean)))
   const map = {}
@@ -1049,6 +1233,8 @@ exports.main = async (event = {}) => {
     if (action === "myList") return myList(event, OPENID)
     if (action === "sellerList") return sellerList(event)
     if (action === "tradeList") return tradeList(event, OPENID)
+    if (action === "listAds") return listAds(event)
+    if (action === "trackAdClick") return trackAdClick(event, OPENID)
     if (action === "create") return createItem(event, OPENID)
     if (action === "update") return updateItem(event, OPENID)
     if (action === "delete") return deleteItem(event, OPENID)

@@ -38,11 +38,16 @@ const LISTING_TYPE_CONFIG = {
 // ====== Performance / Cache ======
 const GOODS_CACHE_KEY_PREFIX = "market_goods_list_cache_v5"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
+const MARKET_AD_CACHE_KEY_PREFIX = "market_ads_cache_v1"
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内切换类型只用缓存，不再打云函数
+const MARKET_AD_CACHE_FRESH_MS = 10 * 60 * 1000
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
 const FIRST_PAGE_FETCH_COOLDOWN_MS = 8 * 1000      // 同一筛选条件短时间防重复请求
+const MARKET_AD_MIN_GOODS = 3
+const MARKET_AD_INSERT_MIN_INDEX = 2
+const MARKET_AD_INSERT_MAX_INDEX = 5
 
 function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
@@ -54,6 +59,25 @@ function getListingTypeConfig(type) {
 
 function getGoodsCacheKey(type) {
   return `${GOODS_CACHE_KEY_PREFIX}_${normalizeListingType(type)}`
+}
+
+function getMarketAdCacheKey() {
+  return MARKET_AD_CACHE_KEY_PREFIX
+}
+
+function hashString(value) {
+  const text = String(value || "")
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function seededUnit(seed) {
+  const x = Math.sin(hashString(seed) || 1) * 10000
+  return x - Math.floor(x)
 }
 
 function normalizeCoordKey(location = {}) {
@@ -72,6 +96,17 @@ function buildListQueryKey(filters = {}, sort = {}) {
     String(sort.by || ""),
     normalizeCoordKey(sort.origin || {})
   ].join("|")
+}
+
+function normalizeAdTargetType(value) {
+  const raw = String(value || "").trim()
+  const lower = raw.toLowerCase()
+  if (!raw) return "page"
+  if (lower === "miniprogram") return "miniProgram"
+  if (["servicechat", "customerservice", "wecom", "wechatservice"].includes(lower)) return "serviceChat"
+  if (["wechat", "copywechat"].includes(lower)) return "copyWechat"
+  if (["page", "tab", "web", "copy", "contact", "none"].includes(lower)) return lower
+  return raw
 }
 
 function getStoredListingType() {
@@ -185,6 +220,39 @@ function buildMarketListFlags(state = {}) {
   }
 }
 
+function normalizeMarketAd(ad = {}) {
+  const target = ad.target && typeof ad.target === "object" ? ad.target : {}
+  const id = String(ad.id || ad._id || "").trim()
+  const title = String(ad.title || "").trim() || "校园推荐"
+  return {
+    ...ad,
+    id,
+    _feedKey: `ad_${id || hashString(title + (ad.imageSrc || ""))}`,
+    isAd: true,
+    title,
+    subtitle: String(ad.subtitle || "").trim(),
+    badgeText: String(ad.badgeText || "广告").trim() || "广告",
+    ctaText: String(ad.ctaText || "查看").trim() || "查看",
+    imageSrc: ad.imageSrc || ad.imageUrl || "/images/market.png",
+    hasImage: !!(ad.imageSrc || ad.imageUrl || ad.imageFileID || ad.thumbFileID),
+    targetType: normalizeAdTargetType(ad.targetType || target.type),
+    targetPath: String(ad.targetPath || target.path || "").trim(),
+    targetUrl: String(ad.targetUrl || target.url || "").trim(),
+    targetAppId: String(ad.targetAppId || target.appId || "").trim(),
+    targetExtraData: ad.targetExtraData || target.extraData || {},
+    contactSessionFrom: String(ad.contactSessionFrom || target.sessionFrom || "").trim(),
+    contactMessageTitle: String(ad.contactMessageTitle || target.messageTitle || title).trim(),
+    contactMessagePath: String(ad.contactMessagePath || target.messagePath || target.path || "/pages/market/market").trim(),
+    contactMessageImg: String(ad.contactMessageImg || target.messageImg || ad.imageSrc || ad.imageUrl || "").trim(),
+    showMessageCard: ad.showMessageCard !== false,
+    serviceCorpId: String(ad.serviceCorpId || target.corpId || "").trim(),
+    serviceUrl: String(ad.serviceUrl || target.serviceUrl || target.url || "").trim(),
+    wechatId: String(ad.wechatId || ad.targetWechat || target.wechatId || target.wechat || "").trim(),
+    weight: Math.max(1, Number(ad.weight) || 1),
+    priority: Number(ad.priority) || 0
+  }
+}
+
 function getMarketApiResult(res) {
   const result = res && res.result
   if (!result || result.ok === false) {
@@ -238,6 +306,8 @@ Page({
     allGoods: [],
     filteredGoods: [],
     displayGoods: [],
+    displayFeed: [],
+    marketAds: [],
     hasDisplayGoods: false,
     showSkeleton: false,
     showEmpty: false,
@@ -307,6 +377,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true,
@@ -363,6 +434,7 @@ Page({
     if (!cacheState.restored || !cacheState.isFresh) {
       this._fetchFirstPage({ reason: "switchType" })
     }
+    this._loadMarketAds()
   },
 
   onShareAppMessage() {
@@ -463,6 +535,7 @@ Page({
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._marketBootstrapped = false
     this._userSortTouched = false
+    this._marketAdSessionSeed = `${Date.now()}_${Math.random().toString(16).slice(2)}`
 
     this._runAfterFirstPaint(() => {
       this._bootstrapMarketData(initialCategory, initialRegion, initialType)
@@ -509,6 +582,7 @@ Page({
 
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
+    this._loadMarketAds()
 
     if (!cacheState.restored || !cacheState.isFresh) {
       this._maybeRefreshGoods(!cacheState.restored)
@@ -518,7 +592,10 @@ Page({
   onPullDownRefresh() {
     // 下拉刷新：强制重新拉第一页（按当前筛选条件）
     Promise.resolve()
-      .then(() => this._fetchFirstPage({ force: true, reason: "pullDown" }))
+      .then(() => Promise.all([
+        this._fetchFirstPage({ force: true, reason: "pullDown" }),
+        this._loadMarketAds({ force: true })
+      ]))
       .catch(() => {})
       .finally(() => {
         try { wx.stopPullDownRefresh() } catch (e) {}
@@ -536,6 +613,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true
@@ -550,6 +628,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true
@@ -569,6 +648,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true
@@ -586,6 +666,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true
@@ -605,10 +686,22 @@ Page({
     this._switchListingType(type)
   },
 
-  onTapItem(e) {
-    const id = e.currentTarget.dataset.id
+  onTapFeedItem(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const item = (this.data.displayFeed || [])[index]
+    if (item && item.isAd) {
+      this._openMarketAd(item)
+      return
+    }
+    const id = (item && item.id) || e.currentTarget.dataset.id
     if (!id) return
     wx.navigateTo({ url: `/pages/market/marketDetail/marketDetail?id=${id}` })
+  },
+
+  onTapAdContact(e) {
+    const index = Number(e.currentTarget.dataset.index)
+    const item = (this.data.displayFeed || [])[index]
+    if (item && item.isAd) this._trackMarketAdClick(item)
   },
 
   onSellIdle() {
@@ -754,6 +847,7 @@ Page({
       allGoods: [],
       filteredGoods: [],
       displayGoods: [],
+      displayFeed: [],
       cloudSkip: 0,
       cloudHasMore: true,
       canViewMore: true
@@ -819,6 +913,226 @@ Page({
       distanceMiles: miles,
       distanceText: formatDistanceText(miles)
     }
+  },
+
+  _getAdSeedBase(goods = []) {
+    const firstIds = goods.slice(0, 8).map(item => item.id || "").join(",")
+    return [
+      this._marketAdSessionSeed || "",
+      this.data.activeListingType,
+      this.data.activeCategory,
+      this.data.activeRegion,
+      this.data.keyword,
+      firstIds
+    ].join("|")
+  },
+
+  _pickMarketAd(ads = [], goods = []) {
+    const list = (Array.isArray(ads) ? ads : []).map(normalizeMarketAd).filter(ad => ad.id)
+    if (!list.length || goods.length < MARKET_AD_MIN_GOODS) return null
+
+    const totalWeight = list.reduce((sum, ad) => sum + Math.max(1, Number(ad.weight) || 1), 0)
+    if (!totalWeight) return list[0]
+    let cursor = seededUnit(`${this._getAdSeedBase(goods)}|ad`) * totalWeight
+    for (let i = 0; i < list.length; i += 1) {
+      cursor -= Math.max(1, Number(list[i].weight) || 1)
+      if (cursor <= 0) return list[i]
+    }
+    return list[list.length - 1]
+  },
+
+  _pickMarketAdSlot(goodsLength, goods = [], ad = {}) {
+    if (goodsLength < MARKET_AD_MIN_GOODS) return -1
+    const min = Math.min(MARKET_AD_INSERT_MIN_INDEX, goodsLength)
+    const max = Math.min(MARKET_AD_INSERT_MAX_INDEX, goodsLength)
+    if (max <= min) return min
+    const offset = Math.floor(seededUnit(`${this._getAdSeedBase(goods)}|slot|${ad.id || ""}`) * (max - min + 1))
+    return min + offset
+  },
+
+  _buildDisplayFeed(goods = this.data.displayGoods, ads = this.data.marketAds) {
+    const list = (Array.isArray(goods) ? goods : []).map(item => ({
+      ...item,
+      isAd: false,
+      _feedKey: `goods_${item.id || item._id || hashString(item.title || "")}`
+    }))
+    const ad = this._pickMarketAd(ads, list)
+    if (!ad) return list
+
+    const slot = this._pickMarketAdSlot(list.length, list, ad)
+    if (slot < 0) return list
+    const next = list.slice()
+    next.splice(slot, 0, normalizeMarketAd(ad))
+    return next
+  },
+
+  _applyDisplayFeed(displayGoods = this.data.displayGoods, marketAds = this.data.marketAds) {
+    this.setData({
+      displayFeed: this._buildDisplayFeed(displayGoods, marketAds)
+    })
+  },
+
+  _restoreMarketAdsFromCache() {
+    try {
+      const cached = wx.getStorageSync(getMarketAdCacheKey())
+      if (!cached || !cached.ts || !Array.isArray(cached.ads)) return { restored: false, isFresh: false }
+      const age = Date.now() - cached.ts
+      if (age > GOODS_CACHE_MAX_STALE_MS) return { restored: false, isFresh: false }
+      const ads = cached.ads.map(normalizeMarketAd).filter(ad => ad.id)
+      this.setData({
+        marketAds: ads,
+        displayFeed: this._buildDisplayFeed(this.data.displayGoods, ads)
+      })
+      return { restored: true, isFresh: age <= MARKET_AD_CACHE_FRESH_MS }
+    } catch (e) {
+      return { restored: false, isFresh: false }
+    }
+  },
+
+  _saveMarketAdsToCache(ads = []) {
+    try {
+      wx.setStorageSync(getMarketAdCacheKey(), {
+        ts: Date.now(),
+        ads
+      })
+    } catch (e) {}
+  },
+
+  async _loadMarketAds(options = {}) {
+    const cacheState = this._restoreMarketAdsFromCache()
+    if (cacheState.restored && cacheState.isFresh && !options.force) return
+    if (!cacheState.restored) {
+      this.setData({
+        marketAds: [],
+        displayFeed: this._buildDisplayFeed(this.data.displayGoods, [])
+      })
+    }
+
+    const requestKey = "market_feed"
+    if (this._marketAdsInFlightKey === requestKey) return
+    this._marketAdsInFlightKey = requestKey
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: {
+          action: "listAds",
+          placement: "market_feed",
+          limit: 20
+        }
+      })
+      const result = getMarketApiResult(res)
+      const ads = (result.ads || result.data || []).map(normalizeMarketAd).filter(ad => ad.id)
+      this._saveMarketAdsToCache(ads)
+      this.setData({
+        marketAds: ads,
+        displayFeed: this._buildDisplayFeed(this.data.displayGoods, ads)
+      })
+    } catch (e) {
+      console.warn("[market] load ads failed:", e)
+      if (!cacheState.restored) this._applyDisplayFeed()
+    } finally {
+      if (this._marketAdsInFlightKey === requestKey) this._marketAdsInFlightKey = ""
+    }
+  },
+
+  _trackMarketAdClick(ad = {}) {
+    if (!ad.id) return
+    wx.cloud.callFunction({
+      name: "marketApi",
+      data: {
+        action: "trackAdClick",
+        adId: ad.id,
+        placement: "market_feed",
+        listingType: this.data.activeListingType
+      }
+    }).catch(() => {})
+  },
+
+  _openMarketAd(ad = {}) {
+    const targetType = String(ad.targetType || "page").trim()
+    const targetPath = String(ad.targetPath || "").trim()
+    const targetUrl = String(ad.targetUrl || "").trim()
+    this._trackMarketAdClick(ad)
+
+    if (targetType === "none") return
+
+    if (targetType === "contact") return
+
+    if (targetType === "miniProgram" && ad.targetAppId) {
+      wx.navigateToMiniProgram({
+        appId: ad.targetAppId,
+        path: targetPath || "",
+        extraData: ad.targetExtraData || {},
+        fail: () => wx.showToast({ title: "暂时无法打开广告", icon: "none" })
+      })
+      return
+    }
+
+    if (targetType === "tab" && targetPath) {
+      wx.switchTab({ url: targetPath })
+      return
+    }
+
+    if (targetType === "serviceChat") {
+      const serviceUrl = String(ad.serviceUrl || targetUrl || "").trim()
+      const corpId = String(ad.serviceCorpId || ad.targetAppId || "").trim()
+      if (!corpId || !serviceUrl || typeof wx.openCustomerServiceChat !== "function") {
+        wx.showToast({ title: "暂时无法打开客服", icon: "none" })
+        return
+      }
+      wx.openCustomerServiceChat({
+        corpId,
+        extInfo: { url: serviceUrl },
+        showMessageCard: !!ad.showMessageCard,
+        sendMessageTitle: ad.contactMessageTitle || ad.title || "校园推荐",
+        sendMessagePath: ad.contactMessagePath || "/pages/market/market",
+        sendMessageImg: ad.contactMessageImg || ad.imageSrc || "",
+        fail: () => wx.showToast({ title: "暂时无法打开客服", icon: "none" })
+      })
+      return
+    }
+
+    if (targetType === "copyWechat") {
+      const wechatId = String(ad.wechatId || targetUrl || "").trim()
+      if (!wechatId) {
+        wx.showToast({ title: "广告暂未配置微信号", icon: "none" })
+        return
+      }
+      wx.setClipboardData({
+        data: wechatId,
+        success: () => wx.showToast({ title: "微信号已复制", icon: "none" })
+      })
+      return
+    }
+
+    if ((targetType === "web" || /^https?:\/\//i.test(targetUrl)) && targetUrl) {
+      wx.navigateTo({
+        url: `/pages/other/webview/webview?url=${encodeURIComponent(targetUrl)}`,
+        fail: () => wx.setClipboardData({
+          data: targetUrl,
+          success: () => wx.showToast({ title: "链接已复制", icon: "none" })
+        })
+      })
+      return
+    }
+
+    if (targetType === "copy" && targetUrl) {
+      wx.setClipboardData({
+        data: targetUrl,
+        success: () => wx.showToast({ title: "链接已复制", icon: "none" })
+      })
+      return
+    }
+
+    if (targetPath) {
+      wx.navigateTo({
+        url: targetPath,
+        fail: () => wx.showToast({ title: "暂时无法打开广告", icon: "none" })
+      })
+      return
+    }
+
+    wx.showToast({ title: "广告暂未配置跳转", icon: "none" })
   },
 
   async _loadMyLocationFromProfile(options = {}) {
@@ -975,9 +1289,10 @@ Page({
     }
   },
 
-  async _fetchNextPage(resetPagingAfterAppend = false) {
-    if (!this.data.cloudHasMore) return
-    if (this.data.isLoadingGoods) return
+  async _fetchNextPage(resetPagingAfterAppend = false, options = {}) {
+    if (!this.data.cloudHasMore) return false
+    if (this.data.isLoadingGoods) return false
+    const minDisplayCount = Math.max(0, Number(options.minDisplayCount) || 0)
     const filters = {
       listingType: this.data.activeListingType,
       category: this.data.activeCategory,
@@ -1014,7 +1329,7 @@ Page({
         region: this.data.activeRegion,
         keyword: this.data.keyword
       }, this._buildListSort())
-      if (currentKey !== requestKey) return
+      if (currentKey !== requestKey) return false
 
       const rawBatch = result.items || result.data || []
       const batch = rawBatch.filter(x => this._isVisibleMarketDoc(x)).map(x => this._mapDocToGood(x))
@@ -1036,10 +1351,12 @@ Page({
       }
 
       this.initRegionsFromGoods()
-      this.applyFilters(resetPagingAfterAppend)
+      this.applyFilters(resetPagingAfterAppend, { minDisplayCount })
+      return true
     } catch (e) {
       console.error(e)
       showDataError("市场加载失败", e, "市场列表从数据库加载失败，请稍后重试。")
+      return false
     } finally {
       if (this._activeGoodsRequestToken === requestToken) {
         this._activeGoodsRequestToken = ""
@@ -1076,8 +1393,10 @@ Page({
 
     const next = filtered.slice(0, nextLen)
     const nextCanViewMore = next.length < filtered.length || !!this.data.cloudHasMore
+    const nextFeed = this._buildDisplayFeed(next, this.data.marketAds)
     this.setData({
       displayGoods: next,
+      displayFeed: nextFeed,
       canViewMore: nextCanViewMore,
       ...buildMarketListFlags({
         ...this.data,
@@ -1088,7 +1407,7 @@ Page({
 
     // 如果本地不够了，继续拉云端
     if (next.length >= filtered.length - 2) {
-      this._fetchNextPage()
+      this._fetchNextPage(false, { minDisplayCount: nextLen })
     }
   },
 
@@ -1104,8 +1423,9 @@ Page({
   },
 
   // ====== 展示侧过滤/排序（云端已筛选，这里只做排序 + 前端切片）======
-  applyFilters(resetPaging = false) {
+  applyFilters(resetPaging = false, options = {}) {
     const { allGoods, pageSize } = this.data
+    const minDisplayCount = Math.max(0, Number(options.minDisplayCount) || 0)
 
     const filtered = [...(allGoods || [])]
 
@@ -1144,18 +1464,22 @@ Page({
     let display
     let canViewMore
     if (resetPaging) {
-      display = filtered.slice(0, pageSize)
-      canViewMore = filtered.length > pageSize
+      const targetCount = Math.max(pageSize, minDisplayCount)
+      display = filtered.slice(0, targetCount)
+      canViewMore = filtered.length > targetCount
     } else {
       const cur = (this.data.displayGoods || []).length
-      display = filtered.slice(0, cur)
-      canViewMore = filtered.length > cur
+      const targetCount = Math.max(cur, minDisplayCount)
+      display = filtered.slice(0, targetCount)
+      canViewMore = filtered.length > targetCount
     }
 
     const nextCanViewMore = canViewMore || !!this.data.cloudHasMore
+    const displayFeed = this._buildDisplayFeed(display, this.data.marketAds)
     this.setData({
       filteredGoods: filtered,
       displayGoods: display,
+      displayFeed,
       // 既要考虑本地还有没展示的，也要考虑云端还有未拉取的
       canViewMore: nextCanViewMore,
       ...buildMarketListFlags({
@@ -1218,9 +1542,11 @@ Page({
 
     const nextAll = (this.data.allGoods || []).map(attachThumbUrl)
     const nextDisplay = (this.data.displayGoods || []).map(attachThumbUrl)
+    const nextFeed = this._buildDisplayFeed(nextDisplay, this.data.marketAds)
     this.setData({
       allGoods: nextAll,
-      displayGoods: nextDisplay
+      displayGoods: nextDisplay,
+      displayFeed: nextFeed
     })
   },
 

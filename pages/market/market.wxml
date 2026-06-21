@@ -90,12 +90,14 @@
     <view class="goods-grid" wx:if="{{hasDisplayGoods}}">
       <view
         class="goods-card pressable"
-        wx:for="{{displayGoods}}"
-        wx:key="id"
+        wx:for="{{displayFeed}}"
+        wx:key="_feedKey"
+        wx:for-index="index"
         data-id="{{item.id}}"
+        data-index="{{index}}"
         hover-class="card-pressed"
         hover-stay-time="80"
-        bindtap="onTapItem"
+        bindtap="onTapFeedItem"
       >
         <view class="photo-wrap">
           <image
@@ -109,17 +111,33 @@
             <text>{{item.title}}</text>
           </view>
           <view class="corner-stack">
-            <text class="price-badge">$ {{item.priceText}}</text>
-            <text class="condition-badge">{{item.conditionText}}</text>
+            <text wx:if="{{item.isAd}}" class="condition-badge ad-badge">{{item.badgeText}}</text>
+            <block wx:else>
+              <text class="price-badge">$ {{item.priceText}}</text>
+              <text class="condition-badge">{{item.conditionText}}</text>
+            </block>
           </view>
         </view>
 
         <view class="goods-body">
           <view class="goods-title-row">
             <text class="goods-title">{{item.title}}</text>
-            <text wx:if="{{item.distanceText}}" class="distance">{{item.distanceText}}</text>
+            <text wx:if="{{item.isAd}}" class="distance ad-cta">{{item.ctaText}}</text>
+            <text wx:elif="{{item.distanceText}}" class="distance">{{item.distanceText}}</text>
           </view>
         </view>
+        <button
+          wx:if="{{item.isAd && item.targetType === 'contact'}}"
+          class="ad-contact-trigger"
+          open-type="contact"
+          session-from="{{item.contactSessionFrom}}"
+          send-message-title="{{item.contactMessageTitle}}"
+          send-message-path="{{item.contactMessagePath}}"
+          send-message-img="{{item.contactMessageImg}}"
+          show-message-card="{{item.showMessageCard}}"
+          data-index="{{index}}"
+          catchtap="onTapAdContact"
+        ></button>
       </view>
     </view>
 

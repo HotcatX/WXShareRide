@@ -11,86 +11,82 @@ page{
 }
 
 .home-scroll{
-  padding-top: 18rpx;
+  padding-top: 60rpx;
 }
 
 .home-service-grid{
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap: 12rpx;
-  margin-bottom: 22rpx;
-}
-
-.home-service-grid .ride-card + .ride-card{
-  margin-top: 0;
-}
-
-.home-service{
-  height: 176rpx;
-  padding: 18rpx;
-  display: grid;
-  grid-template-rows: 54rpx 36rpx 28rpx;
-  align-content: start;
-  row-gap: 10rpx;
-  box-sizing: border-box;
-}
-
-.home-service-icon-slot,
-.home-service-title-slot,
-.home-service-desc-slot{
-  min-width: 0;
   display: flex;
-  align-items: center;
+  gap: 18rpx;
+  margin-bottom: 72rpx;
+  align-items: stretch;
 }
 
-.home-service-icon{
-  width: 54rpx;
-  height: 54rpx;
-  border-radius: 14rpx;
+.home-service-grid .home-service{
+  flex: 1;
+  width: 0;
+  height: 250rpx;
+  min-height: 250rpx;
+  max-height: 250rpx;
+  margin: 0 !important;
+  padding: 20rpx 16rpx;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: 126rpx 42rpx 30rpx;
+  justify-items: center;
+  align-items: center;
+  text-align: center;
+}
+
+.home-service-icon-slot{
+  width: 100%;
+  height: 126rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32rpx;
-  line-height: 54rpx;
-  font-weight: 900;
 }
 
-.home-service-icon--dark{
-  background: #111418;
-  color: #fff;
+.home-service-title-slot,
+.home-service-desc-slot{
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.home-service-icon--accent{
-  background: rgba(15,155,149,0.12);
-  color: #0f9b95;
+.home-service-icon{
+  width: 92rpx;
+  height: 92rpx;
+  border-radius: 24rpx;
+  font-size: 54rpx;
+  line-height: 92rpx;
+}
+
+.home-service-icon-img{
+  width: 92rpx;
+  height: 92rpx;
+  display: block;
 }
 
 .home-service-title{
-  display: block;
-  max-width: 100%;
-  font-size: 29rpx;
-  line-height: 36rpx;
-  font-weight: 900;
+  margin: 0;
+  font-size: 36rpx;
+  line-height: 40rpx;
+
+  font-weight: 700;
   color: #111418;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+  letter-spacing: 2rpx;
 }
 
 .home-service-desc{
-  display: block;
-  max-width: 100%;
+  margin: 0;
   font-size: 22rpx;
   line-height: 28rpx;
-  font-weight: 800;
-  color: #69727d;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .home-section{
-  margin-top: 24rpx;
+  margin-top: 50rpx;
 }
 
 .home-section-head{
@@ -325,3 +321,54 @@ page{
   font-weight: 800;
   color: #9aa3ad;
 }
+
+/* 价格：黑底白字 */
+.home-price-chip{
+  max-width: 120rpx;
+  height: 38rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  font-size: 21rpx;
+  line-height: 36rpx;
+  font-weight: 900;
+  color: #ffffff;
+  background: #111418;
+  border: 1rpx solid #111418;
+}
+
+/* 展开/收起按钮基础样式 */
+.home-toggle-chip{
+  height: 40rpx;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  line-height: 38rpx;
+  font-weight: 900;
+}
+
+/* 展开：黑底白字 */
+.home-toggle-chip--open{
+  background: #111418;
+  color: #ffffff;
+  border: 1rpx solid #111418;
+}
+
+/* 收起：白底黑字 */
+.home-toggle-chip--close{
+  background: #ffffff;
+  color: #111418;
+  border: 1rpx solid rgba(17,20,24,0.16);
+}
+
+/* 发起路线 */
+.home-service-icon-post{
+  width: 92rpx;
+  height: 92rpx;
+}
+
+/* 加入拼车（放大一点） */
+.home-service-icon-share{
+  width: 110rpx;
+  height: 110rpx;
+}
+

@@ -1,7 +1,15 @@
 <view class="market-detail-page {{item.detailPageClass}}">
   <view class="detail-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="detail-nav">
-      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <view
+        class="ride-back pressable"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        bindtap="onBack"
+      >
+        ‹
+      </view>
+      
       <text class="nav-title">{{detailNavTitle}}</text>
       <view class="nav-spacer"></view>
     </view>

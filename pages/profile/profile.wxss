@@ -104,7 +104,9 @@ page{
 }
 
 .profile-info{
-  margin-top: 16rpx;
+  margin-top: 14rpx;
+  padding-top: 6rpx;
+  padding-bottom: 6rpx;
 }
 
 .profile-info-row {
@@ -112,7 +114,7 @@ page{
   align-items: center;
   justify-content: space-between;
   gap: 18rpx;
-  min-height: 72rpx;
+  min-height: 58rpx;
 }
 
 .profile-info-label {
@@ -220,17 +222,17 @@ page{
   position: relative;
   width: 64rpx;
   height: 64rpx;
-  border-radius: 18rpx;
-  background: #ffffff;
-  box-shadow: 0 8rpx 18rpx rgba(20,23,26,0.06);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .profile-grid-icon{
-  width: 38rpx;
-  height: 38rpx;
+  width: 46rpx;
+  height: 46rpx;
   display: block;
 }
 

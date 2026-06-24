@@ -1,11 +1,20 @@
 <view class="trade-page">
   <view class="trade-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="trade-nav">
-      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
+      <view
+        class="ride-back pressable"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        bindtap="onBack"
+      >
+        ‹
+      </view>
+
       <view class="nav-copy">
         <text class="nav-kicker">Transactions</text>
         <text class="nav-title">{{pageTitle}}</text>
       </view>
+
       <view class="nav-spacer"></view>
     </view>
   </view>

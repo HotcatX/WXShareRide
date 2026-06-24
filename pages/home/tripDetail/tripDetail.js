@@ -565,7 +565,7 @@ Page({
         return
       }
 
-      wx.showToast({ title: '加入出行计划成功', icon: 'success', duration: 2000 })
+      wx.showToast({ title: '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
 
       await this.loadTripDetail(trip._id, { silent: true })

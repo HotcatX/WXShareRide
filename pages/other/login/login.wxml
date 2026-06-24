@@ -28,10 +28,10 @@
         </button>
       </view>
 
-      <view class="login-meta">
+      <!-- <view class="login-meta">
         <view class="login-mini-chip ride-chip">微信同步</view>
         <view class="login-mini-chip ride-chip">游客浏览</view>
-      </view>
+      </view> -->
 
       <view class="privacy-footer">
         <text>继续前请阅读</text>

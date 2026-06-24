@@ -6,12 +6,13 @@ page{
   background: #f4f6f8;
 }
 
+/* 找路线筛选卡片 */
 .list-filter{
-  margin: 0 16rpx 8rpx;
+  margin: 0 28rpx 10rpx;
 }
 
 .list-filter.ride-card-pad{
-  padding: 12rpx 14rpx;
+  padding: 14rpx 16rpx 16rpx;
 }
 
 .list-filter-title-row{
@@ -19,51 +20,68 @@ page{
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
-  margin-bottom: 8rpx;
+  margin-bottom: 12rpx;
 }
 
 .list-filter-title-row .ride-section-title{
-  font-size: 25rpx;
-  line-height: 31rpx;
+  font-size: 27rpx;
+  line-height: 34rpx;
 }
 
 .list-filter-title-row .ride-section-subtitle{
   display: none;
 }
 
+/* 重置按钮：黑底白字 */
 .list-filter-title-row .ride-chip{
-  height: 36rpx;
-  padding: 0 11rpx;
-  border-radius: 10rpx;
-  font-size: 19rpx;
-  line-height: 34rpx;
+  height: 44rpx;
+  padding: 0 18rpx;
+  border-radius: 12rpx;
+  background: #111418;
+  color: #ffffff;
+  border: none;
+  font-size: 22rpx;
+  line-height: 44rpx;
+  font-weight: 800;
 }
 
+/* 三个筛选整体左右变窄 */
 .list-filter-grid{
   display: grid;
   grid-template-columns: repeat(3, minmax(0,1fr));
-  gap: 8rpx;
+  gap: 10rpx;
+  padding: 0 10rpx;
 }
 
+/* 每个 picker */
 .list-filter-grid picker{
   min-width: 0;
 }
 
+/* 筛选按钮：上下更高、左右更窄 */
 .list-filter .ride-field{
-  height: 42rpx;
-  min-height: 42rpx;
-  padding: 0 10rpx;
-  border-radius: 10rpx;
+  height: 50rpx;
+  min-height: 50rpx;
+  padding: 0 8rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+/* 隐藏小标题 */
 .list-filter .ride-field-label{
   display: none;
 }
 
+/* 筛选文字：字体稍微扩大 */
 .list-filter .ride-field-value{
   margin-top: 0;
-  font-size: 20rpx;
-  line-height: 40rpx;
+  width: 100%;
+  text-align: center;
+  font-size: 23rpx;
+  line-height: 50rpx;
+  font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,12 +246,19 @@ page{
 }
 
 .list-price-chip{
-  max-width: 92rpx;
+  max-width: 120rpx;
   height: 36rpx;
-  padding: 0 11rpx;
+  padding: 0 12rpx;
   border-radius: 10rpx;
+  background: #111418;
+  color: #ffffff;
+  border: none;
   font-size: 21rpx;
-  line-height: 34rpx;
+  line-height: 36rpx;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -5,7 +5,7 @@
         <text class="brand-kicker">{{brandKicker}}</text>
         <view class="brand-title-row">
           <text class="brand-title">{{brandTitle}}</text>
-          <view class="market-segment">
+          <!-- <view class="market-segment">
             <view
               class="market-segment-item {{item.className}} pressable"
               wx:for="{{listingTypeTabs}}"
@@ -17,7 +17,7 @@
             >
               {{item.label}}
             </view>
-          </view>
+          </view> -->
         </view>
       </view>
     </view>

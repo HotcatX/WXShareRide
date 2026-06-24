@@ -1,8 +1,13 @@
 <view class="ride-shell list-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
-        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      <view
+        class="ride-back ride-back-text"
+        bindtap="goBack"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text>‹</text>
       </view>
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
@@ -10,7 +15,7 @@
     <view class="list-filter ride-card ride-card-pad">
       <view class="list-filter-title-row">
         <view>
-          <text class="ride-section-title">找路线</text>
+          <text class="ride-section-title">路线筛选</text>
           <text class="ride-section-subtitle">按地点和时间筛选可加入行程</text>
         </view>
         <view class="ride-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">重置</view>
@@ -69,7 +74,6 @@
       <block wx:for="{{dayGroups}}" wx:key="date">
         <view class="list-date-row">
           <text class="list-date">{{item.dateLabel}}</text>
-          <text class="list-date-count">{{item.items.length || 0}} 条</text>
         </view>
 
         <block wx:if="{{item.items && item.items.length}}">
@@ -84,8 +88,7 @@
             >
               <view class="ride-list-head">
                 <view class="list-kind-row">
-                  <text class="ride-list-kind">{{trip._type === 'request' ? '乘客求车' : '司机发车'}}</text>
-                  <text class="ride-chip {{trip._type === 'request' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{trip._type === 'request' ? '求车' : '拼车'}}</text>
+                  <text class="ride-list-kind">{{trip._type === 'request' ? '求车路线' : '发车路线'}}</text>
                   <text wx:if="{{trip._priceText}}" class="ride-chip list-price-chip">{{trip._priceText}}</text>
                 </view>
                 <text class="ride-list-time">时间 {{trip._timeLabel || '待定'}}</text>
@@ -94,12 +97,11 @@
               <view class="list-route-inline">
                 <view class="list-route-main">
                   <view class="list-route-place">
-                    <text class="list-route-label">出发</text>
+                    
                     <text class="list-route-name">{{trip._fromAddress || '出发地未设置'}}</text>
                   </view>
                   <text class="list-route-arrow">→</text>
                   <view class="list-route-place">
-                    <text class="list-route-label">到达</text>
                     <text class="list-route-name">{{trip._toAddress || '目的地未设置'}}</text>
                   </view>
                 </view>

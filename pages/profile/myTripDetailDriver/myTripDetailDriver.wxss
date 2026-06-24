@@ -115,3 +115,63 @@ page{
 .my-kick{
   background: #e64c3c;
 }
+
+/* 顶部右上角标签 */
+.my-hero-tags{
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.my-hero-tags .ride-chip{
+  height: 40rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  font-size: 21rpx;
+  line-height: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* 统一出行信息卡片路线排版 */
+.my-scroll .ride-route{
+  display: flex;
+  align-items: stretch;
+  gap: 12rpx;
+}
+
+.my-scroll .ride-route-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.my-scroll .ride-route-point{
+  display: flex;
+  align-items: center;
+  min-height: 44rpx;
+}
+
+.my-scroll .ride-route-label{
+  width: 58rpx;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+  font-size: 24rpx;
+  font-weight: 900;
+  color: #8b96a3;
+  line-height: 36rpx;
+}
+
+.my-scroll .ride-route-name{
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #14171a;
+  line-height: 40rpx;
+}

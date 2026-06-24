@@ -248,7 +248,7 @@ Page({
 
     statusBarHeight: 80,
     homeTopbarStyle: '',
-    pageTitle: '留学生活',
+    pageTitle: '共享出行',
 
     publicStats: normalizePublicStats(),
 

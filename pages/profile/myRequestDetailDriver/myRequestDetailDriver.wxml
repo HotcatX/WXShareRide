@@ -112,8 +112,5 @@
     <button class="ride-btn ride-btn--secondary" bindtap="onQuitRequest">
       退出路线
     </button>
-    <button class="ride-btn ride-btn--accent" bindtap="onCompleteRequest">
-      结束路线
-    </button>
   </view>
 </view>

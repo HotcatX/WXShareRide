@@ -117,13 +117,6 @@
     <button class="ride-btn ride-btn--secondary" bindtap="toggleKickMode">
       {{kickMode ? '完成剔除' : '剔除乘客'}}
     </button>
-    <button
-      class="ride-btn {{isTripCompleted ? 'ride-btn--disabled' : 'ride-btn--accent'}}"
-      disabled="{{isTripCompleted}}"
-      bindtap="onCompleteTrip"
-    >
-      {{isTripCompleted ? '已结束' : '结束路线'}}
-    </button>
     <button class="ride-btn ride-btn--danger" bindtap="onDeleteOrQuit">
       删除路线
     </button>

@@ -269,38 +269,6 @@ Page({
     }
   },
 
-  async onCompleteTrip() {
-    const { tripId, isTripCompleted } = this.data
-    if (!tripId || isTripCompleted) return
-
-    wx.showModal({
-      title: '结束路线',
-      content: '结束后路线将从公开拼车列表移除，并进入你和乘客的历史行程。确认结束？',
-      confirmText: '结束',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-
-        try {
-          wx.showLoading({ title: '正在结束...', mask: true })
-          const result = await callTripManage({ type: 'carpool', tripId, action: 'completeTrip' })
-
-          wx.hideLoading()
-          if (result && (result.ok || result.success)) {
-            wx.showToast({ title: '已结束路线', icon: 'success' })
-            await this.loadTripDetail(tripId)
-          } else {
-            wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
-          }
-        } catch (e2) {
-          wx.hideLoading()
-          console.error('completeTrip error:', e2)
-          wx.showToast({ title: '操作失败', icon: 'none' })
-        }
-      }
-    })
-  },
-
   async onDeleteOrQuit() {
     const { tripId } = this.data
     if (!tripId) return

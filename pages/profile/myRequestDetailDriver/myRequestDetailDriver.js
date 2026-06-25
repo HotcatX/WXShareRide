@@ -269,39 +269,6 @@ Page({
     })
   },
 
-  async onCompleteRequest() {
-    const { requestId } = this.data
-    if (!requestId) return
-
-    wx.showModal({
-      title: '结束路线',
-      content: '结束后该求车路线会进入历史行程，并邀请司机和乘客互评。确认结束？',
-      confirmText: '结束',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-
-        try {
-          wx.showLoading({ title: '正在结束...', mask: true })
-          const result = await callTripManage({ type: 'request', requestId, action: 'completeTrip' })
-          wx.hideLoading()
-
-          if (result && (result.ok || result.success)) {
-            wx.showToast({ title: '已结束路线', icon: 'success' })
-            await this.loadRequestDetail(requestId)
-            return
-          }
-
-          wx.showToast({ title: (result && result.errorMsg) || '结束失败', icon: 'none' })
-        } catch (e) {
-          wx.hideLoading()
-          console.error('completeRequest error:', e)
-          wx.showToast({ title: '结束失败', icon: 'none' })
-        }
-      }
-    })
-  },
-
   async onQuitRequest() {
     const { requestId } = this.data
     if (!requestId) return

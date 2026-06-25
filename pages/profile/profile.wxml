@@ -26,10 +26,19 @@
       </view>
 
       <view class="profile-actions">
-        <view class="profile-action" bindtap="goFeedback" hover-class="ride-pressed" hover-stay-time="80">
+        <button
+          class="profile-action profile-action-button"
+          open-type="contact"
+          session-from="profile_feedback"
+          show-message-card="true"
+          send-message-title="联系官方客服"
+          send-message-path="/pages/profile/profile"
+          hover-class="ride-pressed"
+          hover-stay-time="80"
+        >
           <image class="profile-action-icon" src="/images/icon_feedback.png" mode="aspectFit" />
-          <text class="profile-action-text">反馈</text>
-        </view>
+          <text class="profile-action-text">客服</text>
+        </button>
 
         <view class="profile-action" bindtap="goNotification" hover-class="ride-pressed" hover-stay-time="80">
           <view class="profile-action-icon-wrap">

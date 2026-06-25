@@ -6,7 +6,8 @@ const {
   rateTripUser,
   markRideListStale,
   buildRatedTargetMap,
-  isTargetRated
+  isTargetRated,
+  formatRidePricePerPerson
 } = require("../../../utils/tripManage")
 
 Page({
@@ -189,6 +190,10 @@ Page({
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
       const ratedTargetMap = buildRatedTargetMap(rr)
+      const displayTrip = {
+        ...trip,
+        referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+      }
 
       // 基础字段
       const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
@@ -272,7 +277,7 @@ Page({
       }
 
       this.setData({
-        trip,
+        trip: displayTrip,
         myOpenid,
         creatorOpenid,
         fromText,

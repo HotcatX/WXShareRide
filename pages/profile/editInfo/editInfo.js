@@ -85,9 +85,7 @@ Page({
     const from = options.from || 'profile'
     this.setData({ from })
 
-    // 拉取云端 userInfo
     this.loadUserInfo()
-    this.loadRegionTreeFromCloud()
   },
 
   onHide() {
@@ -150,10 +148,10 @@ Page({
 
         this.setData({
           wechat: user.wechatID || '',
-          address: user.address || '',
+          address: user.address || user.bigregion || '',
           location,
           locationDisplay: hasLatLng(location) ? getLocationDisplay(location, '') : '',
-          bigregion: user.bigregion || '',
+          bigregion: user.bigregion || user.address || '',
 
           phone: user.phone || '',
           regionIndex: (user.region === 'CN') ? 1 : 0,

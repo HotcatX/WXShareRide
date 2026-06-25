@@ -2,7 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
+const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -63,6 +63,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
 
     // 乘客加入用
     seatLeft: 0,
@@ -312,6 +313,7 @@ Page({
       departAddress,
       destAddress,
       formattedDepartTime,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格待定'),
 
       seatLeft,
       myOpenid,

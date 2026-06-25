@@ -1,35 +1,28 @@
 <view class="market-detail-page {{item.detailPageClass}}">
-  <view class="detail-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="detail-nav">
-      <view
-        class="ride-back pressable"
-        hover-class="is-pressed"
-        hover-stay-time="80"
-        bindtap="onBack"
-      >
-        ‹
+  <view class="detail-top ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
+        <text>‹</text>
       </view>
-      
-      <text class="nav-title">{{detailNavTitle}}</text>
-      <view class="nav-spacer"></view>
+      <text class="ride-nav-title">{{detailNavTitle}}</text>
     </view>
   </view>
 
   <scroll-view class="detail-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
     <block wx:if="{{showDetailState}}">
       <view class="detail-content">
-        <view class="section-card">
+        <view class="state-card">
           <text class="section-title">{{detailStateTitle}}</text>
           <text class="desc-text">{{detailStateDesc}}</text>
         </view>
 
-        <view class="quick-actions">
-          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">
+        <view class="state-actions">
+          <view class="state-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">
             返回
           </view>
           <view
             wx:if="{{detailCanRetry}}"
-            class="quick-btn pressable"
+            class="state-btn pressable"
             hover-class="is-pressed"
             hover-stay-time="80"
             bindtap="onRetryLoad"
@@ -37,20 +30,23 @@
             重试
           </view>
         </view>
-
-        <view class="bottom-space"></view>
       </view>
     </block>
 
     <block wx:else>
-      <view class="hero-card">
-        <swiper class="photo-swiper" indicator-dots="{{hasMultipleImages}}" autoplay="{{false}}" circular="{{hasMultipleImages}}">
+      <view class="detail-hero">
+        <swiper
+          class="photo-swiper"
+          indicator-dots="{{hasMultipleImages}}"
+          autoplay="{{hasMultipleImages}}"
+          circular="{{hasMultipleImages}}"
+          interval="3600"
+          duration="450"
+        >
           <block wx:if="{{hasImageUrls}}">
-            <block wx:for="{{imgUrls}}" wx:key="*this">
-              <swiper-item>
-                <image class="hero-img" src="{{item}}" mode="aspectFill" />
-              </swiper-item>
-            </block>
+            <swiper-item wx:for="{{imgUrls}}" wx:key="*this">
+              <image class="hero-img" src="{{item}}" mode="aspectFill" />
+            </swiper-item>
           </block>
 
           <block wx:else>
@@ -62,65 +58,61 @@
             </swiper-item>
           </block>
         </swiper>
-        <view class="hero-badge">{{item.categoryDisplay}}</view>
+        <view wx:if="{{hasMultipleImages}}" class="hero-count">{{imgUrls.length}} 张</view>
       </view>
 
       <view class="detail-content">
-        <view class="title-card">
-          <view class="price-row">
-            <text class="price">$ {{item.priceDisplay}}</text>
-            <text class="condition">{{item.conditionDisplay}}</text>
+        <view class="info-card">
+          <view class="seller-price-row">
+            <view class="seller-profile pressable" hover-class="is-pressed" hover-stay-time="80" catchtap="onViewSellerProfile">
+              <image class="seller-avatar" src="{{seller.avatarDisplay}}" mode="aspectFill" />
+              <view class="seller-copy">
+                <view class="seller-name-row">
+                  <text class="seller-name">{{seller.nameDisplay}}</text>
+                </view>
+                <text class="seller-region">{{seller.regionDisplay}}</text>
+              </view>
+            </view>
+            <text class="detail-price">$ {{item.priceDisplay}}</text>
           </view>
-          <text class="product-title">{{item.titleDisplay}}</text>
-          <view class="stats-row">
-            <text>{{item.wantCountText}}</text>
-            <text>{{item.viewCountText}}</text>
-            <text>{{item.postDateDisplay}}</text>
-          </view>
-        </view>
 
-        <view class="info-grid">
-          <view class="info-cell">
-            <text class="info-label">{{item.pickupLabel}}</text>
-            <text class="info-value">{{item.pickupText}}</text>
-          </view>
-          <view class="info-cell">
-            <text class="info-label">{{item.locationLabel}}</text>
-            <text class="info-value">{{item.locationText}}</text>
-          </view>
-        </view>
+          <view class="info-divider"></view>
 
-        <view wx:if="{{item.hasSubletMeta}}" class="info-grid sublet-info-grid">
-          <view class="info-cell compact" wx:for="{{item.subletMetaList}}" wx:key="label">
-            <text class="info-label">{{item.label}}</text>
-            <text class="info-value">{{item.value}}</text>
-          </view>
-        </view>
+          <text class="detail-title">{{item.titleDisplay}}</text>
 
-        <view class="section-card">
-          <text class="section-title">{{item.descTitle}}</text>
+          <view wx:if="{{item.pickupText}}" class="detail-line">
+            <text class="detail-label">{{item.pickupLabel}}：</text>
+            <text class="detail-value">{{item.pickupText}}</text>
+          </view>
+
           <text class="desc-text">{{item.descDisplay}}</text>
+
+          <view class="location-section">
+            <text class="section-title">{{item.locationLabel}}</text>
+            <text class="location-text">{{item.locationText}}</text>
+          </view>
+
+          <view wx:if="{{item.hasSubletMeta}}" class="meta-grid">
+            <view class="meta-cell" wx:for="{{item.subletMetaList}}" wx:key="label">
+              <text class="meta-label">{{item.label}}</text>
+              <text class="meta-value">{{item.value}}</text>
+            </view>
+          </view>
         </view>
 
-        <view class="quick-actions">
-          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onViewSellerOther">
-            {{item.sellerOtherText}}
-          </view>
-          <view class="quick-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDetailQuickAction">
-            {{item.locationActionText}}
-          </view>
-        </view>
-
-        <view class="detail-dock {{dockVisibleClass}}">
+        <view class="detail-action-bar {{dockVisibleClass}}">
           <block wx:if="{{isOwner}}">
             <view class="owner-actions">
-              <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onEditItem">编辑</view>
-              <view class="dock-btn danger pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDeleteItem">删除</view>
+              <view class="action-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onEditItem">编辑</view>
+              <view class="action-btn danger pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDeleteItem">删除</view>
             </view>
           </block>
 
           <block wx:else>
-            <view class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onContactBuy">
+            <view class="side-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDetailQuickAction">
+              {{item.locationActionText}}
+            </view>
+            <view class="action-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onContactSeller">
               {{item.contactText}}
             </view>
           </block>

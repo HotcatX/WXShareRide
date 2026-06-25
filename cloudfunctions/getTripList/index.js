@@ -24,6 +24,10 @@ const TYPE_CONFIG = {
       referencePrice: true,
       price: true,
       displayPrice: true,
+      cityKey: true,
+      cityLabel: true,
+      routeCityKey: true,
+      routeCityLabel: true,
       departureAtMs: true,
       latestDepartureAtMs: true,
       firstDepartureDate: true,
@@ -50,6 +54,10 @@ const TYPE_CONFIG = {
       referencePrice: true,
       price: true,
       displayPrice: true,
+      cityKey: true,
+      cityLabel: true,
+      routeCityKey: true,
+      routeCityLabel: true,
       departureAtMs: true,
       latestDepartureAtMs: true,
       firstDepartureDate: true,
@@ -78,6 +86,49 @@ function normalizeType(value) {
   if (type === 'carpool' || type === 'trip') return 'carpool'
   if (type === 'request' || type === 'carpoolrequest') return 'request'
   return 'all'
+}
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function normalizeCityKey(value) {
+  return normalizeText(value)
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildCityCondition(event = {}) {
+  const cityKey = normalizeCityKey(event.cityKey || event.city)
+  if (!cityKey || cityKey === 'all') return null
+
+  const aliases = []
+  ;[
+    event.cityLabel,
+    ...(Array.isArray(event.cityAliases) ? event.cityAliases : [])
+  ].forEach(item => {
+    const text = normalizeText(item)
+    if (text && !aliases.includes(text)) aliases.push(text)
+  })
+
+  const conditions = [
+    { cityKey },
+    { routeCityKey: cityKey }
+  ]
+
+  aliases.slice(0, 24).forEach(alias => {
+    const regexp = escapeRegExp(alias)
+    if (!regexp) return
+    const reg = db.RegExp({ regexp, options: 'i' })
+    conditions.push({ cityLabel: reg })
+    conditions.push({ routeCityLabel: reg })
+    conditions.push({ 'departures.address': reg })
+    conditions.push({ 'destinations.address': reg })
+  })
+
+  return _.or(conditions)
 }
 
 function normalizeTripStatus(status) {
@@ -283,10 +334,12 @@ async function readType(type, event) {
   const limit = getLimit(event)
   const quick = event && event.quick !== false
   const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
+  const cityCondition = buildCityCondition(event)
 
   const buildQuery = (where, orderField, queryLimit) => {
+    const scopedWhere = cityCondition ? _.and([where, cityCondition]) : where
     let query = db.collection(config.collection)
-      .where(where)
+      .where(scopedWhere)
       .orderBy(orderField, orderField === 'createdAt' ? 'desc' : 'asc')
       .limit(queryLimit)
     if (quick) query = query.field(config.fields)

@@ -307,10 +307,6 @@ Page({
     wx.navigateTo({ url: '/pages/profile/blockList/blockList' })
   },
 
-  goFeedback() {
-    wx.navigateTo({ url: '/pages/other/feedback/feedback' })
-  },
-
   goCarpoolTemplate() {
     if (!this.ensureLoggedIn()) return
     wx.navigateTo({ url: '/pages/home/CarpoolTemplateList/CarpoolTemplateList' })

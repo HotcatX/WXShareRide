@@ -1,6 +1,8 @@
 // pages/market/marketDetail/marketDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v2"
+const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
 
 const DETAIL_COPY = {
   goods: {
@@ -90,12 +92,14 @@ function buildDetailItem(x = {}) {
   const listingType = normalizeListingType(x.listingType)
   const copy = getDetailCopy(listingType)
   const title = String(x.title || '').trim() || copy.defaultTitle
+  const imageFileIDs = Array.isArray(x.imageFileIDs) ? x.imageFileIDs.filter(Boolean) : []
+  const hasOriginalImage = !!(x.imageUrl || x.imageFileID || imageFileIDs.length || (Array.isArray(x.imageUrls) && x.imageUrls.length))
+  const fallbackImage = listingType === "sublet" ? "/images/sublease.png" : "/images/market.png"
   const subletLeaseText = buildSubletLeaseText(x)
   const pickupText = listingType === "sublet"
     ? (x.leaseText || subletLeaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
     : (x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系卖家确认")
   const locationText = x.pickup || x.region || (listingType === "sublet" ? "发布者未填写" : "卖家未填写")
-  const hasImage = !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length))
   const priceDisplay = listingType === "sublet" ? `${formatMarketPrice(x.price)}/月` : formatMarketPrice(x.price)
   const categoryDisplay = x.category || copy.defaultCategory
   const subletMetaList = listingType === "sublet" ? buildSubletMetaList(x) : []
@@ -123,10 +127,10 @@ function buildDetailItem(x = {}) {
     postDateDisplay: x.postDate || '刚刚发布',
     imageFileID: x.imageFileID || "",
     thumbFileID: x.thumbFileID || "",
-    imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+    imageFileIDs,
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
-    hasImage,
-    fallbackImageSrc: x.imageFileID || x.thumbFileID || '/images/market.png',
+    hasImage: hasOriginalImage,
+    fallbackImageSrc: x.imageUrl || x.imageFileID || imageFileIDs[0] || fallbackImage,
     fallbackImageTitle: title || (listingType === "sublet" ? "房源图片" : "商品图片"),
     pickupStartDate: x.pickupStartDate || "",
     pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
@@ -170,9 +174,95 @@ function markMarketGoodsChanged() {
   } catch (e) {}
 }
 
+function getMarketGoodsChangedAt() {
+  try {
+    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
+  } catch (e) {
+    return 0
+  }
+}
+
+function getMarketDetailCacheStore() {
+  try {
+    return wx.getStorageSync(MARKET_DETAIL_CACHE_KEY) || {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function setMarketDetailCacheStore(store = {}) {
+  try {
+    wx.setStorageSync(MARKET_DETAIL_CACHE_KEY, store)
+  } catch (e) {}
+}
+
+function readMarketDetailCache(id) {
+  const key = String(id || "").trim()
+  if (!key) return null
+  const entry = getMarketDetailCacheStore()[key]
+  if (!entry || !entry.ts || !entry.result) return null
+  if (Date.now() - entry.ts > MARKET_DETAIL_CACHE_FRESH_MS) return null
+  if ((Number(entry.changedAt) || 0) !== getMarketGoodsChangedAt()) return null
+  const item = entry.result.item || entry.result.data || null
+  if (!item || item._id !== key) return null
+  return entry.result
+}
+
+function writeMarketDetailCache(id, result) {
+  const key = String(id || "").trim()
+  const item = result && (result.item || result.data)
+  if (!key || !item || item._id !== key) return
+  const store = getMarketDetailCacheStore()
+  store[key] = {
+    ts: Date.now(),
+    changedAt: getMarketGoodsChangedAt(),
+    result
+  }
+  const keys = Object.keys(store)
+  if (keys.length > 60) {
+    keys
+      .sort((a, b) => (Number(store[a]?.ts) || 0) - (Number(store[b]?.ts) || 0))
+      .slice(0, keys.length - 60)
+      .forEach(oldKey => delete store[oldKey])
+  }
+  setMarketDetailCacheStore(store)
+}
+
+function removeMarketDetailCache(id) {
+  const key = String(id || "").trim()
+  if (!key) return
+  const store = getMarketDetailCacheStore()
+  if (!store[key]) return
+  delete store[key]
+  setMarketDetailCacheStore(store)
+}
+
+function normalizeDetailResult(result = {}) {
+  const item = result.item || result.data || null
+  if (!item || !item._id) return null
+  const rawUrls = Array.isArray(result.imgUrls)
+    ? result.imgUrls
+    : (Array.isArray(item.imageUrls) ? item.imageUrls : [])
+  const imgUrls = rawUrls.filter((url, index, arr) => url && arr.indexOf(url) === index)
+  return {
+    item,
+    imgUrls,
+    imgUrl: result.imgUrl || item.imageUrl || imgUrls[0] || "",
+    isOwner: !!result.isOwner
+  }
+}
+
 function isMarketNotFoundError(error) {
   const text = String((error && (error.code || error.message || error.errMsg)) || "")
   return text === "not_found" || text === "missing_id" || text.includes("not_found")
+}
+
+function buildDefaultSeller(listingType = "goods") {
+  return {
+    nameDisplay: normalizeListingType(listingType) === "sublet" ? "转租发布者" : "二手卖家",
+    avatarDisplay: "/images/profile.png",
+    regionDisplay: "区域未填"
+  }
 }
 
 Page({
@@ -188,17 +278,15 @@ Page({
     detailStateDesc: "请稍候",
     detailCanRetry: false,
 
-    // ✅ 是否本人发布（用于显示编辑/删除）
     isOwner: false,
     myOpenid: '',
-
-    // 兼容旧逻辑：保留 imgUrl
     imgUrl: "",
 
     imgUrls: [],
     hasImageUrls: false,
     hasMultipleImages: false,
 
+    seller: buildDefaultSeller("goods"),
     sellerWechat: "",
     dockVisibleClass: "dock-hidden"
   },
@@ -287,6 +375,41 @@ Page({
     }
   },
 
+  async _resolveAvatarUrl(rawAvatar) {
+    if (!rawAvatar) return "/images/profile.png"
+    if (/^https?:\/\//i.test(rawAvatar) || rawAvatar.startsWith("/")) return rawAvatar
+    if (rawAvatar.startsWith("cloud://")) {
+      const res = await wx.cloud.getTempFileURL({ fileList: [rawAvatar] }).catch(() => null)
+      return res?.fileList?.[0]?.tempFileURL || "/images/profile.png"
+    }
+    return rawAvatar
+  },
+
+  async fetchSellerProfile(openid, listingType) {
+    if (!openid) {
+      this.setData({ seller: buildDefaultSeller(listingType) })
+      return
+    }
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "getUserInfoByOpenids",
+        data: { openids: [openid] }
+      })
+      const row = res?.result?.data?.[0] || {}
+      const avatarRaw = normalizeText(row.avatarUrl || row.avatar || row.userInfo?.avatarUrl)
+      const seller = {
+        nameDisplay: normalizeText(row.name || row.nickName || row.nickname) || buildDefaultSeller(listingType).nameDisplay,
+        avatarDisplay: await this._resolveAvatarUrl(avatarRaw),
+        regionDisplay: normalizeText(row.bigregion || row.location || row.region || row.address) || "区域未填"
+      }
+      const wechat = row.wechatID || row.wechatId || row.wechat || ""
+      this.setData({ seller, sellerWechat: wechat })
+    } catch (e) {
+      console.error("fetch seller profile failed:", e)
+      this.setData({ seller: buildDefaultSeller(listingType) })
+    }
+  },
+
   onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
@@ -309,7 +432,9 @@ Page({
         imgUrls: [],
         imgUrl: "",
         hasImageUrls: false,
-        hasMultipleImages: false
+        hasMultipleImages: false,
+        seller: buildDefaultSeller("goods"),
+        sellerWechat: ""
       })
       return
     }
@@ -329,94 +454,132 @@ Page({
     this.setData({ myOpenid, isOwner })
   },
 
-  async fetchDetail(id) {
-    this._lastDetailId = id
+  _setDetailState(title, desc, options = {}) {
+    const notFound = !!options.notFound
+    const loadError = !!options.loadError
     this.setData({
-      loading: true,
-      notFound: false,
-      loadError: false,
+      loading: false,
+      notFound,
+      loadError,
       showDetailState: true,
-      detailStateTitle: "正在加载内容...",
-      detailStateDesc: "请稍候",
-      detailCanRetry: false,
+      detailStateTitle: title,
+      detailStateDesc: desc,
+      detailCanRetry: !!options.canRetry,
       item: null,
       detailNavTitle: "商品详情",
       isOwner: false,
       imgUrls: [],
       imgUrl: "",
       hasImageUrls: false,
-      hasMultipleImages: false
+      hasMultipleImages: false,
+      seller: buildDefaultSeller("goods"),
+      sellerWechat: ""
     })
+  },
 
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "marketApi",
-        data: { action: "detail", id }
-      })
-      const result = getMarketApiResult(res)
-      const x = result.item || result.data || null
-      if (!x || !x._id) {
-        this.setData({
-          loading: false,
-          notFound: true,
-          loadError: false,
-          showDetailState: true,
-          detailStateTitle: "内容不存在",
-          detailStateDesc: "内容可能已删除或链接已失效。",
-          detailCanRetry: false,
-          item: null,
-          detailNavTitle: "商品详情",
-          isOwner: false,
-          imgUrls: [],
-          imgUrl: "",
-          hasImageUrls: false,
-          hasMultipleImages: false
-        })
-        return
-      }
-      const imgUrls = Array.isArray(result.imgUrls) ? result.imgUrls : (Array.isArray(x.imageUrls) ? x.imageUrls : [])
+  _applyDetailResult(result, options = {}) {
+    const normalized = normalizeDetailResult(result)
+    if (!normalized) return false
 
-      const myOpenid = wx.getStorageSync('openid') || ''
-      const isOwner = !!result.isOwner
-      const detailItem = buildDetailItem(x)
+    const detailItem = buildDetailItem(normalized.item)
+    const myOpenid = wx.getStorageSync('openid') || ''
+    const isOwner = !!(myOpenid && detailItem._openid && myOpenid === detailItem._openid) ||
+      (!options.fromCache && !!normalized.isOwner)
+    const imgUrls = normalized.imgUrls
 
+    this.setData({
+      loading: false,
+      notFound: false,
+      loadError: false,
+      showDetailState: false,
+      detailStateTitle: "",
+      detailStateDesc: "",
+      detailCanRetry: false,
+      myOpenid,
+      isOwner,
+      item: detailItem,
+      detailNavTitle: detailItem.navTitle || "商品详情",
+      imgUrls,
+      imgUrl: normalized.imgUrl,
+      hasImageUrls: imgUrls.length > 0,
+      hasMultipleImages: imgUrls.length > 1
+    })
+    this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
+    return true
+  },
+
+  async fetchDetail(id) {
+    const detailId = String(id || "").trim()
+    this._lastDetailId = detailId
+    const requestToken = `${detailId}|${Date.now()}`
+    this._detailRequestToken = requestToken
+
+    const cached = readMarketDetailCache(detailId)
+    if (cached) {
+      this._applyDetailResult(cached, { fromCache: true })
+    } else {
       this.setData({
-        loading: false,
+        loading: true,
         notFound: false,
         loadError: false,
-        showDetailState: false,
-        detailStateTitle: "",
-        detailStateDesc: "",
-        detailCanRetry: false,
-        myOpenid,
-        isOwner,
-        item: detailItem,
-        detailNavTitle: detailItem.navTitle || "商品详情",
-        imgUrls,
-        imgUrl: result.imgUrl || x.imageUrl || imgUrls[0] || "",
-        hasImageUrls: imgUrls.length > 0,
-        hasMultipleImages: imgUrls.length > 1
-      })
-    } catch (e) {
-      console.error(e)
-      const notFound = isMarketNotFoundError(e)
-      this.setData({
-        loading: false,
-        notFound,
-        loadError: !notFound,
         showDetailState: true,
-        detailStateTitle: notFound ? "内容不存在" : "加载失败",
-        detailStateDesc: notFound ? "内容可能已删除或链接已失效。" : "详情加载失败，请稍后重试。",
-        detailCanRetry: !notFound,
+        detailStateTitle: "正在加载内容...",
+        detailStateDesc: "请稍候",
+        detailCanRetry: false,
         item: null,
         detailNavTitle: "商品详情",
         isOwner: false,
         imgUrls: [],
         imgUrl: "",
         hasImageUrls: false,
-        hasMultipleImages: false
+        hasMultipleImages: false,
+        seller: buildDefaultSeller("goods"),
+        sellerWechat: ""
       })
-      if (!notFound) wx.showToast({ title: "获取详情失败", icon: "none" })
+    }
+
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: { action: "detail", id: detailId, trackView: true }
+      })
+      if (this._detailRequestToken !== requestToken) return
+
+      const result = getMarketApiResult(res)
+      const normalized = normalizeDetailResult(result)
+      if (!normalized) {
+        removeMarketDetailCache(detailId)
+        this._setDetailState("内容不存在", "内容可能已删除或链接已失效。", { notFound: true })
+        return
+      }
+
+      writeMarketDetailCache(detailId, result)
+      this._applyDetailResult(result)
+    } catch (e) {
+      if (this._detailRequestToken !== requestToken) return
+      console.error(e)
+      const notFound = isMarketNotFoundError(e)
+      if (notFound) {
+        removeMarketDetailCache(detailId)
+        this._setDetailState("内容不存在", "内容可能已删除或链接已失效。", { notFound: true })
+        return
+      }
+
+      if (cached) {
+        this.setData({
+          loading: false,
+          loadError: false,
+          showDetailState: false,
+          detailCanRetry: false
+        })
+        return
+      }
+
+      this._setDetailState("加载失败", "详情加载失败，请稍后重试。", {
+        loadError: true,
+        canRetry: true
+      })
+      wx.showToast({ title: "获取详情失败", icon: "none" })
     }
   },
 
@@ -493,18 +656,10 @@ Page({
     })
   },
 
-  onViewSellerOther() {
-    if (!this.ensureLoginBeforeContact()) return
+  onViewSellerProfile() {
     const openid = this.data.item?._openid
     if (!openid) return
-    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${openid}&type=${this.data.item?.listingType || "goods"}` })
-  },
-
-  // =========================
-  // 联系购买：兼容旧 wxml 里的 onContactBuy
-  // =========================
-  onContactBuy() {
-    return this.onContactSeller()
+    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
   },
 
   onDetailQuickAction() {

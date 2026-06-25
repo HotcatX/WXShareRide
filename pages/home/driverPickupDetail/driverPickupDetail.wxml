@@ -56,7 +56,7 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
-        <text class="ride-chip ride-chip--warn">{{request.referencePrice || '价格待定'}}</text>
+        <text class="ride-chip ride-chip--warn">{{referencePriceText || '价格待定'}}</text>
         <text class="ride-chip">人数 {{request.passengerCount || 1}}</text>
       </view>
     </view>

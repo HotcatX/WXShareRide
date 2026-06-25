@@ -62,6 +62,10 @@ function formatMarketPrice(value) {
   return Number.isFinite(n) ? n.toFixed(n % 1 === 0 ? 0 : 2) : "0"
 }
 
+function compactText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim()
+}
+
 function buildSellerDisplay(seller = {}) {
   return {
     ...seller,
@@ -93,21 +97,26 @@ function buildSellerGood(x = {}) {
   const title = String(x.title || '').trim() || config.fallbackTitle
   const imageKey = x.thumbFileID || x.imageFileID || ""
   const priceText = formatMarketPrice(x.price)
+  const fallbackImage = config.fallbackImage
+  const imageSrc = x.imageSrc || x.thumbUrl || imageKey || fallbackImage
   const metaText = listingType === "sublet"
     ? (x.leaseText || x.availableStartDate || x.roomType || x.category || config.metaFallback)
     : (x.condition || x.pickupEndDate || config.metaFallback)
+  const descText = compactText(x.desc || metaText)
   return {
     id: x._id,
     listingType,
+    cardClass: listingType === "sublet" ? "seller-listing--sublet" : "",
     title,
     price: x.price,
     priceText,
     priceDisplay: listingType === "sublet" ? `${priceText}/月` : priceText,
     metaText,
+    descText,
     imageFileID: x.imageFileID || "",
     thumbFileID: x.thumbFileID || "",
     hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-    imageSrc: x.imageSrc || x.thumbUrl || imageKey || config.fallbackImage,
+    imageSrc,
     thumbUrl: x.thumbUrl || ""
   }
 }
@@ -355,7 +364,7 @@ Page({
       emptySubtitle: config.emptySubtitle,
       goods: [],
       hasGoods: false,
-      goodsCountText: "0 件"
+      goodsCountText: `0 ${config.unit}`
     })
     if (this.data.sellerOpenid) this.fetchSellerGoods(this.data.sellerOpenid)
   },

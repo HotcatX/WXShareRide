@@ -85,14 +85,14 @@
 
           <view class="ride-field ride-field-inline ride-field--full">
             <text class="ride-field-label">载客数量</text>
-              <input
-                class="ride-input ride-input-inline"
-                type="number"
-                value="{{passengerCount}}"
-                bindinput="onPassengerInputPassenger"
-                placeholder="1-4"
-                placeholder-class="ride-placeholder"
-              />
+            <input
+              class="ride-input ride-input-inline"
+              type="number"
+              value="{{passengerCountInput}}"
+              bindinput="onPassengerInput"
+              placeholder="1-7"
+              placeholder-class="ride-placeholder"
+            />
           </view>
         </view>
       </view>
@@ -105,13 +105,17 @@
         <view class="ride-form-grid">
           <view class="ride-field ride-field-inline ride-field--full">
             <text class="ride-field-label">参考价格</text>
-            <input
-              class="ride-input ride-input-inline"
-              value="{{referencePrice}}"
-              bindinput="onReferencePriceInput"
-              placeholder="每位乘客美元价格或“价格私议”"
-              placeholder-class="ride-placeholder"
-            />
+            <view class="ride-price-input-wrap">
+              <input
+                class="ride-input ride-input-inline create-price-input"
+                type="digit"
+                value="{{referencePrice}}"
+                bindinput="onReferencePriceInput"
+                placeholder="10"
+                placeholder-class="ride-placeholder"
+              />
+              <text class="ride-input-suffix">$/人</text>
+            </view>
           </view>
 
           <view class="ride-field ride-field-inline">
@@ -256,13 +260,16 @@
 
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">价格</text>
+            <view class="ride-price-input-wrap">
               <input
-                class="ride-input ride-input-inline"
+                class="ride-input ride-input-inline create-price-input"
                 value="{{referencePrice || ''}}"
                 disabled
                 placeholder="自动计算"
                 placeholder-class="ride-placeholder"
               />
+              <text wx:if="{{referencePrice && referencePriceHasNumber}}" class="ride-input-suffix">$/人</text>
+            </view>
           </view>
         </view>
       </view>

@@ -1,7 +1,7 @@
 // pages/home/driverPickupDetail/driverPickupDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
+const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
 
 function getWeekdayStr(dateStr) {
   if (!dateStr) return ''
@@ -43,6 +43,7 @@ Page({
 
     requestId: '',
     request: null,
+    referencePriceText: '',
 
     departAddress: '',
     destAddress: '',
@@ -50,7 +51,7 @@ Page({
 
     // ✅ 不再展示乘客信息：仍保留字段避免别处引用报错
     passengerList: [],
-    defaultAvatarUrl: '/images/default_avatar.png',
+    defaultAvatarUrl: '/images/profile.png',
 
     // 状态
     myOpenid: '',
@@ -187,6 +188,7 @@ Page({
         this.setLoadError('该求车路线不存在或已被删除')
         return
       }
+      const referencePriceText = formatRidePricePerPerson(request.referencePrice || request.price || request.displayPrice, '价格待定')
 
       // 1) 顶部展示字段
       let departAddress = ''
@@ -235,6 +237,7 @@ Page({
 
       this.setData({
         request,
+        referencePriceText,
         departAddress,
         destAddress,
         formattedDepartTime,

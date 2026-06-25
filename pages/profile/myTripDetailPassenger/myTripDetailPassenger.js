@@ -7,7 +7,8 @@ const {
   rateTripUser,
   markRideListStale,
   buildRatedTargetMap,
-  isTargetRated
+  isTargetRated,
+  formatRidePricePerPerson
 } = require("../../../utils/tripManage")
 
 function normalizeSourceType(raw) {
@@ -220,6 +221,10 @@ Page({
     const rawStatus = String(trip.status || 'open').toLowerCase()
     const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
     const ratedTargetMap = buildRatedTargetMap(detailResult)
+    const displayTrip = {
+      ...trip,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+    }
 
     // Carpool 的司机一般就是 trip._openid（创建者），也兼容 driver 字段
     const driverOpenid =
@@ -250,7 +255,7 @@ Page({
 
     this.setData({
       sourceType: 'carpool',
-      trip,
+      trip: displayTrip,
       driverInfo,
       ratedTargetMap,
 
@@ -287,6 +292,10 @@ Page({
     const rawStatus = String(trip.status || 'open').toLowerCase()
     const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
     const ratedTargetMap = buildRatedTargetMap(rr)
+    const displayTrip = {
+      ...trip,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+    }
 
     // 当前用户 openid：优先 rr.openid，否则调用 login 获取
     const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
@@ -360,7 +369,7 @@ Page({
 
     this.setData({
       sourceType: 'request',
-      trip,
+      trip: displayTrip,
       driverInfo,
       ratedTargetMap,
 

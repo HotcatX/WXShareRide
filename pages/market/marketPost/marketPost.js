@@ -6,11 +6,18 @@ const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const { showDataError } = require("../../../utils/error")
+const {
+  ALL_CITY_KEY,
+  DEFAULT_CITY_KEY,
+  MARKET_CITY_STORAGE_KEY,
+  getCitySnapshot,
+  getStoredCitySnapshot
+} = require("../../../utils/cityTree")
 
 const GOODS_CATEGORY_OPTIONS = [
  "家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
 ]
-const SUBLET_CATEGORY_OPTIONS = ["单间", "主卧", "客厅", "Studio", "1B1B", "2B2B", "整租", "其他"]
+const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
 const SUBLET_HOUSING_OPTIONS = ["未填写", "公寓", "Condo", "House", "宿舍", "其他"]
 const SUBLET_GENDER_OPTIONS = ["不限", "限女生", "限男生", "情侣可", "无室友"]
 const LISTING_TYPE_CONFIG = {
@@ -60,7 +67,7 @@ const LISTING_TYPE_CONFIG = {
     endLabel: "租期结束",
     mapLocationLabel: "精确定位（用于计算距离）",
     regionLocationLabel: "显示位置",
-    defaultCategory: "单间",
+    defaultCategory: "Studio",
     defaultCondition: "转租",
     categoryOptions: SUBLET_CATEGORY_OPTIONS,
     conditionOptions: ["可立即入住", "租期可议", "仅限女生", "仅限男生"],
@@ -70,6 +77,33 @@ const LISTING_TYPE_CONFIG = {
 
 function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getPostCitySnapshot() {
+  const city = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
+  return city.key === ALL_CITY_KEY ? getCitySnapshot(null, DEFAULT_CITY_KEY) : city
+}
+
+function normalizeSubletCategory(value) {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  const key = text.replace(/[\s/_-]+/g, "").toLowerCase()
+  const map = {
+    studio: "Studio",
+    "1b1b": "1B1B",
+    "2b1b": "2B1B",
+    "2b2b": "2B2B",
+    "3b2b": "3B2B",
+    other: "其他",
+    others: "其他",
+    "其他": "其他"
+  }
+  return map[key] || (SUBLET_CATEGORY_OPTIONS.includes(text) ? text : "其他")
+}
+
+function normalizeListingCategory(value, listingType) {
+  if (normalizeListingType(listingType) === "sublet") return normalizeSubletCategory(value) || "其他"
+  return String(value || "").trim()
 }
 
 function getListingTypeConfig(type) {
@@ -321,7 +355,7 @@ function buildPostDisplayPatch(state = {}) {
     utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
     locationDisplay: locationInput || "去个人资料选择位置",
     locationMutedClass: locationInput ? "" : "muted",
-    regionLocationDisplay: regionInput || "去个人资料选择地区",
+    regionLocationDisplay: regionInput || "去个人资料填写显示位置",
     regionLocationMutedClass: regionInput ? "" : "muted",
     imageCountText: `${imageCount}/${MARKET_MAX_IMAGE_COUNT}`,
     canAddImage: imageCount < MARKET_MAX_IMAGE_COUNT && !state.imageUploading,
@@ -473,7 +507,7 @@ Page({
     utilitiesIncludedDisplay: "未包含",
     locationDisplay: "去个人资料选择位置",
     locationMutedClass: "muted",
-    regionLocationDisplay: "去个人资料选择地区",
+    regionLocationDisplay: "去个人资料填写显示位置",
     regionLocationMutedClass: "muted",
     submitDisabledClass: "",
     submitText: LISTING_TYPE_CONFIG.goods.submitCreate,
@@ -601,9 +635,11 @@ Page({
         return
       }
 
-      const rawCategory = x.category || ''
+      const rawCategory = activeListingType === "sublet" ? (x.category || x.roomType || "") : (x.category || "")
+      const normalizedCategory = normalizeListingCategory(rawCategory, activeListingType)
       const category = config.categoryOptions.includes(rawCategory) ? rawCategory : config.defaultCategory
-      const categoryIndex = config.categoryOptions.indexOf(category)
+      const finalCategory = config.categoryOptions.includes(normalizedCategory) ? normalizedCategory : category
+      const categoryIndex = config.categoryOptions.indexOf(finalCategory)
       const locationDisplayName = buildItemMapLocationDisplay(x)
 
       // 图片：回填 fileIDs + 预览 temp urls
@@ -622,7 +658,7 @@ Page({
         activeListingType,
         title: x.title || '',
         desc: x.desc || '',
-        category,
+        category: finalCategory,
         categoryIndex,
         categoryOptions: config.categoryOptions,
         conditionOptions: config.conditionOptions,
@@ -1013,8 +1049,10 @@ onChooseCondition() {
     } = this.data
     const imageFileIDs = uniqFileIDs([imageFileID, ...(Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [])])
     const thumbFileIDs = uniqFileIDs([this.data.thumbFileID, ...(Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [])])
-    const config = getListingTypeConfig(this.data.activeListingType)
-    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate, this.data.activeListingType)
+    const activeListingType = normalizeListingType(this.data.activeListingType)
+    const config = getListingTypeConfig(activeListingType)
+    const normalizedCategory = normalizeListingCategory(category, activeListingType)
+    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate, activeListingType)
     const expireTime = endOfDayTime(pickupWindow.pickupEndDate)
     const hasImage = imageFileIDs.length > 0
 
@@ -1022,7 +1060,7 @@ onChooseCondition() {
       return wx.showToast({ title: "图片还在上传中", icon: "none" })
     }
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
-    if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
+    if (!normalizedCategory) return wx.showToast({ title: "请选择分类", icon: "none" })
 
     this._submitInFlight = true
     this._setPostData({ submitting: true })
@@ -1054,7 +1092,7 @@ onChooseCondition() {
         region
       })
       if (!region) {
-        this._promptEditProfile("请先选择地区", `${config.submitCreate}前需要填写地区树位置，用于筛选和展示。`)
+        this._promptEditProfile("请先填写显示位置", `${config.submitCreate}前需要在个人资料里手写显示位置，用于卡片和详情展示。`)
         return
       }
       if (!hasLatLng(location)) {
@@ -1065,12 +1103,15 @@ onChooseCondition() {
 
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
+      const postCity = getPostCitySnapshot()
 
       const payload = {
-        listingType: this.data.activeListingType || "goods",
+        listingType: activeListingType,
         title: String(title).trim(),
         price: Number(price || 0),
-        category,
+        category: normalizedCategory,
+        cityKey: postCity.key,
+        cityLabel: postCity.label,
         region,
         location,
         condition: condition || config.defaultCondition,
@@ -1082,15 +1123,15 @@ onChooseCondition() {
         hasImage,
         pickupStartDate: pickupWindow.pickupStartDate,
         pickupEndDate: pickupWindow.pickupEndDate,
-        availableStartDate: this.data.activeListingType === "sublet" ? pickupWindow.pickupStartDate : "",
-        leaseEndDate: this.data.activeListingType === "sublet" ? pickupWindow.pickupEndDate : "",
-        deposit: this.data.activeListingType === "sublet" ? this.data.deposit : "",
-        roomType: this.data.activeListingType === "sublet" ? category : "",
-        housingType: this.data.activeListingType === "sublet" ? this.data.housingType : "",
-        furnished: this.data.activeListingType === "sublet" ? !!this.data.furnished : false,
-        utilitiesIncluded: this.data.activeListingType === "sublet" ? !!this.data.utilitiesIncluded : false,
-        genderPreference: this.data.activeListingType === "sublet" ? this.data.genderPreference : "",
-        roommateCount: this.data.activeListingType === "sublet" ? this.data.roommateCount : "",
+        availableStartDate: activeListingType === "sublet" ? pickupWindow.pickupStartDate : "",
+        leaseEndDate: activeListingType === "sublet" ? pickupWindow.pickupEndDate : "",
+        deposit: activeListingType === "sublet" ? this.data.deposit : "",
+        roomType: activeListingType === "sublet" ? normalizedCategory : "",
+        housingType: activeListingType === "sublet" ? this.data.housingType : "",
+        furnished: activeListingType === "sublet" ? !!this.data.furnished : false,
+        utilitiesIncluded: activeListingType === "sublet" ? !!this.data.utilitiesIncluded : false,
+        genderPreference: activeListingType === "sublet" ? this.data.genderPreference : "",
+        roommateCount: activeListingType === "sublet" ? this.data.roommateCount : "",
         pickupRangeText: pickupWindow.pickupRangeText,
         expireTime,
         expiresAtText: pickupWindow.pickupEndDate,

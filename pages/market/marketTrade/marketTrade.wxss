@@ -23,8 +23,6 @@
   box-sizing: border-box;
 }
 
-
-
 .nav-copy{
   min-width: 0;
   display: flex;

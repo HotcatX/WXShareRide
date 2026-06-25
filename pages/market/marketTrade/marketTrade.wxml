@@ -1,21 +1,10 @@
 <view class="trade-page">
-  <view class="trade-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="trade-nav">
-      <view
-        class="ride-back pressable"
-        hover-class="is-pressed"
-        hover-stay-time="80"
-        bindtap="onBack"
-      >
-        ‹
+  <view class="trade-top ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
+        <text>‹</text>
       </view>
-
-      <view class="nav-copy">
-        <text class="nav-kicker">Transactions</text>
-        <text class="nav-title">{{pageTitle}}</text>
-      </view>
-
-      <view class="nav-spacer"></view>
+      <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
   </view>
 

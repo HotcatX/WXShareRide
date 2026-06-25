@@ -2,6 +2,46 @@ function cleanText(value) {
   return String(value || "").trim()
 }
 
+function normalizeRidePriceInput(value) {
+  let text = cleanText(value).replace(/[^\d.]/g, "")
+  const firstDot = text.indexOf(".")
+  if (firstDot !== -1) {
+    text = text.slice(0, firstDot + 1) + text.slice(firstDot + 1).replace(/\./g, "")
+  }
+  const parts = text.split(".")
+  if (parts.length > 1) {
+    text = `${parts[0].slice(0, 4)}.${parts[1].slice(0, 2)}`
+  } else {
+    text = text.slice(0, 4)
+  }
+  if (text.startsWith(".")) text = `0${text}`
+  return text
+}
+
+function extractRidePriceNumber(value) {
+  const text = cleanText(value)
+  if (!text) return ""
+  const match = text.match(/(\d+(?:\.\d+)?)/)
+  if (!match) return ""
+  return normalizeRidePriceInput(match[1]).replace(/\.$/, "")
+}
+
+function formatRidePricePerPerson(value, fallback = "") {
+  const text = cleanText(value)
+  if (!text) return fallback
+  const n = extractRidePriceNumber(text)
+  if (n) return `${n}$/人`
+  return text
+}
+
+function formatRidePriceTag(value) {
+  const text = cleanText(value)
+  if (!text) return ""
+  if (text === "请参考打车价格" || text === "参考打车价格") return "参考价"
+  if (text === "价格以司机确认为准") return "司机确认"
+  return formatRidePricePerPerson(text)
+}
+
 function getResult(res) {
   return (res && res.result) || {}
 }
@@ -329,6 +369,10 @@ module.exports = {
   rateTripUser,
   blockRideUser,
   markRideListStale,
+  normalizeRidePriceInput,
+  extractRidePriceNumber,
+  formatRidePricePerPerson,
+  formatRidePriceTag,
   formatScore,
   formatRideStats,
   attachRideStats,

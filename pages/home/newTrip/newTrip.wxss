@@ -98,6 +98,28 @@ page{
   color: #111418;
 }
 
+.create-ride .ride-price-input-wrap{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6rpx;
+}
+
+.create-ride .create-price-input{
+  flex: 0 1 150rpx;
+  text-align: right;
+}
+
+.create-ride .ride-input-suffix{
+  flex: none;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  font-weight: 900;
+  color: #111418;
+}
+
 /* 普通 input 兜底 */
 .create-ride .ride-input{
   margin-top: 0;

@@ -2,7 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { blockRideUser } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -69,6 +69,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
     carBrandModel: '',
 
     tripId: '',
@@ -387,6 +388,7 @@ Page({
       departAddress,
       destAddress,
       formattedDepartTime,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格以司机确认为准'),
       carBrandModel,
       showFortLeeCoreTip,
       loading: false

@@ -1,21 +1,10 @@
 <view class="market-post-page">
-  <view class="post-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="ride-topbar">
-      <view
-        class="ride-back pressable"
-        hover-class="is-pressed"
-        hover-stay-time="80"
-        bindtap="onBack"
-      >
-        ‹
+  <view class="post-top ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
+        <text>‹</text>
       </view>
-
-      <view class="nav-copy">
-        <text class="nav-kicker">{{postModeKicker}}</text>
-        <text class="nav-title">{{postPageTitle}}</text>
-      </view>
-
-      <view class="nav-spacer"></view>
+      <text class="ride-nav-title">{{postPageTitle}}</text>
     </view>
   </view>
 

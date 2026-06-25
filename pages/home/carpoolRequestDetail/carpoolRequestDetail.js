@@ -1,7 +1,7 @@
 // pages/home/carpoolRequestDetail/carpoolRequestDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const { blockRideUser } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -59,6 +59,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
 
     seatLeft: 0,
 
@@ -77,7 +78,7 @@ Page({
     // ✅ 不再展示司机/其他乘客信息（保留字段避免 WXML/其他引用报错）
     driverInfo: null,
     passengerList: [],
-    defaultAvatarUrl: '/images/default_avatar.png'
+    defaultAvatarUrl: '/images/profile.png'
   },
 
   async onLoad(options) {
@@ -264,12 +265,14 @@ Page({
       const isOwner = !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
       const isDriver = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
       const joinedByMe = !!(myOpenid && passengerID.includes(myOpenid))
+      const referencePriceText = formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格待定')
 
       this.setData({
         trip,
         departAddress,
         destAddress,
         formattedDepartTime,
+        referencePriceText,
         seatLeft,
 
         myOpenid,

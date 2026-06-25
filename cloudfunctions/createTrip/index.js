@@ -86,6 +86,15 @@ function normalizeType(value) {
   return 'carpool'
 }
 
+function cleanText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function normalizeCityKey(value) {
+  const key = cleanText(value)
+  return key || 'ny_nj'
+}
+
 function buildCustomPriceUpdate(customPrice) {
   const data = {}
   if (!customPrice || typeof customPrice !== 'object') return data
@@ -184,6 +193,8 @@ async function createCarpool(event, openid) {
     const addRes = await transaction.collection('Carpool').add({
       data: {
         driverID: event.driverID || '',
+        cityKey: normalizeCityKey(event.cityKey),
+        cityLabel: cleanText(event.cityLabel || '纽约/新泽西'),
         departures: event.departures || [],
         destinations: event.destinations || [],
         passengerCount: event.passengerCount || 1,
@@ -218,6 +229,8 @@ async function createRequest(event, openid) {
       data: {
         _openid: openid,
         passengerID: [openid],
+        cityKey: normalizeCityKey(event.cityKey),
+        cityLabel: cleanText(event.cityLabel || '纽约/新泽西'),
         departures: event.departures || [],
         destinations: event.destinations || [],
         passengerCount: event.passengerCount || 1,

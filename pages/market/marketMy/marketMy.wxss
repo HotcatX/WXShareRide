@@ -23,8 +23,6 @@
   box-sizing: border-box;
 }
 
-
-
 .nav-title{
   color: #111418;
   font-size: 34rpx;

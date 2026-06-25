@@ -7,7 +7,8 @@ const {
   rateTripUser,
   markRideListStale,
   buildRatedTargetMap,
-  isTargetRated
+  isTargetRated,
+  formatRidePricePerPerson
 } = require("../../../utils/tripManage")
 
 Page({
@@ -129,6 +130,10 @@ Page({
       const rawStatus = String(trip.status || '').toLowerCase()
       const status = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
       const isTripCompleted = status === 'past'
+      const displayTrip = {
+        ...trip,
+        referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+      }
 
       // ===== 乘客：Carpool.passengers + 通过 _openid 补全 userInfo（微信/手机/昵称）=====
       const rawPassengers = Array.isArray(trip.passengers) ? trip.passengers.filter(Boolean) : []
@@ -185,7 +190,7 @@ Page({
       })
 
       this.setData({
-        trip,
+        trip: displayTrip,
         passengers,
         ratedTargetMap,
         fromText,

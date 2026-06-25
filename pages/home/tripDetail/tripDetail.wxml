@@ -68,7 +68,7 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
-        
+        <text class="ride-chip ride-chip--warn">{{referencePriceText || '价格以司机确认为准'}}</text>
       </view>
     </view>
 
@@ -77,7 +77,7 @@
       <text class="detail-paragraph">{{trip.comment || '暂无司机备注'}}</text>
     </view>
 
-    <view class="ride-card ride-card-pad">
+    <view wx:if="{{hasJoined || isOwner}}" class="ride-card ride-card-pad">
       <view class="ride-row-between detail-section-head">
         <text class="ride-section-title">车辆信息</text>
         <text class="ride-chip">{{carBrandModel || '未填写车型'}}</text>

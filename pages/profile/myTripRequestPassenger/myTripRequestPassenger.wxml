@@ -47,7 +47,7 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
-        <text wx:if="{{trip.referencePrice}}" class="ride-chip ride-chip--warn">价格：{{trip.referencePrice}}</text>
+        <text wx:if="{{trip.referencePriceText}}" class="ride-chip ride-chip--warn">价格：{{trip.referencePriceText}}</text>
       </view>
     </view>
 

@@ -5,7 +5,8 @@ const {
   rateTripUser,
   markRideListStale,
   buildRatedTargetMap,
-  isTargetRated
+  isTargetRated,
+  formatRidePricePerPerson
 } = require("../../../utils/tripManage")
 
 Page({
@@ -179,6 +180,10 @@ Page({
       const isMyRequest = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+      const displayTrip = {
+        ...trip,
+        referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+      }
 
       // 4) 拉取乘客信息：通过 passengerID（数组）读取 openids
       const passengerOpenids = Array.isArray(trip.passengerID)
@@ -213,7 +218,7 @@ Page({
       }
 
       this.setData({
-        trip,
+        trip: displayTrip,
         fromText,
         toText,
         dateText,

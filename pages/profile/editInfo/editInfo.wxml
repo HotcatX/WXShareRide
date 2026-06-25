@@ -62,13 +62,12 @@
         <view class="edit-address-control">
           <input
             class="ride-input edit-input"
-            placeholder="地址/公寓"
+            placeholder="手写地址/公寓/城市"
             placeholder-class="ride-placeholder"
             value="{{address}}"
             data-field="address"
             bindinput="onInput"
           />
-          <view class="edit-inline-action" catchtap="onTapRegionPicker">选择</view>
         </view>
       </view>
 
@@ -186,36 +185,5 @@
 
     <view class="edit-bottom-space"></view>
   </scroll-view>
-
-  <view wx:if="{{regionPickerVisible}}">
-    <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
-
-    <view class="rp-panel" catchtouchmove="stopTouchMove">
-      <view class="rp-header">
-        <text class="rp-btn" hover-class="ride-pressed" hover-stay-time="80" bindtap="onRegionPickerCancel">取消</text>
-        <text class="rp-title">选择地址/公寓</text>
-        <text class="rp-btn ok" hover-class="ride-pressed" hover-stay-time="80" bindtap="onRegionPickerConfirm">确定</text>
-      </view>
-
-      <picker-view
-        class="rp-picker"
-        indicator-style="height: 44px;"
-        value="{{regionPickerValue}}"
-        bindchange="onRegionPickerChange"
-      >
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol1}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol2}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol3}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-      </picker-view>
-    </view>
-  </view>
 
 </view>

@@ -9,6 +9,7 @@ const GOODS_COLLECTION = "market_goods"
 const FILES_COLLECTION = "MarketFiles"
 const ADS_COLLECTION = "market_ads"
 const AD_EVENTS_COLLECTION = "market_ad_events"
+const VIEW_EVENTS_COLLECTION = "market_view_events"
 const USER_COLLECTION = "userInfo"
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
@@ -21,7 +22,10 @@ const DISTANCE_SORT_SCAN_LIMIT = 2000
 const VISIBLE_STATUSES = new Set(["", "online"])
 const MUTABLE_STATUSES = new Set(["online", "offline", "sold"])
 const LISTING_TYPES = new Set(["goods", "sublet"])
+const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
 const AD_TARGET_TYPES = new Set(["page", "tab", "miniProgram", "web", "copy", "contact", "serviceChat", "copyWechat", "none"])
+const MARKET_VIEW_DAILY_LIMIT = 10
+let viewEventsCollectionReady = false
 
 const LIST_FIELDS = {
   _id: true,
@@ -30,9 +34,12 @@ const LIST_FIELDS = {
   title: true,
   price: true,
   category: true,
+  cityKey: true,
+  cityLabel: true,
   region: true,
   location: true,
   condition: true,
+  desc: true,
   postDate: true,
   imageFileID: true,
   thumbFileID: true,
@@ -51,6 +58,8 @@ const LIST_FIELDS = {
   buyer_openid: true,
   isSold: true,
   sold: true,
+  wantCount: true,
+  viewCount: true,
   availableStartDate: true,
   leaseEndDate: true,
   deposit: true,
@@ -116,9 +125,56 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function normalizeBooleanFlag(value) {
+  if (value === true || value === 1 || value === "1") return true
+  return normalizeText(value).toLowerCase() === "true"
+}
+
+function getNewYorkDateKey(nowMs = Date.now()) {
+  try {
+    const parts = {}
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(new Date(nowMs)).forEach(part => {
+      if (part.type !== "literal") parts[part.type] = part.value
+    })
+    if (parts.year && parts.month && parts.day) return `${parts.year}-${parts.month}-${parts.day}`
+  } catch (e) {}
+  return new Date(nowMs).toISOString().slice(0, 10)
+}
+
 function normalizeListingType(value) {
   const type = normalizeText(value).toLowerCase()
   return LISTING_TYPES.has(type) ? type : "goods"
+}
+
+function normalizeSubletCategory(value) {
+  const text = normalizeText(value)
+  if (!text) return ""
+  const key = text.replace(/[\s/_-]+/g, "").toLowerCase()
+  const map = {
+    studio: "Studio",
+    "1b1b": "1B1B",
+    "2b1b": "2B1B",
+    "2b2b": "2B2B",
+    "3b2b": "3B2B",
+    other: "其他",
+    others: "其他",
+    "其他": "其他"
+  }
+  return map[key] || (SUBLET_CATEGORY_OPTIONS.includes(text) ? text : "其他")
+}
+
+function normalizeListingCategory(value, listingType) {
+  if (normalizeListingType(listingType) === "sublet") return normalizeSubletCategory(value) || "其他"
+  return normalizeText(value) || "其他"
+}
+
+function normalizeCityKey(value) {
+  return normalizeText(value).replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase()
 }
 
 function getEventListingType(event = {}) {
@@ -504,9 +560,10 @@ function buildLeaseText(item = {}) {
 function buildSubletMetaList(item = {}) {
   const rows = []
   const depositText = formatAmountText(item.deposit)
+  const roomType = normalizeSubletCategory(item.roomType || item.category)
   if (depositText) rows.push({ label: "押金", value: `$ ${depositText}` })
   if (item.housingType) rows.push({ label: "房源类型", value: normalizeText(item.housingType) })
-  if (item.roomType) rows.push({ label: "房间类型", value: normalizeText(item.roomType) })
+  if (roomType) rows.push({ label: "房间类型", value: roomType })
   rows.push({ label: "家具", value: item.furnished ? "带家具" : "未标注" })
   rows.push({ label: "水电网", value: item.utilitiesIncluded ? "已包含" : "未包含/未标注" })
   if (item.genderPreference) rows.push({ label: "室友要求", value: normalizeText(item.genderPreference) })
@@ -518,7 +575,7 @@ function buildSubletMetaList(item = {}) {
 function buildSubletSummary(item = {}) {
   const parts = [
     item.housingType,
-    item.roomType || item.category,
+    normalizeSubletCategory(item.roomType || item.category),
     item.furnished ? "带家具" : "",
     item.utilitiesIncluded ? "包水电网" : ""
   ].map(normalizeText).filter(Boolean)
@@ -530,13 +587,18 @@ function normalizeMarketItem(item = {}) {
   const title = normalizeText(item.title) || (listingType === "sublet" ? "未命名房源" : "未命名商品")
   const priceText = formatPrice(item.price)
   const status = normalizeText(item.status) || "online"
-  const category = normalizeText(item.category) || (listingType === "sublet" ? "转租" : "其他")
+  const category = normalizeListingCategory(
+    listingType === "sublet" ? (item.category || item.roomType) : item.category,
+    listingType
+  )
+  const roomType = listingType === "sublet" ? category : normalizeText(item.roomType)
   const availableStartDate = normalizeText(item.availableStartDate || item.pickupStartDate)
   const leaseEndDate = normalizeText(item.leaseEndDate || item.pickupEndDate || item.expiresAtText)
   const depositText = formatAmountText(item.deposit)
-  const subletMetaList = listingType === "sublet" ? buildSubletMetaList(item) : []
-  const subletSummary = listingType === "sublet" ? buildSubletSummary({ ...item, category }) : ""
-  const leaseText = listingType === "sublet" ? buildLeaseText({ ...item, availableStartDate, leaseEndDate }) : ""
+  const normalizedSubletItem = listingType === "sublet" ? { ...item, category, roomType } : item
+  const subletMetaList = listingType === "sublet" ? buildSubletMetaList(normalizedSubletItem) : []
+  const subletSummary = listingType === "sublet" ? buildSubletSummary(normalizedSubletItem) : ""
+  const leaseText = listingType === "sublet" ? buildLeaseText({ ...normalizedSubletItem, availableStartDate, leaseEndDate }) : ""
   const defaultCondition = listingType === "sublet"
     ? (subletSummary || availableStartDate || "转租")
     : "成色未填"
@@ -555,6 +617,8 @@ function normalizeMarketItem(item = {}) {
     priceUnitText: listingType === "sublet" ? "月租" : "价格",
     category,
     categoryDisplay: category || (listingType === "sublet" ? "转租" : "二手"),
+    cityKey: normalizeCityKey(item.cityKey),
+    cityLabel: normalizeText(item.cityLabel),
     region: normalizeText(item.region),
     location: item.location || {},
     condition: normalizeText(item.condition) || defaultCondition,
@@ -592,7 +656,7 @@ function normalizeMarketItem(item = {}) {
     leaseText,
     deposit: item.deposit || "",
     depositText: depositText ? `$ ${depositText}` : "",
-    roomType: normalizeText(item.roomType),
+    roomType,
     housingType: normalizeText(item.housingType),
     furnished: item.furnished === true,
     furnishedText: item.furnished ? "带家具" : "未标注",
@@ -651,8 +715,18 @@ function normalizeMarketAd(ad = {}) {
   }
 }
 
-function primaryFileID(item = {}) {
-  return item.thumbFileID || item.imageFileID || (Array.isArray(item.thumbFileIDs) ? item.thumbFileIDs[0] : "") || (Array.isArray(item.imageFileIDs) ? item.imageFileIDs[0] : "")
+function primaryFileID(item = {}, options = {}) {
+  const detail = !!options.detail
+  if (detail) {
+    return item.imageFileID ||
+      (Array.isArray(item.imageFileIDs) ? item.imageFileIDs[0] : "") ||
+      ""
+  }
+  return item.thumbFileID ||
+    item.imageFileID ||
+    (Array.isArray(item.thumbFileIDs) ? item.thumbFileIDs[0] : "") ||
+    (Array.isArray(item.imageFileIDs) ? item.imageFileIDs[0] : "") ||
+    ""
 }
 
 async function enrichImageUrls(items, options = {}) {
@@ -661,7 +735,7 @@ async function enrichImageUrls(items, options = {}) {
   const fileIDs = []
 
   list.forEach(item => {
-    const primary = primaryFileID(item)
+    const primary = primaryFileID(item, { detail })
     if (primary) fileIDs.push(primary)
     if (detail) {
       item.imageFileIDs.forEach(fileID => fileIDs.push(fileID))
@@ -683,14 +757,18 @@ async function enrichImageUrls(items, options = {}) {
   }
 
   return list.map(item => {
-    const primary = primaryFileID(item)
-    const imageUrls = detail ? item.imageFileIDs.map(fileID => urlMap[fileID]).filter(Boolean) : []
+    const primary = primaryFileID(item, { detail })
+    const imageUrls = detail
+      ? item.imageFileIDs
+        .map(fileID => urlMap[fileID])
+        .filter((url, index, arr) => url && arr.indexOf(url) === index)
+      : []
     const imageSrc = (primary && urlMap[primary]) || primary || (item.listingType === "sublet" ? "/images/sublease.png" : "/images/market.png")
     return {
       ...item,
       thumbUrl: primary ? (urlMap[primary] || "") : "",
       imageSrc,
-      imageUrl: imageUrls[0] || imageSrc,
+      imageUrl: detail ? (imageUrls[0] || "") : imageSrc,
       imageUrls
     }
   })
@@ -746,7 +824,9 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
     data.price = price
   }
 
-  if (payload.category !== undefined) data.category = normalizeText(payload.category) || "其他"
+  if (payload.category !== undefined) data.category = normalizeListingCategory(payload.category, listingType)
+  if (payload.cityKey !== undefined) data.cityKey = normalizeCityKey(payload.cityKey)
+  if (payload.cityLabel !== undefined) data.cityLabel = normalizeText(payload.cityLabel)
   if (payload.region !== undefined) data.region = normalizeText(payload.region)
   if (payload.location !== undefined || payload.region !== undefined) {
     data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {})
@@ -761,7 +841,9 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
     if (!deposit.ok) return fail("invalid_deposit")
     data.deposit = deposit.value
   }
-  if (payload.roomType !== undefined) data.roomType = normalizeText(payload.roomType)
+  if (payload.roomType !== undefined) {
+    data.roomType = listingType === "sublet" ? normalizeSubletCategory(payload.roomType) : normalizeText(payload.roomType)
+  }
   if (payload.housingType !== undefined) data.housingType = normalizeText(payload.housingType)
   if (payload.furnished !== undefined) data.furnished = normalizeBoolean(payload.furnished)
   if (payload.utilitiesIncluded !== undefined) data.utilitiesIncluded = normalizeBoolean(payload.utilitiesIncluded)
@@ -784,7 +866,8 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   if (listingType === "sublet") {
     data.availableStartDate = data.availableStartDate || pickupWindow.pickupStartDate
     data.leaseEndDate = data.leaseEndDate || pickupWindow.pickupEndDate
-    data.roomType = data.roomType || normalizeText(payload.roomType || oldItem.roomType || data.category || oldItem.category)
+    data.category = normalizeListingCategory(data.category || payload.category || oldItem.category || data.roomType || oldItem.roomType, listingType)
+    data.roomType = normalizeSubletCategory(data.roomType || payload.roomType || oldItem.roomType || data.category || oldItem.category) || data.category
     data.condition = data.condition || "转租"
   }
 
@@ -810,7 +893,8 @@ async function createItem(event, openid) {
   if (!openid) return fail("not_logged_in")
   const payload = event.payload || event.data || event
   const title = normalizeText(payload.title)
-  const category = normalizeText(payload.category)
+  const listingType = normalizeListingType(payload.listingType)
+  const category = normalizeListingCategory(payload.category, listingType)
   const region = normalizeText(payload.region)
   if (!title || !category || !region) return fail("missing_required_fields")
 
@@ -823,9 +907,9 @@ async function createItem(event, openid) {
   const idempotentGoodsId = buildIdempotentGoodsId(openid, clientRequestId)
   const data = {
     ...normalized.data,
-    listingType: normalized.data.listingType || normalizeListingType(payload.listingType),
+    listingType: normalized.data.listingType || listingType,
     title,
-    category,
+    category: normalized.data.category || category,
     region,
     condition: normalized.data.condition || "99新",
     desc: normalized.data.desc || "",
@@ -877,6 +961,8 @@ async function updateItem(event, openid) {
     "listingType",
     "price",
     "category",
+    "cityKey",
+    "cityLabel",
     "region",
     "location",
     "condition",
@@ -957,9 +1043,15 @@ async function deleteItem(event, openid) {
 
 function buildVisibleConditions(filters = {}) {
   const conditions = [{ status: "online" }]
-  conditions.push(buildListingTypeCondition(filters.listingType))
-  if (filters.category && filters.category !== "全部") {
-    conditions.push({ category: filters.category })
+  const listingType = normalizeListingType(filters.listingType)
+  conditions.push(buildListingTypeCondition(listingType))
+  const category = normalizeText(filters.category)
+  if (category && category !== "全部") {
+    conditions.push({ category: normalizeListingCategory(category, listingType) })
+  }
+  const cityKey = normalizeCityKey(filters.cityKey || filters.city)
+  if (cityKey && cityKey !== "all") {
+    conditions.push({ cityKey })
   }
   if (filters.region && filters.region !== "全部") {
     const region = filters.region
@@ -1011,7 +1103,9 @@ async function queryPaged(query, event = {}) {
     .limit(limit)
     .get()
   const rows = res.data || []
-  const items = await enrichImageUrls(rows)
+  const items = normalizeBooleanFlag(event.fastList || event.skipImageUrls)
+    ? rows.map(normalizeMarketItem)
+    : await enrichImageUrls(rows)
   return ok({
     items,
     data: items,
@@ -1054,7 +1148,9 @@ async function queryDistancePaged(condition, event = {}, origin) {
   })
 
   const pageRows = sorted.slice(skip, skip + limit)
-  const items = await enrichImageUrls(pageRows)
+  const items = normalizeBooleanFlag(event.fastList || event.skipImageUrls)
+    ? pageRows.map(normalizeMarketItem)
+    : await enrichImageUrls(pageRows)
   return ok({
     items,
     data: items,
@@ -1077,6 +1173,81 @@ async function listItems(event) {
   return queryPaged(query, event)
 }
 
+async function ensureViewEventsCollection() {
+  if (viewEventsCollectionReady) return
+  if (typeof db.createCollection === "function") {
+    await db.createCollection(VIEW_EVENTS_COLLECTION).catch(e => {
+      const text = String(e && (e.message || e.errMsg || e.code) || "")
+      if (!/exist|already|collection/i.test(text)) {
+        console.warn("[marketApi] create view collection failed:", e)
+      }
+    })
+  }
+  viewEventsCollectionReady = true
+}
+
+function buildViewEventId(goodsId, openid, dayKey) {
+  return crypto.createHash("sha1").update(`${goodsId}:${openid}:${dayKey}`).digest("hex")
+}
+
+async function trackMarketItemView(goodsId, openid, item = {}) {
+  if (!goodsId || !openid) return { counted: false, reason: "missing_openid", viewCount: Number(item.viewCount) || 0 }
+
+  const dayKey = getNewYorkDateKey()
+  const docId = buildViewEventId(goodsId, openid, dayKey)
+  const nowMs = Date.now()
+
+  try {
+    await ensureViewEventsCollection()
+    const ref = db.collection(VIEW_EVENTS_COLLECTION).doc(docId)
+    const existing = await ref.get().catch(() => null)
+    const row = existing && existing.data
+    const count = Number(row && row.count) || 0
+    if (count >= MARKET_VIEW_DAILY_LIMIT) {
+      return { counted: false, reason: "daily_limit", viewCount: Number(item.viewCount) || 0, dailyCount: count }
+    }
+
+    if (row) {
+      await ref.update({
+        data: {
+          count: _.inc(1),
+          updateTime: db.serverDate(),
+          updateTimeMs: nowMs
+        }
+      })
+    } else {
+      await ref.set({
+        data: {
+          goodsId,
+          _openid: openid,
+          dayKey,
+          count: 1,
+          createTime: db.serverDate(),
+          updateTime: db.serverDate(),
+          createTimeMs: nowMs,
+          updateTimeMs: nowMs
+        }
+      })
+    }
+
+    await db.collection(GOODS_COLLECTION).doc(goodsId).update({
+      data: {
+        viewCount: _.inc(1),
+        lastViewAt: db.serverDate()
+      }
+    })
+
+    return {
+      counted: true,
+      viewCount: (Number(item.viewCount) || 0) + 1,
+      dailyCount: count + 1
+    }
+  } catch (e) {
+    console.error("[marketApi] track view failed:", e)
+    return { counted: false, reason: "track_failed", viewCount: Number(item.viewCount) || 0 }
+  }
+}
+
 async function detail(event, openid) {
   const id = normalizeText(event.id)
   if (!id) return fail("missing_id")
@@ -1085,13 +1256,23 @@ async function detail(event, openid) {
   if (!item || !item._id) return fail("not_found")
   const isOwner = !!(openid && item._openid === openid)
   if (!isOwner && !isVisibleMarketDoc(item)) return fail("not_found")
-  const enriched = await enrichImageUrls([item], { detail: true })
+  const viewResult = normalizeBooleanFlag(event.trackView)
+    ? await trackMarketItemView(id, openid, item)
+    : { counted: false, viewCount: Number(item.viewCount) || 0 }
+  const nextItem = viewResult.counted ? { ...item, viewCount: viewResult.viewCount } : item
+  const enriched = await enrichImageUrls([nextItem], { detail: true })
   return ok({
     item: enriched[0],
     data: enriched[0],
     imgUrls: enriched[0].imageUrls || [],
     imgUrl: enriched[0].imageUrl || "",
-    isOwner
+    isOwner,
+    view: {
+      counted: !!viewResult.counted,
+      dailyCount: Number(viewResult.dailyCount) || 0,
+      dailyLimit: MARKET_VIEW_DAILY_LIMIT,
+      reason: viewResult.reason || ""
+    }
   })
 }
 

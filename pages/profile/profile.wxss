@@ -90,10 +90,53 @@ page{
   gap: 4rpx;
 }
 
+.profile-action-button{
+  margin: 0;
+  padding: 0;
+  line-height: normal;
+  border: none;
+}
+
+.profile-action-button::after{
+  display: none;
+}
+
 .profile-action-icon{
   width: 34rpx;
   height: 34rpx;
   display: block;
+}
+
+.profile-action-icon-wrap{
+  position: relative;
+  width: 34rpx;
+  height: 34rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-action-badge{
+  position: absolute;
+  top: -12rpx;
+  right: -18rpx;
+  min-width: 28rpx;
+  height: 28rpx;
+  padding: 0 7rpx;
+  border-radius: 18rpx;
+  background: #e64c3c;
+  border: 3rpx solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.profile-action-badge text{
+  font-size: 18rpx;
+  line-height: 1;
+  font-weight: 900;
+  color: #ffffff;
 }
 
 .profile-action-text {

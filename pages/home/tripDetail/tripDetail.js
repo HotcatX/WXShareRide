@@ -43,6 +43,30 @@ function containsFortLeeCore(addr) {
   return keywords.some(k => s.includes(k))
 }
 
+function cleanOpenid(value) {
+  return String(value || '').trim()
+}
+
+function getCarpoolDriverOpenid(trip = {}) {
+  return cleanOpenid(trip._openid || trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId)
+}
+
+function getCarpoolPassengerOpenids(trip = {}) {
+  const ids = new Set()
+  ;(Array.isArray(trip.passengers) ? trip.passengers : []).forEach(item => {
+    if (typeof item === 'string') ids.add(cleanOpenid(item))
+    else {
+      ids.add(cleanOpenid(item && item._openid))
+      ids.add(cleanOpenid(item && item.openid))
+      ids.add(cleanOpenid(item && item.passengerOpenid))
+    }
+  })
+  ;(Array.isArray(trip.passengerID) ? trip.passengerID : []).forEach(id => ids.add(cleanOpenid(id)))
+  ;(Array.isArray(trip.passengerIDs) ? trip.passengerIDs : []).forEach(id => ids.add(cleanOpenid(id)))
+  ids.delete('')
+  return Array.from(ids)
+}
+
 Page({
   data: {
     trip: null,
@@ -346,11 +370,9 @@ Page({
 
     if (myOpenid) {
       if (trip._openid === myOpenid) isOwner = true
-      if (Array.isArray(trip.passengers)) {
-        hasJoined = trip.passengers.some(p => p && p._openid === myOpenid)
-      }
+      hasJoined = getCarpoolPassengerOpenids(trip).includes(myOpenid)
     }
-    const driverOpenid = trip._openid || trip.driverOpenid || trip.driverID || ''
+    const driverOpenid = getCarpoolDriverOpenid(trip)
 
     let departAddress = ''
     let destAddress = ''
@@ -432,7 +454,8 @@ Page({
       }
 
       this.applyTripData(trip, id)
-      if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
+      const driverOpenid = getCarpoolDriverOpenid(trip)
+      if (driverOpenid) this.loadDriverInfo(driverOpenid, trip._id || id)
     } catch (err) {
       if (this.data.trip) {
         this.showToastBar('网络异常', 'error')

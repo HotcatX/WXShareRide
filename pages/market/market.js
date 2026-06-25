@@ -406,6 +406,7 @@ const INITIAL_LOAD_SIZE = 8                         // 首屏只拉当前可见�
 Page({
   data: {
     statusBarHeight: 0,
+    marketSearchRowStyle: "",
 
     activeListingType: "goods",
     searchPlaceholder: LISTING_TYPE_CONFIG.goods.searchPlaceholder,
@@ -475,6 +476,30 @@ Page({
       return wx.getSystemInfoSync().statusBarHeight || 0
     } catch (e) {
       return 0
+    }
+  },
+
+  _getTopMetrics() {
+    let info = {}
+    try {
+      info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
+    } catch (e) {
+      info = {}
+    }
+
+    let navRightReserve = 12
+    try {
+      const menu = wx.getMenuButtonBoundingClientRect()
+      const windowWidth = info.windowWidth || info.screenWidth || 0
+      if (menu && windowWidth && menu.left) {
+        navRightReserve = Math.max(navRightReserve, windowWidth - menu.left + 8)
+      }
+    } catch (e) {
+    }
+
+    return {
+      statusBarHeight: info.statusBarHeight || this._getStatusBarHeight(),
+      marketSearchRowStyle: `padding-right: ${navRightReserve}px;`
     }
   },
 
@@ -727,7 +752,7 @@ Page({
     const initialType = options.type || options.listingType || getStoredListingType()
     const storedCity = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, MARKET_DEFAULT_CITY_KEY)
 
-    this.setData({ statusBarHeight: this._getStatusBarHeight() })
+    this.setData(this._getTopMetrics())
     this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
     this._applyCityUi(initialCity || storedCity.key || MARKET_DEFAULT_CITY_KEY)
 

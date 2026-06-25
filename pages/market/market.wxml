@@ -1,6 +1,6 @@
 <view class="market-page">
   <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="market-search-row">
+    <view class="market-search-row" style="{{marketSearchRowStyle}}">
       <view class="region-entry pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
         <text class="region-text">{{activeRegionShortLabel}}</text>
         <text class="region-caret">⌄</text>

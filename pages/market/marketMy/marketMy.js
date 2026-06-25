@@ -1,5 +1,9 @@
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
+const {
+  buildProfileDisplayLocation,
+  buildProfileApartmentDisplay
+} = require("../../../utils/profileDisplay")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const LISTING_TYPE_STORAGE_KEY = "market_active_listing_type_v1"
 const defaultAvatarUrl =
@@ -152,8 +156,8 @@ function buildMyDisplayPatch(state = {}) {
     navTitle: config.navTitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
-    regionDisplay: state.region || '地址未填',
-    apartmentDisplay: state.apartment || '公寓未填',
+    regionDisplay: state.region || '显示位置未填',
+    apartmentDisplay: state.apartment || '',
     saveStateText: state.isSavingBio ? '保存中' : '自动保存',
     hasGoods: goods.length > 0,
     goodsEmpty: goods.length === 0,
@@ -500,8 +504,8 @@ Page({
             avatarUrl: user.avatarUrl || defaultAvatarUrl,
             name: user.name || '',
             wechatID: user.wechatID || '',
-            region: user.address || '',
-            apartment: user.bigregion || '',
+            region: buildProfileDisplayLocation(user),
+            apartment: buildProfileApartmentDisplay(user),
             bio: user.bio || user.intro || '',
             bioOriginal: (user.bio || user.intro || ''),
             openid: user._openid || ''

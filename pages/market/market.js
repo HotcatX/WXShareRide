@@ -20,7 +20,7 @@ const LISTING_TYPE_CONFIG = {
   goods: {
     type: "goods",
     label: "二手",
-    searchPlaceholder: "搜索商品、品牌或关键词",
+    searchPlaceholder: "搜索商品关键词",
     resultTitle: "最新闲置",
     resultUnit: "件",
     priceLabel: "价格",
@@ -31,7 +31,7 @@ const LISTING_TYPE_CONFIG = {
   sublet: {
     type: "sublet",
     label: "转租",
-    searchPlaceholder: "搜索公寓、区域或关键词",
+    searchPlaceholder: "搜索公寓关键词",
     resultTitle: "最新转租",
     resultUnit: "套",
     priceLabel: "月租",

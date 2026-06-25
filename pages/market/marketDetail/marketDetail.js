@@ -1,5 +1,8 @@
 // pages/market/marketDetail/marketDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
+const {
+  buildProfileDisplayLocation
+} = require("../../../utils/profileDisplay")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v2"
 const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
@@ -400,7 +403,7 @@ Page({
       const seller = {
         nameDisplay: normalizeText(row.name || row.nickName || row.nickname) || buildDefaultSeller(listingType).nameDisplay,
         avatarDisplay: await this._resolveAvatarUrl(avatarRaw),
-        regionDisplay: normalizeText(row.bigregion || row.location || row.region || row.address) || "区域未填"
+        regionDisplay: buildProfileDisplayLocation(row) || "区域未填"
       }
       const wechat = row.wechatID || row.wechatId || row.wechat || ""
       this.setData({ seller, sellerWechat: wechat })

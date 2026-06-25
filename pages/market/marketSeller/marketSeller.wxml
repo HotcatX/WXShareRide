@@ -20,7 +20,7 @@
           <text class="seller-name">{{seller.nameDisplay}}</text>
         </view>
         <view class="seller-tags">
-          <text>{{seller.apartmentDisplay}}</text>
+          <text wx:if="{{seller.apartmentDisplay}}">{{seller.apartmentDisplay}}</text>
           <text>{{seller.regionDisplay}}</text>
         </view>
         <text class="seller-bio">{{seller.bioDisplay}}</text>

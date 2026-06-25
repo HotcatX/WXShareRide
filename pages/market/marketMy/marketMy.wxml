@@ -17,7 +17,7 @@
           <text>{{wechatStatusText}}</text>
           <text>{{regionDisplay}}</text>
         </view>
-        <text class="profile-apartment">{{apartmentDisplay}}</text>
+        <text wx:if="{{apartmentDisplay}}" class="profile-apartment">{{apartmentDisplay}}</text>
       </view>
     </view>
 

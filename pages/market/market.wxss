@@ -449,7 +449,6 @@
 }
 
 .ad-card-row{
-  margin-top: auto;
   color: #69727d;
   font-size: 22rpx;
   line-height: 30rpx;

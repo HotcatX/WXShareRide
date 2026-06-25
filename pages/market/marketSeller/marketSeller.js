@@ -1,4 +1,8 @@
 const LOGIN_PAGE = '/pages/other/login/login'
+const {
+  buildProfileDisplayLocation,
+  buildProfileApartmentDisplay
+} = require("../../../utils/profileDisplay")
 const LISTING_TYPE_CONFIG = {
   goods: {
     label: "二手",
@@ -71,7 +75,7 @@ function buildSellerDisplay(seller = {}) {
     ...seller,
     avatarInitialDisplay: seller.avatarInitial || "卖",
     nameDisplay: seller.name || "未设置昵称",
-    apartmentDisplay: seller.apartment || "公寓未填",
+    apartmentDisplay: seller.apartment || "",
     regionDisplay: seller.region || "区域未填",
     bioDisplay: seller.bio || "发布者暂未填写个人简介。"
   }
@@ -263,8 +267,8 @@ Page({
       const seller = {
         name: u.name || u.nickName || u.nickname || "未设置昵称",
         avatarInitial: String(u.name || u.nickName || u.nickname || "卖").slice(0, 1),
-        region: u.bigregion || u.location || u.region || "",
-        apartment: u.address || u.dorm || u.addr || u.apartment || "",
+        region: buildProfileDisplayLocation(u),
+        apartment: buildProfileApartmentDisplay(u),
         wechatID: u.wechatID || u.wechat || "",
         phone: u.phone || "",
         bio: u.bio || u.intro || u.signature || "",

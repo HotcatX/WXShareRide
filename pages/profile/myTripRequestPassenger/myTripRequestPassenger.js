@@ -10,6 +10,24 @@ const {
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
 
+function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
+  if (!user || !driverOpenid) return null
+  return {
+    _openid: driverOpenid,
+    name: user.name || '',
+    phone: user.phone || '',
+    wechatID: user.wechatID || '',
+    avatarUrl: user.avatarUrl || '',
+    carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
+    carBrand: user.carBrand || '',
+    carModel: user.carModel || '',
+    zelleName: user.zelleName || '',
+    zelleAccount: user.zelleAccount || '',
+    ...attachRideStats(user, 'driver'),
+    hasRated: isTargetRated(ratedTargetMap, driverOpenid)
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -215,26 +233,15 @@ Page({
         trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId || trip.driver || ''
       let driverInfo = null
       if (driverOpenid) {
-        const uRes = await wx.cloud.callFunction({
-          name: 'getUserInfoByOpenids',
-          data: { openids: [driverOpenid] }
-        })
-        if (uRes.result && uRes.result.ok) {
-          const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-          // ✅ 对齐 myTripDetailPassenger 的司机字段
-          driverInfo = {
-            _openid: driverOpenid,
-            name: u.name || '',
-            phone: u.phone || '',
-            wechatID: u.wechatID || '',
-            avatarUrl: u.avatarUrl || '',
-            carNumber: u.carNumber || '',
-            carBrand: u.carBrand || '',
-            carModel: u.carModel || '',
-            zelleName: u.zelleName || '',
-            zelleAccount: u.zelleAccount || '',
-            ...attachRideStats(u, 'driver'),
-            hasRated: isTargetRated(ratedTargetMap, driverOpenid)
+        driverInfo = buildDriverInfo(rr.driverInfo, driverOpenid, ratedTargetMap)
+        if (!driverInfo) {
+          const uRes = await wx.cloud.callFunction({
+            name: 'getUserInfoByOpenids',
+            data: { openids: [driverOpenid] }
+          })
+          if (uRes.result && uRes.result.ok) {
+            const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
+            driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
           }
         }
       }

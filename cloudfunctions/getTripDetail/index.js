@@ -15,6 +15,26 @@ const TYPE_CONFIG = {
   }
 }
 
+const PUBLIC_DRIVER_FIELDS = {
+  _id: true,
+  _openid: true,
+  openid: true,
+  name: true,
+  nickName: true,
+  nickname: true,
+  avatarUrl: true,
+  wechatID: true,
+  phone: true,
+  carNumber: true,
+  carBrand: true,
+  carModel: true,
+  carPlate: true,
+  plateNumber: true,
+  zelleName: true,
+  zelleAccount: true,
+  rideStats: true
+}
+
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
   if (type === 'request' || type === 'carpoolrequest') return 'request'
@@ -132,6 +152,41 @@ function getTripParticipantOpenids(type, doc) {
   return Array.from(ids)
 }
 
+function normalizeDriverInfo(user = {}, driverOpenid = '') {
+  if (!user || !user._openid) return null
+  return {
+    ...user,
+    _openid: driverOpenid || user._openid || user.openid || '',
+    carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
+    carBrand: user.carBrand || '',
+    carModel: user.carModel || ''
+  }
+}
+
+function canExposeDriverInfo(actorOpenid, type, doc = {}) {
+  const actor = cleanText(actorOpenid, 80)
+  if (!actor) return false
+  return getTripParticipantOpenids(type, doc).includes(actor)
+}
+
+async function getDriverInfo(type, doc = {}, actorOpenid = '') {
+  if (!canExposeDriverInfo(actorOpenid, type, doc)) return null
+
+  const driverOpenid = type === 'request'
+    ? getRequestDriverOpenid(doc)
+    : getCarpoolDriverOpenid(doc)
+  if (!driverOpenid) return null
+
+  const res = await db.collection('userInfo')
+    .where({ _openid: driverOpenid })
+    .field(PUBLIC_DRIVER_FIELDS)
+    .limit(1)
+    .get()
+
+  const user = res.data && res.data[0] ? res.data[0] : null
+  return normalizeDriverInfo(user, driverOpenid)
+}
+
 async function shouldBlockDetail(actorOpenid, type, doc) {
   const actor = cleanText(actorOpenid, 80)
   if (!actor) return false
@@ -204,12 +259,16 @@ exports.main = async (event = {}) => {
       }
     }
 
-    const ratedTargetOpenids = await getRatedTargetOpenids(type, id, wxContext.OPENID || '')
+    const [ratedTargetOpenids, driverInfo] = await Promise.all([
+      getRatedTargetOpenids(type, id, wxContext.OPENID || ''),
+      getDriverInfo(type, res.data, wxContext.OPENID || '')
+    ])
 
     return {
       ok: true,
       success: true,
       data: res.data,
+      driverInfo,
       openid: wxContext.OPENID || '',
       type,
       from: config.collection,

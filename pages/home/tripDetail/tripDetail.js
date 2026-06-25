@@ -455,7 +455,12 @@ Page({
 
       this.applyTripData(trip, id)
       const driverOpenid = getCarpoolDriverOpenid(trip)
-      if (driverOpenid) this.loadDriverInfo(driverOpenid, trip._id || id)
+      const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
+      if (result.driverInfo && result.driverInfo._openid) {
+        this.applyDriverInfo(result.driverInfo, trip._id || id)
+      } else if (driverOpenid && canShowDriverInfo) {
+        this.loadDriverInfo(driverOpenid, trip._id || id)
+      }
     } catch (err) {
       if (this.data.trip) {
         this.showToastBar('网络异常', 'error')
@@ -465,6 +470,21 @@ Page({
       console.error('请求错误:', err)
       this.setLoadError('网络异常，请稍后重试')
     }
+  },
+
+  applyDriverInfo(driverInfo, id) {
+    if (!driverInfo) return
+    const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
+    if (id && currentId && id !== currentId) return
+
+    const parts = []
+    if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
+    if (driverInfo.carModel) parts.push(driverInfo.carModel)
+
+    this.setData({
+      driverInfo,
+      carBrandModel: parts.join(' ')
+    })
   },
 
   async loadDriverInfo(driverOpenid, id) {
@@ -482,17 +502,7 @@ Page({
       const driverInfo = list[0] || null
       if (!driverInfo) return
 
-      const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
-      if (id && currentId && id !== currentId) return
-
-      const parts = []
-      if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
-      if (driverInfo.carModel) parts.push(driverInfo.carModel)
-
-      this.setData({
-        driverInfo,
-        carBrandModel: parts.join(' ')
-      })
+      this.applyDriverInfo(driverInfo, id)
     } catch (e) {
       console.error('tripDetail 查询司机信息失败：', e)
     }

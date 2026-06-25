@@ -22,7 +22,7 @@ const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
 const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
-const LIST_CACHE_TTL = 2 * 60 * 1000
+const LIST_CACHE_TTL = 10 * 60 * 1000
 const LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 
@@ -365,8 +365,12 @@ Page({
       if ((cached.cityKey || DEFAULT_CITY_KEY) !== (this.data.activeCityKey || DEFAULT_CITY_KEY)) return false
       if (Date.now() - Number(cached.savedAt) > LIST_CACHE_TTL) return false
 
-      const carpoolList = Array.isArray(cached.carpoolList) ? cached.carpoolList : []
-      const requestList = Array.isArray(cached.requestList) ? cached.requestList : []
+      const carpoolList = (Array.isArray(cached.carpoolList) ? cached.carpoolList : [])
+        .map(item => this.decorateTripCommon(item, "carpool"))
+        .filter(item => this.shouldShowTrip(item))
+      const requestList = (Array.isArray(cached.requestList) ? cached.requestList : [])
+        .map(item => this.decorateTripCommon(item, "request"))
+        .filter(item => this.shouldShowTrip(item))
       if (!carpoolList.length && !requestList.length) return false
 
       this.setData({
@@ -817,7 +821,7 @@ Page({
       }
       const res = await wx.cloud.callFunction({
         name: "getTripList",
-        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true, ...cityFilters }
+        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true, fastOnly: true, ...cityFilters }
       })
       const result = res && res.result ? res.result : {}
 

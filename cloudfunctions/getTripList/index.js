@@ -7,6 +7,7 @@ const _ = db.command
 
 const VISIBLE_STATUSES = ['open', 'full']
 const LIST_EXPIRE_GRACE = 30 * 60 * 1000
+const LIST_FAST_MODE_DEFAULT = true
 
 const TYPE_CONFIG = {
   carpool: {
@@ -129,6 +130,15 @@ function buildCityCondition(event = {}) {
   })
 
   return _.or(conditions)
+}
+
+function buildCityKeyCondition(event = {}) {
+  const cityKey = normalizeCityKey(event.cityKey || event.city)
+  if (!cityKey || cityKey === 'all') return null
+  return _.or([
+    { cityKey },
+    { routeCityKey: cityKey }
+  ])
 }
 
 function normalizeTripStatus(status) {
@@ -333,10 +343,12 @@ async function readType(type, event) {
   const config = TYPE_CONFIG[type]
   const limit = getLimit(event)
   const quick = event && event.quick !== false
+  const fastOnly = quick && event.fastOnly !== false && LIST_FAST_MODE_DEFAULT
   const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
-  const cityCondition = buildCityCondition(event)
+  const fastCityCondition = buildCityKeyCondition(event)
+  const legacyCityCondition = buildCityCondition(event)
 
-  const buildQuery = (where, orderField, queryLimit) => {
+  const buildQuery = (where, orderField, queryLimit, cityCondition) => {
     const scopedWhere = cityCondition ? _.and([where, cityCondition]) : where
     let query = db.collection(config.collection)
       .where(scopedWhere)
@@ -346,15 +358,7 @@ async function readType(type, event) {
     return query
   }
 
-  const fallbackLimit = Math.min(limit, 20)
-  const queries = VISIBLE_STATUSES.flatMap(status => [
-    buildQuery({ status, departureAtMs: _.gte(minDepartureAtMs) }, 'departureAtMs', limit),
-    buildQuery({ status, latestDepartureAtMs: _.gte(minDepartureAtMs) }, 'latestDepartureAtMs', limit),
-    buildQuery({ status }, 'createdAt', fallbackLimit)
-  ])
-
-  const results = await Promise.all(queries.map(query => query.get()))
-  return mergeById(results.map(res => res.data || []))
+  const normalizeRows = rows => mergeById([rows])
     .map(item => {
       const status = normalizeTripStatus(item.status)
       return status === item.status ? item : Object.assign({}, item, { status })
@@ -367,6 +371,29 @@ async function readType(type, event) {
     })
     .sort((a, b) => getTripSortMs(a) - getTripSortMs(b))
     .slice(0, limit)
+
+  const fastWhere = {
+    status: _.in(VISIBLE_STATUSES),
+    latestDepartureAtMs: _.gte(minDepartureAtMs)
+  }
+
+  try {
+    const fastRes = await buildQuery(fastWhere, 'latestDepartureAtMs', limit, fastCityCondition).get()
+    const fastRows = normalizeRows(fastRes.data || [])
+    if (fastOnly || fastRows.length >= limit) return fastRows
+  } catch (e) {
+    console.warn('getTripList fast query failed, falling back:', e && (e.errMsg || e.message || e))
+  }
+
+  const fallbackLimit = Math.min(limit, 20)
+  const queries = VISIBLE_STATUSES.flatMap(status => [
+    buildQuery({ status, departureAtMs: _.gte(minDepartureAtMs) }, 'departureAtMs', limit, legacyCityCondition),
+    buildQuery({ status, latestDepartureAtMs: _.gte(minDepartureAtMs) }, 'latestDepartureAtMs', limit, legacyCityCondition),
+    buildQuery({ status }, 'createdAt', fallbackLimit, legacyCityCondition)
+  ])
+
+  const results = await Promise.all(queries.map(query => query.get()))
+  return normalizeRows(mergeById(results.map(res => res.data || [])))
 }
 
 exports.main = async (event = {}) => {

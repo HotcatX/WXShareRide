@@ -16,6 +16,24 @@ function normalizeSourceType(raw) {
   return value === 'request' || value === 'carpoolrequest' ? 'request' : 'carpool'
 }
 
+function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
+  if (!user || !driverOpenid) return null
+  return {
+    _openid: driverOpenid,
+    name: user.name || '',
+    phone: user.phone || '',
+    wechatID: user.wechatID || '',
+    carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
+    carBrand: user.carBrand || '',
+    carModel: user.carModel || '',
+    zelleName: user.zelleName || '',
+    zelleAccount: user.zelleAccount || '',
+    avatarUrl: user.avatarUrl || '',
+    ...attachRideStats(user, 'driver'),
+    hasRated: isTargetRated(ratedTargetMap, driverOpenid)
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 80,
@@ -232,23 +250,15 @@ Page({
 
     let driverInfo = null
     if (driverOpenid) {
-      const uRes = await wx.cloud.callFunction({
-        name: 'getUserInfoByOpenids',
-        data: { openids: [driverOpenid] }
-      })
-      if (uRes.result && uRes.result.ok) {
-        const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-        driverInfo = {
-          _openid: driverOpenid,
-          name: u.name || '',
-          phone: u.phone || '',
-          wechatID: u.wechatID || '',
-          carNumber: u.carNumber || '',
-          zelleName: u.zelleName || '',
-          zelleAccount: u.zelleAccount || '',
-          avatarUrl: u.avatarUrl || '',
-          ...attachRideStats(u, 'driver'),
-          hasRated: isTargetRated(ratedTargetMap, driverOpenid)
+      driverInfo = buildDriverInfo(detailResult.driverInfo, driverOpenid, ratedTargetMap)
+      if (!driverInfo) {
+        const uRes = await wx.cloud.callFunction({
+          name: 'getUserInfoByOpenids',
+          data: { openids: [driverOpenid] }
+        })
+        if (uRes.result && uRes.result.ok) {
+          const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
+          driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
         }
       }
     }
@@ -306,23 +316,15 @@ Page({
 
     let driverInfo = null
     if (driverOpenid) {
-      const uRes = await wx.cloud.callFunction({
-        name: 'getUserInfoByOpenids',
-        data: { openids: [driverOpenid] }
-      })
-      if (uRes.result && uRes.result.ok) {
-        const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-        driverInfo = {
-          _openid: driverOpenid,
-          name: u.name || '',
-          phone: u.phone || '',
-          wechatID: u.wechatID || '',
-          carNumber: u.carNumber || '',
-          zelleName: u.zelleName || '',
-          zelleAccount: u.zelleAccount || '',
-          avatarUrl: u.avatarUrl || '',
-          ...attachRideStats(u, 'driver'),
-          hasRated: isTargetRated(ratedTargetMap, driverOpenid)
+      driverInfo = buildDriverInfo(rr.driverInfo, driverOpenid, ratedTargetMap)
+      if (!driverInfo) {
+        const uRes = await wx.cloud.callFunction({
+          name: 'getUserInfoByOpenids',
+          data: { openids: [driverOpenid] }
+        })
+        if (uRes.result && uRes.result.ok) {
+          const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
+          driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
         }
       }
     }

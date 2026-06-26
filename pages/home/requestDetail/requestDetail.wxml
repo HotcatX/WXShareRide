@@ -20,7 +20,16 @@
     <button class="ride-state-action" bindtap="goBack">返回</button>
   </view>
 
-  <scroll-view wx:else class="ride-scroll request-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll request-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view wx:if="{{toastVisible}}" class="request-toast {{toastType}}">
       <text class="request-toast-icon">{{toastIcon}}</text>
       <text class="request-toast-text">{{toastText}}</text>
@@ -75,6 +84,7 @@
       <text class="ride-notice-text">优先查看拼车列表是否有合适路线。短距离可自行打车，长距离求车等待司机接单。</text>
     </view> -->
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

@@ -20,7 +20,16 @@
     <button class="ride-state-action" bindtap="goBack">返回</button>
   </view>
 
-  <scroll-view wx:else class="ride-scroll request-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll request-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view class="ride-card ride-card-pad request-hero">
       <view class="ride-row-between request-hero-head">
         <text class="ride-list-kind">乘客求车</text>
@@ -70,6 +79,7 @@
       <text class="ride-notice-text">确认时间、出发地和目的地后再加入路线，成功后会回到首页查看进度。</text>
     </view>
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

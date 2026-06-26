@@ -70,7 +70,15 @@
     </view>
   </view>
 
-  <scroll-view class="ride-scroll list-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    class="ride-scroll list-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
     <view wx:if="{{!isRideServiceAvailable}}" class="ride-card ride-card-pad ride-unavailable-card list-unavailable-card">
       <text class="ride-unavailable-title">{{activeCityLabel}} 暂无拼车服务</text>
       <text class="ride-unavailable-desc">目前拼车只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
@@ -143,6 +151,7 @@
       <text class="toast-text">{{toastText}}</text>
     </view>
 
+    <text wx:if="{{isRideServiceAvailable}}" class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

@@ -3,6 +3,7 @@ const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -74,7 +75,9 @@ Page({
     toastVisible: false,
     toastType: '',         // success / warning / error（你自己在 wxss 定义）
     toastIcon: '',
-    toastText: ''
+    toastText: '',
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async onLoad(options) {
@@ -115,10 +118,16 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
       const { tripId } = this.data
-      if (tripId) await this.loadTripDetail(tripId, { silent: true })
+      if (tripId) await this.loadTripDetail(tripId, { silent: true, force: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -318,31 +327,20 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
+    const cached = !force ? readTripDetailCache("request", id, { allowStale: true }) : null
+    if (cached && this.applyRequestDetailResult(cached, id, { silentError: true })) {
+      fetchTripDetail("request", id, { force: true })
+        .then(result => this.applyRequestDetailResult(result, id, { silentError: true }))
+        .catch(() => {})
+      return
+    }
+
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id }
-      })
-
-      if (!res.result || !res.result.success) {
-        if (this.data.trip && !(res.result && res.result.notFound)) {
-          return
-        }
-        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
-        this.setLoadError(msg)
-        return
-      }
-
-      const trip = res.result.data
-      if (!trip) {
-        this.setLoadError('该求车路线不存在或已被删除')
-        return
-      }
-
-      this.applyRequestData(trip)
+      const result = await fetchTripDetail("request", id, { force: true })
+      this.applyRequestDetailResult(result, id)
     } catch (err) {
       if (this.data.trip) {
         return
@@ -350,6 +348,23 @@ Page({
       console.error('loadTripDetail error:', err)
       this.setLoadError('网络异常，请稍后重试')
     }
+  },
+
+  applyRequestDetailResult(result = {}, id, options = {}) {
+    if (!result || !(result.ok || result.success)) {
+      if (this.data.trip && !(result && result.notFound)) return false
+      const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
+      this.setLoadError(msg)
+      return false
+    }
+
+    const trip = Array.isArray(result.data) ? result.data[0] : result.data
+    if (!trip) {
+      this.setLoadError('该求车路线不存在或已被删除')
+      return false
+    }
+
+    return this.applyRequestData(trip)
   },
 
   // =========================

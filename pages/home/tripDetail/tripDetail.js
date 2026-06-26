@@ -3,6 +3,7 @@ const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -101,6 +102,8 @@ Page({
 
     showPickupOptions: false,
     showDropoffOptions: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async loadUserSpots() {
@@ -119,17 +122,23 @@ Page({
 
 
   onPullDownRefresh: async function () {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
     const { tripId, trip } = this.data
     const id = tripId || (trip && trip._id)
     if (!id) {
       wx.stopPullDownRefresh()
       return
     }
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadTripDetail(id, { silent: true })
+      await this.loadTripDetail(id, { silent: true, force: true })
     } catch (e) {
-      console.error('onPullDownRefresh error', e)
+      console.error('onDetailRefresherRefresh error', e)
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -413,47 +422,54 @@ Page({
     return true
   },
 
+  applyTripDetailResult(result = {}, id, options = {}) {
+    if (!(result.ok || result.success)) {
+      const isNotFound = !!result.notFound
+      const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
+      if (!isNotFound && this.data.trip) {
+        if (!options.silentError) this.showToastBar(message, 'error')
+        this.setData({ loading: false })
+        return false
+      }
+      this.setLoadError(message, { notFound: isNotFound })
+      return false
+    }
+
+    const trip = Array.isArray(result.data)
+      ? result.data[0]
+      : result.data
+
+    if (!trip) {
+      this.setLoadError('该路线不存在或已被删除', { notFound: true })
+      return false
+    }
+
+    this.applyTripData(trip, id)
+    const driverOpenid = getCarpoolDriverOpenid(trip)
+    const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
+    if (result.driverInfo && result.driverInfo._openid) {
+      this.applyDriverInfo(result.driverInfo, trip._id || id)
+    } else if (driverOpenid && canShowDriverInfo) {
+      this.loadDriverInfo(driverOpenid, trip._id || id)
+    }
+    return true
+  },
+
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
+    const cached = !force ? readTripDetailCache("carpool", id, { allowStale: true }) : null
+    if (cached && this.applyTripDetailResult(cached, id, { silentError: true })) {
+      fetchTripDetail("carpool", id, { force: true })
+        .then(result => this.applyTripDetailResult(result, id, { silentError: true }))
+        .catch(() => {})
+      return
+    }
+
     if (!silent) this.setData({ loading: true, loadError: '', notFound: false })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'carpool', id }
-      })
-
-      const result = res && res.result ? res.result : {}
-
-      if (!result.success) {
-        const isNotFound = !!result.notFound
-        const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
-        if (!isNotFound && this.data.trip) {
-          this.showToastBar(message, 'error')
-          this.setData({ loading: false })
-          return
-        }
-        this.setLoadError(message, { notFound: isNotFound })
-        return
-      }
-
-      const trip = Array.isArray(result.data)
-        ? result.data[0]
-        : result.data
-
-      if (!trip) {
-        this.setLoadError('该路线不存在或已被删除', { notFound: true })
-        return
-      }
-
-      this.applyTripData(trip, id)
-      const driverOpenid = getCarpoolDriverOpenid(trip)
-      const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
-      if (result.driverInfo && result.driverInfo._openid) {
-        this.applyDriverInfo(result.driverInfo, trip._id || id)
-      } else if (driverOpenid && canShowDriverInfo) {
-        this.loadDriverInfo(driverOpenid, trip._id || id)
-      }
+      const result = await fetchTripDetail("carpool", id, { force: true })
+      this.applyTripDetailResult(result, id)
     } catch (err) {
       if (this.data.trip) {
         this.showToastBar('网络异常', 'error')
@@ -596,7 +612,7 @@ Page({
       wx.showToast({ title: '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
 
-      await this.loadTripDetail(trip._id, { silent: true })
+      await this.loadTripDetail(trip._id, { silent: true, force: true })
 
       const pages = getCurrentPages()
       const prevPage = pages[pages.length - 2]

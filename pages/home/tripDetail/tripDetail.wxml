@@ -27,6 +27,9 @@
     scroll-y
     enhanced="true"
     show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
   >
     <view wx:if="{{toastVisible}}" class="detail-toast {{toastType}}">
       <text class="detail-toast-icon">{{toastIcon}}</text>
@@ -180,6 +183,7 @@
       </view>
     </view>
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

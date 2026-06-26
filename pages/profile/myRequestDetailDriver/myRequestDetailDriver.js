@@ -8,6 +8,7 @@ const {
   isTargetRated,
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 Page({
   data: {
@@ -30,13 +31,16 @@ Page({
 
     // 乘客信息
     passengers: [],
+    passengersLoading: false,
     ratedTargetMap: {},
 
     // 是否为该路线司机（只有为 true 才展示乘客信息 + 退出按钮）
     isMyRequest: false,
     isRequestCompleted: false,
 
-    showFortLeeCoreTip: false
+    showFortLeeCoreTip: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   // ====== 工具：周几 ======
@@ -85,6 +89,7 @@ Page({
       timeText: '',
       largeLuggageCount: 0,
       passengers: [],
+      passengersLoading: false,
       ratedTargetMap: {},
       isMyRequest: false,
       isRequestCompleted: false,
@@ -119,25 +124,30 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadRequestDetail(this.data.requestId)
+      await this.loadRequestDetail(this.data.requestId, { force: true, silent: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
 
-  async loadRequestDetail(requestId) {
-    this.setData({ loading: true, loadError: '' })
+  async loadRequestDetail(requestId, options = {}) {
+    if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
       // 1) 读 CarpoolRequest 详情
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id: requestId }
+      const rawResult = await fetchTripDetail('request', requestId, {
+        force: !!options.force,
+        allowStale: true
       })
 
       // 兼容：有的函数返回 {success:true,data:[...]}，有的返回 {ok:true,data:...}
-      const rawResult = res && res.result ? res.result : null
       const success = !!(rawResult && (rawResult.success || rawResult.ok))
       if (!success) {
         this.setLoadError((rawResult && (rawResult.errorMsg || rawResult.msg)) || '加载失败')
@@ -190,8 +200,49 @@ Page({
         ? trip.passengerID.filter(Boolean)
         : []
 
+      const buildPassengers = (userMap = {}) => passengerOpenids.map(op => {
+        const u = userMap[op] || {}
+        return {
+          _openid: op,
+          name: u.name || '',
+          phone: u.phone || '',
+          wechatID: u.wechatID || '',
+          address: u.address || '',
+          avatarUrl: u.avatarUrl || '',
+          ...attachRideStats(u, 'passenger'),
+          hasRated: isTargetRated(ratedTargetMap, op)
+        }
+      })
+
+      this.setData({
+        trip: displayTrip,
+        fromText,
+        toText,
+        dateText,
+        weekdayText,
+        timeText,
+        showFortLeeCoreTip,
+
+        // ✅ 行李数
+        largeLuggageCount,
+
+        isMyRequest,
+        isRequestCompleted,
+        passengers: isMyRequest ? buildPassengers() : [],
+        passengersLoading: isMyRequest && passengerOpenids.length > 0,
+        ratedTargetMap,
+
+        loadError: '',
+        loading: false
+      })
+
+      if (!isMyRequest || passengerOpenids.length === 0) {
+        this.setData({ passengersLoading: false })
+        return
+      }
+
       let passengers = []
-      if (isMyRequest && passengerOpenids.length > 0) {
+      try {
         const uRes = await wx.cloud.callFunction({
           name: 'getUserInfoByOpenids',
           data: { openids: passengerOpenids }
@@ -215,30 +266,17 @@ Page({
             }
           })
         }
+      } catch (e) {
+        console.error('load request passenger info error:', e)
       }
 
       this.setData({
-        trip: displayTrip,
-        fromText,
-        toText,
-        dateText,
-        weekdayText,
-        timeText,
-        showFortLeeCoreTip,
-
-        // ✅ 行李数
-        largeLuggageCount,
-
-        isMyRequest,
-        isRequestCompleted,
         passengers,
-        ratedTargetMap,
-
-        loadError: '',
-        loading: false
+        passengersLoading: false
       })
     } catch (e) {
       console.error('loadRequestDetail error:', e)
+      this.setData({ passengersLoading: false })
       this.setLoadError('加载失败，请稍后重试')
     }
   },
@@ -353,7 +391,7 @@ Page({
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadRequestDetail(requestId)
+    if (ok) await this.loadRequestDetail(requestId, { force: true, silent: true })
   },
 
   onShareAppMessage() {

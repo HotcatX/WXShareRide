@@ -20,7 +20,16 @@
     <button class="ride-state-action" bindtap="goBack">返回</button>
   </view>
 
-  <scroll-view wx:else class="ride-scroll my-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll my-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view class="ride-card ride-card-pad">
       <view class="ride-row-between my-hero-head">
         <text class="ride-list-kind">我发布的求车</text>
@@ -156,6 +165,7 @@
       <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
     </view>
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

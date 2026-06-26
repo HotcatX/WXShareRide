@@ -2,6 +2,7 @@ const HOME_REFRESH_INTERVAL = 30 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
 const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
+const { prefetchTripDetails } = require("../../utils/tripDetailCache")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -589,6 +590,21 @@ Page({
     wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}&sourceType=${sourceType}` })
   },
 
+  prefetchHomeTripDetails(lists = []) {
+    const entries = []
+    ;(Array.isArray(lists) ? lists : []).forEach(list => {
+      ;(Array.isArray(list) ? list : []).forEach(trip => {
+        const id = trip && (trip.tripId || trip._id)
+        if (!id) return
+        entries.push({
+          id,
+          type: String(trip.from || "").toLowerCase() === "request" ? "request" : "carpool"
+        })
+      })
+    })
+    prefetchTripDetails(entries, { limit: 8 }).catch(() => {})
+  },
+
   async loadPublicStats() {
     try {
       const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
@@ -732,6 +748,13 @@ Page({
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
     })
+
+    this.prefetchHomeTripDetails([
+      driverCreateTrips,
+      driverJoinTrips,
+      passengerCreateTrips,
+      passengerTrips
+    ])
   },
 
   refreshHomeStatusInBackground(force = false) {

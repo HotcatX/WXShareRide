@@ -2,6 +2,7 @@
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -64,7 +65,9 @@ Page({
     // ✅ 不再展示司机/其他乘客信息（保留字段避免 WXML/其他引用报错）
     driverInfo: null,
     passengerList: [],
-    defaultAvatarUrl: '/images/profile.png'
+    defaultAvatarUrl: '/images/profile.png',
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async onLoad(options) {
@@ -103,10 +106,16 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
       const { tripId } = this.data
-      if (tripId) await this.loadTripDetail(tripId, { silent: true })
+      if (tripId) await this.loadTripDetail(tripId, { silent: true, force: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -181,22 +190,18 @@ Page({
    * - ✅ 不再读取司机/其他乘客信息
    */
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id }
-      })
-
-      if (!res.result || !res.result.success) {
-        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+      const result = await fetchTripDetail('request', id, { force, allowStale: true })
+      if (!result || !(result.success || result.ok)) {
+        const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
         this.setLoadError(msg)
         return
       }
 
-      const trip = res.result.data
+      const trip = Array.isArray(result.data) ? result.data[0] : result.data
       if (!trip) {
         this.setLoadError('该求车路线不存在或已被删除')
         return

@@ -65,7 +65,7 @@
         <view class="info-card">
           <view class="seller-price-row">
             <view class="seller-profile pressable" hover-class="is-pressed" hover-stay-time="80" catchtap="onViewSellerProfile">
-              <image class="seller-avatar" src="{{seller.avatarDisplay}}" mode="aspectFill" />
+              <image class="seller-avatar" src="{{seller.avatarDisplay}}" mode="aspectFill" fade-in="{{false}}" />
               <view class="seller-copy">
                 <view class="seller-name-row">
                   <text class="seller-name">{{seller.nameDisplay}}</text>

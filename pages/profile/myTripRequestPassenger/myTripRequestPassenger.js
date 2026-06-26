@@ -9,6 +9,7 @@ const {
   isTargetRated,
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
   if (!user || !driverOpenid) return null
@@ -59,7 +60,9 @@ Page({
 
     // 剔除模式
     kickMode: false,
-    isRequestCompleted: false
+    isRequestCompleted: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   getWeekdayCN(dateStr) {
@@ -172,24 +175,29 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadRequestDetail(this.data.requestId)
+      await this.loadRequestDetail(this.data.requestId, { force: true, silent: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
 
-  async loadRequestDetail(requestId) {
-    this.setData({ loading: true, loadError: '' })
+  async loadRequestDetail(requestId, options = {}) {
+    if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
       // 1) 读 CarpoolRequest 详情
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id: requestId }
+      const rr = await fetchTripDetail('request', requestId, {
+        force: !!options.force,
+        allowStale: true
       })
 
-      const rr = res && res.result ? res.result : null
       const ok = !!(rr && (rr.ok || rr.success))
       if (!ok) {
         this.setLoadError((rr && (rr.errorMsg || rr.msg)) || '加载失败')
@@ -369,7 +377,7 @@ Page({
       wx.hideLoading()
       if (result && (result.ok || result.success)) {
         wx.showToast({ title: '已剔除', icon: 'success' })
-        await this.loadRequestDetail(requestId)
+        await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
         wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
       }
@@ -409,7 +417,7 @@ Page({
       wx.hideLoading()
       if (result && (result.ok || result.success)) {
         wx.showToast({ title: '已剔除', icon: 'success' })
-        await this.loadRequestDetail(requestId)
+        await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
         wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
       }
@@ -509,7 +517,7 @@ Page({
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadRequestDetail(requestId)
+    if (ok) await this.loadRequestDetail(requestId, { force: true, silent: true })
   },
 
   onShareAppMessage() {

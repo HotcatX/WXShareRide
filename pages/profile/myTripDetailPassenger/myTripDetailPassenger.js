@@ -10,6 +10,7 @@ const {
   isTargetRated,
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
@@ -62,7 +63,9 @@ Page({
     defaultAvatarUrl: '/images/profile.png',
 
     showFortLeeCoreTip: false,
-    isTripCompleted: false
+    isTripCompleted: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   // --------- 日期格式 ---------
@@ -154,9 +157,15 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadTripDetail(this.data.tripId, this.data.sourceType)
+      await this.loadTripDetail(this.data.tripId, this.data.sourceType, { force: true, silent: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -175,17 +184,16 @@ Page({
   },
 
   // ========== 主加载：按入口来源读取 Carpool 或 CarpoolRequest ==========
-  async loadTripDetail(tripId, sourceType = this.data.sourceType) {
-    this.setData({ loading: true, loadError: '' })
+  async loadTripDetail(tripId, sourceType = this.data.sourceType, options = {}) {
+    if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
       if (sourceType === 'request') {
-        const reqRes = await wx.cloud.callFunction({
-          name: 'getTripDetail',
-          data: { type: 'request', id: tripId }
+        const rr = await fetchTripDetail('request', tripId, {
+          force: !!options.force,
+          allowStale: true
         })
 
-        const rr = reqRes && reqRes.result ? reqRes.result : null
         const reqOk = !!(rr && (rr.ok || rr.success))
         const reqTrip = reqOk ? (Array.isArray(rr.data) ? rr.data[0] : rr.data) : null
 
@@ -198,23 +206,22 @@ Page({
         return
       }
 
-      const carpoolRes = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'carpool', id: tripId }
+      const carpoolResult = await fetchTripDetail('carpool', tripId, {
+        force: !!options.force,
+        allowStale: true
       })
 
-      const carpoolOk = !!(carpoolRes.result && carpoolRes.result.success)
+      const carpoolOk = !!(carpoolResult && (carpoolResult.ok || carpoolResult.success))
       const carpoolTrip = carpoolOk
-        ? (Array.isArray(carpoolRes.result.data) ? carpoolRes.result.data[0] : carpoolRes.result.data)
+        ? (Array.isArray(carpoolResult.data) ? carpoolResult.data[0] : carpoolResult.data)
         : null
 
       if (carpoolTrip) {
-        await this.applyCarpoolTrip(carpoolTrip, carpoolRes.result)
+        await this.applyCarpoolTrip(carpoolTrip, carpoolResult)
         return
       }
 
-      const cr = carpoolRes && carpoolRes.result ? carpoolRes.result : null
-      this.setLoadError((cr && (cr.errorMsg || cr.msg)) || '该路线不存在或已被删除')
+      this.setLoadError((carpoolResult && (carpoolResult.errorMsg || carpoolResult.msg)) || '该路线不存在或已被删除')
     } catch (e) {
       console.error('loadTripDetail error:', e)
       showDataError('路线加载失败', e, '路线详情从数据库加载失败，请稍后重试。')
@@ -500,7 +507,7 @@ Page({
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadTripDetail(tripId, sourceType)
+    if (ok) await this.loadTripDetail(tripId, sourceType, { force: true, silent: true })
   },
 
   onShareAppMessage() {

@@ -11,7 +11,7 @@
   <scroll-view class="seller-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
     <view class="seller-hero">
       <view class="seller-avatar-wrap">
-        <image wx:if="{{seller.avatarDisplay}}" class="seller-avatar-img" src="{{seller.avatarDisplay}}" mode="aspectFill" />
+        <image wx:if="{{seller.avatarDisplay}}" class="seller-avatar-img" src="{{seller.avatarDisplay}}" mode="aspectFill" fade-in="{{false}}" />
         <view wx:else class="seller-avatar-fallback">{{seller.avatarInitialDisplay}}</view>
       </view>
 

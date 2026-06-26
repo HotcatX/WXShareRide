@@ -169,6 +169,16 @@ button {
   box-sizing: border-box;
 }
 
+.ride-refresh-hint{
+  display: block;
+  margin: 0 0 14rpx;
+  color: #8b96a3;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  text-align: center;
+}
+
 .ride-content{
   padding: 16rpx 20rpx calc(env(safe-area-inset-bottom) + 140rpx);
   box-sizing: border-box;

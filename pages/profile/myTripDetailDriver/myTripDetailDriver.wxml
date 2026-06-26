@@ -15,7 +15,16 @@
 
   <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
 
-  <scroll-view wx:else class="ride-scroll my-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll my-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view class="ride-card ride-card-pad">
       <view class="ride-row-between my-hero-head">
         <text class="ride-list-kind">我发布的路线</text>
@@ -58,7 +67,11 @@
         <text class="ride-section-subtitle">{{passengers.length || 0}} 人</text>
       </view>
 
-      <view wx:if="{{!passengers || passengers.length === 0}}" class="my-empty">
+      <view wx:if="{{passengersLoading}}" class="my-empty">
+        正在加载乘客信息
+      </view>
+
+      <view wx:elif="{{!passengers || passengers.length === 0}}" class="my-empty">
         暂无乘客加入该路线
       </view>
 
@@ -110,6 +123,7 @@
       <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
     </view>
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

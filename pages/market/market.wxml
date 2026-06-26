@@ -97,7 +97,7 @@
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
               >
-                <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" />
+                <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
               </view>
               <text class="goods-distance">{{item.distanceText || item.regionShortText}}</text>
@@ -116,7 +116,7 @@
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
               >
-                <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" />
+                <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name">{{item.sellerNameText}}</text>
               </view>
               <text class="card-location">{{item.regionShortText}}</text>

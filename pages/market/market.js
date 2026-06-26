@@ -1197,7 +1197,7 @@ Page({
     }
   },
 
-  async _hydrateSellerProfiles(goods = []) {
+  _hydrateSellerProfilesFromCache(goods = [], options = {}) {
     const rows = Array.isArray(goods) ? goods : []
     const openids = Array.from(new Set(rows.map(item => item && item._openid).filter(Boolean)))
     if (!openids.length) return rows
@@ -1218,23 +1218,28 @@ Page({
       return !profile || !profile.isFresh
     })
 
-    if (missing.length) {
+    if (options.refresh !== false && missing.length) {
       this._refreshSellerProfilesInBackground(missing)
     }
 
     return this._applySellerProfilesToRows(rows)
   },
 
-  _applySellerProfilesToRows(rows = []) {
-    return (Array.isArray(rows) ? rows : []).map(item => {
+  _applySellerProfilesToRows(rows = [], options = {}) {
+    let changed = false
+    const list = (Array.isArray(rows) ? rows : []).map(item => {
       if (!item || !item._openid) return item
       const profile = this._sellerProfileCache[item._openid] || {}
+      const sellerNameText = profile.name || item.sellerNameText
+      const sellerAvatar = profile.avatar || item.sellerAvatar || "/images/profile.png"
+      if (sellerNameText !== item.sellerNameText || sellerAvatar !== item.sellerAvatar) changed = true
       return {
         ...item,
-        sellerNameText: profile.name || item.sellerNameText,
-        sellerAvatar: profile.avatar || item.sellerAvatar || "/images/profile.png"
+        sellerNameText,
+        sellerAvatar
       }
     })
+    return options.withChanged ? { list, changed } : list
   },
 
   _refreshSellerProfilesInBackground(openids = []) {
@@ -1256,8 +1261,9 @@ Page({
         }
       })
 
-      const hydratedAll = this._applySellerProfilesToRows(this.data.allGoods || [])
-      this.setData({ allGoods: hydratedAll })
+      const hydrated = this._applySellerProfilesToRows(this.data.allGoods || [], { withChanged: true })
+      if (!hydrated.changed) return
+      this.setData({ allGoods: hydrated.list })
       this.applyFilters(false)
     }).catch(e => {
       console.error("refresh seller profiles failed:", e)
@@ -1585,7 +1591,6 @@ Page({
     this._firstPageFetchAtByKey[requestKey] = now
     const requestToken = `${requestKey}|first|${now}`
     this._activeGoodsRequestToken = requestToken
-    this._cacheRestoreToken = ""
 
     try {
       this.setData({
@@ -1609,7 +1614,9 @@ Page({
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
 
       const rawRows = result.items || result.data || []
-      const rows = this._mapDocsToGoods(rawRows, "firstPage")
+      const rows = this._hydrateSellerProfilesFromCache(
+        this._mapDocsToGoods(rawRows, "firstPage")
+      )
 
       this.setData({
         allGoods: rows,
@@ -1628,11 +1635,6 @@ Page({
 
       this.initRegionsFromGoods()
       this.applyFilters(true)
-      this._hydrateSellerProfiles(rows).then(hydrated => {
-        if (!this._isCurrentListQuery(requestKey)) return
-        this.setData({ allGoods: hydrated })
-        this.applyFilters(false)
-      }).catch(() => {})
       this._prefetchSiblingListingType(filters)
       return true
     } catch (e) {
@@ -1669,7 +1671,6 @@ Page({
     const requestKey = buildListQueryKey(filters, sort)
     const requestToken = `${requestKey}|next|${Date.now()}`
     this._activeGoodsRequestToken = requestToken
-    this._cacheRestoreToken = ""
 
     try {
       this.setData({
@@ -1694,7 +1695,9 @@ Page({
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
 
       const rawBatch = result.items || result.data || []
-      const batch = this._mapDocsToGoods(rawBatch, "nextPage")
+      const batch = this._hydrateSellerProfilesFromCache(
+        this._mapDocsToGoods(rawBatch, "nextPage")
+      )
       const all = [...(this.data.allGoods || []), ...batch]
 
       this.setData({
@@ -1715,13 +1718,6 @@ Page({
 
       this.initRegionsFromGoods()
       this.applyFilters(resetPagingAfterAppend, { minDisplayCount })
-      this._hydrateSellerProfiles(batch).then(hydratedBatch => {
-        if (!this._isCurrentListQuery(requestKey)) return
-        const hydratedById = new Map(hydratedBatch.map(item => [item.id || item._id, item]))
-        const hydratedAll = (this.data.allGoods || []).map(item => hydratedById.get(item.id || item._id) || item)
-        this.setData({ allGoods: hydratedAll })
-        this.applyFilters(false, { minDisplayCount })
-      }).catch(() => {})
       return true
     } catch (e) {
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
@@ -2037,8 +2033,6 @@ Page({
   _restoreGoodsFromCache() {
     try {
       const stateKey = this._getCurrentListQueryKey()
-      const restoreToken = `${stateKey}|cache|${Date.now()}`
-      this._cacheRestoreToken = restoreToken
       const cached = readGoodsCacheEntry(this.data.activeListingType, this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY)
       if (!cached || !cached.ts || !Array.isArray(cached.list)) return { restored: false, isFresh: false }
       const cacheAge = Date.now() - cached.ts
@@ -2046,7 +2040,9 @@ Page({
       const currentChangedAt = getMarketGoodsChangedAt()
       const cacheChanged = !!currentChangedAt && Number(cached.changedAt || 0) !== currentChangedAt
 
-      const rows = this._mapDocsToGoods(cached.list || [], "cacheRestore")
+      const rows = this._hydrateSellerProfilesFromCache(
+        this._mapDocsToGoods(cached.list || [], "cacheRestore")
+      )
       if (!rows.length) return { restored: false, isFresh: false }
       this.setData({
         allGoods: rows,
@@ -2055,11 +2051,6 @@ Page({
       })
       this.initRegionsFromGoods()
       this._fillThumbUrlsFor(rows, stateKey).catch(() => {})
-      this._hydrateSellerProfiles(rows).then(hydrated => {
-        if (this._cacheRestoreToken !== restoreToken || this._getCurrentListQueryKey() !== stateKey) return
-        this.setData({ allGoods: hydrated })
-        this.applyFilters(false)
-      }).catch(() => {})
       const sortRequiresCloudRefresh = !!this._buildListSort().by
       return {
         restored: true,

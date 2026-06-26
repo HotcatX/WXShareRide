@@ -1,5 +1,6 @@
 const { showDataError } = require("../../../utils/error")
 const { formatRidePriceTag } = require("../../../utils/tripManage")
+const { prefetchTripDetails } = require("../../../utils/tripDetailCache")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -66,6 +67,7 @@ Page({
     hasLoadedOnce: false,
     loadingText: "正在加载附近路线...",
     refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线列表",
 
     statusBarHeight: 80,
     pageTitle: "线路列表",
@@ -1189,6 +1191,22 @@ Page({
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
 
     this.setData({ dayGroups: groups })
+    this.prefetchVisibleTripDetails(groups)
+  },
+
+  prefetchVisibleTripDetails(groups = this.data.dayGroups) {
+    const entries = []
+    ;(Array.isArray(groups) ? groups : []).forEach(group => {
+      ;(Array.isArray(group.items) ? group.items : []).forEach(trip => {
+        const id = trip && (trip._id || trip.tripId)
+        if (!id) return
+        entries.push({
+          id,
+          type: trip._type === "request" ? "request" : "carpool"
+        })
+      })
+    })
+    prefetchTripDetails(entries, { limit: 10 }).catch(() => {})
   },
 
   // =========================

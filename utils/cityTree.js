@@ -166,18 +166,38 @@ function getCountryTabs(tree, activeCode = "US") {
 function getCountryGroups(tree, activeCode = "US", activeCityKey = DEFAULT_CITY_KEY, options = {}) {
   const normalized = normalizeCityTree(tree)
   const country = normalized.find(item => item.code === activeCode) || normalized[0]
+  const keyword = cleanText(options.keyword).toLowerCase()
+  const seenSearchKeys = new Set()
   return (country ? country.groups : []).map((group, groupIndex) => {
     const cities = options.includeAll && groupIndex === 0
       ? [{ key: ALL_CITY_KEY, label: ALL_CITY_LABEL, aliases: [] }, ...group.cities.filter(city => city.key !== ALL_CITY_KEY)]
       : group.cities
+    const visibleCities = keyword
+      ? cities.filter(city => {
+        if (!cityMatchesKeyword(city, keyword) || seenSearchKeys.has(city.key)) return false
+        seenSearchKeys.add(city.key)
+        return true
+      })
+      : cities
     return {
       ...group,
-      cities: cities.map(city => ({
+      cities: visibleCities.map(city => ({
         ...city,
         className: city.key === activeCityKey ? "active" : ""
       }))
     }
-  })
+  }).filter(group => group.cities.length)
+}
+
+function cityMatchesKeyword(city = {}, keyword = "") {
+  const target = cleanText(keyword).toLowerCase()
+  if (!target) return true
+  return uniq([city.key, city.label, ...(city.aliases || [])])
+    .some(value => cleanText(value).toLowerCase().includes(target))
+}
+
+function cityGroupsHaveResults(groups = []) {
+  return (groups || []).some(group => Array.isArray(group.cities) && group.cities.length)
 }
 
 function getStoredCitySnapshot(storageKey, tree, fallbackKey = DEFAULT_CITY_KEY) {
@@ -222,6 +242,7 @@ module.exports = {
   getCitySnapshot,
   getCountryTabs,
   getCountryGroups,
+  cityGroupsHaveResults,
   getStoredCitySnapshot,
   setStoredCitySnapshot,
   textMatchesCity

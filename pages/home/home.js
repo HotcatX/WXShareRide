@@ -11,9 +11,12 @@ const {
   getCitySnapshot,
   getCountryTabs,
   getCountryGroups,
+  cityGroupsHaveResults,
   getStoredCitySnapshot,
   setStoredCitySnapshot
 } = require("../../utils/cityTree")
+
+const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
 
 function isRideServiceCity(cityKey) {
   return String(cityKey || "") === DEFAULT_CITY_KEY
@@ -257,6 +260,10 @@ Page({
     cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", DEFAULT_CITY_KEY),
     cityPickerVisible: false,
     activeCityCountryCode: "US",
+    citySearchKeyword: "",
+    cityPickerHasResults: true,
+    cityPickerEmptyText: "没有找到相关城市",
+    cityPickerHintText: RIDE_CITY_PICKER_HINT,
 
     publicStats: normalizePublicStats(),
 
@@ -401,6 +408,8 @@ Page({
     const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
     const snapshot = getCitySnapshot(cityTree, cityKey || DEFAULT_CITY_KEY)
     const activeCode = options.countryCode || this.data.activeCityCountryCode || "US"
+    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
+    const cityPickerGroups = getCountryGroups(cityTree, activeCode, snapshot.key, { keyword: citySearchKeyword })
 
     this.setData({
       activeCityKey: snapshot.key,
@@ -411,7 +420,9 @@ Page({
       cityTree,
       activeCityCountryCode: activeCode,
       cityCountryTabs: getCountryTabs(cityTree, activeCode),
-      cityPickerGroups: getCountryGroups(cityTree, activeCode, snapshot.key)
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      citySearchKeyword
     })
 
     if (options.persist !== false) setStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, snapshot)
@@ -441,29 +452,61 @@ Page({
   },
 
   onTapCity() {
-    this.setData({ cityPickerVisible: true })
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY
+    )
+    this.setData({
+      cityPickerVisible: true,
+      citySearchKeyword: "",
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
   },
 
   onCityPickerCancel() {
-    this.setData({ cityPickerVisible: false })
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
   },
 
   stopTouchMove() {},
 
+  onCitySearchInput(e) {
+    const keyword = (e.detail && e.detail.value) || ""
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY,
+      { keyword }
+    )
+    this.setData({
+      citySearchKeyword: keyword,
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
   onSelectCityCountry(e) {
     const code = e.currentTarget.dataset.code || "US"
     const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const citySearchKeyword = this.data.citySearchKeyword || ""
+    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || DEFAULT_CITY_KEY, {
+      keyword: citySearchKeyword
+    })
     this.setData({
       activeCityCountryCode: code,
       cityCountryTabs: getCountryTabs(cityTree, code),
-      cityPickerGroups: getCountryGroups(cityTree, code, this.data.activeCityKey || DEFAULT_CITY_KEY)
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
 
   onSelectCity(e) {
     const key = e.currentTarget.dataset.key || DEFAULT_CITY_KEY
     const snapshot = this._applyCityUi(key)
-    this.setData({ cityPickerVisible: false })
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
     if (isRideServiceCity(snapshot.key)) {
       this.scheduleHomeShowRefresh()
     }

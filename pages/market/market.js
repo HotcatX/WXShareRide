@@ -9,9 +9,14 @@ const {
   getCitySnapshot,
   getCountryTabs,
   getCountryGroups,
+  cityGroupsHaveResults,
   getStoredCitySnapshot,
   setStoredCitySnapshot
 } = require("../../utils/cityTree")
+const {
+  readMarketSellerProfiles,
+  fetchAndCacheMarketSellerProfiles
+} = require("../../utils/marketSellerProfileCache")
 
 const GOODS_CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
 const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
@@ -59,6 +64,7 @@ const MARKET_AD_INSERT_MIN_INDEX = 2
 const MARKET_AD_INSERT_MAX_INDEX = 5
 const MARKET_DEFAULT_CITY_KEY = ALL_CITY_KEY
 const MARKET_DEFAULT_CITY_LABEL = ALL_CITY_LABEL
+const MARKET_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求加入，或切换到“全部”发布/浏览，系统会按你填写的位置和距离排序。"
 const MARKET_LIST_MEMORY_CACHE = {}
 
 function normalizeListingType(value) {
@@ -454,6 +460,10 @@ Page({
     cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", MARKET_DEFAULT_CITY_KEY, { includeAll: true }),
     cityPickerVisible: false,
     activeCityCountryCode: "US",
+    citySearchKeyword: "",
+    cityPickerHasResults: true,
+    cityPickerEmptyText: "没有找到相关城市",
+    cityPickerHintText: MARKET_CITY_PICKER_HINT,
 
     // Goods
     allGoods: [],
@@ -557,6 +567,11 @@ Page({
     const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
     const snapshot = getCitySnapshot(cityTree, cityKey || MARKET_DEFAULT_CITY_KEY)
     const activeCountryCode = options.countryCode || this.data.activeCityCountryCode || "US"
+    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
+    const cityPickerGroups = getCountryGroups(cityTree, activeCountryCode, snapshot.key, {
+      includeAll: true,
+      keyword: citySearchKeyword
+    })
 
     this.setData({
       cityTree,
@@ -568,7 +583,9 @@ Page({
       activeRegionShortLabel: snapshot.label,
       activeCityCountryCode: activeCountryCode,
       cityCountryTabs: getCountryTabs(cityTree, activeCountryCode),
-      cityPickerGroups: getCountryGroups(cityTree, activeCountryCode, snapshot.key, { includeAll: true })
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      citySearchKeyword
     })
     setStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, snapshot)
     return snapshot
@@ -1021,20 +1038,54 @@ Page({
   },
 
   onTapRegion() {
-    this.setData({ cityPickerVisible: true })
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
+      { includeAll: true }
+    )
+    this.setData({
+      cityPickerVisible: true,
+      citySearchKeyword: "",
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
   },
 
   onCityPickerCancel() {
-    this.setData({ cityPickerVisible: false })
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+  },
+
+  onCitySearchInput(e) {
+    const keyword = (e.detail && e.detail.value) || ""
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
+      { includeAll: true, keyword }
+    )
+    this.setData({
+      citySearchKeyword: keyword,
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
   },
 
   onSelectCityCountry(e) {
     const code = e.currentTarget.dataset.code || "US"
     const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const citySearchKeyword = this.data.citySearchKeyword || ""
+    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, {
+      includeAll: true,
+      keyword: citySearchKeyword
+    })
     this.setData({
       activeCityCountryCode: code,
       cityCountryTabs: getCountryTabs(cityTree, code),
-      cityPickerGroups: getCountryGroups(cityTree, code, this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { includeAll: true })
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
 
@@ -1042,7 +1093,7 @@ Page({
     const key = e.currentTarget.dataset.key || MARKET_DEFAULT_CITY_KEY
     const snapshot = this._applyCityUi(key)
 
-    this._resetGoodsStateForFetch({ cityPickerVisible: false })
+    this._resetGoodsStateForFetch({ cityPickerVisible: false, citySearchKeyword: "" })
     this.updateMarketHeaderState(0)
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
@@ -1152,58 +1203,30 @@ Page({
     if (!openids.length) return rows
 
     this._sellerProfileCache = this._sellerProfileCache || {}
-    const missing = openids.filter(openid => !this._sellerProfileCache[openid])
+    const cachedProfiles = readMarketSellerProfiles(openids, { allowStale: true })
+    Object.keys(cachedProfiles).forEach(openid => {
+      const profile = cachedProfiles[openid]
+      this._sellerProfileCache[openid] = {
+        name: profile.nameDisplay || profile.name || "",
+        avatar: profile.avatarDisplay || profile.avatarRaw || "/images/profile.png",
+        isFresh: !!profile.isFresh
+      }
+    })
+
+    const missing = openids.filter(openid => {
+      const profile = this._sellerProfileCache[openid]
+      return !profile || !profile.isFresh
+    })
 
     if (missing.length) {
-      try {
-        const res = await wx.cloud.callFunction({
-          name: "getUserInfoByOpenids",
-          data: { openids: missing }
-        })
-        const users = res?.result?.data || []
-        const avatarFileIDs = []
-        users.forEach(user => {
-          const openid = user._openid || user.openid
-          if (!openid) return
-          const name = compactMarketText(user.name || user.nickName || user.nickname) || "未设置昵称"
-          const avatarRaw = compactMarketText(user.avatarUrl || user.avatar || user.userInfo?.avatarUrl)
-          this._sellerProfileCache[openid] = {
-            name,
-            avatar: avatarRaw || "/images/profile.png"
-          }
-          if (avatarRaw && avatarRaw.startsWith("cloud://")) avatarFileIDs.push(avatarRaw)
-        })
-
-        missing.forEach(openid => {
-          if (!this._sellerProfileCache[openid]) {
-            this._sellerProfileCache[openid] = { name: "", avatar: "/images/profile.png" }
-          }
-        })
-
-        const unresolvedAvatars = Array.from(new Set(avatarFileIDs))
-        for (let i = 0; i < unresolvedAvatars.length; i += 50) {
-          const chunk = unresolvedAvatars.slice(i, i + 50)
-          const result = await wx.cloud.getTempFileURL({ fileList: chunk }).catch(() => null)
-          const urlMap = {}
-          ;(result?.fileList || []).forEach(file => {
-            if (file.fileID && file.tempFileURL) urlMap[file.fileID] = file.tempFileURL
-          })
-          Object.keys(this._sellerProfileCache).forEach(openid => {
-            const profile = this._sellerProfileCache[openid]
-            if (profile && urlMap[profile.avatar]) profile.avatar = urlMap[profile.avatar]
-          })
-        }
-      } catch (e) {
-        console.error("hydrate seller profiles failed:", e)
-        missing.forEach(openid => {
-          if (!this._sellerProfileCache[openid]) {
-            this._sellerProfileCache[openid] = { name: "", avatar: "/images/profile.png" }
-          }
-        })
-      }
+      this._refreshSellerProfilesInBackground(missing)
     }
 
-    return rows.map(item => {
+    return this._applySellerProfilesToRows(rows)
+  },
+
+  _applySellerProfilesToRows(rows = []) {
+    return (Array.isArray(rows) ? rows : []).map(item => {
       if (!item || !item._openid) return item
       const profile = this._sellerProfileCache[item._openid] || {}
       return {
@@ -1211,6 +1234,35 @@ Page({
         sellerNameText: profile.name || item.sellerNameText,
         sellerAvatar: profile.avatar || item.sellerAvatar || "/images/profile.png"
       }
+    })
+  },
+
+  _refreshSellerProfilesInBackground(openids = []) {
+    const targets = Array.from(new Set((Array.isArray(openids) ? openids : []).filter(Boolean)))
+    if (!targets.length) return
+
+    this._sellerProfileRefreshInFlight = this._sellerProfileRefreshInFlight || {}
+    const todo = targets.filter(openid => !this._sellerProfileRefreshInFlight[openid])
+    if (!todo.length) return
+    todo.forEach(openid => { this._sellerProfileRefreshInFlight[openid] = true })
+
+    fetchAndCacheMarketSellerProfiles(todo).then(fetched => {
+      Object.keys(fetched || {}).forEach(openid => {
+        const profile = fetched[openid]
+        this._sellerProfileCache[openid] = {
+          name: profile.nameDisplay || profile.name || "",
+          avatar: profile.avatarDisplay || profile.avatarRaw || "/images/profile.png",
+          isFresh: true
+        }
+      })
+
+      const hydratedAll = this._applySellerProfilesToRows(this.data.allGoods || [])
+      this.setData({ allGoods: hydratedAll })
+      this.applyFilters(false)
+    }).catch(e => {
+      console.error("refresh seller profiles failed:", e)
+    }).finally(() => {
+      todo.forEach(openid => { delete this._sellerProfileRefreshInFlight[openid] })
     })
   },
 
@@ -1729,6 +1781,8 @@ Page({
           nextSkip: result.nextSkip || rawRows.length,
           hasMore: !!result.hasMore
         })
+        const sellerOpenids = Array.from(new Set(rawRows.map(item => item && item._openid).filter(Boolean)))
+        if (sellerOpenids.length) fetchAndCacheMarketSellerProfiles(sellerOpenids).catch(() => {})
       }).catch(e => {
         console.warn("[market] sibling prefetch failed:", e)
       }).finally(() => {
@@ -1871,6 +1925,7 @@ Page({
       const item = result.item || result.data || null
       if (item && item._id === key) {
         writeMarketDetailCache(key, result)
+        if (item._openid) fetchAndCacheMarketSellerProfiles([item._openid]).catch(() => {})
         return true
       }
       return false

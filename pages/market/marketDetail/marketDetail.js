@@ -1,8 +1,9 @@
 // pages/market/marketDetail/marketDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const {
-  buildProfileDisplayLocation
-} = require("../../../utils/profileDisplay")
+  readMarketSellerProfile,
+  fetchAndCacheMarketSellerProfiles
+} = require("../../../utils/marketSellerProfileCache")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v2"
 const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
@@ -266,6 +267,15 @@ function buildDefaultSeller(listingType = "goods") {
   }
 }
 
+function buildSellerFromProfile(profile, listingType = "goods") {
+  if (!profile) return buildDefaultSeller(listingType)
+  return {
+    nameDisplay: normalizeText(profile.nameDisplay || profile.name) || buildDefaultSeller(listingType).nameDisplay,
+    avatarDisplay: normalizeText(profile.avatarDisplay || profile.avatarRaw) || "/images/profile.png",
+    regionDisplay: normalizeText(profile.regionDisplay || profile.region) || "区域未填"
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -352,20 +362,16 @@ Page({
 
   async _getSellerWechatByOpenid(openid) {
     if (this.data.sellerWechat) return this.data.sellerWechat
+    const cached = readMarketSellerProfile(openid, { allowStale: true })
+    if (cached && cached.wechatID) {
+      this.setData({ sellerWechat: cached.wechatID })
+      return cached.wechatID
+    }
 
     try {
-
-      const res = await wx.cloud.callFunction({
-        name: "getUserInfoByOpenids",
-        data: { openids: [openid] }
-      })
-
-      const row = res?.result?.data?.[0] || null
-      const wechat =
-        row?.wechatID ||
-        row?.wechatId ||
-        row?.wechat ||
-        ""
+      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
+      const row = profiles && profiles[openid]
+      const wechat = row && row.wechatID ? row.wechatID : ""
 
       this.setData({ sellerWechat: wechat })
       return wechat
@@ -376,38 +382,31 @@ Page({
     }
   },
 
-  async _resolveAvatarUrl(rawAvatar) {
-    if (!rawAvatar) return "/images/profile.png"
-    if (/^https?:\/\//i.test(rawAvatar) || rawAvatar.startsWith("/")) return rawAvatar
-    if (rawAvatar.startsWith("cloud://")) {
-      const res = await wx.cloud.getTempFileURL({ fileList: [rawAvatar] }).catch(() => null)
-      return res?.fileList?.[0]?.tempFileURL || "/images/profile.png"
-    }
-    return rawAvatar
-  },
-
   async fetchSellerProfile(openid, listingType) {
     if (!openid) {
       this.setData({ seller: buildDefaultSeller(listingType) })
       return
     }
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "getUserInfoByOpenids",
-        data: { openids: [openid] }
+    const cached = readMarketSellerProfile(openid, { allowStale: true })
+    if (cached) {
+      this.setData({
+        seller: buildSellerFromProfile(cached, listingType),
+        sellerWechat: cached.wechatID || this.data.sellerWechat
       })
-      const row = res?.result?.data?.[0] || {}
-      const avatarRaw = normalizeText(row.avatarUrl || row.avatar || row.userInfo?.avatarUrl)
-      const seller = {
-        nameDisplay: normalizeText(row.name || row.nickName || row.nickname) || buildDefaultSeller(listingType).nameDisplay,
-        avatarDisplay: await this._resolveAvatarUrl(avatarRaw),
-        regionDisplay: buildProfileDisplayLocation(row) || "区域未填"
-      }
-      const wechat = row.wechatID || row.wechatId || row.wechat || ""
-      this.setData({ seller, sellerWechat: wechat })
+      if (cached.isFresh) return
+    }
+
+    try {
+      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
+      const profile = profiles && profiles[openid]
+      if (!profile) return
+      this.setData({
+        seller: buildSellerFromProfile(profile, listingType),
+        sellerWechat: profile.wechatID || ""
+      })
     } catch (e) {
       console.error("fetch seller profile failed:", e)
-      this.setData({ seller: buildDefaultSeller(listingType) })
+      if (!cached) this.setData({ seller: buildDefaultSeller(listingType) })
     }
   },
 

@@ -155,6 +155,17 @@
         <text class="city-close" bindtap="onCityPickerCancel" hover-class="ride-pressed" hover-stay-time="80">关闭</text>
       </view>
 
+      <view class="city-search-wrap">
+        <input
+          class="city-search-input"
+          placeholder="搜索城市名称"
+          placeholder-class="city-search-placeholder"
+          value="{{citySearchKeyword}}"
+          bindinput="onCitySearchInput"
+          confirm-type="search"
+        />
+      </view>
+
       <view class="city-body">
         <view class="city-country-tabs">
           <view
@@ -191,6 +202,8 @@
               </view>
             </view>
           </view>
+          <view wx:if="{{!cityPickerHasResults}}" class="city-empty">{{cityPickerEmptyText}}</view>
+          <view class="city-picker-hint">{{cityPickerHintText}}</view>
         </scroll-view>
       </view>
     </view>

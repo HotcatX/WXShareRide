@@ -1,8 +1,12 @@
 const LOGIN_PAGE = '/pages/other/login/login'
 const {
-  buildProfileDisplayLocation,
-  buildProfileApartmentDisplay
-} = require("../../../utils/profileDisplay")
+  readMarketSellerProfile,
+  fetchAndCacheMarketSellerProfiles
+} = require("../../../utils/marketSellerProfileCache")
+const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const SELLER_GOODS_CACHE_KEY_PREFIX = "market_seller_goods_cache_v1"
+const SELLER_GOODS_CACHE_FRESH_MS = 10 * 60 * 1000
+const SELLER_GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000
 const LISTING_TYPE_CONFIG = {
   goods: {
     label: "二手",
@@ -81,6 +85,20 @@ function buildSellerDisplay(seller = {}) {
   }
 }
 
+function buildSellerFromProfile(profile = {}) {
+  return buildSellerDisplay({
+    name: profile.nameDisplay || profile.name || "未设置昵称",
+    avatarInitial: profile.avatarInitial || String(profile.nameDisplay || profile.name || "卖").slice(0, 1),
+    region: profile.regionDisplay || profile.region || "区域未填",
+    apartment: profile.apartmentDisplay || profile.apartment || "",
+    wechatID: profile.wechatID || "",
+    phone: profile.phone || "",
+    bio: profile.bio || "",
+    avatarUrl: profile.avatarRaw || "",
+    avatarDisplay: profile.avatarDisplay || ""
+  })
+}
+
 function buildContactText(seller = {}) {
   if (seller.wechatID) return "复制微信号"
   if (seller.phone) return "复制手机号"
@@ -93,6 +111,45 @@ function getMarketApiResult(res) {
     throw new Error((result && (result.error || result.message)) || "market_api_failed")
   }
   return result
+}
+
+function getMarketGoodsChangedAt() {
+  try {
+    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
+  } catch (e) {
+    return 0
+  }
+}
+
+function getSellerGoodsCacheKey(openid, type) {
+  return `${SELLER_GOODS_CACHE_KEY_PREFIX}_${String(openid || "").trim()}_${normalizeListingType(type)}`
+}
+
+function readSellerGoodsCache(openid, type) {
+  const key = getSellerGoodsCacheKey(openid, type)
+  if (!openid) return null
+  try {
+    const cached = wx.getStorageSync(key)
+    if (!cached || !cached.ts || !Array.isArray(cached.rows)) return null
+    if (Date.now() - Number(cached.ts) > SELLER_GOODS_CACHE_MAX_STALE_MS) return null
+    const changedAt = getMarketGoodsChangedAt()
+    if (changedAt && Number(cached.changedAt || 0) !== changedAt) return null
+    return cached
+  } catch (e) {
+    return null
+  }
+}
+
+function writeSellerGoodsCache(openid, type, rows = []) {
+  const key = getSellerGoodsCacheKey(openid, type)
+  if (!openid || !Array.isArray(rows)) return
+  try {
+    wx.setStorageSync(key, {
+      ts: Date.now(),
+      changedAt: getMarketGoodsChangedAt(),
+      rows
+    })
+  } catch (e) {}
 }
 
 function buildSellerGood(x = {}) {
@@ -248,70 +305,52 @@ Page({
   },
 
   async fetchSellerInfo(openid) {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "getUserInfoByOpenids",
-        data: { openids: [openid] }
+    const cached = readMarketSellerProfile(openid, { allowStale: true })
+    if (cached) {
+      const sellerDisplay = buildSellerFromProfile(cached)
+      this.setData({
+        seller: sellerDisplay,
+        contactText: buildContactText(sellerDisplay)
       })
+      if (cached.isFresh) return
+    }
 
-      const u = res?.result?.data?.[0] || {}
-
-      // 1) 头像字段容错：你表里是 avatarUrl（截图里就是这个）
-      const rawAvatar =
-        u.avatarUrl ||
-        u.avatar ||
-        u.userInfo?.avatarUrl ||
-        ""
-
-      // 2) 组装 seller 基础信息
-      const seller = {
-        name: u.name || u.nickName || u.nickname || "未设置昵称",
-        avatarInitial: String(u.name || u.nickName || u.nickname || "卖").slice(0, 1),
-        region: buildProfileDisplayLocation(u),
-        apartment: buildProfileApartmentDisplay(u),
-        wechatID: u.wechatID || u.wechat || "",
-        phone: u.phone || "",
-        bio: u.bio || u.intro || u.signature || "",
-        avatarUrl: rawAvatar,
-        avatarDisplay: ""
-      }
-
-      // 3) 把 cloud:// 头像转成可展示的 https URL
-      seller.avatarDisplay = await this._resolveAvatarUrl(rawAvatar)
-
-      const sellerDisplay = buildSellerDisplay(seller)
+    try {
+      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
+      const profile = profiles && profiles[openid]
+      if (!profile) return
+      const sellerDisplay = buildSellerFromProfile(profile)
       this.setData({
         seller: sellerDisplay,
         contactText: buildContactText(sellerDisplay)
       })
     } catch (e) {
       console.error("fetchSellerInfo error", e)
-      wx.showToast({ title: "获取发布者信息失败", icon: "none" })
+      if (!cached) wx.showToast({ title: "获取发布者信息失败", icon: "none" })
     }
   },
 
-  async _resolveAvatarUrl(rawAvatar) {
-    if (!rawAvatar) return ""
+  _applySellerGoodsRows(rows = []) {
+    const goods = (Array.isArray(rows) ? rows : [])
+      .filter(x => this._isVisibleMarketDoc(x))
+      .map(buildSellerGood)
 
-    // 已经是 http(s)（getUserInfo/getUserProfile 的 avatarUrl 一般是 https）
-    if (/^https?:\/\//i.test(rawAvatar)) return rawAvatar
-
-    // cloud fileID：cloud://xxx
-    if (typeof rawAvatar === "string" && rawAvatar.startsWith("cloud://")) {
-      try {
-        const tmp = await wx.cloud.getTempFileURL({ fileList: [rawAvatar] })
-        return tmp?.fileList?.[0]?.tempFileURL || ""
-      } catch (e) {
-        console.error("resolve avatar temp url error", e)
-        return ""
-      }
-    }
-
-    // 其它情况（比如你自己存了相对路径等）
-    return rawAvatar
+    this.setData({
+      goods,
+      hasGoods: goods.length > 0,
+      goodsCountText: `${goods.length} ${getListingTypeConfig(this.data.activeListingType).unit}`
+    })
   },
 
-  async fetchSellerGoods(openid) {
+  async fetchSellerGoods(openid, options = {}) {
+    const listingType = normalizeListingType(options.type || this.data.activeListingType)
+    const cached = readSellerGoodsCache(openid, listingType)
+    if (cached) {
+      this._applySellerGoodsRows(cached.rows)
+      const fresh = Date.now() - Number(cached.ts || 0) <= SELLER_GOODS_CACHE_FRESH_MS
+      if (fresh && !options.force) return
+    }
+
     try {
       const PAGE = 50
       const MAX_TOTAL = 1000
@@ -325,8 +364,8 @@ Page({
           data: {
             action: "sellerList",
             openid,
-            listingType: this.data.activeListingType,
-            filters: { listingType: this.data.activeListingType },
+            listingType,
+            filters: { listingType },
             skip,
             limit: PAGE
           }
@@ -341,16 +380,13 @@ Page({
         if (rows.length >= MAX_TOTAL) break
       }
 
-      const goods = rows.filter(x => this._isVisibleMarketDoc(x)).map(buildSellerGood)
-
-      this.setData({
-        goods,
-        hasGoods: goods.length > 0,
-        goodsCountText: `${goods.length} ${getListingTypeConfig(this.data.activeListingType).unit}`
-      })
+      writeSellerGoodsCache(openid, listingType, rows)
+      if (normalizeListingType(this.data.activeListingType) === listingType && this.data.sellerOpenid === openid) {
+        this._applySellerGoodsRows(rows)
+      }
     } catch (e) {
       console.error("fetchSellerGoods error", e)
-      wx.showToast({ title: "获取发布列表失败", icon: "none" })
+      if (!cached) wx.showToast({ title: "获取发布列表失败", icon: "none" })
     }
   },
 

@@ -48,43 +48,18 @@ Page({
     const dep0 = this._pickFirstDeparture(trip)
     const dest0 = this._pickFirstDestination(trip)
 
-    const fromAddress =
-      trip?._fromAddress ||
-      dep0?.address ||
-      trip?.fromAddress ||
-      trip?.startAddress ||
-      trip?.departureAddress ||
-      '（未知出发地）'
-
-    const toAddress =
-      trip?._toAddress ||
-      dest0?.address ||
-      trip?.toAddress ||
-      trip?.endAddress ||
-      trip?.destinationAddress ||
-      '（未知目的地）'
+    const fromAddress = trip?._fromAddress || dep0?.address || '（未知出发地）'
+    const toAddress = trip?._toAddress || dest0?.address || '（未知目的地）'
 
     return { _fromAddress: fromAddress, _toAddress: toAddress }
   },
 
   _buildTimeLabel(trip) {
-    // 优先使用 departures[0].date + departures[0].time（你旧版结构）
     const dep0 = this._pickFirstDeparture(trip)
     const date = dep0?.date || ''
     const time = dep0?.time || ''
     const label = `${date} ${time}`.trim()
-
-    // 兼容 Carpool / CarpoolRequest 可能存在的字段
-    return (
-      label ||
-      trip?._timeLabel ||
-      trip?.timeLabel ||
-      trip?.departureTime ||
-      trip?.dateTime ||
-      trip?.startTime ||
-      trip?.createdAt ||
-      ''
-    )
+    return label || trip?._timeLabel || ''
   },
 
   _buildRoleLabel(trip) {
@@ -109,7 +84,7 @@ Page({
 
   _buildSourceType(trip) {
     const source = String(trip?.historySource || trip?.source || '').toLowerCase()
-    return source === 'carpoolrequest' || source === 'request' ? 'request' : 'carpool'
+    return source === 'request' ? 'request' : 'carpool'
   },
 
   _formatTripForCard(trip) {

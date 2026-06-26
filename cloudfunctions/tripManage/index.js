@@ -5,10 +5,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-const PUBLIC_STATS_COLLECTION = 'PublicStats'
-const PUBLIC_STATS_DOC_ID = 'home'
 const MAX_REQUEST_PASSENGERS = 4
-const MAX_SERVED_DELTA = 5
 const RATING_PRIOR = 4.7
 const RATING_PRIOR_WEIGHT = 3
 
@@ -33,13 +30,13 @@ function uniq(arr) {
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'request') return 'request'
   return 'carpool'
 }
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function cleanText(value, max = 160) {
@@ -77,74 +74,30 @@ function addId(set, value) {
   if (id) set.add(id)
 }
 
-function getBlockedOpenidsFromUserDoc(user = {}) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addId(out, item && item.openid))
-  return Array.from(out)
-}
-
 function getCarpoolPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(p => {
-    if (typeof p === 'string') addId(ids, p)
-    else addId(ids, p && p._openid)
+    addId(ids, p && p._openid)
   })
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
   return Array.from(ids)
 }
 
 function getRequestPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addId(ids, id))
   return Array.from(ids)
 }
 
 function getRequestDriverOpenid(doc = {}) {
-  return cleanText(doc.driverOpenid || doc.driverID || doc.driverId || doc.driver, 80)
+  return cleanText(doc.driverOpenid, 80)
 }
 
 function getRequestCreatorOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid, 80)
+  return cleanText(doc._openid, 80)
 }
 
 function getCarpoolDriverOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.driverOpenid || doc.driverID || doc.driverId, 80)
-}
-
-function normalizeServedDelta(amount) {
-  const n = Number(amount)
-  if (!Number.isFinite(n) || n <= 0) return 0
-  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
-}
-
-function getCarpoolServedPeople(doc = {}) {
-  const drivers = new Set()
-  const passengers = new Set()
-  addId(drivers, getCarpoolDriverOpenid(doc))
-  getCarpoolPassengerOpenids(doc).forEach(id => addId(passengers, id))
-
-  const capacity = Number(doc.passengerCount)
-  const left = Number(doc.availSeatNum)
-  const joinedBySeat = Number.isFinite(capacity) && Number.isFinite(left)
-    ? Math.max(0, capacity - left)
-    : 0
-  const passengerSignals = Math.max(passengers.size, joinedBySeat)
-  const hasDriver = drivers.size > 0
-  return normalizeServedDelta((hasDriver ? 1 : 0) + passengerSignals)
-}
-
-function getRequestServedPeople(doc = {}) {
-  const passengerIds = getRequestPassengerOpenids(doc)
-  const passengerCount = Number(doc.passengerCount)
-  const passengerTotal = Math.max(
-    passengerIds.length,
-    Number.isFinite(passengerCount) ? passengerCount : 0,
-    getRequestCreatorOpenid(doc) ? 1 : 0
-  )
-  const hasDriver = !!getRequestDriverOpenid(doc)
-  return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
+  return cleanText(doc._openid, 80)
 }
 
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
@@ -232,101 +185,11 @@ async function removeIdFromUserArray(openid, fieldName, id) {
   }
 }
 
-async function moveIdInUserInfo(openid, id, activeField, historyField) {
-  if (!openid || !id) return false
-  try {
-    await patchExistingUserByOpenid(openid, {
-      [activeField]: _.pull(id),
-      [historyField]: _.addToSet(id),
-      updateTime: db.serverDate(),
-      updatedAt: db.serverDate()
-    })
-    return true
-  } catch (e) {
-    console.error('tripManage moveIdInUserInfo error:', e)
-    return false
-  }
-}
-
 async function userArrayHas(openid, fieldName, id) {
   const user = await getUser(openid)
   if (!user) return false
   const value = user[fieldName]
   return Array.isArray(value) && value.includes(id)
-}
-
-async function bumpPublicServedTrips(delta, source, tripId, collection) {
-  const amount = normalizeServedDelta(delta)
-  if (amount <= 0) return false
-
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(amount),
-    servedTripsLastDelta: amount,
-    servedTripsLastSource: source,
-    servedTripsLastTripId: tripId,
-    servedTripsLastCollection: collection,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  try {
-    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    return true
-  } catch (e) {
-    try {
-      await db.collection(PUBLIC_STATS_COLLECTION).add({
-        data: {
-          _id: PUBLIC_STATS_DOC_ID,
-          servedTrips: amount,
-          servedTripsLastDelta: amount,
-          servedTripsLastSource: source,
-          servedTripsLastTripId: tripId,
-          servedTripsLastCollection: collection,
-          coverageText: 'NY / NJ',
-          lastServedAt: now,
-          createdAt: now,
-          updatedAt: now
-        }
-      })
-      return true
-    } catch (addErr) {
-      try {
-        await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-        return true
-      } catch (retryErr) {
-        return false
-      }
-    }
-  }
-}
-
-async function bumpUserRideStats(openid, fieldName, amount = 1) {
-  if (!openid) return false
-  const inc = Number(amount)
-  if (!Number.isFinite(inc) || inc <= 0) return false
-  try {
-    await updateUserByOpenid(openid, {
-      'rideStats.completedTrips': _.inc(inc),
-      [`rideStats.${fieldName}`]: _.inc(inc),
-      'rideStats.lastCompletedAt': db.serverDate(),
-      updateTime: db.serverDate(),
-      updatedAt: db.serverDate()
-    }, {
-      rideStats: {
-        completedTrips: inc,
-        [fieldName]: inc,
-        ratingSum: 0,
-        ratingCount: 0,
-        ratingAvg: 0,
-        lastCompletedAt: new Date()
-      }
-    })
-    return true
-  } catch (e) {
-    console.error('tripManage bumpUserRideStats error:', e)
-    return false
-  }
 }
 
 function computeWeightedRating(sum, count) {
@@ -335,13 +198,6 @@ function computeWeightedRating(sum, count) {
   if (!Number.isFinite(c) || c <= 0 || !Number.isFinite(s)) return 0
   const value = (s + RATING_PRIOR * RATING_PRIOR_WEIGHT) / (c + RATING_PRIOR_WEIGHT)
   return Math.min(5, Math.max(0, Number(value.toFixed(1))))
-}
-
-function getBlockedUsers(user) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addId(out, item && item.openid))
-  return out
 }
 
 async function hasActiveBlock(blockerOpenid, targetOpenid) {
@@ -359,11 +215,6 @@ async function hasActiveBlock(blockerOpenid, targetOpenid) {
 
 async function checkBlockBetween(openidA, openidB) {
   if (!openidA || !openidB || openidA === openidB) return { blocked: false }
-  const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
-  const aBlocks = getBlockedUsers(a)
-  const bBlocks = getBlockedUsers(b)
-  if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
-  if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
   const [aActiveBlock, bActiveBlock] = await Promise.all([
     hasActiveBlock(openidA, openidB),
     hasActiveBlock(openidB, openidA)
@@ -385,11 +236,8 @@ async function checkBlockWithMany(actorOpenid, targetOpenids) {
 function buildClearDriverFields(req) {
   const next = {}
   if (Object.prototype.hasOwnProperty.call(req, 'driverOpenid')) next.driverOpenid = ''
-  if (Object.prototype.hasOwnProperty.call(req, 'driverID')) next.driverID = ''
-  if (Object.prototype.hasOwnProperty.call(req, 'driverId')) next.driverId = ''
   if (!Object.keys(next).length) {
     next.driverOpenid = ''
-    next.driverID = ''
   }
   return next
 }
@@ -421,7 +269,6 @@ async function kickPassengerFromCarpool(event, actorOpenid) {
       return !(item && item._openid === targetOpenid)
     })
   }
-  if (Array.isArray(trip.passengerID)) updateData.passengerID = _.pull(targetOpenid)
   if (normalizeTripStatus(trip.status) !== 'past') updateData.status = 'open'
 
   await db.collection('Carpool').doc(tripId).update({ data: updateData })
@@ -477,232 +324,10 @@ async function deleteCarpool(event, actorOpenid) {
   return { ok: true, success: true, action: 'deleteTrip' }
 }
 
-async function sendCarpoolRatingInvites(tripId, trip, driverOpenid, passengerOpenids) {
-  const route = buildRouteInfo(trip, '该拼车行程')
-  const baseContent = `${route.dateStr} ${route.timeStr} ${route.routeStr} 已结束，请在历史行程中完成互评。`
-  const tasks = []
-
-  passengerOpenids.forEach(pid => {
-    tasks.push(sendNotification(
-      pid,
-      'RATING_INVITE',
-      '行程结束，请给司机评分',
-      baseContent,
-      tripId,
-      {
-        action: 'rateUser',
-        type: 'carpool',
-        tripId,
-        targetOpenid: driverOpenid,
-        targetRole: 'driver'
-      }
-    ))
-  })
-
-  passengerOpenids.forEach(pid => {
-    tasks.push(sendNotification(
-      driverOpenid,
-      'RATING_INVITE',
-      '行程结束，请给乘客评分',
-      baseContent,
-      tripId,
-      {
-        action: 'rateUser',
-        type: 'carpool',
-        tripId,
-        targetOpenid: pid,
-        targetRole: 'passenger'
-      }
-    ))
-  })
-
-  await Promise.all(tasks)
-}
-
-async function sendRequestRatingInvites(requestId, req, driverOpenid, passengerOpenids) {
-  const route = buildRouteInfo(req, '该求车路线')
-  const baseContent = `${route.dateStr} ${route.timeStr} ${route.routeStr} 已结束，请在历史行程中完成互评。`
-  const requestPassengers = uniq(passengerOpenids).filter(id => id && id !== driverOpenid)
-  const tasks = []
-
-  requestPassengers.forEach(pid => {
-    tasks.push(sendNotification(
-      pid,
-      'RATING_INVITE',
-      '行程结束，请给司机评分',
-      baseContent,
-      requestId,
-      {
-        action: 'rateUser',
-        type: 'request',
-        tripId: requestId,
-        requestId,
-        targetOpenid: driverOpenid,
-        targetRole: 'driver'
-      }
-    ))
-  })
-
-  requestPassengers.forEach(pid => {
-    tasks.push(sendNotification(
-      driverOpenid,
-      'RATING_INVITE',
-      '行程结束，请给乘客评分',
-      baseContent,
-      requestId,
-      {
-        action: 'rateUser',
-        type: 'request',
-        tripId: requestId,
-        requestId,
-        targetOpenid: pid,
-        targetRole: 'passenger'
-      }
-    ))
-  })
-
-  await Promise.all(tasks)
-}
-
-async function completeCarpool(event, actorOpenid) {
-  const tripId = cleanText(event.tripId || event.id, 80)
-  if (!tripId) return { ok: false, success: false, errorMsg: '缺少 tripId' }
-
-  const snap = await db.collection('Carpool').doc(tripId).get()
-  const trip = snap && snap.data
-  if (!trip) return { ok: false, success: false, errorMsg: '未找到该路线' }
-  const driverOpenid = getCarpoolDriverOpenid(trip)
-  if (driverOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '你不是该路线司机，无法结束' }
-  if (normalizeTripStatus(trip.status) === 'past') return { ok: true, success: true, alreadyCompleted: true }
-
-  const passengerOpenids = getCarpoolPassengerOpenids(trip)
-  const delta = getCarpoolServedPeople(trip)
-  const route = buildRouteInfo(trip, '该拼车行程')
-
-  const updateRes = await db.collection('Carpool')
-    .where({ _id: tripId, servedStatsCounted: _.neq(true) })
-    .update({
-      data: {
-        status: 'past',
-        completedAt: db.serverDate(),
-        completedBy: actorOpenid,
-        servedStatsCounted: true,
-        servedStatsDelta: delta,
-        servedStatsSource: 'tripManageCompleteCarpool',
-        servedStatsCountedAt: db.serverDate(),
-        updatedAt: db.serverDate()
-      }
-    })
-
-  const updated = Number((updateRes && updateRes.stats && updateRes.stats.updated) || updateRes.updated || 0)
-  if (updated <= 0) {
-    await db.collection('Carpool').doc(tripId).update({
-      data: {
-        status: 'past',
-        completedAt: db.serverDate(),
-        completedBy: actorOpenid,
-        updatedAt: db.serverDate()
-      }
-    })
-    await logAction({ action: 'completeTripAlreadyCounted', type: 'carpool', tripId, actorOpenid, targets: passengerOpenids })
-    return { ok: true, success: true, action: 'completeTrip', alreadyCompleted: true }
-  }
-  await bumpPublicServedTrips(delta, 'tripManageCompleteCarpool', tripId, 'Carpool')
-
-  await Promise.all([
-    moveIdInUserInfo(driverOpenid, tripId, 'tripDriver', 'tripDriverHistory'),
-    bumpUserRideStats(driverOpenid, 'completedDriverTrips', 1),
-    ...passengerOpenids.map(pid => moveIdInUserInfo(pid, tripId, 'tripPassenger', 'tripPassengerHistory')),
-    ...passengerOpenids.map(pid => bumpUserRideStats(pid, 'completedPassengerTrips', 1)),
-    ...passengerOpenids.map(pid => sendNotification(
-      pid,
-      'DRIVER_COMPLETE',
-      '行程已结束',
-      `${route.dateStr} ${route.timeStr} ${route.routeStr} 的行程已由司机标记为结束`,
-      tripId,
-      { role: 'passenger', driverOpenid, action: 'completeTrip' }
-    )),
-    sendCarpoolRatingInvites(tripId, trip, driverOpenid, passengerOpenids)
-  ])
-
-  await logAction({ action: 'completeTrip', type: 'carpool', tripId, actorOpenid, targets: passengerOpenids })
-  return { ok: true, success: true, action: 'completeTrip', servedStatsDelta: delta, passengerCount: passengerOpenids.length }
-}
-
-async function completeRequest(event, actorOpenid) {
-  const requestId = cleanText(event.requestId || event.tripId || event.id, 80)
-  if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
-
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
-
-  const driverOpenid = getRequestDriverOpenid(req)
-  if (!driverOpenid) return { ok: false, success: false, errorMsg: '当前无司机，无法结束' }
-  if (driverOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '你不是该路线司机，无法结束' }
-  if (normalizeTripStatus(req.status) === 'past') return { ok: true, success: true, alreadyCompleted: true }
-
-  const creatorOpenid = getRequestCreatorOpenid(req)
-  const passengerOpenids = uniq([creatorOpenid].concat(getRequestPassengerOpenids(req))).filter(id => id && id !== driverOpenid)
-  const joinedPassengerOpenids = passengerOpenids.filter(id => id !== creatorOpenid)
-  const delta = getRequestServedPeople(req)
-  const route = buildRouteInfo(req, '该求车路线')
-
-  const updateRes = await db.collection('CarpoolRequest')
-    .where({ _id: requestId, servedStatsCounted: _.neq(true) })
-    .update({
-      data: {
-        status: 'past',
-        completedAt: db.serverDate(),
-        completedBy: actorOpenid,
-        servedStatsCounted: true,
-        servedStatsDelta: delta,
-        servedStatsSource: 'tripManageCompleteRequest',
-        servedStatsCountedAt: db.serverDate(),
-        updatedAt: db.serverDate()
-      }
-    })
-
-  const updated = Number((updateRes && updateRes.stats && updateRes.stats.updated) || updateRes.updated || 0)
-  if (updated <= 0) {
-    await db.collection('CarpoolRequest').doc(requestId).update({
-      data: {
-        status: 'past',
-        completedAt: db.serverDate(),
-        completedBy: actorOpenid,
-        updatedAt: db.serverDate()
-      }
-    })
-    await logAction({ action: 'completeTripAlreadyCounted', type: 'request', tripId: requestId, actorOpenid, targets: passengerOpenids })
-    return { ok: true, success: true, action: 'completeTrip', sourceType: 'request', alreadyCompleted: true }
-  }
-  await bumpPublicServedTrips(delta, 'tripManageCompleteRequest', requestId, 'CarpoolRequest')
-
-  await Promise.all([
-    moveIdInUserInfo(driverOpenid, requestId, 'tripDriverJoin', 'tripDriverJoinHistory'),
-    bumpUserRideStats(driverOpenid, 'completedDriverTrips', 1),
-    creatorOpenid ? moveIdInUserInfo(creatorOpenid, requestId, 'tripPassengerCreate', 'tripPassengerCreateHistory') : Promise.resolve(false),
-    creatorOpenid ? bumpUserRideStats(creatorOpenid, 'completedPassengerTrips', 1) : Promise.resolve(false),
-    ...joinedPassengerOpenids.map(pid => moveIdInUserInfo(pid, requestId, 'tripPassenger', 'tripPassengerHistory')),
-    ...joinedPassengerOpenids.map(pid => bumpUserRideStats(pid, 'completedPassengerTrips', 1)),
-    ...passengerOpenids.map(pid => sendNotification(
-      pid,
-      'DRIVER_COMPLETE',
-      '行程已结束',
-      `${route.dateStr} ${route.timeStr} ${route.routeStr} 的行程已由司机标记为结束`,
-      requestId,
-      { role: 'passenger', driverOpenid, action: 'completeTrip', type: 'request', requestId }
-    )),
-    sendRequestRatingInvites(requestId, req, driverOpenid, passengerOpenids)
-  ])
-
-  await logAction({ action: 'completeTrip', type: 'request', tripId: requestId, actorOpenid, targets: passengerOpenids })
-  return { ok: true, success: true, action: 'completeTrip', sourceType: 'request', servedStatsDelta: delta, passengerCount: passengerOpenids.length }
-}
-
 async function quitCarpoolPassenger(event, actorOpenid) {
   const tripId = cleanText(event.tripId || event.id, 80)
   if (!tripId) return { ok: false, success: false, errorMsg: '缺少 tripId' }
+  const reason = getReason(event)
 
   const snap = await db.collection('Carpool').doc(tripId).get()
   const trip = snap && snap.data
@@ -720,7 +345,6 @@ async function quitCarpoolPassenger(event, actorOpenid) {
       return !(item && item._openid === actorOpenid)
     })
   }
-  if (Array.isArray(trip.passengerID)) updateData.passengerID = _.pull(actorOpenid)
   if (normalizeTripStatus(trip.status) !== 'past') updateData.status = 'open'
 
   await db.collection('Carpool').doc(tripId).update({ data: updateData })
@@ -732,13 +356,13 @@ async function quitCarpoolPassenger(event, actorOpenid) {
     driverOpenid,
     'PASSENGER_QUIT_CARPOOL',
     '有乘客退出拼车行程',
-    `有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`,
+    withReason(`有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`, reason),
     tripId,
-    { tripId, passengerOpenid: actorOpenid, action: 'passenger_quit' }
+    { tripId, passengerOpenid: actorOpenid, action: 'passenger_quit', reason }
   )
 
-  await logAction({ action: 'quitTrip', type: 'carpool', tripId, actorOpenid })
-  return { ok: true, success: true, action: 'quitTrip', sourceType: 'carpool' }
+  await logAction({ action: 'quitTrip', type: 'carpool', tripId, actorOpenid, reason })
+  return { ok: true, success: true, action: 'quitTrip', type: 'carpool' }
 }
 
 async function kickDriverFromRequest(event, actorOpenid) {
@@ -905,6 +529,7 @@ async function quitRequestDriver(event, actorOpenid) {
 async function quitRequestPassenger(event, actorOpenid) {
   const requestId = cleanText(event.requestId || event.tripId || event.id, 80)
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
+  const reason = getReason(event)
 
   const snap = await db.collection('CarpoolRequest').doc(requestId).get()
   const req = snap && snap.data
@@ -931,13 +556,13 @@ async function quitRequestPassenger(event, actorOpenid) {
     id,
     'PASSENGER_QUIT_REQUEST',
     '有乘客退出求车路线',
-    `有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`,
+    withReason(`有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`, reason),
     requestId,
-    { requestId, passengerOpenid: actorOpenid, action: 'passenger_quit' }
+    { requestId, passengerOpenid: actorOpenid, action: 'passenger_quit', reason }
   )))
 
-  await logAction({ action: 'quitTrip', type: 'request', tripId: requestId, actorOpenid })
-  return { ok: true, success: true, action: 'quitTrip', sourceType: 'request' }
+  await logAction({ action: 'quitTrip', type: 'request', tripId: requestId, actorOpenid, reason })
+  return { ok: true, success: true, action: 'quitTrip', type: 'request' }
 }
 
 async function acceptRequest(event, actorOpenid) {
@@ -986,7 +611,6 @@ async function acceptRequest(event, actorOpenid) {
     await reqRef.update({
       data: {
         driverOpenid: actorOpenid,
-        driverID: actorOpenid,
         updatedAt: new Date()
       }
     })
@@ -1047,14 +671,6 @@ async function blockUser(event, actorOpenid) {
   if (targetOpenid === actorOpenid) return { ok: false, success: false, errorMsg: '不能拉黑自己' }
 
   const reason = getReason(event)
-  await updateUserByOpenid(actorOpenid, {
-    blockedUsers: _.addToSet(targetOpenid),
-    updatedAt: db.serverDate(),
-    updateTime: db.serverDate()
-  }, {
-    blockedUsers: [targetOpenid]
-  })
-
   const existingBlockRes = await db.collection('UserBlocks')
     .where({
       _openid: actorOpenid,
@@ -1085,13 +701,12 @@ async function blockUser(event, actorOpenid) {
       }
     })
   }
-  await logAction({ action: 'blockUser', type: normalizeType(event.type || event.sourceType), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid, reason })
+  await logAction({ action: 'blockUser', type: normalizeType(event.type), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid, reason })
   return { ok: true, success: true, action: 'blockUser' }
 }
 
 async function getBlockList(event, actorOpenid) {
-  const user = await getUser(actorOpenid)
-  const blockedIds = new Set(getBlockedOpenidsFromUserDoc(user))
+  const blockedIds = new Set()
   let activeBlocks = []
 
   try {
@@ -1155,20 +770,6 @@ async function getBlockList(event, actorOpenid) {
 async function unblockUser(event, actorOpenid) {
   const targetOpenid = cleanText(event.targetOpenid, 80)
   if (!targetOpenid) return { ok: false, success: false, errorMsg: '缺少解除对象' }
-  const user = await getUser(actorOpenid)
-  const blockedUserDetails = Array.isArray(user && user.blockedUserDetails)
-    ? user.blockedUserDetails.filter(item => cleanText(item && item.openid, 80) !== targetOpenid)
-    : undefined
-  const updateData = {
-    blockedUsers: _.pull(targetOpenid),
-    updatedAt: db.serverDate(),
-    updateTime: db.serverDate()
-  }
-  if (blockedUserDetails) updateData.blockedUserDetails = blockedUserDetails
-
-  await updateUserByOpenid(actorOpenid, {
-    ...updateData
-  })
   try {
     await db.collection('UserBlocks')
       .where({
@@ -1185,7 +786,7 @@ async function unblockUser(event, actorOpenid) {
   } catch (e) {
     console.error('tripManage unblockUser UserBlocks update error:', e)
   }
-  await logAction({ action: 'unblockUser', type: normalizeType(event.type || event.sourceType), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid })
+  await logAction({ action: 'unblockUser', type: normalizeType(event.type), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid })
   return { ok: true, success: true, action: 'unblockUser' }
 }
 
@@ -1256,7 +857,7 @@ async function updateRatingSummary(targetOpenid, targetRole, scoreDelta, countDe
 async function rateUser(event, actorOpenid) {
   const targetOpenid = cleanText(event.targetOpenid, 80)
   const tripId = cleanText(event.tripId || event.requestId || event.id, 80)
-  const type = normalizeType(event.type || event.sourceType)
+  const type = normalizeType(event.type)
   const score = Math.floor(Number(event.score || event.rating))
   const comment = ''
 
@@ -1324,7 +925,7 @@ async function rateUser(event, actorOpenid) {
 
 async function routeAction(event, actorOpenid) {
   const action = String(event.action || '').trim()
-  const type = normalizeType(event.type || event.sourceType || event.routeType)
+  const type = normalizeType(event.type)
 
   if (action === 'blockUser') return blockUser(event, actorOpenid)
   if (action === 'getBlockList') return getBlockList(event, actorOpenid)
@@ -1332,18 +933,16 @@ async function routeAction(event, actorOpenid) {
   if (action === 'rateUser') return rateUser(event, actorOpenid)
 
   if (type === 'request') {
-    if (action === 'acceptRequest' || action === 'acceptAsDriver') return acceptRequest(event, actorOpenid)
+    if (action === 'acceptRequest') return acceptRequest(event, actorOpenid)
     if (action === 'kickDriver') return kickDriverFromRequest(event, actorOpenid)
     if (action === 'kickPassenger') return kickPassengerFromRequest(event, actorOpenid)
-    if (action === 'completeTrip') return completeRequest(event, actorOpenid)
-    if (action === 'deleteTrip' || action === 'creatorQuitAndDelete') return deleteRequest(event, actorOpenid)
-    if (action === 'quitDriver' || action === 'driverQuitRequest') return quitRequestDriver(event, actorOpenid)
-    if (action === 'quitTrip' || action === 'passengerQuitRequest') return quitRequestPassenger(event, actorOpenid)
+    if (action === 'deleteTrip') return deleteRequest(event, actorOpenid)
+    if (action === 'quitDriver') return quitRequestDriver(event, actorOpenid)
+    if (action === 'quitTrip') return quitRequestPassenger(event, actorOpenid)
   }
 
   if (action === 'kickPassenger') return kickPassengerFromCarpool(event, actorOpenid)
   if (action === 'deleteTrip') return deleteCarpool(event, actorOpenid)
-  if (action === 'completeTrip') return completeCarpool(event, actorOpenid)
   if (action === 'quitTrip') return quitCarpoolPassenger(event, actorOpenid)
 
   return { ok: false, success: false, errorMsg: '不支持的操作' }

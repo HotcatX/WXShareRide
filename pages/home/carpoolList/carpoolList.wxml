@@ -1,16 +1,30 @@
 <view class="ride-shell list-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
-        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      <view
+        class="ride-back ride-back-text"
+        bindtap="goBack"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text>‹</text>
+      </view>
+      <view
+        class="list-city-entry"
+        bindtap="onTapCity"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text class="list-city-text">{{activeCityLabel}}</text>
+        <text class="list-city-caret">⌄</text>
       </view>
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
 
-    <view class="list-filter ride-card ride-card-pad">
+    <view wx:if="{{isRideServiceAvailable}}" class="list-filter ride-card ride-card-pad">
       <view class="list-filter-title-row">
         <view>
-          <text class="ride-section-title">找路线</text>
+          <text class="ride-section-title">路线筛选</text>
           <text class="ride-section-subtitle">按地点和时间筛选可加入行程</text>
         </view>
         <view class="ride-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">重置</view>
@@ -56,8 +70,29 @@
     </view>
   </view>
 
-  <scroll-view class="ride-scroll list-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
-    <view wx:if="{{loading && !hasLoadedOnce}}" class="ride-state">
+  <scroll-view
+    class="ride-scroll list-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onPullDownRefresh"
+  >
+    <view wx:if="{{!isRideServiceAvailable}}" class="ride-card ride-card-pad ride-unavailable-card list-unavailable-card">
+      <text class="ride-unavailable-title">{{activeCityLabel}} 暂无拼车服务</text>
+      <text class="ride-unavailable-desc">目前拼车只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
+      <view
+        class="ride-unavailable-button {{rideDemandRequested ? 'is-done' : ''}}"
+        bindtap="onRequestRideCityService"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        {{rideDemandRequested ? '已收到请求' : (rideDemandSubmitting ? '提交中...' : '请求增加该区域')}}
+      </view>
+    </view>
+
+    <view wx:elif="{{loading && !hasLoadedOnce}}" class="ride-state">
       {{loadingText}}
     </view>
 
@@ -69,7 +104,6 @@
       <block wx:for="{{dayGroups}}" wx:key="date">
         <view class="list-date-row">
           <text class="list-date">{{item.dateLabel}}</text>
-          <text class="list-date-count">{{item.items.length || 0}} 条</text>
         </view>
 
         <block wx:if="{{item.items && item.items.length}}">
@@ -84,8 +118,7 @@
             >
               <view class="ride-list-head">
                 <view class="list-kind-row">
-                  <text class="ride-list-kind">{{trip._type === 'request' ? '乘客求车' : '司机发车'}}</text>
-                  <text class="ride-chip {{trip._type === 'request' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{trip._type === 'request' ? '求车' : '拼车'}}</text>
+                  <text class="ride-list-kind">{{trip._type === 'request' ? '求车路线' : '发车路线'}}</text>
                   <text wx:if="{{trip._priceText}}" class="ride-chip list-price-chip">{{trip._priceText}}</text>
                 </view>
                 <text class="ride-list-time">时间 {{trip._timeLabel || '待定'}}</text>
@@ -94,12 +127,10 @@
               <view class="list-route-inline">
                 <view class="list-route-main">
                   <view class="list-route-place">
-                    <text class="list-route-label">出发</text>
                     <text class="list-route-name">{{trip._fromAddress || '出发地未设置'}}</text>
                   </view>
                   <text class="list-route-arrow">→</text>
                   <view class="list-route-place">
-                    <text class="list-route-label">到达</text>
                     <text class="list-route-name">{{trip._toAddress || '目的地未设置'}}</text>
                   </view>
                 </view>
@@ -120,6 +151,70 @@
       <text class="toast-text">{{toastText}}</text>
     </view>
 
+    <text wx:if="{{isRideServiceAvailable}}" class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
+
+  <view wx:if="{{cityPickerVisible}}">
+    <view class="city-mask" bindtap="onCityPickerCancel"></view>
+
+    <view class="city-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">选择城市</text>
+        <text class="city-close" bindtap="onCityPickerCancel" hover-class="ride-pressed" hover-stay-time="80">关闭</text>
+      </view>
+
+      <view class="city-search-wrap">
+        <input
+          class="city-search-input"
+          placeholder="搜索城市名称"
+          placeholder-class="city-search-placeholder"
+          value="{{citySearchKeyword}}"
+          bindinput="onCitySearchInput"
+          confirm-type="search"
+        />
+      </view>
+
+      <view class="city-body">
+        <view class="city-country-tabs">
+          <view
+            class="city-country {{item.className}}"
+            wx:for="{{cityCountryTabs}}"
+            wx:key="code"
+            data-code="{{item.code}}"
+            bindtap="onSelectCityCountry"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+          >
+            {{item.label}}
+          </view>
+        </view>
+
+        <scroll-view class="city-group-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="city-group" wx:for="{{cityPickerGroups}}" wx:key="title">
+            <view class="city-group-title">
+              <text wx:if="{{item.badge}}" class="city-hot-badge">{{item.badge}}</text>
+              <text>{{item.title}}</text>
+            </view>
+            <view class="city-grid">
+              <view
+                class="city-option {{city.className}}"
+                wx:for="{{item.cities}}"
+                wx:for-item="city"
+                wx:key="key"
+                data-key="{{city.key}}"
+                bindtap="onSelectCity"
+                hover-class="ride-pressed"
+                hover-stay-time="80"
+              >
+                {{city.label}}
+              </view>
+            </view>
+          </view>
+          <view wx:if="{{!cityPickerHasResults}}" class="city-empty">{{cityPickerEmptyText}}</view>
+          <view class="city-picker-hint">{{cityPickerHintText}}</view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
 </view>

@@ -1,0 +1,10 @@
+.webview-empty{
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f6f8;
+  color: #69727d;
+  font-size: 28rpx;
+  font-weight: 800;
+}

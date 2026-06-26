@@ -1,9 +1,114 @@
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
+const MARKET_MAX_IMAGE_COUNT = 6
 const MARKET_PICKUP_MAX_MONTHS = 2
+const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const { showDataError } = require("../../../utils/error")
+const {
+  ALL_CITY_KEY,
+  DEFAULT_CITY_KEY,
+  MARKET_CITY_STORAGE_KEY,
+  getCitySnapshot,
+  getStoredCitySnapshot
+} = require("../../../utils/cityTree")
+
+const GOODS_CATEGORY_OPTIONS = [
+ "家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
+]
+const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
+const SUBLET_HOUSING_OPTIONS = ["未填写", "公寓", "Condo", "House", "宿舍", "其他"]
+const SUBLET_GENDER_OPTIONS = ["不限", "限女生", "限男生", "情侣可", "无室友"]
+const LISTING_TYPE_CONFIG = {
+  goods: {
+    createKicker: "New listing",
+    editKicker: "Edit listing",
+    createTitle: "发布闲置",
+    editTitle: "编辑商品",
+    submitCreate: "发布闲置",
+    submitEdit: "保存修改",
+    submittingCreate: "发布中...",
+    submittingEdit: "保存中...",
+    photoTitle: "商品图片",
+    titlePlaceholder: "商品名称（必填）",
+    descPlaceholder: "描述品牌、状态、购买渠道、瑕疵等",
+    detailTitle: "商品信息",
+    categoryLabel: "类型",
+    priceLabel: "价格",
+    conditionLabel: "新旧程度",
+    startLabel: "可取开始",
+    endLabel: "可取结束",
+    mapLocationLabel: "精确定位（用于计算距离）",
+    regionLocationLabel: "所住公寓",
+    defaultCategory: "其他",
+    defaultCondition: "99新",
+    categoryOptions: GOODS_CATEGORY_OPTIONS,
+    conditionOptions: ["全新", "99新", "9新", "7新", "5新", "3新"],
+    showConditionRow: true
+  },
+  sublet: {
+    createKicker: "New sublet",
+    editKicker: "Edit sublet",
+    createTitle: "发布转租",
+    editTitle: "编辑转租",
+    submitCreate: "发布转租",
+    submitEdit: "保存修改",
+    submittingCreate: "发布中...",
+    submittingEdit: "保存中...",
+    photoTitle: "房源图片",
+    titlePlaceholder: "房源标题（必填）",
+    descPlaceholder: "描述房型、室友、家具、交通、租期和费用等",
+    detailTitle: "房源信息",
+    categoryLabel: "房型",
+    priceLabel: "月租",
+    conditionLabel: "房源状态",
+    startLabel: "入住时间",
+    endLabel: "租期结束",
+    mapLocationLabel: "精确定位（用于计算距离）",
+    regionLocationLabel: "所住公寓",
+    defaultCategory: "Studio",
+    defaultCondition: "转租",
+    categoryOptions: SUBLET_CATEGORY_OPTIONS,
+    conditionOptions: ["可立即入住", "租期可议", "仅限女生", "仅限男生"],
+    showConditionRow: false
+  }
+}
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getPostCitySnapshot() {
+  const city = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
+  return city.key === ALL_CITY_KEY ? getCitySnapshot(null, DEFAULT_CITY_KEY) : city
+}
+
+function normalizeSubletCategory(value) {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  const key = text.replace(/[\s/_-]+/g, "").toLowerCase()
+  const map = {
+    studio: "Studio",
+    "1b1b": "1B1B",
+    "2b1b": "2B1B",
+    "2b2b": "2B2B",
+    "3b2b": "3B2B",
+    other: "其他",
+    others: "其他",
+    "其他": "其他"
+  }
+  return map[key] || (SUBLET_CATEGORY_OPTIONS.includes(text) ? text : "其他")
+}
+
+function normalizeListingCategory(value, listingType) {
+  if (normalizeListingType(listingType) === "sublet") return normalizeSubletCategory(value) || "其他"
+  return String(value || "").trim()
+}
+
+function getListingTypeConfig(type) {
+  return LISTING_TYPE_CONFIG[normalizeListingType(type)] || LISTING_TYPE_CONFIG.goods
+}
 
 function createSubmitRequestId() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -80,6 +185,30 @@ function uniqFileIDs(fileIDs) {
   return Array.from(new Set((fileIDs || []).map(normalizeFileID).filter(Boolean)))
 }
 
+function previewImagesFromState(state = {}) {
+  const images = Array.isArray(state.images) ? state.images.filter(Boolean) : []
+  if (!images.length && state.image) images.push(state.image)
+  return Array.from(new Set(images))
+}
+
+function orderedImageFileIDsFromState(state = {}) {
+  const fromList = Array.isArray(state.imageFileIDs) ? state.imageFileIDs.map(normalizeFileID).filter(Boolean) : []
+  if (fromList.length) return Array.from(new Set(fromList))
+  const primary = normalizeFileID(state.imageFileID)
+  return primary ? [primary] : []
+}
+
+function orderedThumbFileIDsFromState(state = {}) {
+  const fromList = Array.isArray(state.thumbFileIDs) ? state.thumbFileIDs.map(normalizeFileID) : []
+  if (fromList.length) return fromList
+  const primary = normalizeFileID(state.thumbFileID)
+  return primary ? [primary] : []
+}
+
+function firstValidFileID(fileIDs = []) {
+  return fileIDs.map(normalizeFileID).find(Boolean) || ""
+}
+
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
@@ -120,10 +249,12 @@ function endOfDayTime(value) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
 }
 
-function buildDefaultPickupWindow() {
+function buildDefaultPickupWindow(listingType = "goods") {
   const today = startOfDay(new Date())
-  const max = addMonths(today, MARKET_PICKUP_MAX_MONTHS)
-  const defaultEnd = addDays(today, MARKET_DEFAULT_PICKUP_DAYS)
+  const normalizedType = normalizeListingType(listingType)
+  const maxMonths = normalizedType === "sublet" ? MARKET_SUBLET_MAX_MONTHS : MARKET_PICKUP_MAX_MONTHS
+  const max = addMonths(today, maxMonths)
+  const defaultEnd = addDays(today, normalizedType === "sublet" ? 180 : MARKET_DEFAULT_PICKUP_DAYS)
   const safeEnd = defaultEnd > max ? max : defaultEnd
   const start = formatDate(today)
   const end = formatDate(safeEnd)
@@ -139,8 +270,8 @@ function buildDefaultPickupWindow() {
   }
 }
 
-function normalizePickupWindow(startText, endText) {
-  const base = buildDefaultPickupWindow()
+function normalizePickupWindow(startText, endText, listingType = "goods") {
+  const base = buildDefaultPickupWindow(listingType)
   const minDate = parseDate(base.pickupStartMin)
   const maxDate = parseDate(base.pickupEndMax)
   let startDate = parseDate(startText) || parseDate(base.pickupStartDate)
@@ -166,20 +297,72 @@ function normalizeLocationText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function optionIndexOf(options = [], value = "", fallbackIndex = 0) {
+  const idx = options.indexOf(normalizeLocationText(value))
+  return idx >= 0 ? idx : fallbackIndex
+}
+
+function normalizeOptionalNumberText(value) {
+  return String(value || "").replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1")
+}
+
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function hasLatLng(location = {}) {
+  return toFiniteNumber(location.lat ?? location.latitude) !== null &&
+    toFiniteNumber(location.lng ?? location.longitude) !== null
+}
+
 function buildPostDisplayPatch(state = {}) {
   const isEdit = !!state.isEdit
   const submitting = !!state.submitting
+  const config = getListingTypeConfig(state.activeListingType)
+  const showSubletFields = normalizeListingType(state.activeListingType) === "sublet"
   const category = normalizeLocationText(state.category) || "其他"
   const locationInput = normalizeLocationText(state.locationInput)
+  const regionInput = normalizeLocationText(state.region)
+  const housingType = normalizeLocationText(state.housingType)
+  const genderPreference = normalizeLocationText(state.genderPreference) || "不限"
+  const imageCount = Math.min(MARKET_MAX_IMAGE_COUNT, Math.max(
+    previewImagesFromState(state).length,
+    orderedImageFileIDsFromState(state).length
+  ))
 
   return {
-    postModeKicker: isEdit ? "Edit listing" : "New listing",
-    postPageTitle: isEdit ? "编辑商品" : "发布闲置",
+    postModeKicker: isEdit ? config.editKicker : config.createKicker,
+    postPageTitle: isEdit ? config.editTitle : config.createTitle,
+    photoSectionTitle: config.photoTitle,
+    titlePlaceholder: config.titlePlaceholder,
+    descPlaceholder: config.descPlaceholder,
+    detailSectionTitle: config.detailTitle,
+    categoryLabel: config.categoryLabel,
+    priceLabel: config.priceLabel,
+    conditionLabel: config.conditionLabel,
+    pickupStartLabel: config.startLabel,
+    pickupEndLabel: config.endLabel,
+    mapLocationLabel: config.mapLocationLabel,
+    regionLocationLabel: config.regionLocationLabel,
+    showConditionRow: !!config.showConditionRow,
+    showSubletFields,
     categoryDisplay: category,
-    locationDisplay: locationInput || "去个人资料填写地址",
+    housingTypeDisplay: housingType || "未填写",
+    genderPreferenceDisplay: genderPreference,
+    furnishedDisplay: state.furnished ? "带家具" : "未标注",
+    utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
+    locationDisplay: locationInput || "去个人资料选择位置",
     locationMutedClass: locationInput ? "" : "muted",
+    regionLocationDisplay: regionInput || "去个人资料填写所住公寓",
+    regionLocationMutedClass: regionInput ? "" : "muted",
+    imageCountText: `${imageCount}/${MARKET_MAX_IMAGE_COUNT}`,
+    canAddImage: imageCount < MARKET_MAX_IMAGE_COUNT && !state.imageUploading,
     submitDisabledClass: submitting ? "disabled" : "",
-    submitText: submitting ? (isEdit ? "保存中..." : "发布中...") : (isEdit ? "保存修改" : "发布闲置")
+    submitText: submitting
+      ? (isEdit ? config.submittingEdit : config.submittingCreate)
+      : (isEdit ? config.submitEdit : config.submitCreate)
   }
 }
 
@@ -187,22 +370,20 @@ function buildLocationMeta(displayName, source = {}) {
   const name = normalizeLocationText(displayName || source.displayName || source.name || source.address)
   if (!name) return {}
 
-  const parts = name.split("/").map(s => s.trim()).filter(Boolean)
-  const legacyState = parts[0] || ""
-  const legacyArea = parts[1] || ""
-  const legacyBuilding = parts.slice(2).join(" / ")
-
   return {
     displayName: name,
-    buildingName: source.buildingName || legacyBuilding || "",
-    city: source.city || legacyArea || "",
-    state: source.state || legacyState || "",
+    buildingName: source.buildingName || "",
+    city: source.city || "",
+    state: source.state || "",
     zip: source.zip || "",
     country: source.country || "US",
-    lat: typeof source.lat === "number" ? source.lat : null,
-    lng: typeof source.lng === "number" ? source.lng : null,
+    lat: toFiniteNumber(source.lat ?? source.latitude),
+    lng: toFiniteNumber(source.lng ?? source.longitude),
     address: source.address || "",
-    source: source.source || "manual"
+    region: source.region || "",
+    source: source.source || "manual",
+    coordinateAccuracy: source.coordinateAccuracy || "",
+    provider: source.provider || ""
   }
 }
 
@@ -212,37 +393,43 @@ function isEmptyProfileRegion(value) {
   return parts.every(part => part === "无" || part === "—")
 }
 
-function buildProfileLocationDisplay(user = {}) {
+function buildProfileRegionDisplay(user = {}) {
   const bigregion = normalizeLocationText(user.bigregion)
-  const address = normalizeLocationText(user.address || user.location?.displayName)
+  const address = normalizeLocationText(user.address)
   const hasRegion = bigregion && !isEmptyProfileRegion(bigregion)
 
-  if (hasRegion) {
-    const regionParts = bigregion.split("/").map(s => s.trim()).filter(Boolean)
-    if (regionParts.length >= 3 || !address) return bigregion
-    if (address.includes("/")) return address
-    if (regionParts.includes(address)) return bigregion
-    return `${bigregion} / ${address}`
-  }
+  if (hasRegion) return bigregion
 
   return address
 }
 
-// ========== 分类 / 常用语 / 新旧程度 ==========
-const CATEGORY_OPTIONS = [
- "家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
-]
-const QUICK_PHRASES = [
-  "几乎全新，使用很少",
-  "可小刀，爽快优先",
-  "配件齐全，功能正常",
-  "搬家出闲置，急出"
-]
-const CONDITION_OPTIONS = ["全新", "99新", "9新", "7新", "5新", "3新"]
+function buildProfileMapLocationDisplay(user = {}) {
+  const location = user.location || {}
+  if (!hasLatLng(location)) return ""
+  return normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    ""
+  )
+}
+
+function buildItemMapLocationDisplay(item = {}) {
+  const location = item.location || {}
+  if (!location || typeof location !== "object") return ""
+  if (!hasLatLng(location)) return ""
+  return normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    ""
+  )
+}
 
 Page({
   data: {
     statusBarHeight: 0,
+    activeListingType: "goods",
 
     // ✅ 编辑模式
     isEdit: false,
@@ -260,36 +447,65 @@ Page({
     imageUploading: false,
     imageUploadProgress: 0,
     imageUploadText: "上传中",
+    imageCountText: `0/${MARKET_MAX_IMAGE_COUNT}`,
+    canAddImage: true,
 
     title: "",
     desc: "",
 
-    category: "其他",
+    category: LISTING_TYPE_CONFIG.goods.defaultCategory,
     price: "",
-    condition: "99新",
+    condition: LISTING_TYPE_CONFIG.goods.defaultCondition,
     region: "",
     locationInput: "",
     location: {},
-    ...buildDefaultPickupWindow(),
+    ...buildDefaultPickupWindow("goods"),
 
-    categoryOptions: CATEGORY_OPTIONS,
-    categoryIndex: CATEGORY_OPTIONS.indexOf("其他"),
+    categoryOptions: LISTING_TYPE_CONFIG.goods.categoryOptions,
+    categoryIndex: LISTING_TYPE_CONFIG.goods.categoryOptions.indexOf(LISTING_TYPE_CONFIG.goods.defaultCategory),
+    deposit: "",
+    housingType: "",
+    housingTypeOptions: SUBLET_HOUSING_OPTIONS,
+    housingTypeIndex: 0,
+    furnished: false,
+    utilitiesIncluded: false,
+    genderPreference: "不限",
+    genderPreferenceOptions: SUBLET_GENDER_OPTIONS,
+    genderPreferenceIndex: 0,
+    roommateCount: "",
     profileWechatID: "",
-
-    quickPhrases: QUICK_PHRASES,
 
     // condition sheet
     conditionSheetVisible: false,
-    conditionOptions: CONDITION_OPTIONS,
+    conditionOptions: LISTING_TYPE_CONFIG.goods.conditionOptions,
 
     submitting: false,
-    postModeKicker: "New listing",
-    postPageTitle: "发布闲置",
-    categoryDisplay: "其他",
-    locationDisplay: "去个人资料填写地址",
+    postModeKicker: LISTING_TYPE_CONFIG.goods.createKicker,
+    postPageTitle: LISTING_TYPE_CONFIG.goods.createTitle,
+    photoSectionTitle: LISTING_TYPE_CONFIG.goods.photoTitle,
+    titlePlaceholder: LISTING_TYPE_CONFIG.goods.titlePlaceholder,
+    descPlaceholder: LISTING_TYPE_CONFIG.goods.descPlaceholder,
+    detailSectionTitle: LISTING_TYPE_CONFIG.goods.detailTitle,
+    categoryLabel: LISTING_TYPE_CONFIG.goods.categoryLabel,
+    priceLabel: LISTING_TYPE_CONFIG.goods.priceLabel,
+    conditionLabel: LISTING_TYPE_CONFIG.goods.conditionLabel,
+    pickupStartLabel: LISTING_TYPE_CONFIG.goods.startLabel,
+    pickupEndLabel: LISTING_TYPE_CONFIG.goods.endLabel,
+    mapLocationLabel: LISTING_TYPE_CONFIG.goods.mapLocationLabel,
+    regionLocationLabel: LISTING_TYPE_CONFIG.goods.regionLocationLabel,
+    showConditionRow: true,
+    showSubletFields: false,
+    categoryDisplay: LISTING_TYPE_CONFIG.goods.defaultCategory,
+    housingTypeDisplay: "未填写",
+    genderPreferenceDisplay: "不限",
+    furnishedDisplay: "未标注",
+    utilitiesIncludedDisplay: "未包含",
+    locationDisplay: "去个人资料选择位置",
     locationMutedClass: "muted",
+    regionLocationDisplay: "去个人资料填写所住公寓",
+    regionLocationMutedClass: "muted",
     submitDisabledClass: "",
-    submitText: "发布闲置",
+    submitText: LISTING_TYPE_CONFIG.goods.submitCreate,
     dockVisibleClass: "dock-hidden"
   },
 
@@ -312,12 +528,24 @@ Page({
     const id = options?.id || ''
     const mode = options?.mode || ''
     const isEdit = !!id && String(mode).toLowerCase() === 'edit'
+    const activeListingType = normalizeListingType(options?.type || options?.listingType)
+    const config = getListingTypeConfig(activeListingType)
 
     this._setPostData({
       statusBarHeight: sys.statusBarHeight || 0,
+      activeListingType,
       isEdit,
       editId: isEdit ? id : '',
-      ...normalizePickupWindow(this.data.pickupStartDate, this.data.pickupEndDate)
+      category: config.defaultCategory,
+      categoryOptions: config.categoryOptions,
+      categoryIndex: config.categoryOptions.indexOf(config.defaultCategory),
+      condition: config.defaultCondition,
+      conditionOptions: config.conditionOptions,
+      housingTypeIndex: 0,
+      housingType: "",
+      genderPreferenceIndex: 0,
+      genderPreference: "不限",
+      ...normalizePickupWindow(this.data.pickupStartDate, this.data.pickupEndDate, activeListingType)
     })
 
     if (isEdit) {
@@ -344,21 +572,23 @@ Page({
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
       const user = (res?.result?.data || [])[0] || null
       const profileWechatID = normalizeLocationText(user?.wechatID)
-      const displayName = buildProfileLocationDisplay(user || {})
+      const regionDisplay = buildProfileRegionDisplay(user || {})
+      const locationDisplay = buildProfileMapLocationDisplay(user || {})
       if (this.data.isEdit || this._locationTouched) return false
-      if (!displayName) {
+      if (!regionDisplay && !locationDisplay) {
         this._setPostData({ profileWechatID })
         return false
       }
 
-      const location = buildLocationMeta(displayName, {
+      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user?.location || {}),
+        region: regionDisplay,
         source: user?.location ? (user.location.source || "profile") : "profile"
-      })
+      }) : {}
       this._setPostData({
         profileWechatID,
-        region: displayName,
-        locationInput: displayName,
+        region: regionDisplay,
+        locationInput: locationDisplay,
         location
       })
       return true
@@ -390,57 +620,77 @@ Page({
       })
       const result = getMarketApiResult(res)
       const x = result.item || result.data || {}
+      const activeListingType = normalizeListingType(x.listingType)
+      const config = getListingTypeConfig(activeListingType)
+      const itemName = activeListingType === "sublet" ? "房源" : "商品"
 
       if (!result.isOwner) {
-        wx.showToast({ title: '只能编辑自己发布的商品', icon: 'none' })
+        wx.showToast({ title: `只能编辑自己发布的${itemName}`, icon: 'none' })
         setTimeout(() => wx.navigateBack({ delta: 1 }), 600)
         return
       }
 
-      const rawCategory = x.category || ''
-      const category = CATEGORY_OPTIONS.includes(rawCategory) ? rawCategory : '其他'
-      const categoryIndex = CATEGORY_OPTIONS.indexOf(category)
-      const locationDisplayName = x.location?.displayName || x.region || ''
+      const rawCategory = activeListingType === "sublet" ? (x.category || x.roomType || "") : (x.category || "")
+      const normalizedCategory = normalizeListingCategory(rawCategory, activeListingType)
+      const category = config.categoryOptions.includes(rawCategory) ? rawCategory : config.defaultCategory
+      const finalCategory = config.categoryOptions.includes(normalizedCategory) ? normalizedCategory : category
+      const categoryIndex = config.categoryOptions.indexOf(finalCategory)
+      const locationDisplayName = buildItemMapLocationDisplay(x)
 
       // 图片：回填 fileIDs + 预览 temp urls
       const fileIds = Array.isArray(x.imageFileIDs) && x.imageFileIDs.length
-        ? x.imageFileIDs.filter(Boolean)
+        ? x.imageFileIDs.map(normalizeFileID).filter(Boolean)
         : (x.imageFileID ? [x.imageFileID] : [])
+      const thumbIds = Array.isArray(x.thumbFileIDs) && x.thumbFileIDs.length
+        ? x.thumbFileIDs.map(normalizeFileID)
+        : (x.thumbFileID ? [x.thumbFileID] : [])
 
       const tempUrls = Array.isArray(result.imgUrls) && result.imgUrls.length
         ? result.imgUrls
-        : (Array.isArray(x.imageUrls) ? x.imageUrls : [])
+        : (Array.isArray(x.imageUrls) && x.imageUrls.length ? x.imageUrls : (x.imageUrl ? [x.imageUrl] : []))
 
       this._setPostData({
+        activeListingType,
         title: x.title || '',
         desc: x.desc || '',
-        category,
+        category: finalCategory,
         categoryIndex,
+        categoryOptions: config.categoryOptions,
+        conditionOptions: config.conditionOptions,
         price: (x.price === 0 || x.price) ? String(x.price) : '',
-        condition: x.condition || '99新',
+        condition: x.condition || config.defaultCondition,
+        deposit: (x.deposit === 0 || x.deposit) ? String(x.deposit) : '',
+        housingType: x.housingType || '',
+        housingTypeIndex: optionIndexOf(SUBLET_HOUSING_OPTIONS, x.housingType, 0),
+        furnished: x.furnished === true,
+        utilitiesIncluded: x.utilitiesIncluded === true,
+        genderPreference: x.genderPreference || '不限',
+        genderPreferenceIndex: optionIndexOf(SUBLET_GENDER_OPTIONS, x.genderPreference || '不限', 0),
+        roommateCount: (x.roommateCount === 0 || x.roommateCount) ? String(x.roommateCount) : '',
         region: x.region || '',
         locationInput: locationDisplayName,
-        location: x.location || buildLocationMeta(x.region || ''),
+        location: x.location || buildLocationMeta(locationDisplayName || x.region || '', { region: x.region || '' }),
 
         // 单图预览仍用 image
         image: tempUrls[0] || '',
         images: tempUrls,
 
         // 提交用 fileID
-        imageFileID: x.imageFileID || (Array.isArray(x.imageFileIDs) ? (x.imageFileIDs[0] || '') : ''),
-        imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
+        imageFileID: fileIds[0] || '',
+        imageFileIDs: fileIds,
 
-        thumbFileID: x.thumbFileID || '',
-        thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
+        thumbFileID: firstValidFileID(thumbIds),
+        thumbFileIDs: thumbIds,
 
         ...normalizePickupWindow(
           x.pickupStartDate || '',
-          x.pickupEndDate || x.expiresAtText || ''
+          x.pickupEndDate || x.expiresAtText || '',
+          activeListingType
         )
       })
     } catch (e) {
       console.error(e)
-      showDataError("商品加载失败", e, "商品详情从数据库加载失败，请稍后重试。")
+      showDataError("内容加载失败", e, "详情从数据库加载失败，请稍后重试。")
     } finally {
       this.setData({ editLoading: false })
     }
@@ -482,17 +732,19 @@ Page({
 
   _applyProfileToForm(user = {}) {
     const profileWechatID = normalizeLocationText(user.wechatID)
-    const displayName = buildProfileLocationDisplay(user || {})
+    const regionDisplay = buildProfileRegionDisplay(user || {})
+    const locationDisplay = buildProfileMapLocationDisplay(user || {})
     const updates = { profileWechatID }
 
-    if (displayName && (!this._locationTouched || !this.data.locationInput)) {
-      const location = buildLocationMeta(displayName, {
+    if (!this._locationTouched && (regionDisplay || locationDisplay)) {
+      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user.location || {}),
+        region: regionDisplay,
         source: user.location ? (user.location.source || "profile") : "profile"
-      })
+      }) : {}
       Object.assign(updates, {
-        region: displayName,
-        locationInput: displayName,
+        region: regionDisplay,
+        locationInput: locationDisplay,
         location
       })
     }
@@ -510,8 +762,8 @@ Page({
     wx.setStorageSync("needLoginToast", "请先登录再发布/编辑")
     wx.setStorageSync("pendingPage", {
       url: this.data.isEdit && this.data.editId
-        ? `/pages/market/marketPost/marketPost?id=${this.data.editId}&mode=edit`
-        : "/pages/market/marketPost/marketPost"
+        ? `/pages/market/marketPost/marketPost?id=${this.data.editId}&mode=edit&type=${this.data.activeListingType || "goods"}`
+        : `/pages/market/marketPost/marketPost?type=${this.data.activeListingType || "goods"}`
     })
     wx.navigateTo({ url: "/pages/other/login/login" })
     return false
@@ -539,7 +791,7 @@ Page({
     })
   },
 
-  // ========== 选择图片（改为单图上传：其他提交流程不动） ==========
+  // ========== 选择图片（最多 6 张） ==========
   async onChooseImage() {
     if (!this.ensureLoginBeforePost()) return
     if (this.data.imageUploading) {
@@ -548,89 +800,156 @@ Page({
     }
 
     try {
+      const baseImages = previewImagesFromState(this.data)
+      const baseImageFileIDs = orderedImageFileIDsFromState(this.data)
+      const baseThumbFileIDs = orderedThumbFileIDsFromState(this.data)
+      const currentCount = Math.max(baseImages.length, baseImageFileIDs.length)
+      const remaining = MARKET_MAX_IMAGE_COUNT - currentCount
+      if (remaining <= 0) {
+        wx.showToast({ title: `最多上传${MARKET_MAX_IMAGE_COUNT}张`, icon: "none" })
+        return
+      }
+
       const res = await wx.chooseMedia({
-        count: 1,
+        count: remaining,
         mediaType: ["image"],
         sourceType: ["album", "camera"],
         sizeType: ["compressed"]
       })
 
-      const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean)
+      const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean).slice(0, remaining)
       if (!tempFiles.length) return
 
-      const localPath = tempFiles[0]
-
-      this.setData({
-        image: localPath,
-        images: [localPath],
-        imageFileID: "",
-        imageFileIDs: [],
-        thumbFileID: "",
-        thumbFileIDs: [],
+      this._lastImageUploadProgressAt = 0
+      const previewImages = baseImages.concat(tempFiles)
+      this._setPostData({
+        image: previewImages[0] || "",
+        images: previewImages,
         imageUploading: true,
-        imageUploadProgress: 2,
-        imageUploadText: "压缩中"
+        imageUploadProgress: 1,
+        imageUploadText: tempFiles.length > 1 ? `准备上传 1/${tempFiles.length}` : "准备上传"
       })
 
-      const [mainUploadPath, thumbLocal] = await Promise.all([
-        prepareMainImageForUpload(this, localPath),
-        genThumbFromFirstImage(this, localPath)
-      ])
+      const uploaded = []
+      let failedCount = 0
+      for (let i = 0; i < tempFiles.length; i += 1) {
+        const localPath = tempFiles[i]
+        const stepBase = (i / tempFiles.length) * 100
+        const stepSize = 100 / tempFiles.length
+        const labelSuffix = tempFiles.length > 1 ? ` ${i + 1}/${tempFiles.length}` : ""
+        try {
+          this._setImageUploadProgress(stepBase + stepSize * 0.04, `压缩${labelSuffix}`)
+          const [mainUploadPath, thumbLocal] = await Promise.all([
+            prepareMainImageForUpload(this, localPath),
+            genThumbFromFirstImage(this, localPath)
+          ])
 
-      this._setImageUploadProgress(18, "上传中")
+          let mainProgress = 0
+          let thumbProgress = thumbLocal ? 0 : 100
+          const updateUploadProgress = () => {
+            const weighted = 16 + mainProgress * 0.74 + thumbProgress * 0.10
+            this._setImageUploadProgress(
+              Math.min(99, stepBase + stepSize * (weighted / 100)),
+              `上传${labelSuffix}`
+            )
+          }
 
-      let mainProgress = 0
-      let thumbProgress = thumbLocal ? 0 : 100
-      const updateUploadProgress = () => {
-        const weighted = 18 + mainProgress * 0.72 + thumbProgress * 0.10
-        this._setImageUploadProgress(Math.min(98, weighted), "上传中")
-      }
+          const thumbUploadPromise = thumbLocal
+            ? compressForUpload(thumbLocal, MARKET_THUMB_IMAGE_QUALITY)
+              .then(path => {
+                thumbProgress = 18
+                updateUploadProgress()
+                return uploadOne(path, "market_thumb", progress => {
+                  thumbProgress = progress
+                  updateUploadProgress()
+                })
+              })
+            : Promise.resolve("")
 
-      const thumbUploadPromise = thumbLocal
-        ? compressForUpload(thumbLocal, MARKET_THUMB_IMAGE_QUALITY)
-          .then(path => {
-            thumbProgress = 18
-            updateUploadProgress()
-            return uploadOne(path, "market_thumb", progress => {
-              thumbProgress = progress
+          const [fileID, thumbFID] = await Promise.all([
+            uploadOne(mainUploadPath, "market", progress => {
+              mainProgress = progress
               updateUploadProgress()
-            })
-          })
-        : Promise.resolve("")
+            }),
+            thumbUploadPromise
+          ])
 
-      const [fileID, thumbFID] = await Promise.all([
-        uploadOne(mainUploadPath, "market", progress => {
-          mainProgress = progress
-          updateUploadProgress()
-        }),
-        thumbUploadPromise
-      ])
-
-      if (!fileID) {
-        wx.showToast({ title: "上传失败", icon: "none" })
-        this.setData({ imageUploading: false })
-        return
+          if (!fileID) throw new Error("empty_file_id")
+          uploaded.push({ localPath, fileID, thumbFID: thumbFID || "" })
+        } catch (uploadError) {
+          failedCount += 1
+          console.error("[marketPost] image upload failed:", uploadError)
+        }
       }
 
-      this._setImageUploadProgress(100, "已完成")
-      this.setData({
-        imageFileID: fileID,
-        imageFileIDs: [fileID],
-        thumbFileID: thumbFID || "",
-        thumbFileIDs: thumbFID ? [thumbFID] : []
+      const nextImages = baseImages.concat(uploaded.map(item => item.localPath))
+      const nextImageFileIDs = uniqFileIDs(baseImageFileIDs.concat(uploaded.map(item => item.fileID)))
+      const nextThumbFileIDs = baseThumbFileIDs.concat(uploaded.map(item => item.thumbFID || ""))
+      const uploadText = failedCount ? "部分完成" : "已完成"
+      this._setPostData({
+        image: nextImages[0] || "",
+        images: nextImages,
+        imageFileID: nextImageFileIDs[0] || "",
+        imageFileIDs: nextImageFileIDs,
+        thumbFileID: firstValidFileID(nextThumbFileIDs),
+        thumbFileIDs: nextThumbFileIDs,
+        imageUploading: false,
+        imageUploadProgress: uploaded.length ? 100 : 0,
+        imageUploadText: uploadText
       })
 
-      wx.showToast({ title: "上传成功", icon: "success" })
-      setTimeout(() => {
-        if (this.data.imageFileID === fileID) {
-          this.setData({ imageUploading: false })
-        }
-      }, 450)
+      if (!uploaded.length) {
+        wx.showToast({ title: "上传失败", icon: "none" })
+      } else if (failedCount) {
+        wx.showToast({ title: "部分图片上传失败", icon: "none" })
+      } else {
+        wx.showToast({ title: "上传成功", icon: "success" })
+      }
     } catch (e) {
+      if (String(e && e.errMsg || "").toLowerCase().includes("cancel")) return
       console.error(e)
       wx.showToast({ title: "选择/上传失败", icon: "none" })
-      this.setData({ imageUploading: false })
+      this._setPostData({
+        imageUploading: false,
+        images: previewImagesFromState(this.data),
+        image: previewImagesFromState(this.data)[0] || ""
+      })
     }
+  },
+
+  onPreviewPostImage(e) {
+    const images = previewImagesFromState(this.data)
+    if (!images.length) return
+    const index = Number(e.currentTarget?.dataset?.index || 0)
+    wx.previewImage({
+      urls: images,
+      current: images[index] || images[0]
+    })
+  },
+
+  onRemoveImage(e) {
+    if (this.data.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
+    }
+    const index = Number(e.currentTarget?.dataset?.index)
+    const images = previewImagesFromState(this.data)
+    if (!Number.isInteger(index) || index < 0 || index >= images.length) return
+
+    const imageFileIDs = orderedImageFileIDsFromState(this.data)
+    const thumbFileIDs = orderedThumbFileIDsFromState(this.data)
+    images.splice(index, 1)
+    if (index < imageFileIDs.length) imageFileIDs.splice(index, 1)
+    if (index < thumbFileIDs.length) thumbFileIDs.splice(index, 1)
+
+    this._setPostData({
+      image: images[0] || "",
+      images,
+      imageFileID: imageFileIDs[0] || "",
+      imageFileIDs,
+      thumbFileID: firstValidFileID(thumbFileIDs),
+      thumbFileIDs
+    })
   },
 
   // ========== 输入 ==========
@@ -641,32 +960,58 @@ Page({
     this.setData({ desc: e.detail.value || "" })
   },
   onPriceInput(e) {
-    this.setData({ price: e.detail.value || "" })
+    this.setData({ price: normalizeOptionalNumberText(e.detail.value) })
+  },
+  onDepositInput(e) {
+    this._setPostData({ deposit: normalizeOptionalNumberText(e.detail.value) })
+  },
+  onRoommateCountInput(e) {
+    this._setPostData({ roommateCount: String(e.detail.value || "").replace(/[^\d]/g, "") })
   },
 
   onPickupStartDateChange(e) {
     const start = e.detail.value || this.data.pickupStartDate
-    this.setData(normalizePickupWindow(start, this.data.pickupEndDate))
+    this.setData(normalizePickupWindow(start, this.data.pickupEndDate, this.data.activeListingType))
   },
 
   onPickupEndDateChange(e) {
     const end = e.detail.value || this.data.pickupEndDate
-    this.setData(normalizePickupWindow(this.data.pickupStartDate, end))
-  },
-
-  onTapPhrase(e) {
-    const t = e.currentTarget.dataset.text || ""
-    const old = this.data.desc || ""
-    const next = old ? `${old}\n${t}` : t
-    this.setData({ desc: next })
+    this.setData(normalizePickupWindow(this.data.pickupStartDate, end, this.data.activeListingType))
   },
 
   // ========== 分类 picker ==========
   onCategoryPickerChange(e) {
     const idx = Number(e.detail.value)
-    const categoryIndex = idx >= 0 && idx < CATEGORY_OPTIONS.length ? idx : CATEGORY_OPTIONS.indexOf("其他")
-    const category = CATEGORY_OPTIONS[categoryIndex] || "其他"
+    const options = this.data.categoryOptions || getListingTypeConfig(this.data.activeListingType).categoryOptions
+    const fallback = getListingTypeConfig(this.data.activeListingType).defaultCategory
+    const fallbackIndex = Math.max(0, options.indexOf(fallback))
+    const categoryIndex = idx >= 0 && idx < options.length ? idx : fallbackIndex
+    const category = options[categoryIndex] || fallback
     this._setPostData({ categoryIndex, category })
+  },
+
+  onHousingTypePickerChange(e) {
+    const idx = Number(e.detail.value)
+    const options = this.data.housingTypeOptions || SUBLET_HOUSING_OPTIONS
+    const housingTypeIndex = idx >= 0 && idx < options.length ? idx : 0
+    const housingType = options[housingTypeIndex] === "未填写" ? "" : (options[housingTypeIndex] || "")
+    this._setPostData({ housingTypeIndex, housingType })
+  },
+
+  onGenderPreferencePickerChange(e) {
+    const idx = Number(e.detail.value)
+    const options = this.data.genderPreferenceOptions || SUBLET_GENDER_OPTIONS
+    const genderPreferenceIndex = idx >= 0 && idx < options.length ? idx : 0
+    const genderPreference = options[genderPreferenceIndex] || "不限"
+    this._setPostData({ genderPreferenceIndex, genderPreference })
+  },
+
+  onToggleFurnished() {
+    this._setPostData({ furnished: !this.data.furnished })
+  },
+
+  onToggleUtilities() {
+    this._setPostData({ utilitiesIncluded: !this.data.utilitiesIncluded })
   },
 
   // ========== 新旧程度 ==========
@@ -699,7 +1044,10 @@ onChooseCondition() {
     } = this.data
     const imageFileIDs = uniqFileIDs([imageFileID, ...(Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [])])
     const thumbFileIDs = uniqFileIDs([this.data.thumbFileID, ...(Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [])])
-    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate)
+    const activeListingType = normalizeListingType(this.data.activeListingType)
+    const config = getListingTypeConfig(activeListingType)
+    const normalizedCategory = normalizeListingCategory(category, activeListingType)
+    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate, activeListingType)
     const expireTime = endOfDayTime(pickupWindow.pickupEndDate)
     const hasImage = imageFileIDs.length > 0
 
@@ -707,7 +1055,7 @@ onChooseCondition() {
       return wx.showToast({ title: "图片还在上传中", icon: "none" })
     }
     if (!title.trim()) return wx.showToast({ title: "请输入标题", icon: "none" })
-    if (!category) return wx.showToast({ title: "请选择分类", icon: "none" })
+    if (!normalizedCategory) return wx.showToast({ title: "请选择分类", icon: "none" })
 
     this._submitInFlight = true
     this._setPostData({ submitting: true })
@@ -721,25 +1069,47 @@ onChooseCondition() {
         : this._applyProfileToForm(profile)
       if (this.data.isEdit) this._setPostData(profileUpdates)
       if (!normalizeLocationText(profile.wechatID)) {
-        this._promptEditProfile("请先填写微信号", "发布闲置前需要在个人资料里填写微信号，方便买家联系。")
+        this._promptEditProfile("请先填写微信号", `${config.submitCreate}前需要在个人资料里填写微信号，方便联系。`)
         return
       }
 
-      const region = normalizeLocationText(profileUpdates.locationInput || this.data.locationInput || this.data.region)
-      const location = buildLocationMeta(region, profileUpdates.location || this.data.location || {})
-      if (!region) return wx.showToast({ title: "请选择地区", icon: "none" })
-      if (!expireTime) return wx.showToast({ title: "请选择可取时间", icon: "none" })
+      const region = normalizeLocationText(profileUpdates.region || this.data.region)
+      const locationSource = profileUpdates.location || this.data.location || {}
+      const locationName = normalizeLocationText(
+        profileUpdates.locationInput ||
+        this.data.locationInput ||
+        locationSource.displayName ||
+        locationSource.name ||
+        locationSource.address
+      )
+      const location = buildLocationMeta(locationName, {
+        ...locationSource,
+        region
+      })
+      if (!region) {
+        this._promptEditProfile("请先填写所住公寓", `${config.submitCreate}前需要在个人资料里手写所住公寓，用于卡片和详情展示。`)
+        return
+      }
+      if (!hasLatLng(location)) {
+        this._promptEditProfile("请先手动选点", `${config.submitCreate}前需要在个人资料里选择位置，用于计算距离。`)
+        return
+      }
+      if (!expireTime) return wx.showToast({ title: `请选择${config.pickupEndLabel}`, icon: "none" })
 
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
+      const postCity = getPostCitySnapshot()
 
       const payload = {
+        listingType: activeListingType,
         title: String(title).trim(),
         price: Number(price || 0),
-        category,
+        category: normalizedCategory,
+        cityKey: postCity.key,
+        cityLabel: postCity.label,
         region,
         location,
-        condition: condition || "99新",
+        condition: condition || config.defaultCondition,
         desc: desc || "",
         imageFileID: imageFileIDs[0] || "",
         imageFileIDs,
@@ -748,6 +1118,15 @@ onChooseCondition() {
         hasImage,
         pickupStartDate: pickupWindow.pickupStartDate,
         pickupEndDate: pickupWindow.pickupEndDate,
+        availableStartDate: activeListingType === "sublet" ? pickupWindow.pickupStartDate : "",
+        leaseEndDate: activeListingType === "sublet" ? pickupWindow.pickupEndDate : "",
+        deposit: activeListingType === "sublet" ? this.data.deposit : "",
+        roomType: activeListingType === "sublet" ? normalizedCategory : "",
+        housingType: activeListingType === "sublet" ? this.data.housingType : "",
+        furnished: activeListingType === "sublet" ? !!this.data.furnished : false,
+        utilitiesIncluded: activeListingType === "sublet" ? !!this.data.utilitiesIncluded : false,
+        genderPreference: activeListingType === "sublet" ? this.data.genderPreference : "",
+        roommateCount: activeListingType === "sublet" ? this.data.roommateCount : "",
         pickupRangeText: pickupWindow.pickupRangeText,
         expireTime,
         expiresAtText: pickupWindow.pickupEndDate,
@@ -783,7 +1162,7 @@ onChooseCondition() {
       setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
     } catch (e) {
       console.error(e)
-      showDataError("发布失败", e, "商品保存到数据库失败，请稍后重试。")
+      showDataError("发布失败", e, "发布信息保存到数据库失败，请稍后重试。")
     } finally {
       if (!keepSubmitLocked) {
         this._submitInFlight = false

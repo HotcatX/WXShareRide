@@ -54,3 +54,66 @@ page{
   background: #ffffff;
   border-color: rgba(20,23,26,0.06);
 }
+
+/* 统一出行信息卡片路线排版 */
+.request-hero .ride-route{
+  display: flex;
+  align-items: stretch;
+  gap: 12rpx;
+}
+
+.request-hero .ride-route-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.request-hero .ride-route-point{
+  display: flex;
+  align-items: center;
+  min-height: 44rpx;
+}
+
+.request-hero .ride-route-label{
+  width: 58rpx;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+  font-size: 24rpx;
+  font-weight: 900;
+  color: #8b96a3;
+  line-height: 36rpx;
+}
+
+.request-hero .ride-route-name{
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #14171a;
+  line-height: 40rpx;
+}
+
+/* 拉黑发布者和余位高度一致 */
+.request-hero .ride-head-actions{
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.request-hero .ride-head-actions .ride-chip{
+  height: 48rpx;
+  padding: 0 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  line-height: 48rpx;
+}
+
+.request-hero .ride-head-actions .ride-chip--small{
+  height: 48rpx;
+  padding: 0 18rpx;
+  line-height: 48rpx;
+}

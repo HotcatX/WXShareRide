@@ -1,9 +1,16 @@
 <view class="page">
 
-<view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
-  <view class="nav-content">
-    <image class="back-icon" src="/images/back.png" bindtap="goBack" />
-    <text class="nav-title">{{pageTitle}}</text>
+<view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
+  <view class="ride-topbar ride-topbar--center">
+    <view
+      class="ride-back ride-back-text"
+      bindtap="goBack"
+      hover-class="ride-pressed"
+      hover-stay-time="80"
+    >
+      <text>‹</text>
+    </view>
+    <text class="ride-nav-title">{{pageTitle}}</text>
   </view>
 </view>
 

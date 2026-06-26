@@ -115,3 +115,50 @@ page{
 .my-kick{
   background: #e64c3c;
 }
+
+/* 修正顶部路线：出发/到达与左侧圆点对齐 */
+.my-scroll .ride-route{
+  display: flex;
+  align-items: stretch;
+  gap: 12rpx;
+}
+
+.my-scroll .ride-route-rail{
+  width: 26rpx;
+  padding-top: 6rpx;
+  flex-shrink: 0;
+}
+
+.my-scroll .ride-route-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.my-scroll .ride-route-point{
+  display: flex;
+  align-items: center;
+  min-height: 44rpx;
+}
+
+.my-scroll .ride-route-label{
+  width: 58rpx;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+  font-size: 24rpx;
+  font-weight: 900;
+  color: #8b96a3;
+  line-height: 36rpx;
+}
+
+.my-scroll .ride-route-name{
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #14171a;
+  line-height: 40rpx;
+}

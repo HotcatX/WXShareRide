@@ -10,10 +10,6 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-const PUBLIC_STATS_COLLECTION = 'PublicStats'
-const PUBLIC_STATS_DOC_ID = 'home'
-const MAX_SERVED_DELTA = 5
-
 function uniq(arr) {
   return Array.from(new Set((arr || []).filter(Boolean)))
 }
@@ -21,93 +17,6 @@ function uniq(arr) {
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
   return value === 'close' || value === 'closed' ? 'past' : value
-}
-
-function normalizeServedDelta(amount) {
-  const n = Number(amount)
-  if (!Number.isFinite(n) || n <= 0) return 0
-  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
-}
-
-function getCarpoolRequestServedPeople(req = {}) {
-  const passengerIds = Array.isArray(req.passengerID)
-    ? Array.from(new Set(req.passengerID.filter(Boolean)))
-    : []
-  const passengerCount = Number(req.passengerCount)
-  const passengerTotal = Math.max(
-    passengerIds.length,
-    Number.isFinite(passengerCount) ? passengerCount : 0,
-    req._openid ? 1 : 0
-  )
-  const hasDriver = !!(req.driverOpenid || req.driverID || req.driverId)
-  return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
-}
-
-function bumpServedTrips(delta, source, tripId, collection) {
-  const amount = normalizeServedDelta(delta)
-  if (amount <= 0) return Promise.resolve(false)
-
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(amount),
-    servedTripsLastDelta: amount,
-    servedTripsLastSource: source,
-    servedTripsLastTripId: tripId,
-    servedTripsLastCollection: collection,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  return db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    .then(() => true)
-    .catch(() => db.collection(PUBLIC_STATS_COLLECTION).add({
-      data: {
-        _id: PUBLIC_STATS_DOC_ID,
-        servedTrips: amount,
-        servedTripsLastDelta: amount,
-        servedTripsLastSource: source,
-        servedTripsLastTripId: tripId,
-        servedTripsLastCollection: collection,
-        coverageText: 'NY / NJ',
-        lastServedAt: now,
-        createdAt: now,
-        updatedAt: now
-      }
-    }).then(() => true))
-    .catch(() => db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data }).then(() => true))
-    .catch((retryErr) => {
-      return false
-    })
-}
-
-function completeRequestAndCount(requestId, req, updateData) {
-  const delta = getCarpoolRequestServedPeople(req)
-  const data = {
-    ...updateData,
-    servedStatsCounted: true,
-    servedStatsDelta: delta,
-    servedStatsSource: 'creatorQuitAndClose',
-    servedStatsCountedAt: db.serverDate()
-  }
-
-  return db.collection('CarpoolRequest')
-    .where({ _id: requestId, servedStatsCounted: _.neq(true) })
-    .update({ data })
-    .then((res) => {
-      const updated = Number((res && res.stats && res.stats.updated) || (res && res.updated) || 0)
-      if (updated > 0) {
-        return bumpServedTrips(delta, 'creatorQuitAndClose', requestId, 'CarpoolRequest')
-          .then((counted) => ({ updated: true, counted, delta }))
-      }
-
-      return db.collection('CarpoolRequest').doc(requestId).get().then((fresh) => {
-        if (fresh && fresh.data && normalizeTripStatus(fresh.data.status) !== 'past') {
-          return db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
-            .then(() => ({ updated: true, counted: false, delta: 0 }))
-        }
-        return { updated: false, counted: false, delta: 0 }
-      })
-    })
 }
 
 /**
@@ -439,17 +348,6 @@ exports.main = (event, context) => {
         console.error('[creatorQuitAndDelete] error=', e)
         return { ok: false, errorMsg: '操作失败（creatorQuitAndDelete）' }
       })
-    }
-
-    // ====== creatorQuitAndClose（兼容旧 action 名；现在统一写 past）=====
-    if (action === 'creatorQuitAndClose') {
-      const next = { status: 'past', ...buildClearDriverFields(preReq) }
-      return completeRequestAndCount(requestId, preReq, next).then((statsResult) => ({
-        ok: true,
-        servedStatsDelta: statsResult.delta || 0,
-        servedStatsCounted: !!statsResult.counted
-      }))
-        .catch(() => ({ ok: false, errorMsg: '操作失败（creatorQuitAndClose）' }))
     }
 
     return { ok: false, errorMsg: '不支持的 action' }

@@ -81,3 +81,66 @@ page{
   display: block;
   margin-top: 2rpx;
 }
+
+/* 顶部路线信息：点、标签、地点水平对齐 */
+.ride-route{
+  display: flex;
+  align-items: stretch;
+  gap: 12rpx;
+}
+
+.ride-route-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.ride-route-point{
+  display: flex;
+  align-items: center;
+  min-height: 44rpx;
+}
+
+.ride-route-label{
+  width: 58rpx;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+  font-size: 24rpx;
+  font-weight: 900;
+  color: #8b96a3;
+  line-height: 36rpx;
+}
+
+.ride-route-name{
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  font-weight: 900;
+  color: #14171a;
+  line-height: 40rpx;
+}
+
+/* 让拉黑司机和余位高度一致 */
+.ride-head-actions{
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.ride-head-actions .ride-chip{
+  height: 48rpx;
+  padding: 0 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  line-height: 48rpx;
+}
+
+.ride-head-actions .ride-chip--small{
+  height: 48rpx;
+  padding: 0 18rpx;
+  line-height: 48rpx;
+}

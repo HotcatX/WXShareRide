@@ -1,6 +1,27 @@
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
 const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
+const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
+const { prefetchTripDetails } = require("../../utils/tripDetailCache")
+const {
+  DEFAULT_CITY_KEY,
+  DEFAULT_CITY_LABEL,
+  DEFAULT_CITY_TREE,
+  RIDE_CITY_STORAGE_KEY,
+  normalizeCityTree,
+  getCitySnapshot,
+  getCountryTabs,
+  getCountryGroups,
+  cityGroupsHaveResults,
+  getStoredCitySnapshot,
+  setStoredCitySnapshot
+} = require("../../utils/cityTree")
+
+const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
+
+function isRideServiceCity(cityKey) {
+  return String(cityKey || "") === DEFAULT_CITY_KEY
+}
 
 // =========================
 // 按发车时间排序（date + time）
@@ -82,11 +103,7 @@ function formatStatNumber(value) {
 }
 
 function formatRidePriceTag(value) {
-  const text = value == null ? '' : String(value).trim()
-  if (!text) return ''
-  if (text === '请参考打车价格' || text === '参考打车价格') return '参考价'
-  if (text === '价格以司机确认为准') return '司机确认'
-  return text
+  return formatRidePriceTagShared(value)
 }
 
 function formatSyncAgo(syncedAt) {
@@ -136,21 +153,10 @@ function wrapTripForCard(raw, opts = {}) {
   const dep0 = (Array.isArray(raw.departures) && raw.departures[0]) ? raw.departures[0] : {}
   const dest0 = (Array.isArray(raw.destinations) && raw.destinations[0]) ? raw.destinations[0] : {}
 
-  const fromAddress =
-    (raw._fromAddress || raw.fromAddress || raw.from || raw.departure || raw.start || raw.startAddress ||
-      dep0.address || dep0.name || dep0.label || dep0.text || '')
-
-  const toAddress =
-    (raw._toAddress || raw.toAddress || raw.to || raw.destination || raw.end || raw.endAddress ||
-      dest0.address || dest0.name || dest0.label || dest0.text || '')
-
-  const date =
-    (raw.date || raw.departDate || raw.departureDate || raw.tripDate || raw.requestDate ||
-      dep0.date || dep0.departDate || '')
-
-  const time =
-    (raw.time || raw.departTime || raw.departureTime || raw.tripTime || raw.requestTime ||
-      dep0.time || dep0.departTime || '')
+  const fromAddress = raw._fromAddress || dep0.address || ''
+  const toAddress = raw._toAddress || dest0.address || ''
+  const date = dep0.date || ''
+  const time = dep0.time || ''
 
   const dateCN = formatDateCNNoYear(date)
   const weekday = getWeekdayCN(date)
@@ -163,21 +169,18 @@ function wrapTripForCard(raw, opts = {}) {
         ? `${dateCN} ${weekday}`
         : (dateCN || time || '')))
 
-  const tripId = raw.carpoolId || raw.tripId || raw._id || raw.docId || raw.id || ''
-  const isRequest = from === 'CarpoolRequest'
+  const tripId = raw.tripId || raw._id || ''
+  const isRequest = from === 'request'
   const requestPassengerCount =
-    raw._requestPassengerCount ||
     raw.passengerCount ||
-    raw.passengersCount ||
-    (Array.isArray(raw.passengers) ? raw.passengers.length : 0) ||
     1
   const seatText = isRequest
     ? `${requestPassengerCount}人求车`
-    : `余位 ${raw.availSeatNum || raw.availableSeats || raw.seatLeft || 0}`
+    : `余位 ${raw.availSeatNum || 0}`
   const priceText = formatRidePriceTag(raw.referencePrice || raw.price || raw.displayPrice || '')
 
   // ===== 状态识别（past / open / full）=====
-  const statusText = raw.statusText || raw.status || raw.requestStatus || raw.state || ''
+  const statusText = raw.status || ''
   const st = String(statusText || '').toLowerCase()
 
   let statusKey = 'open'
@@ -185,8 +188,6 @@ function wrapTripForCard(raw, opts = {}) {
     st.includes('past') ||
     st.includes('expired') ||
     st.includes('done') ||
-    st.includes('close') ||
-    st.includes('closed') ||
     st.includes('结束') ||
     st.includes('过期')
   ) {
@@ -248,7 +249,22 @@ Page({
 
     statusBarHeight: 80,
     homeTopbarStyle: '',
-    pageTitle: '纽约生活',
+    pageTitle: '共享出行',
+    activeCityKey: DEFAULT_CITY_KEY,
+    activeCityLabel: DEFAULT_CITY_LABEL,
+    activeCityAliases: [DEFAULT_CITY_LABEL],
+    isRideServiceAvailable: true,
+    rideDemandSubmitting: false,
+    rideDemandRequested: false,
+    cityTree: DEFAULT_CITY_TREE,
+    cityCountryTabs: getCountryTabs(DEFAULT_CITY_TREE, "US"),
+    cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", DEFAULT_CITY_KEY),
+    cityPickerVisible: false,
+    activeCityCountryCode: "US",
+    citySearchKeyword: "",
+    cityPickerHasResults: true,
+    cityPickerEmptyText: "没有找到相关城市",
+    cityPickerHintText: RIDE_CITY_PICKER_HINT,
 
     publicStats: normalizePublicStats(),
 
@@ -329,12 +345,15 @@ Page({
     }
   },
 
-  onLoad() {
+  onLoad(options) {
+    const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE)
+    this._applyCityUi((options && options.city) || storedCity.key || DEFAULT_CITY_KEY, { persist: false })
     this.setData(getHomeNavMetrics())
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     this.syncLoginState()
+    setTimeout(() => this.loadCityTreeFromCloud(), 120)
     this.scheduleHomeShowRefresh()
   },
 
@@ -358,8 +377,10 @@ Page({
     this.clearHomeShowRefresh()
     this._homeShowTimer = setTimeout(() => {
       this._homeShowTimer = null
-      this.loadPublicStats()
-      this.refreshHomeData(true, { forceStatus: false })
+      if (this.data.isRideServiceAvailable) {
+        this.loadPublicStats()
+        this.refreshHomeData(true, { forceStatus: false })
+      }
       this.loadUnreadCount()
     }, 300)
   },
@@ -384,15 +405,153 @@ Page({
     })
   },
 
+  _applyCityUi(cityKey = DEFAULT_CITY_KEY, options = {}) {
+    const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
+    const snapshot = getCitySnapshot(cityTree, cityKey || DEFAULT_CITY_KEY)
+    const activeCode = options.countryCode || this.data.activeCityCountryCode || "US"
+    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
+    const cityPickerGroups = getCountryGroups(cityTree, activeCode, snapshot.key, { keyword: citySearchKeyword })
+
+    this.setData({
+      activeCityKey: snapshot.key,
+      activeCityLabel: snapshot.label,
+      activeCityAliases: snapshot.aliases,
+      isRideServiceAvailable: isRideServiceCity(snapshot.key),
+      rideDemandRequested: false,
+      cityTree,
+      activeCityCountryCode: activeCode,
+      cityCountryTabs: getCountryTabs(cityTree, activeCode),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      citySearchKeyword
+    })
+
+    if (options.persist !== false) setStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, snapshot)
+    return snapshot
+  },
+
+  async loadCityTreeFromCloud() {
+    try {
+      const db = wx.cloud.database()
+      let docData = null
+      try {
+        const doc = await db.collection("cityTree").doc("default").get()
+        docData = doc?.data || null
+      } catch (e) {}
+
+      if (!docData) {
+        const res = await db.collection("cityTree").limit(1).get()
+        docData = (res.data || [])[0] || null
+      }
+
+      const tree = normalizeCityTree(docData)
+      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: tree })
+    } catch (e) {
+      console.error("cityTree 加载失败：", e)
+      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
+    }
+  },
+
+  onTapCity() {
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY
+    )
+    this.setData({
+      cityPickerVisible: true,
+      citySearchKeyword: "",
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onCityPickerCancel() {
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+  },
+
+  stopTouchMove() {},
+
+  onCitySearchInput(e) {
+    const keyword = (e.detail && e.detail.value) || ""
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY,
+      { keyword }
+    )
+    this.setData({
+      citySearchKeyword: keyword,
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCityCountry(e) {
+    const code = e.currentTarget.dataset.code || "US"
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const citySearchKeyword = this.data.citySearchKeyword || ""
+    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || DEFAULT_CITY_KEY, {
+      keyword: citySearchKeyword
+    })
+    this.setData({
+      activeCityCountryCode: code,
+      cityCountryTabs: getCountryTabs(cityTree, code),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCity(e) {
+    const key = e.currentTarget.dataset.key || DEFAULT_CITY_KEY
+    const snapshot = this._applyCityUi(key)
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+    if (isRideServiceCity(snapshot.key)) {
+      this.scheduleHomeShowRefresh()
+    }
+  },
+
+  async onRequestRideCityService() {
+    if (this.data.rideDemandSubmitting || this.data.rideDemandRequested || this.data.isRideServiceAvailable) return
+    this.setData({ rideDemandSubmitting: true })
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "rideDemand",
+        data: {
+          cityKey: this.data.activeCityKey,
+          cityLabel: this.data.activeCityLabel,
+          cityAliases: this.data.activeCityAliases || [],
+          sourcePage: "home"
+        }
+      })
+      if (!res || !res.result || !res.result.success) {
+        throw new Error((res && res.result && res.result.errorMsg) || "request_failed")
+      }
+      this.setData({ rideDemandRequested: true })
+      wx.showToast({ title: "已收到请求", icon: "success" })
+    } catch (e) {
+      console.error("request ride city service failed:", e)
+      wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
+    } finally {
+      this.setData({ rideDemandSubmitting: false })
+    }
+  },
+
   // =========================
   // 顶部按钮导航（统一）
   // =========================
   goNewTrip() {
+    if (!this.data.isRideServiceAvailable) {
+      wx.showToast({ title: "该地区暂未开通拼车", icon: "none" })
+      return
+    }
     wx.navigateTo({ url: '/pages/home/newTrip/newTrip' })
   },
 
   goCarpoolList() {
-    wx.navigateTo({ url: '/pages/home/carpoolList/carpoolList' })
+    wx.navigateTo({ url: `/pages/home/carpoolList/carpoolList?city=${this.data.activeCityKey || DEFAULT_CITY_KEY}` })
   },
 
   // =========================
@@ -403,7 +562,7 @@ Page({
     const tripId = ds.tripid || ds.id || ''
     const role = String(ds.role || '').toLowerCase()
     const from = String(ds.from || '').toLowerCase()
-    const sourceType = from === 'carpoolrequest' ? 'request' : 'carpool'
+    const sourceType = from === 'request' ? 'request' : 'carpool'
 
     if (!tripId) {
       wx.showToast({ title: '缺少路线ID', icon: 'none' })
@@ -429,6 +588,21 @@ Page({
 
     // passenger / passengerJoin -> myTripDetailPassenger
     wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}&sourceType=${sourceType}` })
+  },
+
+  prefetchHomeTripDetails(lists = []) {
+    const entries = []
+    ;(Array.isArray(lists) ? lists : []).forEach(list => {
+      ;(Array.isArray(list) ? list : []).forEach(trip => {
+        const id = trip && (trip.tripId || trip._id)
+        if (!id) return
+        entries.push({
+          id,
+          type: String(trip.from || "").toLowerCase() === "request" ? "request" : "carpool"
+        })
+      })
+    })
+    prefetchTripDetails(entries, { limit: 8 }).catch(() => {})
   },
 
   async loadPublicStats() {
@@ -466,6 +640,11 @@ Page({
   // ✅ 首页首屏只拉卡片数据；状态更新放后台，避免全屏 loading 卡住操作。
   // =========================
   async refreshHomeData(force = false, options = {}) {
+    if (!this.data.isRideServiceAvailable) {
+      this.setData({ loading: false })
+      return Promise.resolve()
+    }
+
     if (this._refreshPromise) return this._refreshPromise
 
     const now = Date.now()
@@ -513,7 +692,7 @@ Page({
       driverCreateList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'driverCreate',
-          from: item.from || 'Carpool',
+          from: item.from || 'carpool',
           idx
         })
       )
@@ -523,7 +702,7 @@ Page({
       driverJoinList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'driverJoin',
-          from: item.from || 'CarpoolRequest',
+          from: item.from || 'request',
           idx
         })
       )
@@ -533,7 +712,7 @@ Page({
       passengerCreateList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'passengerCreate',
-          from: item.from || 'CarpoolRequest',
+          from: item.from || 'request',
           idx
         })
       )
@@ -543,7 +722,7 @@ Page({
       passengerJoinList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'passenger',
-          from: item.from || 'Carpool',
+          from: item.from || 'carpool',
           idx
         })
       )
@@ -569,6 +748,13 @@ Page({
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
     })
+
+    this.prefetchHomeTripDetails([
+      driverCreateTrips,
+      driverJoinTrips,
+      passengerCreateTrips,
+      passengerTrips
+    ])
   },
 
   refreshHomeStatusInBackground(force = false) {
@@ -608,14 +794,14 @@ Page({
   onShareAppMessage() {
     return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
-      path: '/pages/home/home'
+      path: `/pages/home/home?city=${this.data.activeCityKey || DEFAULT_CITY_KEY}`
     })
   },
 
   onShareTimeline() {
     return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
-      query: ''
+      query: `city=${this.data.activeCityKey || DEFAULT_CITY_KEY}`
     })
   },
 

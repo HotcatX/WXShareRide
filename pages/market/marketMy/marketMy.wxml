@@ -1,9 +1,10 @@
 <view class="market-my-page">
-  <view class="my-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="my-nav">
-      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
-      <text class="nav-title">我的商品</text>
-      <view class="nav-spacer"></view>
+  <view class="my-top ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
+        <text>‹</text>
+      </view>
+      <text class="ride-nav-title">{{navTitle}}</text>
     </view>
   </view>
 
@@ -16,7 +17,7 @@
           <text>{{wechatStatusText}}</text>
           <text>{{regionDisplay}}</text>
         </view>
-        <text class="profile-apartment">{{apartmentDisplay}}</text>
+        <text wx:if="{{apartmentDisplay}}" class="profile-apartment">{{apartmentDisplay}}</text>
       </view>
     </view>
 
@@ -40,15 +41,29 @@
     <view class="goods-head">
       <view>
         <text class="section-kicker">Listings</text>
-        <text class="goods-title-main">我发布的商品</text>
+        <text class="goods-title-main">{{goodsTitleMain}}</text>
       </view>
       <view class="add-small pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">发布</view>
     </view>
 
+    <view class="listing-segment">
+      <view
+        class="listing-segment-item {{item.selectedClass}} pressable"
+        wx:for="{{listingTypeTabs}}"
+        wx:key="type"
+        data-type="{{item.type}}"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        bindtap="onSelectListingType"
+      >
+        {{item.label}}
+      </view>
+    </view>
+
     <view wx:if="{{goodsEmpty}}" class="empty-state">
       <view class="empty-mark">＋</view>
-      <view class="empty-title">还没有发布商品</view>
-      <view class="empty-subtitle">发布第一件闲置，让附近同学看到</view>
+      <view class="empty-title">{{goodsEmptyTitle}}</view>
+      <view class="empty-subtitle">{{goodsEmptySubtitle}}</view>
       <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">去发布</view>
     </view>
 
@@ -86,6 +101,7 @@
 
         <view class="goods-body">
           <text class="goods-title">{{item.title}}</text>
+          <text class="goods-meta">{{item.metaText}}</text>
           <text class="goods-price">$ {{item.priceDisplay}}</text>
         </view>
       </view>
@@ -108,7 +124,7 @@
       </view>
 
       <view wx:else class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onToggleManage">
-        管理我的商品
+        {{manageButtonText}}
       </view>
     </view>
 

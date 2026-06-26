@@ -6,6 +6,10 @@ function formatMarketPrice(value) {
   return Number.isFinite(n) ? n.toFixed(n % 1 === 0 ? 0 : 2) : '0'
 }
 
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
 function buildTradeDisplayPatch(type, list = []) {
   return {
     pageTitle: type === 'bought' ? '我买到的' : '我卖出的',
@@ -25,20 +29,28 @@ function getMarketApiResult(res) {
 }
 
 function buildTradeItem(x = {}, type = 'sold') {
+  const listingType = normalizeListingType(x.listingType)
   const imageKey = x.thumbFileID || x.imageFileID || ''
+  const priceText = formatMarketPrice(x.price)
+  const title = String(x.title || '').trim() || (listingType === "sublet" ? "未命名房源" : "未命名商品")
+  const metaText = listingType === "sublet"
+    ? (x.leaseText || x.availableStartDate || x.roomType || x.category || "转租")
+    : (x.condition || x.pickupEndDate || "闲置")
   return {
     id: x._id,
-    title: String(x.title || '').trim() || '未命名商品',
+    listingType,
+    title,
     price: x.price || '',
-    priceText: formatMarketPrice(x.price),
-    priceDisplay: formatMarketPrice(x.price),
+    priceText,
+    priceDisplay: listingType === "sublet" ? `${priceText}/月` : priceText,
+    metaText,
     imageFileID: x.imageFileID || '',
     thumbFileID: x.thumbFileID || '',
     hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-    imageSrc: x.imageSrc || x.thumbUrl || imageKey || '/images/market.png',
+    imageSrc: x.imageSrc || x.thumbUrl || imageKey || (listingType === "sublet" ? "/images/sublease.png" : "/images/market.png"),
     thumbUrl: x.thumbUrl || '',
     otherOpenid: x.otherOpenid || (type === 'sold'
-      ? (x.buyerOpenid || x.buyer_openid || '')
+      ? (x.buyerOpenid || '')
       : (x._openid || '')),
     contactWechat: x.contactWechat || ''
   }

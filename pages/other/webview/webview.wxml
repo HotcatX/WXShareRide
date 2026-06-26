@@ -1,0 +1,4 @@
+<web-view wx:if="{{url}}" src="{{url}}" />
+<view wx:else class="webview-empty">
+  <text>链接不可用</text>
+</view>

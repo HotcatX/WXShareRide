@@ -97,15 +97,25 @@ button {
 
 .ride-back{
   position: absolute;
-  left: 20rpx;
-  width: 64rpx;
+  left: 32rpx;
+
+  width: 80rpx;
   height: 64rpx;
-  border-radius: 18rpx;
-  background: #ffffff;
-  box-shadow: 0 8rpx 22rpx rgba(20,23,26,0.08);
+
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.ride-back-text{
+  font-size: 60rpx;
+  line-height: 1;
+  font-weight: 700;
+  color: #111418;
 }
 
 .ride-back-icon{
@@ -157,6 +167,16 @@ button {
   min-height: 0;
   padding: 16rpx 20rpx 0;
   box-sizing: border-box;
+}
+
+.ride-refresh-hint{
+  display: block;
+  margin: 0 0 14rpx;
+  color: #8b96a3;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  font-weight: 800;
+  text-align: center;
 }
 
 .ride-content{
@@ -719,4 +739,20 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nav-back{
+  width: 80rpx;
+  height: 64rpx;
+  left: 32rpx;
+
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+
+  color: #111418;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }

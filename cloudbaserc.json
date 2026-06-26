@@ -58,6 +58,18 @@
       "timeout": 15
     },
     {
+      "name": "getUserInfoByOpenids",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
+      "name": "rideDemand",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 15
+    },
+    {
       "name": "marketApi",
       "runtime": "Nodejs16.13",
       "handler": "index.main",

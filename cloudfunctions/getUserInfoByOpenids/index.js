@@ -15,6 +15,19 @@ const PUBLIC_USER_FIELDS = {
   avatarUrl: true,
   wechatID: true,
   phone: true,
+  bigregion: true,
+  address: true,
+  apartment: true,
+  dorm: true,
+  addr: true,
+  location: true,
+  region: true,
+  bio: true,
+  intro: true,
+  signature: true,
+  carNumber: true,
+  carBrand: true,
+  carModel: true,
   carPlate: true,
   plateNumber: true,
   zelleName: true,
@@ -46,7 +59,12 @@ exports.main = async (event, context) => {
 
     return {
       ok: true,
-      data: res.data
+      data: (res.data || []).map(user => ({
+        ...user,
+        carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
+        carBrand: user.carBrand || '',
+        carModel: user.carModel || ''
+      }))
     }
   } catch (e) {
     console.error('【getUserInfoByOpenids】查询出错：', e)

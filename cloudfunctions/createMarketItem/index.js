@@ -35,6 +35,7 @@ function buildLocationForSave(regionStr, location = {}) {
     lng,
     address: normalizeLocationText(location.address),
     source: normalizeLocationText(location.source || "manual"),
+    region: normalizeLocationText(location.region || location.bigregion || regionStr),
     updatedAtMs: Date.now()
   }
 }
@@ -45,13 +46,10 @@ function parseRegion(regionStr) {
     .map(s => s.trim())
     .filter(Boolean)
 
-  // "NJ / JC / Journal Sq" => ["NJ","JC","Journal Sq"]
-  const p1 = parts[0] || ""
-  const p2 = parts[1] || ""
   const rest = parts.slice(2)
 
-  const bigregion = [p1, p2].filter(Boolean).join(" / ")
-  const address = rest.length ? rest.join(" / ") : (p2 || p1)
+  const bigregion = parts.join(" / ")
+  const address = rest.length ? rest.join(" / ") : (parts[1] || parts[0] || "")
 
   return { bigregion, address }
 }

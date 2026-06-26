@@ -1,8 +1,73 @@
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
+const {
+  buildProfileDisplayLocation,
+  buildProfileApartmentDisplay
+} = require("../../../utils/profileDisplay")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const LISTING_TYPE_STORAGE_KEY = "market_active_listing_type_v1"
 const defaultAvatarUrl =
   'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
+const LISTING_TYPE_CONFIG = {
+  goods: {
+    label: "二手",
+    navTitle: "我的市场",
+    sectionTitle: "我发布的商品",
+    emptyTitle: "还没有发布商品",
+    emptySubtitle: "发布第一件闲置，让附近同学看到",
+    manageText: "管理我的商品",
+    deleteConfirmName: "商品",
+    shareTitle: "二手商品",
+    shareRole: "卖家",
+    fallbackTitle: "未命名商品",
+    fallbackImage: "/images/market.png",
+    metaFallback: "闲置"
+  },
+  sublet: {
+    label: "转租",
+    navTitle: "我的市场",
+    sectionTitle: "我发布的转租",
+    emptyTitle: "还没有发布转租",
+    emptySubtitle: "发布第一套房源，让附近同学看到",
+    manageText: "管理我的转租",
+    deleteConfirmName: "房源",
+    shareTitle: "转租房源",
+    shareRole: "发布者",
+    fallbackTitle: "未命名房源",
+    fallbackImage: "/images/sublease.png",
+    metaFallback: "转租"
+  }
+}
+
+function normalizeListingType(value) {
+  return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
+}
+
+function getStoredListingType() {
+  try {
+    return normalizeListingType(wx.getStorageSync(LISTING_TYPE_STORAGE_KEY))
+  } catch (e) {
+    return "goods"
+  }
+}
+
+function setStoredListingType(type) {
+  try {
+    wx.setStorageSync(LISTING_TYPE_STORAGE_KEY, normalizeListingType(type))
+  } catch (e) {}
+}
+
+function getListingTypeConfig(type) {
+  return LISTING_TYPE_CONFIG[normalizeListingType(type)] || LISTING_TYPE_CONFIG.goods
+}
+
+function buildListingTypeTabs(activeType) {
+  return ["goods", "sublet"].map(type => ({
+    type,
+    label: LISTING_TYPE_CONFIG[type].label,
+    selectedClass: normalizeListingType(activeType) === type ? "selected" : ""
+  }))
+}
 
 function getMarketGoodsChangedAt() {
   try {
@@ -32,20 +97,29 @@ function formatMarketPrice(value) {
 }
 
 function buildMyGoodsItem(x = {}) {
-  const title = String(x.title || '').trim() || '未命名商品'
+  const listingType = normalizeListingType(x.listingType)
+  const config = getListingTypeConfig(listingType)
+  const title = String(x.title || '').trim() || config.fallbackTitle
   const imageKey = x.thumbFileID || x.imageFileID || ''
+  const priceText = formatMarketPrice(x.price)
+  const metaText = listingType === "sublet"
+    ? (x.leaseText || x.availableStartDate || x.roomType || x.category || config.metaFallback)
+    : (x.condition || x.pickupEndDate || config.metaFallback)
   return {
     id: x._id || x.id || '',
+    listingType,
     title,
     price: x.price,
-    priceText: formatMarketPrice(x.price),
-    priceDisplay: formatMarketPrice(x.price),
+    priceText,
+    priceDisplay: listingType === "sublet" ? `${priceText}/月` : priceText,
+    metaText,
+    typeTagText: config.label,
     imageFileID: x.imageFileID || '',
     imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
     thumbFileID: x.thumbFileID || '',
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
     hasImage: !!(x.hasImage || x.imageFileID || x.thumbFileID || (Array.isArray(x.imageFileIDs) && x.imageFileIDs.length)),
-    imageSrc: x.imageSrc || x.thumbUrl || imageKey || '/images/market.png',
+    imageSrc: x.imageSrc || x.thumbUrl || imageKey || config.fallbackImage,
     pickupEndDate: x.pickupEndDate || x.expiresAtText || '',
     expireTime: Number(x.expireTime) || 0,
     status: x.status || 'online',
@@ -64,17 +138,34 @@ function withSelectionState(goods = [], selectedMap = {}) {
   })
 }
 
+function stripSelectionState(goods = []) {
+  return (Array.isArray(goods) ? goods : []).map(g => {
+    const copy = { ...(g || {}) }
+    delete copy.selected
+    delete copy.selectedClass
+    return copy
+  })
+}
+
 function buildMyDisplayPatch(state = {}) {
   const goods = Array.isArray(state.goods) ? state.goods : []
   const selectedCount = Number(state.selectedCount) || 0
+  const activeListingType = normalizeListingType(state.activeListingType)
+  const config = getListingTypeConfig(activeListingType)
   return {
+    navTitle: config.navTitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
-    regionDisplay: state.region || '地址未填',
-    apartmentDisplay: state.apartment || '公寓未填',
+    regionDisplay: state.region || '所住公寓未填',
+    apartmentDisplay: state.apartment || '',
     saveStateText: state.isSavingBio ? '保存中' : '自动保存',
     hasGoods: goods.length > 0,
     goodsEmpty: goods.length === 0,
+    goodsTitleMain: config.sectionTitle,
+    goodsEmptyTitle: config.emptyTitle,
+    goodsEmptySubtitle: config.emptySubtitle,
+    manageButtonText: config.manageText,
+    listingTypeTabs: buildListingTypeTabs(activeListingType),
     allSelectedText: state.allSelected ? '取消全选' : '全选',
     deleteDisabledClass: selectedCount > 0 ? '' : 'disabled'
   }
@@ -94,7 +185,9 @@ Page({
     bioOriginal: '',
     isSavingBio: false,
 
-    openid: '',
+	    openid: '',
+    activeListingType: 'goods',
+    listingTypeTabs: buildListingTypeTabs('goods'),
     goods: [],
 
     // ✅ 管理模式 = 多选模式
@@ -112,6 +205,11 @@ Page({
     hasGoods: false,
     goodsEmpty: true,
     allSelectedText: '全选',
+    navTitle: '我的市场',
+    goodsTitleMain: '我发布的商品',
+    goodsEmptyTitle: '还没有发布商品',
+    goodsEmptySubtitle: '发布第一件闲置，让附近同学看到',
+    manageButtonText: '管理我的商品',
     deleteDisabledClass: 'disabled',
     dockVisibleClass: 'dock-hidden'
   },
@@ -142,9 +240,11 @@ Page({
     })
   },
 
-  onLoad() {
+  onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
+    const activeListingType = normalizeListingType(options?.type || options?.listingType || getStoredListingType())
+    setStoredListingType(activeListingType)
+    this._setMyData({ statusBarHeight: sys.statusBarHeight || 0, activeListingType })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
@@ -158,27 +258,30 @@ Page({
     const changedAt = getMarketGoodsChangedAt()
     if (!changedAt || changedAt === this._lastHandledGoodsChangeAt) return
     this._lastHandledGoodsChangeAt = changedAt
+    this._clearMyGoodsCache()
     this.loadUserInfo().then(() => {
-      this.fetchMyGoods()
+      this.fetchMyGoods({ force: true })
     })
   },
 
   onShareAppMessage() {
     const openid = this.data.openid || ''
-    const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}` })
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
+    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onShareTimeline() {
     const openid = this.data.openid || ''
-    const title = this.data.name ? `看看 ${this.data.name} 的二手商品` : '查看卖家二手商品'
-    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}` })
+    const config = getListingTypeConfig(this.data.activeListingType)
+    const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
+    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onPullDownRefresh() {
     Promise.resolve()
       .then(() => this.loadUserInfo())
-      .then(() => this.fetchMyGoods(true))
+      .then(() => this.fetchMyGoods({ force: true }))
       .finally(() => wx.stopPullDownRefresh())
   },
 
@@ -196,7 +299,23 @@ Page({
   },
 
   onAddGood() {
-    wx.navigateTo({ url: '/pages/market/marketPost/marketPost' })
+    wx.navigateTo({ url: `/pages/market/marketPost/marketPost?type=${this.data.activeListingType || "goods"}` })
+  },
+
+  onSelectListingType(e) {
+    const type = normalizeListingType(e.currentTarget.dataset.type)
+    if (type === this.data.activeListingType) return
+    setStoredListingType(type)
+    const cached = this._getFreshMyGoodsCache(type)
+    this._setMyData({
+      activeListingType: type,
+      goods: cached ? cached.goods : [],
+      selectedMap: {},
+      selectedCount: 0,
+      allSelected: false,
+      manageMode: false
+    })
+    this.fetchMyGoods()
   },
 
   // ✅ 进入/退出多选管理
@@ -262,13 +381,13 @@ Page({
   async onDeleteSelected() {
     const ids = Object.keys(this.data.selectedMap || {})
     if (!ids.length) {
-      wx.showToast({ title: '请先选择要删除的商品', icon: 'none' })
+      wx.showToast({ title: `请先选择要删除的${getListingTypeConfig(this.data.activeListingType).deleteConfirmName}`, icon: 'none' })
       return
     }
 
     const confirm = await new Promise((resolve) => {
       wx.showModal({
-        title: `确认删除 ${ids.length} 个商品？`,
+        title: `确认删除 ${ids.length} 个${getListingTypeConfig(this.data.activeListingType).deleteConfirmName}？`,
         content: '删除后无法恢复',
         confirmText: '删除',
         confirmColor: '#d9644a',
@@ -297,13 +416,18 @@ Page({
       const failedSet = new Set(failed.map(x => x.id))
       const successIds = ids.filter(id => !failedSet.has(id))
       const nextGoods = goods.filter(g => !successIds.includes(g.id))
-      if (successIds.length) markMarketGoodsChanged()
+      if (successIds.length) {
+        markMarketGoodsChanged()
+        this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
+        this._clearMyGoodsCache()
+      }
       this._setMyData({
         goods: nextGoods,
         selectedMap: {},
         selectedCount: 0,
         allSelected: false
       })
+      if (successIds.length) this._setMyGoodsCache(this.data.activeListingType, nextGoods)
 
       wx.showToast({
         title: failed.length ? `已删${successIds.length}个，失败${failed.length}个` : '已删除',
@@ -380,8 +504,8 @@ Page({
             avatarUrl: user.avatarUrl || defaultAvatarUrl,
             name: user.name || '',
             wechatID: user.wechatID || '',
-            region: user.address || '',
-            apartment: user.bigregion || '',
+            region: buildProfileDisplayLocation(user),
+            apartment: buildProfileApartmentDisplay(user),
             bio: user.bio || user.intro || '',
             bioOriginal: (user.bio || user.intro || ''),
             openid: user._openid || ''
@@ -397,13 +521,78 @@ Page({
     })
   },
 
+  _getMyGoodsCache(type) {
+    this._myGoodsCache = this._myGoodsCache || {}
+    return this._myGoodsCache[normalizeListingType(type)] || null
+  },
+
+  _getFreshMyGoodsCache(type) {
+    const cache = this._getMyGoodsCache(type)
+    if (!cache) return null
+    if (cache.changedAt !== getMarketGoodsChangedAt()) return null
+    return cache
+  },
+
+  _setMyGoodsCache(type, goods) {
+    this._myGoodsCache = this._myGoodsCache || {}
+    this._myGoodsCache[normalizeListingType(type)] = {
+      goods: stripSelectionState(goods),
+      changedAt: getMarketGoodsChangedAt(),
+      cachedAt: Date.now()
+    }
+  },
+
+  _clearMyGoodsCache(type) {
+    if (!this._myGoodsCache) return
+    if (type) {
+      delete this._myGoodsCache[normalizeListingType(type)]
+      return
+    }
+    this._myGoodsCache = {}
+  },
+
   // ✅ 取 goods 时多带几个字段，方便删文件
-  async fetchMyGoods() {
+  async fetchMyGoods(options = {}) {
+    const force = typeof options === 'boolean' ? !!options : !!options.force
     const openid = this.data.openid
     if (!openid) {
       this._setMyData({ goods: [] })
       return
     }
+
+    const listingType = normalizeListingType(this.data.activeListingType)
+    const cached = !force ? this._getFreshMyGoodsCache(listingType) : null
+    if (cached) {
+      this._setMyData({
+        goods: cached.goods,
+        selectedMap: {},
+        selectedCount: 0,
+        allSelected: false
+      })
+      return
+    }
+
+    this._myGoodsRequests = this._myGoodsRequests || {}
+    if (!force && this._myGoodsRequests[listingType]) {
+      try {
+        await this._myGoodsRequests[listingType]
+      } catch (err) {
+        return
+      }
+      const nextCached = this._getFreshMyGoodsCache(listingType)
+      if (nextCached && normalizeListingType(this.data.activeListingType) === listingType) {
+        this._setMyData({
+          goods: nextCached.goods,
+          selectedMap: {},
+          selectedCount: 0,
+          allSelected: false
+        })
+      }
+      return
+    }
+
+    const requestToken = `${listingType}|${Date.now()}`
+    this._activeMyGoodsRequestToken = requestToken
 
     try {
       const PAGE = 50
@@ -412,22 +601,39 @@ Page({
       let rows = []
       let skip = 0
 
-      while (true) {
-        const res = await wx.cloud.callFunction({
-          name: 'marketApi',
-          data: { action: 'myList', skip, limit: PAGE }
-        })
-        const result = getMarketApiResult(res)
+      const requestPromise = (async () => {
+        while (true) {
+          const res = await wx.cloud.callFunction({
+            name: 'marketApi',
+            data: {
+              action: 'myList',
+              listingType,
+              filters: { listingType },
+              skip,
+              limit: PAGE
+            }
+          })
+          const result = getMarketApiResult(res)
 
-        const batch = result.items || result.data || []
-        rows = rows.concat(batch)
+          const batch = result.items || result.data || []
+          rows = rows.concat(batch)
 
-        if (!result.hasMore || batch.length < PAGE) break
-        skip = result.nextSkip || (skip + batch.length)
-        if (rows.length >= MAX_TOTAL) break
-      }
+          if (!result.hasMore || batch.length < PAGE) break
+          skip = result.nextSkip || (skip + batch.length)
+          if (rows.length >= MAX_TOTAL) break
+        }
+        return rows
+      })()
+      this._myGoodsRequests[listingType] = requestPromise
+      rows = await requestPromise
 
       const goods = rows.map(buildMyGoodsItem)
+      this._setMyGoodsCache(listingType, goods)
+
+      if (normalizeListingType(this.data.activeListingType) !== listingType ||
+        this._activeMyGoodsRequestToken !== requestToken) {
+        return
+      }
 
       this._setMyData({
         goods,
@@ -437,7 +643,14 @@ Page({
       })
     } catch (err) {
       console.error('fetchMyGoods failed', err)
-      showDataError('商品加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
+      showDataError('发布加载失败', err, '我的发布从数据库加载失败，请稍后重试。')
+    } finally {
+      if (this._myGoodsRequests && this._myGoodsRequests[listingType]) {
+        delete this._myGoodsRequests[listingType]
+      }
+      if (this._activeMyGoodsRequestToken === requestToken) {
+        this._activeMyGoodsRequestToken = ''
+      }
     }
   }
 })

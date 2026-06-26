@@ -9,13 +9,13 @@ const MAX_REQUEST_PASSENGERS = 4
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'request') return 'request'
   return 'carpool'
 }
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra) {
@@ -44,24 +44,6 @@ function getDisplayName(user) {
   return (user && (user.name || user.nickName || user.nickname)) || '一位乘客'
 }
 
-async function getUser(openid) {
-  if (!openid) return null
-  const res = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
-  return res.data && res.data[0] ? res.data[0] : null
-}
-
-function addBlockedId(set, value) {
-  const id = String(value || '').trim()
-  if (id) set.add(id)
-}
-
-function getBlockedUsers(user) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addBlockedId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addBlockedId(out, item && item.openid))
-  return out
-}
-
 async function hasActiveBlock(blockerOpenid, targetOpenid) {
   if (!blockerOpenid || !targetOpenid || blockerOpenid === targetOpenid) return false
   const res = await db.collection('UserBlocks')
@@ -77,11 +59,6 @@ async function hasActiveBlock(blockerOpenid, targetOpenid) {
 
 async function checkBlockBetween(openidA, openidB) {
   if (!openidA || !openidB || openidA === openidB) return { blocked: false }
-  const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
-  const aBlocks = getBlockedUsers(a)
-  const bBlocks = getBlockedUsers(b)
-  if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
-  if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
   const [aActiveBlock, bActiveBlock] = await Promise.all([
     hasActiveBlock(openidA, openidB),
     hasActiveBlock(openidB, openidA)
@@ -114,15 +91,15 @@ function cleanOpenid(value) {
 }
 
 function getCarpoolDriverOpenid(doc = {}) {
-  return cleanOpenid(doc._openid || doc.driverOpenid || doc.driverID || doc.driverId)
+  return cleanOpenid(doc._openid)
 }
 
 function getRequestCreatorOpenid(doc = {}) {
-  return cleanOpenid(doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid)
+  return cleanOpenid(doc._openid)
 }
 
 function getRequestDriverOpenid(doc = {}) {
-  return cleanOpenid(doc.driverOpenid || doc.driverID || doc.driverId || doc.driver)
+  return cleanOpenid(doc.driverOpenid)
 }
 
 async function upsertPassengerUser(transaction, openid, tripId) {
@@ -362,7 +339,7 @@ exports.main = async (event = {}) => {
   if (!openid) return { ok: false, success: false, errorMsg: '未获取到 openid' }
 
   try {
-    const type = normalizeType(event.type || event.routeType || event.sourceType)
+    const type = normalizeType(event.type)
     return type === 'request'
       ? await joinRequest(event, openid)
       : await joinCarpool(event, openid)

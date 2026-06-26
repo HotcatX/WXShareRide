@@ -2,7 +2,8 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { blockRideUser } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -43,6 +44,23 @@ function containsFortLeeCore(addr) {
   return keywords.some(k => s.includes(k))
 }
 
+function cleanOpenid(value) {
+  return String(value || '').trim()
+}
+
+function getCarpoolDriverOpenid(trip = {}) {
+  return cleanOpenid(trip._openid)
+}
+
+function getCarpoolPassengerOpenids(trip = {}) {
+  const ids = new Set()
+  ;(Array.isArray(trip.passengers) ? trip.passengers : []).forEach(item => {
+    ids.add(cleanOpenid(item && item._openid))
+  })
+  ids.delete('')
+  return Array.from(ids)
+}
+
 Page({
   data: {
     trip: null,
@@ -69,6 +87,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
     carBrandModel: '',
 
     tripId: '',
@@ -83,6 +102,8 @@ Page({
 
     showPickupOptions: false,
     showDropoffOptions: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async loadUserSpots() {
@@ -101,17 +122,23 @@ Page({
 
 
   onPullDownRefresh: async function () {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
     const { tripId, trip } = this.data
     const id = tripId || (trip && trip._id)
     if (!id) {
       wx.stopPullDownRefresh()
       return
     }
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadTripDetail(id, { silent: true })
+      await this.loadTripDetail(id, { silent: true, force: true })
     } catch (e) {
-      console.error('onPullDownRefresh error', e)
+      console.error('onDetailRefresherRefresh error', e)
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -345,11 +372,9 @@ Page({
 
     if (myOpenid) {
       if (trip._openid === myOpenid) isOwner = true
-      if (Array.isArray(trip.passengers)) {
-        hasJoined = trip.passengers.some(p => p && p._openid === myOpenid)
-      }
+      hasJoined = getCarpoolPassengerOpenids(trip).includes(myOpenid)
     }
-    const driverOpenid = trip._openid || trip.driverOpenid || trip.driverID || ''
+    const driverOpenid = getCarpoolDriverOpenid(trip)
 
     let departAddress = ''
     let destAddress = ''
@@ -387,6 +412,7 @@ Page({
       departAddress,
       destAddress,
       formattedDepartTime,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格以司机确认为准'),
       carBrandModel,
       showFortLeeCoreTip,
       loading: false
@@ -396,41 +422,54 @@ Page({
     return true
   },
 
+  applyTripDetailResult(result = {}, id, options = {}) {
+    if (!(result.ok || result.success)) {
+      const isNotFound = !!result.notFound
+      const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
+      if (!isNotFound && this.data.trip) {
+        if (!options.silentError) this.showToastBar(message, 'error')
+        this.setData({ loading: false })
+        return false
+      }
+      this.setLoadError(message, { notFound: isNotFound })
+      return false
+    }
+
+    const trip = Array.isArray(result.data)
+      ? result.data[0]
+      : result.data
+
+    if (!trip) {
+      this.setLoadError('该路线不存在或已被删除', { notFound: true })
+      return false
+    }
+
+    this.applyTripData(trip, id)
+    const driverOpenid = getCarpoolDriverOpenid(trip)
+    const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
+    if (result.driverInfo && result.driverInfo._openid) {
+      this.applyDriverInfo(result.driverInfo, trip._id || id)
+    } else if (driverOpenid && canShowDriverInfo) {
+      this.loadDriverInfo(driverOpenid, trip._id || id)
+    }
+    return true
+  },
+
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
+    const cached = !force ? readTripDetailCache("carpool", id, { allowStale: true }) : null
+    if (cached && this.applyTripDetailResult(cached, id, { silentError: true })) {
+      fetchTripDetail("carpool", id, { force: true })
+        .then(result => this.applyTripDetailResult(result, id, { silentError: true }))
+        .catch(() => {})
+      return
+    }
+
     if (!silent) this.setData({ loading: true, loadError: '', notFound: false })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'carpool', id }
-      })
-
-      const result = res && res.result ? res.result : {}
-
-      if (!result.success) {
-        const isNotFound = !!result.notFound
-        const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
-        if (!isNotFound && this.data.trip) {
-          this.showToastBar(message, 'error')
-          this.setData({ loading: false })
-          return
-        }
-        this.setLoadError(message, { notFound: isNotFound })
-        return
-      }
-
-      const trip = Array.isArray(result.data)
-        ? result.data[0]
-        : result.data
-
-      if (!trip) {
-        this.setLoadError('该路线不存在或已被删除', { notFound: true })
-        return
-      }
-
-      this.applyTripData(trip, id)
-      if (trip._openid) this.loadDriverInfo(trip._openid, trip._id || id)
+      const result = await fetchTripDetail("carpool", id, { force: true })
+      this.applyTripDetailResult(result, id)
     } catch (err) {
       if (this.data.trip) {
         this.showToastBar('网络异常', 'error')
@@ -440,6 +479,21 @@ Page({
       console.error('请求错误:', err)
       this.setLoadError('网络异常，请稍后重试')
     }
+  },
+
+  applyDriverInfo(driverInfo, id) {
+    if (!driverInfo) return
+    const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
+    if (id && currentId && id !== currentId) return
+
+    const parts = []
+    if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
+    if (driverInfo.carModel) parts.push(driverInfo.carModel)
+
+    this.setData({
+      driverInfo,
+      carBrandModel: parts.join(' ')
+    })
   },
 
   async loadDriverInfo(driverOpenid, id) {
@@ -457,17 +511,7 @@ Page({
       const driverInfo = list[0] || null
       if (!driverInfo) return
 
-      const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
-      if (id && currentId && id !== currentId) return
-
-      const parts = []
-      if (driverInfo.carBrand) parts.push(driverInfo.carBrand)
-      if (driverInfo.carModel) parts.push(driverInfo.carModel)
-
-      this.setData({
-        driverInfo,
-        carBrandModel: parts.join(' ')
-      })
+      this.applyDriverInfo(driverInfo, id)
     } catch (e) {
       console.error('tripDetail 查询司机信息失败：', e)
     }
@@ -565,10 +609,10 @@ Page({
         return
       }
 
-      wx.showToast({ title: '加入出行计划成功', icon: 'success', duration: 2000 })
+      wx.showToast({ title: '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
 
-      await this.loadTripDetail(trip._id, { silent: true })
+      await this.loadTripDetail(trip._id, { silent: true, force: true })
 
       const pages = getCurrentPages()
       const prevPage = pages[pages.length - 2]
@@ -585,7 +629,7 @@ Page({
 
   async onBlockDriver() {
     const { tripId, trip, driverOpenid, driverInfo, isOwner } = this.data
-    const targetOpenid = driverOpenid || (trip && (trip._openid || trip.driverOpenid || trip.driverID)) || ''
+    const targetOpenid = driverOpenid || (trip && trip._openid) || ''
     if (isOwner) {
       wx.showToast({ title: '不能拉黑自己', icon: 'none' })
       return

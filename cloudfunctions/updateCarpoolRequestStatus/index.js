@@ -119,7 +119,7 @@ function getTargetIds(event = {}) {
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function normalizeServedDelta(amount) {
@@ -138,7 +138,7 @@ function getCarpoolRequestServedPeople(doc = {}) {
     Number.isFinite(passengerCount) ? passengerCount : 0,
     doc._openid ? 1 : 0
   )
-  const hasDriver = !!(doc.driverOpenid || doc.driverID || doc.driverId)
+  const hasDriver = !!doc.driverOpenid
   return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
 }
 

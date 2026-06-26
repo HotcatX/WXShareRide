@@ -5,121 +5,9 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-const PUBLIC_STATS_COLLECTION = 'PublicStats'
-const PUBLIC_STATS_DOC_ID = 'home'
-const MAX_SERVED_DELTA = 5
-
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
   return value === 'close' || value === 'closed' ? 'past' : value
-}
-
-function normalizeServedDelta(amount) {
-  const n = Number(amount)
-  if (!Number.isFinite(n) || n <= 0) return 0
-  return Math.min(MAX_SERVED_DELTA, Math.max(1, Math.floor(n)))
-}
-
-function addId(set, value) {
-  const id = String(value || '').trim()
-  if (id) set.add(id)
-}
-
-function getCarpoolServedPeople(doc = {}) {
-  const drivers = new Set()
-  const passengers = new Set()
-  addId(drivers, doc._openid)
-  addId(drivers, doc.driverOpenid)
-
-  ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(p => {
-    addId(passengers, p && p._openid)
-  })
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(passengers, id))
-
-  const capacity = Number(doc.passengerCount)
-  const left = Number(doc.availSeatNum)
-  const joinedBySeat = Number.isFinite(capacity) && Number.isFinite(left)
-    ? Math.max(0, capacity - left)
-    : 0
-  const passengerSignals = Math.max(passengers.size, joinedBySeat)
-  const hasDriver = drivers.size > 0 || !!(doc.driverID || doc.driverId)
-  return normalizeServedDelta((hasDriver ? 1 : 0) + passengerSignals)
-}
-
-async function bumpServedTrips(delta, source, tripId, collection) {
-  const amount = normalizeServedDelta(delta)
-  if (amount <= 0) return false
-
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(amount),
-    servedTripsLastDelta: amount,
-    servedTripsLastSource: source,
-    servedTripsLastTripId: tripId,
-    servedTripsLastCollection: collection,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  try {
-    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    return true
-  } catch (e) {
-    try {
-      await db.collection(PUBLIC_STATS_COLLECTION).add({
-        data: {
-          _id: PUBLIC_STATS_DOC_ID,
-          servedTrips: amount,
-          servedTripsLastDelta: amount,
-          servedTripsLastSource: source,
-          servedTripsLastTripId: tripId,
-          servedTripsLastCollection: collection,
-          coverageText: 'NY / NJ',
-          lastServedAt: now,
-          createdAt: now,
-          updatedAt: now
-        }
-      })
-      return true
-    } catch (addErr) {
-      try {
-        await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-        return true
-      } catch (retryErr) {
-        return false
-      }
-    }
-  }
-}
-
-async function completeTripAndCount(tripId, carpoolDoc, updateData) {
-  const delta = getCarpoolServedPeople(carpoolDoc)
-  const countedAt = db.serverDate()
-  const data = {
-    ...updateData,
-    servedStatsCounted: true,
-    servedStatsDelta: delta,
-    servedStatsSource: 'driverCompleteTrip',
-    servedStatsCountedAt: countedAt
-  }
-
-  const res = await db.collection('Carpool')
-    .where({ _id: tripId, servedStatsCounted: _.neq(true) })
-    .update({ data })
-
-  const updated = Number((res && res.stats && res.stats.updated) || (res && res.updated) || 0)
-  if (updated > 0) {
-    const counted = await bumpServedTrips(delta, 'driverCompleteTrip', tripId, 'Carpool')
-    return { updated: true, counted, delta }
-  }
-
-  const fresh = await db.collection('Carpool').doc(tripId).get().catch(() => null)
-  if (fresh && fresh.data && normalizeTripStatus(fresh.data.status) !== 'past') {
-    await db.collection('Carpool').doc(tripId).update({ data: updateData })
-    return { updated: true, counted: false, delta: 0 }
-  }
-
-  return { updated: false, counted: false, delta: 0 }
 }
 
 /**
@@ -201,30 +89,6 @@ async function removeTripFromUserInfo(openidToClean, tripId, fieldName) {
   })
 }
 
-async function moveTripInUserInfo(openidToClean, tripId, activeField, historyField) {
-  const coll = db.collection('userInfo')
-  const res = await coll.where({ _openid: openidToClean }).limit(1).get()
-
-  if (!res.data.length) {
-    return
-  }
-
-  const doc = res.data[0]
-  const activeList = Array.isArray(doc[activeField]) ? doc[activeField] : []
-  const historyList = Array.isArray(doc[historyField]) ? doc[historyField] : []
-
-  const nextActive = activeList.filter(id => id !== tripId)
-  const nextHistory = historyList.includes(tripId) ? historyList : [tripId, ...historyList]
-
-  await coll.doc(doc._id).update({
-    data: {
-      [activeField]: nextActive,
-      [historyField]: nextHistory,
-      updatedAt: new Date()
-    }
-  })
-}
-
 function isTripOwner(carpoolDoc, driverOpenid) {
   return !!(carpoolDoc && driverOpenid && carpoolDoc._openid === driverOpenid)
 }
@@ -296,71 +160,6 @@ exports.main = async (event, context) => {
     } catch (e) {
       console.error('【editMyTripDetailDriver】kickPassenger 失败：', e)
       return { ok: false, errorMsg: e.message || '剔除失败' }
-    }
-  }
-
-  /**********************
-   * 司机：主动结束路线（不删除）
-   **********************/
-  if (action === 'completeTrip') {
-    try {
-      const carpoolRes = await db.collection('Carpool').doc(tripId).get()
-      const carpoolDoc = carpoolRes.data
-      if (!carpoolDoc) return { ok: false, errorMsg: '未找到该路线' }
-      if (!isTripOwner(carpoolDoc, driverOpenid)) {
-        return { ok: false, errorMsg: '你不是该路线司机，无法结束' }
-      }
-
-      const oldStatus = normalizeTripStatus(carpoolDoc.status)
-      if (oldStatus === 'past') {
-        return { ok: true, action: 'complete_trip', alreadyCompleted: true }
-      }
-
-      const passengersArr = Array.isArray(carpoolDoc.passengers) ? carpoolDoc.passengers : []
-      const passengerOpenids = [...new Set(passengersArr.map(p => p && p._openid).filter(Boolean))]
-      const { dateStr, timeStr, routeStr } = buildRouteInfo(carpoolDoc)
-
-      const completeResult = await completeTripAndCount(tripId, carpoolDoc, {
-        status: 'past',
-        completedAt: db.serverDate(),
-        completedBy: driverOpenid,
-        updatedAt: db.serverDate()
-      })
-
-      const tasks = [
-        moveTripInUserInfo(driverOpenid, tripId, 'tripDriver', 'tripDriverHistory'),
-        ...passengerOpenids.map(pid => Promise.all([
-          moveTripInUserInfo(pid, tripId, 'tripPassenger', 'tripPassengerHistory'),
-          sendNotification(
-            pid,
-            'DRIVER_COMPLETE',
-            '行程已结束',
-            `${dateStr} ${timeStr} ${routeStr} 的行程已由司机标记为结束`,
-            tripId,
-            { role: 'passenger', driverOpenid, action: 'complete_trip' }
-          )
-        ]))
-      ]
-
-      const results = await Promise.all(tasks.map(task => task
-        .then(() => ({ ok: true }))
-        .catch(reason => ({ ok: false, reason }))
-      ))
-      const failed = results.filter(r => !r.ok)
-      if (failed.length) {
-      }
-
-      return {
-        ok: true,
-        action: 'complete_trip',
-        passengerCount: passengerOpenids.length,
-        servedStatsDelta: completeResult.delta || 0,
-        servedStatsCounted: !!completeResult.counted,
-        partialFailed: failed.length
-      }
-    } catch (e) {
-      console.error('【editMyTripDetailDriver】结束路线失败：', e)
-      return { ok: false, errorMsg: e.message || '结束路线失败' }
     }
   }
 

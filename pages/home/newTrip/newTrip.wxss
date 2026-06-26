@@ -31,33 +31,166 @@ page{
   gap: 8rpx;
 }
 
+/* 基础输入框容器 */
 .create-ride .ride-field{
-  min-height: 58rpx;
-  padding: 5rpx 10rpx;
+  min-height: 64rpx;
+  padding: 0 18rpx;
   border-radius: 12rpx;
+  box-sizing: border-box;
 }
 
+/* 横向输入项：左标题 + 右内容 */
+.create-ride .ride-field-inline{
+  height: 64rpx;
+  padding: 0 18rpx;
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 左侧标题 */
 .create-ride .ride-field-label{
-  font-size: 18rpx;
-  line-height: 22rpx;
+  flex: 0 0 96rpx;
+  margin: 0;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 800;
+  color: #111418;
 }
 
-.create-ride .ride-field-value,
+/* 右侧 picker 显示值 */
+.create-ride .ride-field-inline-value{
+  flex: 1;
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  height: 100%;
+  min-height: 64rpx;
+
+  margin: 0;
+  padding: 0;
+
+  font-size: 20rpx;
+  line-height: 1;
+
+  color: #111418;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右侧 input */
+.create-ride .ride-input-inline{
+  flex: 1;
+  min-width: 0;
+  height: 32rpx;
+  min-height: 32rpx;
+  margin: 0;
+  padding: 0;
+  text-align: right;
+  font-size: 18rpx;
+  line-height: 28rpx;
+  color: #111418;
+}
+
+.create-ride .ride-price-input-wrap{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6rpx;
+}
+
+.create-ride .create-price-input{
+  flex: 0 1 150rpx;
+  text-align: right;
+}
+
+.create-ride .ride-input-suffix{
+  flex: none;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  font-weight: 900;
+  color: #111418;
+}
+
+/* 普通 input 兜底 */
 .create-ride .ride-input{
   margin-top: 0;
-  font-size: 23rpx;
-  line-height: 30rpx;
+  height: 32rpx;
+  min-height: 32rpx;
+  font-size: 22rpx;
+  line-height: 32rpx;
 }
 
-.create-ride .ride-input{
-  height: 30rpx;
+/* picker 占满宽度 */
+.create-ride picker{
+  display: block;
+  width: 100%;
 }
 
-.create-textarea-field{
-  min-height: 96rpx;
+/* picker 内部字段占满 */
+.create-ride picker .ride-field-inline{
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* placeholder 灰色 */
+.create-ride .ride-placeholder{
+  color: #9aa3ad !important;
+  font-weight: 500;
+}
+
+/* input placeholder 灰色 */
+.create-ride .ride-input-inline::placeholder,
+.create-ride .ride-input::placeholder{
+  color: #9aa3ad;
+}
+
+/* 微信小程序 placeholder-class */
+.create-ride input.ride-placeholder,
+.create-ride .ride-input.ride-placeholder{
+  color: #9aa3ad !important;
+}
+
+/* 备注区域 */
+.create-ride .create-textarea-field{
+  min-height: 112rpx;
+  padding: 14rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: flex-start;
 }
 
+/* 备注标题：与其他标题一致 */
+.create-ride .create-textarea-field .ride-field-label{
+  flex: none;
+  margin: 0;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 800;
+  color: #111418;
+}
+
+/* 备注输入框 */
+.create-ride .ride-textarea{
+  width: 100%;
+  margin-top: 8rpx;
+  padding: 0;
+  font-size: 24rpx;
+  line-height: 34rpx;
+  color: #111418;
+  box-sizing: border-box;
+}
+
+/* Zelle */
 .create-zelle{
   margin-top: 16rpx;
 }
@@ -77,6 +210,7 @@ page{
   color: #111418;
 }
 
+/* 常用模板 */
 .create-template-head{
   margin: 26rpx 4rpx 12rpx;
 }

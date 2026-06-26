@@ -1,8 +1,13 @@
 <view class="ride-shell edit-info">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
-        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      <view
+        class="ride-back ride-back-text"
+        bindtap="goBack"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text>‹</text>
       </view>
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
@@ -52,16 +57,34 @@
         />
       </view>
 
-      <view class="ride-field edit-field">
+      <picker
+        mode="selector"
+        range="{{bigregionOptions}}"
+        value="{{bigregionIndex}}"
+        bindchange="onBigregionChange"
+      >
+        <view class="ride-field edit-field edit-field-action">
+          <text class="ride-field-label edit-field-label">所住区域</text>
+          <view class="edit-value-action">
+            <text wx:if="{{bigregion}}" class="ride-field-value edit-value-text">{{bigregion}}</text>
+            <text wx:else class="ride-field-value edit-value-text ride-placeholder">请选择所住区域</text>
+            <text class="edit-chevron">›</text>
+          </view>
+        </view>
+      </picker>
+
+      <view class="ride-field edit-field edit-address-field">
         <text class="ride-field-label edit-field-label">所住公寓</text>
-        <input
-          class="ride-input edit-input"
-          placeholder="选填"
-          placeholder-class="ride-placeholder"
-          value="{{address}}"
-          data-field="address"
-          bindinput="onInput"
-        />
+        <view class="edit-address-control">
+          <input
+            class="ride-input edit-input"
+            placeholder="方便买家上门取货"
+            placeholder-class="ride-placeholder"
+            value="{{address}}"
+            data-field="address"
+            bindinput="onInput"
+          />
+        </view>
       </view>
 
       <view
@@ -72,29 +95,9 @@
       >
         <text class="ride-field-label edit-field-label">精确定位</text>
         <view class="edit-value-action">
-          <text class="ride-field-value edit-value-text {{locationDisplay ? '' : 'ride-placeholder'}}">
-            {{locationDisplay || '地图选点'}}
-          </text>
-          <text class="edit-chevron">›</text>
-        </view>
-      </view>
-
-      <view
-        class="ride-field edit-field edit-field-action"
-        bindtap="onChooseBigRegion"
-        hover-class="ride-card-pressed"
-        hover-stay-time="80"
-      >
-        <text class="ride-field-label edit-field-label">所住区域</text>
-        <view class="edit-value-action">
-          <input
-            class="ride-input edit-input edit-input-disabled"
-            value="{{bigregion}}"
-            placeholder="选填"
-            placeholder-class="ride-placeholder"
-            disabled
-            bindtap="onChooseBigRegion"
-          />
+          <text wx:if="{{locationPicking}}" class="ride-field-value edit-value-text ride-placeholder">打开中</text>
+          <text wx:elif="{{locationDisplay}}" class="ride-field-value edit-value-text">{{locationDisplay}}</text>
+          <text wx:else class="ride-field-value edit-value-text ride-placeholder">用于计算距离</text>
           <text class="edit-chevron">›</text>
         </view>
       </view>
@@ -107,7 +110,7 @@
         class="edit-picker"
       >
         <view class="ride-field edit-field edit-field-action">
-          <text class="ride-field-label edit-field-label">地区</text>
+          <text class="ride-field-label edit-field-label">手机号地区</text>
           <view class="edit-value-action">
             <text class="ride-field-value edit-value-text">{{regions[regionIndex]}}</text>
             <text class="edit-chevron">›</text>
@@ -134,7 +137,7 @@
       <text class="ride-section-subtitle">收款与车辆</text>
     </view>
 
-    <view class="ride-card ride-card-pad edit-form-card">
+    <view class="ride-card ride-card-pad edit-form-card driver-form-card">
       <view class="ride-field edit-field">
         <text class="ride-field-label edit-field-label">Zelle 姓名</text>
         <input
@@ -158,9 +161,7 @@
           bindinput="onInput"
         />
       </view>
-    </view>
 
-    <view class="ride-card ride-card-pad edit-form-card car-card">
       <view class="ride-field edit-field">
         <text class="ride-field-label edit-field-label">车牌号</text>
         <input
@@ -201,39 +202,38 @@
     <view class="edit-bottom-space"></view>
   </scroll-view>
 
-  <view class="bottom-bar">
-    <button class="ride-btn ride-primary ride-btn--primary save-btn" bindtap="onComplete" hover-class="ride-pressed" hover-stay-time="80">
-      保存修改
-    </button>
-  </view>
+  <view wx:if="{{regionPickerVisible}}">
+  <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
 
-  <view wx:if="{{bigRegionPickerVisible}}" class="picker-mask" bindtap="onBigRegionPickerCancel"></view>
+  <view class="region-panel" catchtouchmove="stopTouchMove">
+      <view class="region-panel-header">
+        <text class="region-panel-title">选择所住区域</text>
+        <text class="region-panel-close" bindtap="onRegionPickerCancel">关闭</text>
+      </view>
 
-  <view wx:if="{{bigRegionPickerVisible}}" class="picker-panel">
-    <view class="picker-handle"></view>
-    <view class="picker-header">
-      <text class="picker-btn" bindtap="onBigRegionPickerCancel">取消</text>
-      <text class="picker-title">选择所住区域</text>
-      <text class="picker-btn ok" bindtap="onBigRegionPickerConfirm">确定</text>
+      <picker-view
+        class="region-picker-view"
+        value="{{regionPickerValue}}"
+        bindchange="onRegionPickerChange"
+      >
+        <picker-view-column>
+          <view class="region-picker-item" wx:for="{{regionCol1}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+
+        <picker-view-column>
+          <view class="region-picker-item" wx:for="{{regionCol2}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+
+        <picker-view-column>
+          <view class="region-picker-item" wx:for="{{regionCol3}}" wx:key="*this">{{item}}</view>
+        </picker-view-column>
+      </picker-view>
+
+      <view class="region-panel-actions">
+        <view class="region-cancel" bindtap="onRegionPickerCancel">取消</view>
+        <view class="region-confirm" bindtap="onRegionPickerConfirm">确认</view>
+      </view>
     </view>
-
-    <picker-view
-      class="picker-view"
-      indicator-style="height: 44px;"
-      value="{{bigRegionPickerValue}}"
-      bindchange="onBigRegionPickerChange"
-    >
-      <picker-view-column>
-        <view class="picker-item" wx:for="{{bigRegionCol1}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
-
-      <picker-view-column>
-        <view class="picker-item" wx:for="{{bigRegionCol2}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
-
-      <picker-view-column>
-        <view class="picker-item" wx:for="{{bigRegionCol3}}" wx:key="*this">{{item}}</view>
-      </picker-view-column>
-    </picker-view>
   </view>
+
 </view>

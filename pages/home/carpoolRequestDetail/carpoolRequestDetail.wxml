@@ -1,8 +1,13 @@
 <view class="ride-shell request-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
-        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      <view
+        class="ride-back ride-back-text"
+        bindtap="goBack"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text>‹</text>
       </view>
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
@@ -15,7 +20,16 @@
     <button class="ride-state-action" bindtap="goBack">返回</button>
   </view>
 
-  <scroll-view wx:else class="ride-scroll request-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll request-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view class="ride-card ride-card-pad request-hero">
       <view class="ride-row-between request-hero-head">
         <text class="ride-list-kind">乘客求车</text>
@@ -51,7 +65,7 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
-        <text class="ride-chip ride-chip--warn">{{trip.referencePrice || trip.price || '价格待定'}}</text>
+        <text class="ride-chip ride-chip--warn">价格：{{referencePriceText || '价格待定'}}</text>
       </view>
     </view>
 
@@ -65,6 +79,7 @@
       <text class="ride-notice-text">确认时间、出发地和目的地后再加入路线，成功后会回到首页查看进度。</text>
     </view>
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 

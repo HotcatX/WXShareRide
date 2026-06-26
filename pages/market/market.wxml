@@ -1,27 +1,17 @@
 <view class="market-page">
   <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="topbar">
-      <view class="brand">
-        <text class="brand-kicker">Campus resale</text>
-        <text class="brand-title">二手市场</text>
-      </view>
-      <view class="topbar-actions">
-        <view class="topbar-action secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onMyGoods">
-          我的
-        </view>
-        <view class="topbar-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">
-          发布
-        </view>
-      </view>
-    </view>
+    <view class="market-search-row" style="{{marketSearchRowStyle}}">
+      <!-- <view class="region-entry pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
+        <text class="region-text">{{activeRegionShortLabel}}</text>
+        <text class="region-caret">⌄</text>
+      </view> -->
 
-    <view class="search-card">
       <view class="search-box">
         <text class="search-symbol">⌕</text>
         <input
           class="search-input"
           value="{{keyword}}"
-          placeholder="搜索商品、品牌或关键词"
+          placeholder="{{searchPlaceholder}}"
           placeholder-class="search-placeholder"
           bindinput="onKeywordInput"
           confirm-type="search"
@@ -40,80 +30,131 @@
           搜索
         </view>
       </view>
+    </view>
 
-      <view class="control-row">
-        <view class="control-chip pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
-          <text class="control-label">区域</text>
-          <text class="control-value">{{activeRegionLabel}}</text>
-        </view>
-        <view class="control-chip pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTogglePriceSort">
-          <text class="control-label">价格</text>
-          <text class="control-value">{{priceSortLabel}}</text>
-        </view>
-        <view class="control-chip {{distanceSortClass}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
-          <text class="control-label">距离</text>
-          <text class="control-value">{{distanceSortLabel}}</text>
-        </view>
+    <view class="filter-row">
+      <!-- <view class="filter-chip filter-chip--category">
+        <text>筛选</text>
+      </view> -->
+      <view class="filter-chip filter-chip--category pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
+        <text>{{activeRegionShortLabel}}</text>
+        <text class="filter-caret">⌄</text>
+      </view>
+      <view class="filter-chip {{distanceSortActive ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
+        <text>{{distanceSortActive ? '距离最近' : '综合排序'}}</text>
+        <text class="filter-caret">⌄</text>
+      </view>
+      <view class="filter-chip {{activeCategory !== '全部' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenCategoryPicker">
+        <text>{{activeCategory === '全部' ? '类型' : activeCategory}}</text>
+        <text class="filter-caret">⌄</text>
+      </view>
+      <view class="filter-chip {{priceSortLabel !== '默认' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTogglePriceSort">
+        <text>{{priceSortLabel === '默认' ? '价格' : priceSortLabel}}</text>
+        <text class="filter-caret">⌄</text>
       </view>
     </view>
 
-    <scroll-view class="category-scroll" scroll-x show-scrollbar="{{false}}">
-      <view class="category-track">
-        <view
-          class="category-pill {{item.className}} pressable"
-          wx:for="{{categoryTabs}}"
-          wx:key="label"
-          data-cat="{{item.label}}"
-          hover-class="is-pressed"
-          hover-stay-time="80"
-          bindtap="onSelectCat"
-        >
-          {{item.label}}
-        </view>
-      </view>
-    </scroll-view>
   </view>
 
-  <scroll-view class="goods-scroll" scroll-y lower-threshold="140" bindscrolltolower="onGoodsScrollToLower">
+  <scroll-view class="goods-scroll" scroll-y lower-threshold="140" bindscroll="onGoodsScroll" bindscrolltolower="onGoodsScrollToLower">
     <view class="result-row">
       <text class="result-title">{{resultTitle}}</text>
       <text class="result-count">{{resultCountText}}</text>
     </view>
 
-    <view class="goods-grid" wx:if="{{hasDisplayGoods}}">
+    <view class="market-grid" wx:if="{{hasDisplayGoods}}">
       <view
-        class="goods-card pressable"
-        wx:for="{{displayGoods}}"
-        wx:key="id"
+        class="market-card {{item.cardClass}} {{item.isAd ? 'market-card--ad' : ''}} pressable"
+        wx:for="{{displayFeed}}"
+        wx:key="_feedKey"
+        wx:for-index="index"
         data-id="{{item.id}}"
+        data-index="{{index}}"
         hover-class="card-pressed"
         hover-stay-time="80"
-        bindtap="onTapItem"
+        bindtap="onTapFeedItem"
       >
-        <view class="photo-wrap">
+        <view class="card-media">
           <image
             wx:if="{{item.hasImage}}"
-            class="goods-photo"
-            lazy-load="true"
+            class="card-photo"
             src="{{item.imageSrc}}"
             mode="aspectFill"
+            lazy-load="true"
           />
-          <view wx:else class="goods-photo no-photo">
+          <view wx:else class="card-photo no-photo">
             <text>{{item.title}}</text>
           </view>
-          <view class="corner-stack">
-            <text class="price-badge">$ {{item.priceText}}</text>
-            <text class="condition-badge">{{item.conditionText}}</text>
-          </view>
-          <view class="category-badge">{{item.category}}</view>
+          <view wx:if="{{item.isAd}}" class="card-badge">广告</view>
         </view>
 
-        <view class="goods-body">
-          <text class="goods-title">{{item.title}}</text>
-          <view wx:if="{{item.distanceText}}" class="meta-line">
-            <text class="distance">{{item.distanceText}}</text>
+        <view class="card-body">
+          <block wx:if="{{!item.isAd && !item.isSublet}}">
+            <view class="goods-title-price-row">
+              <text class="goods-card-title">{{item.title}}</text>
+              <text class="goods-card-price">$ {{item.priceText}}</text>
+            </view>
+            <view class="goods-meta-row">
+              <view
+                class="goods-seller-touch"
+                catchtap="onTapSeller"
+                data-openid="{{item._openid}}"
+                data-type="{{item.listingType}}"
+              >
+                <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
+                <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
+              </view>
+              <text class="goods-distance">{{item.distanceText || item.regionShortText}}</text>
+              <text class="goods-views">浏览 {{item.viewCount || 0}}</text>
+            </view>
+          </block>
+
+          <block wx:elif="{{!item.isAd}}">
+            <text class="card-title">{{item.title}}</text>
+            <text wx:if="{{item.cardDescText}}" class="card-desc">{{item.cardDescText}}</text>
+            <text class="card-price">$ {{item.priceText}}</text>
+            <view class="card-seller-row">
+              <view
+                class="seller-touch"
+                catchtap="onTapSeller"
+                data-openid="{{item._openid}}"
+                data-type="{{item.listingType}}"
+              >
+                <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
+                <text class="seller-name">{{item.sellerNameText}}</text>
+              </view>
+              <text class="card-location">{{item.regionShortText}}</text>
+              <text class="card-views">浏览 {{item.viewCount || 0}}</text>
+            </view>
+          </block>
+
+          <block wx:elif="{{item.isAd && item.adCompact}}">
+            <view class="ad-compact-title-row">
+              <text class="ad-compact-title">{{item.title}}</text>
+              <text class="ad-compact-cta">{{item.cardMetaText}}</text>
+            </view>
+            <text wx:if="{{item.cardDescText}}" class="ad-compact-desc">{{item.cardDescText}}</text>
+          </block>
+
+          <view wx:else class="ad-card-row">
+            <text class="ad-card-title">{{item.title}}</text>
+            <text wx:if="{{item.cardDescText}}" class="ad-card-desc">{{item.cardDescText}}</text>
+            <text>{{item.cardMetaText}}</text>
           </view>
         </view>
+
+        <button
+          wx:if="{{item.isAd && item.targetType === 'contact'}}"
+          class="ad-contact-trigger"
+          open-type="contact"
+          session-from="{{item.contactSessionFrom}}"
+          send-message-title="{{item.contactMessageTitle}}"
+          send-message-path="{{item.contactMessagePath}}"
+          send-message-img="{{item.contactMessageImg}}"
+          show-message-card="{{item.showMessageCard}}"
+          data-index="{{index}}"
+          catchtap="onTapAdContact"
+        ></button>
       </view>
     </view>
 
@@ -127,8 +168,8 @@
 
     <view class="empty-state" wx:if="{{showEmpty}}">
       <view class="empty-mark">⌕</view>
-      <view class="empty-title">没有找到商品</view>
-      <view class="empty-subtitle">换个关键词或筛选条件再试试</view>
+      <view class="empty-title">{{emptyTitle}}</view>
+      <view class="empty-subtitle">{{emptySubtitle}}</view>
       <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onResetMarketFilters">
         重置筛选
       </view>
@@ -151,36 +192,100 @@
     <view class="bottom-spacer"></view>
   </scroll-view>
 
-  <view wx:if="{{regionPickerVisible}}">
-    <view class="rp-mask" bindtap="onRegionPickerCancel"></view>
-
-    <view class="rp-panel" catchtouchmove="stopTouchMove">
-      <view class="rp-header">
-        <text class="rp-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onRegionPickerCancel">取消</text>
-        <text class="rp-title">选择地区</text>
-        <text class="rp-btn ok pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onRegionPickerConfirm">确定</text>
-      </view>
-
-      <picker-view
-        class="rp-picker"
-        indicator-style="height: 44px;"
-        value="{{regionPickerValue}}"
-        bindchange="onRegionPickerChange"
-      >
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol1}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol2}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-
-        <picker-view-column>
-          <view class="rp-item" wx:for="{{regionCol3}}" wx:key="*this">{{item}}</view>
-        </picker-view-column>
-      </picker-view>
+  <view class="market-float-actions {{publishFabVisibleClass}}">
+    <view class="float-action primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onSellIdle">
+      <text class="float-action-plus">＋</text>
+      <text class="float-action-text">发布</text>
     </view>
   </view>
 
-  <app-tabbar active="market"></app-tabbar>
+  <view wx:if="{{cityPickerVisible}}">
+    <view class="rp-mask" bindtap="onCityPickerCancel"></view>
+
+    <view class="city-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">选择城市</text>
+        <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onCityPickerCancel">关闭</text>
+      </view>
+
+      <view class="city-search-wrap">
+        <input
+          class="city-search-input"
+          placeholder="搜索城市名称"
+          placeholder-class="city-search-placeholder"
+          value="{{citySearchKeyword}}"
+          bindinput="onCitySearchInput"
+          confirm-type="search"
+        />
+      </view>
+
+      <view class="city-body">
+        <view class="city-country-tabs">
+          <view
+            class="city-country {{item.className}} pressable"
+            wx:for="{{cityCountryTabs}}"
+            wx:key="code"
+            data-code="{{item.code}}"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onSelectCityCountry"
+          >
+            {{item.label}}
+          </view>
+        </view>
+
+        <scroll-view class="city-group-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="city-group" wx:for="{{cityPickerGroups}}" wx:key="title">
+            <view class="city-group-title">
+              <text wx:if="{{item.badge}}" class="city-hot-badge">{{item.badge}}</text>
+              <text>{{item.title}}</text>
+            </view>
+            <view class="city-grid">
+              <view
+                class="city-option {{city.className}} pressable"
+                wx:for="{{item.cities}}"
+                wx:for-item="city"
+                wx:key="key"
+                data-key="{{city.key}}"
+                hover-class="is-pressed"
+                hover-stay-time="80"
+                bindtap="onSelectCity"
+              >
+                {{city.label}}
+              </view>
+            </view>
+          </view>
+          <view wx:if="{{!cityPickerHasResults}}" class="city-empty">{{cityPickerEmptyText}}</view>
+          <view class="city-picker-hint">{{cityPickerHintText}}</view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{categoryPickerVisible}}">
+    <view class="category-mask" bindtap="onCategoryPickerCancel"></view>
+
+    <view class="category-panel" catchtouchmove="stopTouchMove">
+      <view class="category-panel-header">
+        <text class="category-panel-title">选择类型</text>
+        <text class="category-panel-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onCategoryPickerCancel">关闭</text>
+      </view>
+
+      <view class="category-option-grid">
+        <view
+          class="category-option {{item.className}} pressable"
+          wx:for="{{categoryTabs}}"
+          wx:key="label"
+          data-cat="{{item.label}}"
+          hover-class="is-pressed"
+          hover-stay-time="80"
+          bindtap="onSelectCat"
+        >
+          {{item.label}}
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <app-tabbar active="market" market-type="{{activeListingType}}" bindmarketchange="onMarketTabTypeChange"></app-tabbar>
 </view>

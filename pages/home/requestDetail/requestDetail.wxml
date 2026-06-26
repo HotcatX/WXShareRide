@@ -1,8 +1,13 @@
 <view class="ride-shell request-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back" bindtap="goBack" hover-class="ride-pressed" hover-stay-time="80">
-        <image class="ride-back-icon" src="/images/back.png" mode="aspectFit" />
+      <view
+        class="ride-back ride-back-text"
+        bindtap="goBack"
+        hover-class="ride-pressed"
+        hover-stay-time="80"
+      >
+        <text>‹</text>
       </view>
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
@@ -15,7 +20,16 @@
     <button class="ride-state-action" bindtap="goBack">返回</button>
   </view>
 
-  <scroll-view wx:else class="ride-scroll request-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view
+    wx:else
+    class="ride-scroll request-scroll"
+    scroll-y
+    enhanced="true"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-triggered="{{refresherTriggered}}"
+    bindrefresherrefresh="onDetailRefresherRefresh"
+  >
     <view wx:if="{{toastVisible}}" class="request-toast {{toastType}}">
       <text class="request-toast-icon">{{toastIcon}}</text>
       <text class="request-toast-text">{{toastText}}</text>
@@ -56,20 +70,21 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
-        <text class="ride-chip ride-chip--warn">{{trip.referencePrice || trip.price || '价格待定'}}</text>
+        <text class="ride-chip ride-chip--warn">{{referencePriceText || '价格待定'}}</text>
       </view>
     </view>
 
     <view class="ride-card ride-notice">
       <text class="ride-notice-title">拼车费用</text>
-      <text class="ride-notice-text">拼车失败时一人支付全部费用；拼车成功后按同行人数共同平摊。</text>
+      <text class="ride-notice-text">拼车成功后同行人共同平摊费用。</text>
     </view>
 
-    <view class="ride-card ride-notice request-notice-muted">
+    <!-- <view class="ride-card ride-notice request-notice-muted">
       <text class="ride-notice-title">发布建议</text>
       <text class="ride-notice-text">优先查看拼车列表是否有合适路线。短距离可自行打车，长距离求车等待司机接单。</text>
-    </view>
+    </view> -->
 
+    <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 
@@ -92,7 +107,7 @@
     <button
       wx:elif="{{isFull}}"
       class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
-      bindtap="acceptAsDriver"
+      bindtap="acceptRequest"
       disabled="{{submittingDriver}}"
       loading="{{submittingDriver}}"
     >
@@ -109,7 +124,7 @@
       </button>
       <button
         class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
-        bindtap="acceptAsDriver"
+        bindtap="acceptRequest"
         disabled="{{submittingDriver || submittingPassenger}}"
         loading="{{submittingDriver}}"
       >

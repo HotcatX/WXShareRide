@@ -118,7 +118,7 @@ function getTargetIds(event = {}) {
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function normalizeServedDelta(amount) {
@@ -149,7 +149,7 @@ function getCarpoolServedPeople(doc = {}) {
     ? Math.max(0, capacity - left)
     : 0
   const passengerSignals = Math.max(passengers.size, joinedBySeat)
-  const hasDriver = drivers.size > 0 || !!(doc.driverID || doc.driverId)
+  const hasDriver = drivers.size > 0
   return normalizeServedDelta((hasDriver ? 1 : 0) + passengerSignals)
 }
 
@@ -238,7 +238,7 @@ function computeCarpoolStatus(doc, now) {
   const oldStatus = normalizeTripStatus(doc.status)
   let newStatus = oldStatus
 
-  // 1) 时间驱动（强制覆盖）：发车时间一过就视为已结束，但不删除、不写 close。
+  // 1) 时间驱动（强制覆盖）：发车时间一过就视为已结束。
   if (diffMs > 0) {
     newStatus = 'past'
   } else {

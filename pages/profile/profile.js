@@ -1,6 +1,10 @@
 const defaultAvatarUrl =
   '/images/profile.png'
 const { formatRideStats } = require("../../utils/tripManage")
+const {
+  buildProfileDisplayLocation,
+  buildProfileApartmentDisplay
+} = require("../../utils/profileDisplay")
 
 function countBlockedUsers(user = {}) {
   const ids = new Set()
@@ -45,8 +49,7 @@ Page({
     customPriceNonCore: '',
     customPriceCore: '',
 
-    region: '',
-    apartment: '',
+    bigregion: '',
 
     unreadCount: 0,
     walletUnreadCount: 0,
@@ -225,12 +228,13 @@ Page({
           name: user.name || '',
           wechatID: user.wechatID || '',
           address: user.address || '',
+          bigregion: user.bigregion || '',
 
           customPriceNonCore: priceObj.fortLeeNonCore || '',
           customPriceCore: priceObj.fortLeeCore || '',
 
-          region: user.bigregion || '',
-          apartment: user.address || '',
+          region: buildProfileDisplayLocation(user),
+          apartment: buildProfileApartmentDisplay(user) || buildProfileDisplayLocation(user),
 
           driverRatingText: driverStats.ratingCount > 0 ? `${driverStats.ratingAvg} 分` : '暂无评分',
           driverCompletedText: driverStats.completeText,
@@ -305,10 +309,6 @@ Page({
   goBlockList() {
     if (!this.ensureLoggedIn()) return
     wx.navigateTo({ url: '/pages/profile/blockList/blockList' })
-  },
-
-  goFeedback() {
-    wx.navigateTo({ url: '/pages/other/feedback/feedback' })
   },
 
   goCarpoolTemplate() {

@@ -1,4 +1,20 @@
 const { showDataError } = require("../../../utils/error")
+const { formatRidePriceTag } = require("../../../utils/tripManage")
+const { prefetchTripDetails } = require("../../../utils/tripDetailCache")
+const {
+  DEFAULT_CITY_KEY,
+  DEFAULT_CITY_LABEL,
+  DEFAULT_CITY_TREE,
+  RIDE_CITY_STORAGE_KEY,
+  normalizeCityTree,
+  getCitySnapshot,
+  getCountryTabs,
+  getCountryGroups,
+  cityGroupsHaveResults,
+  getStoredCitySnapshot,
+  setStoredCitySnapshot,
+  textMatchesCity
+} = require("../../../utils/cityTree")
 
 const LIST_FETCH_LIMIT = 80
 const LIST_REFRESH_INTERVAL = 30 * 1000
@@ -8,9 +24,14 @@ const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
 const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
-const LIST_CACHE_TTL = 2 * 60 * 1000
+const LIST_CACHE_TTL = 10 * 60 * 1000
 const LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
+const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
+
+function isRideServiceCity(cityKey) {
+  return String(cityKey || "") === DEFAULT_CITY_KEY
+}
 
 const DEFAULT_FROM_PLACES = [
   "Manhattan",
@@ -46,9 +67,25 @@ Page({
     hasLoadedOnce: false,
     loadingText: "正在加载附近路线...",
     refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线列表",
 
     statusBarHeight: 80,
     pageTitle: "线路列表",
+    activeCityKey: DEFAULT_CITY_KEY,
+    activeCityLabel: DEFAULT_CITY_LABEL,
+    activeCityAliases: [DEFAULT_CITY_LABEL],
+    isRideServiceAvailable: true,
+    rideDemandSubmitting: false,
+    rideDemandRequested: false,
+    cityTree: DEFAULT_CITY_TREE,
+    cityCountryTabs: getCountryTabs(DEFAULT_CITY_TREE, "US"),
+    cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", DEFAULT_CITY_KEY),
+    cityPickerVisible: false,
+    activeCityCountryCode: "US",
+    citySearchKeyword: "",
+    cityPickerHasResults: true,
+    cityPickerEmptyText: "没有找到相关城市",
+    cityPickerHintText: RIDE_CITY_PICKER_HINT,
 
     // 筛选
     fromFilterOptions: ["全部", "其他"],
@@ -83,6 +120,8 @@ Page({
 
   onLoad(options) {
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
+    const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE)
+    this._applyCityUi((options && options.city) || storedCity.key || DEFAULT_CITY_KEY, { persist: false })
 
     // 允许分享
     wx.showShareMenu({
@@ -116,7 +155,20 @@ Page({
       ...defaultOptions
     }, () => {
       this.applyShareFilters(false, () => {
+        if (!this.data.isRideServiceAvailable) {
+          this.setData({
+            loading: false,
+            hasLoadedOnce: true,
+            originalCarpoolList: [],
+            originalRequestList: [],
+            dayGroups: []
+          })
+          setTimeout(() => this.loadCityTreeFromCloud(), 120)
+          if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
+          return
+        }
         this.loadBothLists({ showLoading: true }).then(() => {
+          setTimeout(() => this.loadCityTreeFromCloud(), 120)
           if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
           setTimeout(() => this.refreshStatusInBackground(false), 800)
         })
@@ -127,6 +179,15 @@ Page({
   onShow() {
     // onLoad 已经负责首屏；返回页面时只做轻量刷新，避免重复卡首屏。
     if (!this.data.hasLoadedOnce) return
+    if (!this.data.isRideServiceAvailable) {
+      this.setData({
+        loading: false,
+        dayGroups: [],
+        originalCarpoolList: [],
+        originalRequestList: []
+      })
+      return
+    }
     const refreshAt = this.getRideListRefreshAt()
     if (refreshAt && refreshAt > this._loadedOnceAt) {
       this.clearListCache()
@@ -149,6 +210,152 @@ Page({
     try {
       wx.removeStorageSync(LIST_CACHE_KEY)
     } catch (e) {
+    }
+  },
+
+  _applyCityUi(cityKey = DEFAULT_CITY_KEY, options = {}) {
+    const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
+    const snapshot = getCitySnapshot(cityTree, cityKey || DEFAULT_CITY_KEY)
+    const activeCode = options.countryCode || this.data.activeCityCountryCode || "US"
+    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
+    const cityPickerGroups = getCountryGroups(cityTree, activeCode, snapshot.key, { keyword: citySearchKeyword })
+    const update = {
+      activeCityKey: snapshot.key,
+      activeCityLabel: snapshot.label,
+      activeCityAliases: snapshot.aliases,
+      cityTree,
+      activeCityCountryCode: activeCode,
+      cityCountryTabs: getCountryTabs(cityTree, activeCode),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      citySearchKeyword,
+      isRideServiceAvailable: isRideServiceCity(snapshot.key),
+      rideDemandRequested: false
+    }
+
+    if (options.persist !== false) setStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, snapshot)
+    this.setData(update)
+    return snapshot
+  },
+
+  async loadCityTreeFromCloud() {
+    try {
+      const db = wx.cloud.database()
+      let docData = null
+      try {
+        const doc = await db.collection("cityTree").doc("default").get()
+        docData = doc?.data || null
+      } catch (e) {}
+
+      if (!docData) {
+        const res = await db.collection("cityTree").limit(1).get()
+        docData = (res.data || [])[0] || null
+      }
+
+      const tree = normalizeCityTree(docData)
+      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: tree })
+    } catch (e) {
+      console.error("cityTree 加载失败：", e)
+      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
+    }
+  },
+
+  onTapCity() {
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY
+    )
+    this.setData({
+      cityPickerVisible: true,
+      citySearchKeyword: "",
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onCityPickerCancel() {
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+  },
+
+  stopTouchMove() {},
+
+  onCitySearchInput(e) {
+    const keyword = (e.detail && e.detail.value) || ""
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const cityPickerGroups = getCountryGroups(
+      cityTree,
+      this.data.activeCityCountryCode || "US",
+      this.data.activeCityKey || DEFAULT_CITY_KEY,
+      { keyword }
+    )
+    this.setData({
+      citySearchKeyword: keyword,
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCityCountry(e) {
+    const code = e.currentTarget.dataset.code || "US"
+    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
+    const citySearchKeyword = this.data.citySearchKeyword || ""
+    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || DEFAULT_CITY_KEY, {
+      keyword: citySearchKeyword
+    })
+    this.setData({
+      activeCityCountryCode: code,
+      cityCountryTabs: getCountryTabs(cityTree, code),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCity(e) {
+    const key = e.currentTarget.dataset.key || DEFAULT_CITY_KEY
+    const snapshot = this._applyCityUi(key)
+    const serviceAvailable = isRideServiceCity(snapshot.key)
+    this.clearListCache()
+    this.setData({
+      cityPickerVisible: false,
+      citySearchKeyword: "",
+      dayGroups: [],
+      originalCarpoolList: [],
+      originalRequestList: [],
+      loading: serviceAvailable,
+      hasLoadedOnce: !serviceAvailable
+    }, () => {
+      if (!serviceAvailable) return
+      this.loadBothLists({ showLoading: false }).then(() => {
+        this.applyAllFiltersAndGroup()
+      })
+    })
+  },
+
+  async onRequestRideCityService() {
+    if (this.data.rideDemandSubmitting || this.data.rideDemandRequested || this.data.isRideServiceAvailable) return
+    this.setData({ rideDemandSubmitting: true })
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "rideDemand",
+        data: {
+          cityKey: this.data.activeCityKey,
+          cityLabel: this.data.activeCityLabel,
+          cityAliases: this.data.activeCityAliases || [],
+          sourcePage: "carpoolList"
+        }
+      })
+      if (!res || !res.result || !res.result.success) {
+        throw new Error((res && res.result && res.result.errorMsg) || "request_failed")
+      }
+      this.setData({ rideDemandRequested: true })
+      wx.showToast({ title: "已收到请求", icon: "success" })
+    } catch (e) {
+      console.error("request ride city service failed:", e)
+      wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
+    } finally {
+      this.setData({ rideDemandSubmitting: false })
     }
   },
 
@@ -200,10 +407,15 @@ Page({
       if (!cached || !cached.savedAt) return false
       const refreshAt = this.getRideListRefreshAt()
       if (refreshAt && refreshAt >= Number(cached.savedAt)) return false
+      if ((cached.cityKey || DEFAULT_CITY_KEY) !== (this.data.activeCityKey || DEFAULT_CITY_KEY)) return false
       if (Date.now() - Number(cached.savedAt) > LIST_CACHE_TTL) return false
 
-      const carpoolList = Array.isArray(cached.carpoolList) ? cached.carpoolList : []
-      const requestList = Array.isArray(cached.requestList) ? cached.requestList : []
+      const carpoolList = (Array.isArray(cached.carpoolList) ? cached.carpoolList : [])
+        .map(item => this.decorateTripCommon(item, "carpool"))
+        .filter(item => this.shouldShowTrip(item))
+      const requestList = (Array.isArray(cached.requestList) ? cached.requestList : [])
+        .map(item => this.decorateTripCommon(item, "request"))
+        .filter(item => this.shouldShowTrip(item))
       if (!carpoolList.length && !requestList.length) return false
 
       this.setData({
@@ -224,6 +436,7 @@ Page({
     try {
       wx.setStorageSync(LIST_CACHE_KEY, {
         savedAt: Date.now(),
+        cityKey: this.data.activeCityKey || DEFAULT_CITY_KEY,
         carpoolList: Array.isArray(carpoolList) ? carpoolList : [],
         requestList: Array.isArray(requestList) ? requestList : []
       })
@@ -299,8 +512,8 @@ Page({
   // 分享（带筛选条件）
   // =========================
   onShareAppMessage() {
-    const { fromFilterIndex, toFilterIndex, timeFilterIndex } = this.data
-    const query = `from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
+    const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
+    const query = `city=${activeCityKey || DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
     return getApp().withReferralShare({
       title: '拼车/求车线路列表',
       path: `/pages/home/carpoolList/carpoolList?${query}`
@@ -308,10 +521,10 @@ Page({
   },
 
   onShareTimeline() {
-    const { fromFilterIndex, toFilterIndex, timeFilterIndex } = this.data
+    const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
     return getApp().withReferralShare({
       title: '拼车/求车线路列表',
-      query: `from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
+      query: `city=${activeCityKey || DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
     })
   },
 
@@ -382,6 +595,7 @@ Page({
   },
 
   refreshStatusInBackground(force) {
+    if (!this.data.isRideServiceAvailable) return Promise.resolve()
     if (this._statusRefreshing) return Promise.resolve()
 
     const now = Date.now()
@@ -489,15 +703,12 @@ Page({
 
   normalizeTripStatus(status) {
     const value = String(status || "open").toLowerCase()
-    return value === "close" || value === "closed" ? "past" : value
+    return value
   },
 
   getTripPriceText(raw) {
     const value = raw && (raw.referencePrice || raw.price || raw.displayPrice)
-    const text = value == null ? "" : String(value).trim()
-    if (text === "请参考打车价格" || text === "参考打车价格") return "参考价"
-    if (text === "价格以司机确认为准") return "司机确认"
-    return text
+    return formatRidePriceTag(value)
   },
 
   decorateTripCommon(trip, type) {
@@ -546,7 +757,14 @@ Page({
     try {
       const res = await wx.cloud.callFunction({
         name: "getTripList",
-        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: false }
+        data: {
+          type: "all",
+          limit: LIST_FETCH_LIMIT,
+          quick: false,
+          cityKey: this.data.activeCityKey || DEFAULT_CITY_KEY,
+          cityLabel: this.data.activeCityLabel || DEFAULT_CITY_LABEL,
+          cityAliases: this.data.activeCityAliases || []
+        }
       })
       const result = res && res.result ? res.result : {}
       if (!result.success) return false
@@ -602,6 +820,17 @@ Page({
   // 拉两类列表 + 排序 + 过滤 + 分组
   // =========================
   async loadBothLists(options = {}) {
+    if (!this.data.isRideServiceAvailable) {
+      this.setData({
+        loading: false,
+        hasLoadedOnce: true,
+        originalCarpoolList: [],
+        originalRequestList: [],
+        dayGroups: []
+      })
+      return Promise.resolve()
+    }
+
     if (this._listLoadingPromise) return this._listLoadingPromise
 
     let showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
@@ -628,12 +857,22 @@ Page({
   },
 
   async _loadBothListsImpl(showLoading) {
+    const requestCityKey = this.data.activeCityKey || DEFAULT_CITY_KEY
     try {
+      const cityFilters = {
+        cityKey: requestCityKey,
+        cityLabel: this.data.activeCityLabel || DEFAULT_CITY_LABEL,
+        cityAliases: this.data.activeCityAliases || []
+      }
       const res = await wx.cloud.callFunction({
         name: "getTripList",
-        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true }
+        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true, fastOnly: true, ...cityFilters }
       })
       const result = res && res.result ? res.result : {}
+
+      if ((this.data.activeCityKey || DEFAULT_CITY_KEY) !== requestCityKey || !this.data.isRideServiceAvailable) {
+        return
+      }
 
       if (!result.success) {
         if (showLoading) {
@@ -676,6 +915,7 @@ Page({
       this.applyAllFiltersAndGroup()
       this.hydrateMissingPriceTexts(decoratedCarpool, decoratedRequest).then((changed) => {
         if (!changed) return
+        if ((this.data.activeCityKey || DEFAULT_CITY_KEY) !== requestCityKey || !this.data.isRideServiceAvailable) return
         this.setData({
           originalCarpoolList: decoratedCarpool,
           originalRequestList: decoratedRequest
@@ -685,6 +925,9 @@ Page({
       })
     } catch (err) {
       console.error("loadBothLists error:", err)
+      if ((this.data.activeCityKey || DEFAULT_CITY_KEY) !== requestCityKey || !this.data.isRideServiceAvailable) {
+        return
+      }
       if (showLoading) showDataError("加载失败", err, "拼车列表加载失败，请稍后重试。")
       this.setData({
         loading: false,
@@ -748,6 +991,33 @@ Page({
     return (addr) => !!addr && String(addr).indexOf(p) >= 0
   },
 
+  tripMatchesCity(trip, city) {
+    if (!trip || !city || !city.key) return true
+    const storedKey = String(trip.cityKey || trip.routeCityKey || "").trim()
+    if (storedKey) return storedKey === city.key
+
+    const texts = [
+      trip.cityLabel,
+      trip.routeCityLabel,
+      trip.region,
+      trip.bigregion,
+      trip.address
+    ]
+
+    ;(trip.departures || []).forEach(item => {
+      texts.push(item && item.address)
+      texts.push(item && item.name)
+      texts.push(item && item.displayName)
+    })
+    ;(trip.destinations || []).forEach(item => {
+      texts.push(item && item.address)
+      texts.push(item && item.name)
+      texts.push(item && item.displayName)
+    })
+
+    return texts.some(text => textMatchesCity(text, city))
+  },
+
   buildAnyFromMatchers() {
     return (this.data.fromPlaceList || []).map((x) => this.makePlaceMatcher(x))
   },
@@ -805,9 +1075,14 @@ Page({
       toFilterOptions,
       toFilterIndex
     } = this.data
+    const activeCity = {
+      key: this.data.activeCityKey || DEFAULT_CITY_KEY,
+      label: this.data.activeCityLabel || DEFAULT_CITY_LABEL,
+      aliases: this.data.activeCityAliases || []
+    }
 
     const filterOneList = (list) => {
-      let filtered = (list || []).slice()
+      let filtered = (list || []).filter(trip => this.tripMatchesCity(trip, activeCity))
 
       // 时间筛选
       if (timeFilterIndex >= 0) {
@@ -904,28 +1179,34 @@ Page({
         map.set(date, {
           date,
           dateLabel: this.formatMonthDayWeek(date),
-          items: [],
-          // 兼容保留，防止别的地方引用报错
-          carpool: [],
-          request: []
+          items: []
         })
       }
 
       const group = map.get(date)
       group.items.push(trip)
-
-      // 兼容保留
-      if (trip._type === "carpool") {
-        group.carpool.push(trip)
-      } else if (trip._type === "request") {
-        group.request.push(trip)
-      }
     })
 
     const groups = Array.from(map.values())
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
 
     this.setData({ dayGroups: groups })
+    this.prefetchVisibleTripDetails(groups)
+  },
+
+  prefetchVisibleTripDetails(groups = this.data.dayGroups) {
+    const entries = []
+    ;(Array.isArray(groups) ? groups : []).forEach(group => {
+      ;(Array.isArray(group.items) ? group.items : []).forEach(trip => {
+        const id = trip && (trip._id || trip.tripId)
+        if (!id) return
+        entries.push({
+          id,
+          type: trip._type === "request" ? "request" : "carpool"
+        })
+      })
+    })
+    prefetchTripDetails(entries, { limit: 10 }).catch(() => {})
   },
 
   // =========================
@@ -980,8 +1261,18 @@ Page({
   async onPullDownRefresh() {
     this.setData({ refresherTriggered: true })
     try {
-      await this.loadBothLists({ showLoading: false })
-      this.refreshStatusInBackground(true)
+      if (this.data.isRideServiceAvailable) {
+        await this.loadBothLists({ showLoading: false })
+        this.refreshStatusInBackground(true)
+      } else {
+        this.setData({
+          loading: false,
+          hasLoadedOnce: true,
+          dayGroups: [],
+          originalCarpoolList: [],
+          originalRequestList: []
+        })
+      }
     } finally {
       this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
@@ -989,7 +1280,7 @@ Page({
   },
 
   // =========================
-  // 跳转详情：兼容旧逻辑
+  // 跳转详情
   // =========================
   findDetailItem(id, type) {
     const fromGroups = []

@@ -1,7 +1,8 @@
 // pages/home/driverPickupDetail/driverPickupDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
+const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 function getWeekdayStr(dateStr) {
   if (!dateStr) return ''
@@ -43,6 +44,7 @@ Page({
 
     requestId: '',
     request: null,
+    referencePriceText: '',
 
     departAddress: '',
     destAddress: '',
@@ -50,7 +52,7 @@ Page({
 
     // ✅ 不再展示乘客信息：仍保留字段避免别处引用报错
     passengerList: [],
-    defaultAvatarUrl: '/images/default_avatar.png',
+    defaultAvatarUrl: '/images/profile.png',
 
     // 状态
     myOpenid: '',
@@ -60,7 +62,9 @@ Page({
     isAccepted: false,
     acceptedByMe: false,
 
-    joinedAsPassenger: false
+    joinedAsPassenger: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async onLoad(options) {
@@ -102,10 +106,16 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
       const { requestId } = this.data
-      if (requestId) await this.loadRequestDetail(requestId, { silent: true })
+      if (requestId) await this.loadRequestDetail(requestId, { silent: true, force: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -167,26 +177,23 @@ Page({
 
   // 读取 CarpoolRequest 详情
   async loadRequestDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id }
-      })
-
-      if (!res.result || !res.result.success) {
-        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+      const result = await fetchTripDetail('request', id, { force, allowStale: true })
+      if (!result || !(result.success || result.ok)) {
+        const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
         this.setLoadError(msg)
         return
       }
 
-      const request = res.result.data
+      const request = Array.isArray(result.data) ? result.data[0] : result.data
       if (!request) {
         this.setLoadError('该求车路线不存在或已被删除')
         return
       }
+      const referencePriceText = formatRidePricePerPerson(request.referencePrice || request.price || request.displayPrice, '价格待定')
 
       // 1) 顶部展示字段
       let departAddress = ''
@@ -215,18 +222,14 @@ Page({
       const requestOwnerOpenid = request.openid || request._openid || ''
       const myOpenid = this.data.myOpenid || ''
 
-      const joinedArrRaw =
-        (Array.isArray(request.passengerID) && request.passengerID) ||
-        (Array.isArray(request.passengerIds) && request.passengerIds) ||
-        (Array.isArray(request.passengers) && request.passengers) ||
-        []
+      const joinedArrRaw = Array.isArray(request.passengerID) ? request.passengerID : []
       const joinedArr = uniq(joinedArrRaw)
 
       const isOwner = !!(requestOwnerOpenid && myOpenid && requestOwnerOpenid === myOpenid)
       const joinedAsPassenger = !!(myOpenid && joinedArr.includes(myOpenid))
 
       // 3) 接单状态
-      const driverOpenid = request.driverOpenid || request.driverID || ''
+      const driverOpenid = request.driverOpenid || ''
       const isAccepted = !!driverOpenid || (request.status && request.status !== 'open')
       const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
 
@@ -235,6 +238,7 @@ Page({
 
       this.setData({
         request,
+        referencePriceText,
         departAddress,
         destAddress,
         formattedDepartTime,
@@ -258,7 +262,7 @@ Page({
   },
 
   // 司机成为该路线司机
-  async acceptAsDriver() {
+  async acceptRequest() {
     const {
       requestId,
       request,
@@ -286,11 +290,7 @@ Page({
     }
 
     // 规则2：如果已作为乘客加入，则不能接单（双保险）
-    const joinedArrRaw =
-      (request && Array.isArray(request.passengerID) && request.passengerID) ||
-      (request && Array.isArray(request.passengerIds) && request.passengerIds) ||
-      (request && Array.isArray(request.passengers) && request.passengers) ||
-      []
+    const joinedArrRaw = request && Array.isArray(request.passengerID) ? request.passengerID : []
     const joinedArr = uniq(joinedArrRaw)
     const alreadyPassenger = joinedAsPassenger || (myOpenid && joinedArr.includes(myOpenid))
 
@@ -326,7 +326,7 @@ Page({
       return
 
     } catch (e) {
-      console.error('acceptAsDriver error:', e)
+      console.error('acceptRequest error:', e)
       wx.showToast({ title: '接单失败', icon: 'none' })
     } finally {
       this.setData({ submitting: false })

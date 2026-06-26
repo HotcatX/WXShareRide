@@ -1,44 +1,65 @@
 <view class="seller-page">
-  <view class="seller-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="seller-nav">
-      <view class="nav-back pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onBack">‹</view>
-      <text class="nav-title">卖家主页</text>
-      <view class="nav-spacer"></view>
+  <view class="seller-top ride-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ride-topbar ride-topbar--center">
+      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
+        <text>‹</text>
+      </view>
+      <text class="ride-nav-title">{{navTitle}}</text>
     </view>
   </view>
 
   <scroll-view class="seller-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
-    <view class="seller-card">
-      <view class="avatar-wrap">
-        <image wx:if="{{seller.avatarDisplay}}" class="avatar-img" src="{{seller.avatarDisplay}}" mode="aspectFill" />
-        <view wx:else class="avatar-fallback">{{seller.avatarInitialDisplay}}</view>
+    <view class="seller-hero">
+      <view class="seller-avatar-wrap">
+        <image wx:if="{{seller.avatarDisplay}}" class="seller-avatar-img" src="{{seller.avatarDisplay}}" mode="aspectFill" fade-in="{{false}}" />
+        <view wx:else class="seller-avatar-fallback">{{seller.avatarInitialDisplay}}</view>
       </view>
 
-      <view class="seller-info">
-        <text class="seller-name">{{seller.nameDisplay}}</text>
+      <view class="seller-main">
+        <view class="seller-name-row">
+          <text class="seller-name">{{seller.nameDisplay}}</text>
+        </view>
         <view class="seller-tags">
-          <text>{{seller.apartmentDisplay}}</text>
+          <text wx:if="{{seller.apartmentDisplay}}">{{seller.apartmentDisplay}}</text>
           <text>{{seller.regionDisplay}}</text>
         </view>
+        <text class="seller-bio">{{seller.bioDisplay}}</text>
       </view>
     </view>
 
-    <view class="bio-card">
-      <text class="section-title">卖家介绍</text>
-      <text class="bio-text">{{seller.bioDisplay}}</text>
+    <view class="seller-summary">
+      <view class="summary-item">
+        <text class="summary-value">{{goodsCountText}}</text>
+        <text class="summary-label">{{goodsTitleMain}}</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{activeListingType === 'sublet' ? '转租' : '二手'}}</text>
+        <text class="summary-label">当前分类</text>
+      </view>
+    </view>
+
+    <view class="listing-segment">
+      <view
+        class="listing-segment-item {{item.selectedClass}} pressable"
+        wx:for="{{listingTypeTabs}}"
+        wx:key="type"
+        data-type="{{item.type}}"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+        bindtap="onSelectListingType"
+      >
+        {{item.label}}
+      </view>
     </view>
 
     <view class="goods-head">
-      <view>
-        <text class="section-kicker">Listings</text>
-        <text class="goods-title-main">正在出售</text>
-      </view>
+      <text class="goods-title-main">{{goodsTitleMain}}</text>
       <text class="goods-count">{{goodsCountText}}</text>
     </view>
 
-    <view class="goods-grid" wx:if="{{hasGoods}}">
+    <view class="seller-grid" wx:if="{{hasGoods}}">
       <view
-        class="goods-card pressable"
+        class="seller-listing {{item.cardClass}} pressable"
         wx:for="{{goods}}"
         wx:key="id"
         hover-class="card-pressed"
@@ -46,30 +67,34 @@
         bindtap="onOpenGood"
         data-id="{{item.id}}"
       >
-        <view class="photo-wrap">
+        <view class="listing-media">
           <image
             wx:if="{{item.hasImage}}"
-            class="thumb"
+            class="listing-img"
             src="{{item.imageSrc}}"
             mode="aspectFill"
             lazy-load="true"
           />
-          <view wx:else class="thumb text-thumb">
+          <view wx:else class="listing-img text-thumb">
             <text>{{item.title}}</text>
           </view>
         </view>
 
-        <view class="goods-body">
-          <text class="goods-title">{{item.title}}</text>
-          <text class="goods-price">$ {{item.priceDisplay}}</text>
+        <view class="listing-body">
+          <text class="listing-title">{{item.title}}</text>
+          <text class="listing-desc">{{item.descText}}</text>
+          <view class="listing-bottom">
+            <text class="listing-price">$ {{item.priceDisplay}}</text>
+            <text class="listing-meta">{{item.metaText}}</text>
+          </view>
         </view>
       </view>
     </view>
 
     <view class="empty-state" wx:else>
       <view class="empty-mark">⌕</view>
-      <view class="empty-title">暂无在售商品</view>
-      <view class="empty-subtitle">可以稍后再回来看看</view>
+      <view class="empty-title">{{emptyTitle}}</view>
+      <view class="empty-subtitle">{{emptySubtitle}}</view>
     </view>
 
     <view class="contact-dock {{dockVisibleClass}}">

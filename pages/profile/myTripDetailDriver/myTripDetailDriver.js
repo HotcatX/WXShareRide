@@ -7,8 +7,10 @@ const {
   rateTripUser,
   markRideListStale,
   buildRatedTargetMap,
-  isTargetRated
+  isTargetRated,
+  formatRidePricePerPerson
 } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 Page({
   data: {
@@ -26,11 +28,14 @@ Page({
     timeText: '',
 
     passengers: [],
+    passengersLoading: false,
     ratedTargetMap: {},
     kickMode: false,
     isTripCompleted: false,
 
-    showFortLeeCoreTip: false
+    showFortLeeCoreTip: false,
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   // ====== 工具：周几 ======
@@ -85,29 +90,34 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
-      await this.loadTripDetail(this.data.tripId)
+      await this.loadTripDetail(this.data.tripId, { force: true, silent: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
 
-  async loadTripDetail(tripId) {
-    this.setData({ loading: true })
+  async loadTripDetail(tripId, options = {}) {
+    if (!options.silent) this.setData({ loading: true })
 
     try {
-      const detailRes = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'carpool', id: tripId }
+      const detailResult = await fetchTripDetail('carpool', tripId, {
+        force: !!options.force,
+        allowStale: true
       })
-      const detailResult = detailRes && detailRes.result ? detailRes.result : null
       const success = !!(detailResult && (detailResult.ok || detailResult.success))
       const trip = success ? (Array.isArray(detailResult.data) ? detailResult.data[0] : detailResult.data) : null
 
       if (!trip) {
         console.error('[loadTripDetail] NOT FOUND. tripId=', tripId)
         wx.showToast({ title: (detailResult && (detailResult.errorMsg || detailResult.msg)) || '未找到该路线', icon: 'none' })
-        this.setData({ loading: false, trip: null, passengers: [], ratedTargetMap: {} })
+        this.setData({ loading: false, trip: null, passengers: [], passengersLoading: false, ratedTargetMap: {} })
         return
       }
 
@@ -127,38 +137,17 @@ Page({
 
       const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
       const rawStatus = String(trip.status || '').toLowerCase()
-      const status = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+      const status = rawStatus
       const isTripCompleted = status === 'past'
+      const displayTrip = {
+        ...trip,
+        referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
+      }
 
       // ===== 乘客：Carpool.passengers + 通过 _openid 补全 userInfo（微信/手机/昵称）=====
       const rawPassengers = Array.isArray(trip.passengers) ? trip.passengers.filter(Boolean) : []
       const openids = rawPassengers.map(p => p && p._openid).filter(Boolean)
-
-      // 1) 调云函数批量取 userInfo（分批，避免 in 限制/超长）
-      let userMap = {}
-      if (openids.length > 0) {
-        const chunkSize = 20
-        const allUsers = []
-
-        for (let i = 0; i < openids.length; i += chunkSize) {
-          const chunk = openids.slice(i, i + chunkSize)
-
-          const res = await wx.cloud.callFunction({
-            name: 'getUserInfoByOpenids',   // ✅ 改成你真实云函数名
-            data: { openids: chunk }
-          })
-
-          const list = res && res.result && res.result.data
-          if (Array.isArray(list)) allUsers.push(...list)
-        }
-
-        allUsers.forEach(u => {
-          if (u && u._openid) userMap[u._openid] = u
-        })
-      }
-
-      // 2) 合并：保留 Carpool.passengers 的 pickup/dropoff；userInfo 补全 name/wechat/phone/avatar
-      const passengers = rawPassengers.map(p => {
+      const buildPassengers = (userMap = {}) => rawPassengers.map(p => {
         const u = userMap[p._openid] || {}
 
         return {
@@ -185,8 +174,9 @@ Page({
       })
 
       this.setData({
-        trip,
-        passengers,
+        trip: displayTrip,
+        passengers: buildPassengers(),
+        passengersLoading: openids.length > 0,
         ratedTargetMap,
         fromText,
         toText,
@@ -199,10 +189,45 @@ Page({
         loading: false
       })
 
+      if (openids.length === 0) {
+        this.setData({ passengersLoading: false })
+        return
+      }
+
+      // 1) 调云函数批量取 userInfo（分批，避免 in 限制/超长）
+      let userMap = {}
+      const chunkSize = 20
+      const allUsers = []
+
+      try {
+        for (let i = 0; i < openids.length; i += chunkSize) {
+          const chunk = openids.slice(i, i + chunkSize)
+
+          const res = await wx.cloud.callFunction({
+            name: 'getUserInfoByOpenids',   // ✅ 改成你真实云函数名
+            data: { openids: chunk }
+          })
+
+          const list = res && res.result && res.result.data
+          if (Array.isArray(list)) allUsers.push(...list)
+        }
+      } catch (e) {
+        console.error('load passenger info error:', e)
+      }
+
+      allUsers.forEach(u => {
+        if (u && u._openid) userMap[u._openid] = u
+      })
+
+      this.setData({
+        passengers: buildPassengers(userMap),
+        passengersLoading: false
+      })
+
     } catch (e) {
       console.error('loadTripDetail error:', e)
       showDataError('路线加载失败', e, '路线详情从数据库加载失败，请稍后重试。')
-      this.setData({ loading: false })
+      this.setData({ loading: false, passengersLoading: false })
     }
   },
 
@@ -230,51 +255,75 @@ Page({
     const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
     const { tripId } = this.data
     if (!targetOpenid || !tripId) return
-  
-    wx.navigateTo({
-      url: `/pages/profile/tripActionReason/tripActionReason?action=kickPassenger&tripId=${tripId}&targetOpenid=${targetOpenid}`
+
+    const reason = await askReason({
+      title: '剔除乘客',
+      content: '理由会作为消息发送给该乘客。',
+      reasons: [
+        '联系不上乘客',
+        '乘客联系方式有误',
+        '上下车地点不合适',
+        '乘客临时改时间/地点',
+        '双方协商取消',
+        '其他'
+      ],
+      placeholder: '例如长期未回复、信息不匹配',
+      confirmText: '剔除'
     })
-  },
+    if (!reason) return
 
-  async onCompleteTrip() {
-    const { tripId, isTripCompleted } = this.data
-    if (!tripId || isTripCompleted) return
-
-    wx.showModal({
-      title: '结束路线',
-      content: '结束后路线将从公开拼车列表移除，并进入你和乘客的历史行程。确认结束？',
-      confirmText: '结束',
-      cancelText: '取消',
-      success: async (r) => {
-        if (!r.confirm) return
-
-        try {
-          wx.showLoading({ title: '正在结束...', mask: true })
-          const result = await callTripManage({ type: 'carpool', tripId, action: 'completeTrip' })
-
-          wx.hideLoading()
-          if (result && (result.ok || result.success)) {
-            wx.showToast({ title: '已结束路线', icon: 'success' })
-            await this.loadTripDetail(tripId)
-          } else {
-            wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
-          }
-        } catch (e2) {
-          wx.hideLoading()
-          console.error('completeTrip error:', e2)
-          wx.showToast({ title: '操作失败', icon: 'none' })
-        }
+    try {
+      wx.showLoading({ title: '正在处理...', mask: true })
+      const result = await callTripManage({ type: 'carpool', tripId, action: 'kickPassenger', targetOpenid, reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已剔除', icon: 'success' })
+        await this.loadTripDetail(tripId, { force: true, silent: true })
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
       }
-    })
+    } catch (e2) {
+      wx.hideLoading()
+      console.error('kickPassenger error:', e2)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
   },
 
   async onDeleteOrQuit() {
     const { tripId } = this.data
     if (!tripId) return
-  
-    wx.navigateTo({
-      url: `/pages/profile/tripActionReason/tripActionReason?action=deleteTrip&tripId=${tripId}`
+
+    const reason = await askReason({
+      title: '删除路线',
+      content: '理由会作为消息发送给已加入乘客。',
+      reasons: [
+        '误创行程',
+        '时间/地点填写错误',
+        '联系方式有误',
+        '本人出行计划有变',
+        '双方协商取消',
+        '其他'
+      ],
+      placeholder: '例如临时取消、路线调整',
+      confirmText: '删除'
     })
+    if (!reason) return
+
+    try {
+      wx.showLoading({ title: '正在删除...', mask: true })
+      const result = await callTripManage({ type: 'carpool', tripId, action: 'deleteTrip', reason })
+      wx.hideLoading()
+      if (result && (result.ok || result.success)) {
+        wx.showToast({ title: '已删除路线', icon: 'success' })
+        setTimeout(() => this.goBack(), 500)
+      } else {
+        wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
+      }
+    } catch (e2) {
+      wx.hideLoading()
+      console.error('deleteTrip error:', e2)
+      wx.showToast({ title: '操作失败', icon: 'none' })
+    }
   },
 
   async onBlockUser(e) {
@@ -322,7 +371,7 @@ Page({
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadTripDetail(tripId)
+    if (ok) await this.loadTripDetail(tripId, { force: true, silent: true })
   },
 
   onShareAppMessage() {

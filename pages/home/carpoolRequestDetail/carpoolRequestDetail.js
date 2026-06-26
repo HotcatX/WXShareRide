@@ -1,7 +1,8 @@
 // pages/home/carpoolRequestDetail/carpoolRequestDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const { blockRideUser } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -26,22 +27,8 @@ function formatDateNoYear(dateStr) {
   return `${Number(parts[1])}月${Number(parts[2])}日`
 }
 
-// 兼容 passengerID 可能为 string / array / 空
 function normalizepassengerID(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean).map(x => String(x))
-  if (typeof raw === 'string' && raw.trim()) return [raw.trim()]
-  if (raw) return [String(raw)]
-  return []
-}
-
-// 去重并过滤空值
-function uniq(arr) {
-  const s = new Set()
-  ;(arr || []).forEach(x => {
-    const v = String(x || '').trim()
-    if (v) s.add(v)
-  })
-  return Array.from(s)
+  return Array.isArray(raw) ? raw.filter(Boolean).map(x => String(x)) : []
 }
 
 Page({
@@ -59,6 +46,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
 
     seatLeft: 0,
 
@@ -77,7 +65,9 @@ Page({
     // ✅ 不再展示司机/其他乘客信息（保留字段避免 WXML/其他引用报错）
     driverInfo: null,
     passengerList: [],
-    defaultAvatarUrl: '/images/default_avatar.png'
+    defaultAvatarUrl: '/images/profile.png',
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async onLoad(options) {
@@ -116,10 +106,16 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
       const { tripId } = this.data
-      if (tripId) await this.loadTripDetail(tripId, { silent: true })
+      if (tripId) await this.loadTripDetail(tripId, { silent: true, force: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -194,22 +190,18 @@ Page({
    * - ✅ 不再读取司机/其他乘客信息
    */
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id }
-      })
-
-      if (!res.result || !res.result.success) {
-        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
+      const result = await fetchTripDetail('request', id, { force, allowStale: true })
+      if (!result || !(result.success || result.ok)) {
+        const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
         this.setLoadError(msg)
         return
       }
 
-      const trip = res.result.data
+      const trip = Array.isArray(result.data) ? result.data[0] : result.data
       if (!trip) {
         this.setLoadError('该求车路线不存在或已被删除')
         return
@@ -240,7 +232,7 @@ Page({
 
       // 2) owner / driver openid
       const ownerOpenid = trip.openid || trip._openid || ''
-      const driverOpenid = trip.driverOpenid || trip.driverID || ''
+      const driverOpenid = trip.driverOpenid || ''
 
       // 3) passengerID
       const passengerID = normalizepassengerID(trip.passengerID)
@@ -256,7 +248,7 @@ Page({
 
       // 5) 状态：只要不是 open 就视为不可加入
       const rawStatus = String(trip.status || 'open').toLowerCase()
-      const st = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+      const st = rawStatus
       const isClosed = st !== 'open'
 
       // 6) 已登录才计算“我是谁”
@@ -264,12 +256,14 @@ Page({
       const isOwner = !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
       const isDriver = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
       const joinedByMe = !!(myOpenid && passengerID.includes(myOpenid))
+      const referencePriceText = formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格待定')
 
       this.setData({
         trip,
         departAddress,
         destAddress,
         formattedDepartTime,
+        referencePriceText,
         seatLeft,
 
         myOpenid,

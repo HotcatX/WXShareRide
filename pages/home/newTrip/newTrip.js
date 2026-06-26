@@ -1,4 +1,18 @@
 const { showDataError } = require("../../../utils/error")
+const {
+  normalizeRidePriceInput,
+  extractRidePriceNumber,
+  formatRidePricePerPerson
+} = require("../../../utils/tripManage")
+const {
+  DEFAULT_CITY_KEY,
+  RIDE_CITY_STORAGE_KEY,
+  getStoredCitySnapshot
+} = require("../../../utils/cityTree")
+
+function getRideCitySnapshot() {
+  return getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, null)
+}
 
 Page({
   data: {
@@ -30,7 +44,8 @@ Page({
     carBrand: "",
     carModel: "",
 
-    referencePrice: "10$",
+    referencePrice: "10",
+    referencePriceHasNumber: true,
     comment: "",
     showZelle: false,
 
@@ -83,6 +98,7 @@ Page({
       departureAddress: "",
       destinationAddress: "",
       referencePrice: "",
+      referencePriceHasNumber: false,
       // passengerCountInput 只给司机用；乘客人数你也可保留不动
     }, async () => {
       // ✅ 用“新 mode”去加载对应地址集合
@@ -290,7 +306,12 @@ Page({
   onCarNumberInput(e) { this.setData({ carNumber: e.detail.value }) },
   onCarBrandInput(e) { this.setData({ carBrand: e.detail.value }) },
   onCarModelInput(e) { this.setData({ carModel: e.detail.value }) },
-  onReferencePriceInput(e) { this.setData({ referencePrice: e.detail.value }) },
+  onReferencePriceInput(e) {
+    this.setData({
+      referencePrice: normalizeRidePriceInput(e.detail.value),
+      referencePriceHasNumber: true
+    })
+  },
   onCommentInput(e) { this.setData({ comment: e.detail.value }) },
 
   onZelleCheckboxChange(e) {
@@ -329,9 +350,18 @@ Page({
 
       const row = (res?.data?.length) ? res.data[0] : null
       if (row && row.Price !== undefined && row.Price !== null && String(row.Price).trim() !== "") {
-        this.setData({ referencePrice: String(row.Price), priceLocked: true })
+        const priceNumber = extractRidePriceNumber(row.Price)
+        this.setData({
+          referencePrice: priceNumber || String(row.Price).trim(),
+          referencePriceHasNumber: !!priceNumber,
+          priceLocked: true
+        })
       } else {
-        this.setData({ referencePrice: "请参考打车价格", priceLocked: true })
+        this.setData({
+          referencePrice: "参考打车价格",
+          referencePriceHasNumber: false,
+          priceLocked: true
+        })
       }
     } catch (err) {
       console.error("updateReferencePriceFromRequestPrice error:", err)
@@ -359,18 +389,18 @@ Page({
     const hasNonCore = dep === FL_NONCORE || dest === FL_NONCORE
 
     if (hasColumbia && hasNonCore) {
-      const val = customPrice.fortLeeNonCore && customPrice.fortLeeNonCore.trim()
-        ? customPrice.fortLeeNonCore
+      const val = extractRidePriceNumber(customPrice.fortLeeNonCore)
+        ? extractRidePriceNumber(customPrice.fortLeeNonCore)
         : "13 USD"
-      this.setData({ referencePrice: val })
+      this.setData({ referencePrice: extractRidePriceNumber(val) || "13", referencePriceHasNumber: true })
       return
     }
 
     if (hasColumbia && hasCore) {
-      const val = customPrice.fortLeeCore && customPrice.fortLeeCore.trim()
-        ? customPrice.fortLeeCore
+      const val = extractRidePriceNumber(customPrice.fortLeeCore)
+        ? extractRidePriceNumber(customPrice.fortLeeCore)
         : "10 USD"
-      this.setData({ referencePrice: val })
+      this.setData({ referencePrice: extractRidePriceNumber(val) || "10", referencePriceHasNumber: true })
       return
     }
   },
@@ -424,7 +454,7 @@ Page({
     const dest = tpl.destinationAddress || ""
 
     const seat = this.safeSeat(tpl.passengerCount)
-    const referencePrice = tpl.referencePrice || ""
+    const referencePrice = extractRidePriceNumber(tpl.referencePrice) || ""
     const comment = tpl.comment || ""
     const timeStr = tpl.departureTime ? this.normalizeTimeStr(tpl.departureTime) : ""
     const nextDateStr = this.getNearestDateByWeekdayIndex_Mon0(tpl.weekdayIndex)
@@ -435,6 +465,7 @@ Page({
       passengerCount: seat,
       passengerCountInput: String(seat),
       referencePrice,
+      referencePriceHasNumber: !!referencePrice,
       comment,
       departureDate: nextDateStr || this.data.departureDate,
       departureTime: timeStr || this.data.departureTime,
@@ -528,13 +559,14 @@ Page({
     if (diffMin > 43200) return this.showError("发车时间不能超过30天")
 
     if (!carNumber || !carBrand || !carModel) return this.showError("请完整填写车牌号、车辆品牌和型号")
-    if (!referencePrice || !referencePrice.trim()) return this.showError("请填写参考价格")
+    const referencePriceText = formatRidePricePerPerson(referencePrice)
+    if (!referencePriceText) return this.showError("请填写参考价格")
 
     const summary =
       `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
       `到达：${destinationAddress}\n` +
       `载客数：${passengerCount}\n` +
-      `参考价格：${referencePrice}\n` +
+      `参考价格：${referencePriceText}\n` +
       `公开 Zelle 信息：${this.data.showZelle ? "是" : "否"}`
 
     this.setData({ submitting: true })
@@ -576,17 +608,19 @@ Page({
 
       const departures = [{ address: departureAddress, date: departureDate, time: departureTime }]
       const destinations = [{ address: destinationAddress }]
+      const rideCity = getRideCitySnapshot()
 
       const createPayload = {
         type: "carpool",
-        driverID: userInfo._id,
+        cityKey: rideCity.key || DEFAULT_CITY_KEY,
+        cityLabel: rideCity.label || "",
         departures,
         destinations,
         passengerCount,
         availSeatNum: passengerCount,
         status: "open",
         passengers: [],
-        referencePrice,
+        referencePrice: formatRidePricePerPerson(referencePrice),
         comment,
         zelle: showZelle ? "yes" : "no",
         carNumber,
@@ -602,10 +636,11 @@ Page({
       const hasCore = departureAddress === FL_CORE || destinationAddress === FL_CORE
       const hasNonCore = departureAddress === FL_NONCORE || destinationAddress === FL_NONCORE
 
-      if (hasColumbia && hasNonCore && referencePrice && referencePrice.trim()) {
-        createPayload.customPrice = { fortLeeNonCore: referencePrice }
-      } else if (hasColumbia && hasCore && referencePrice && referencePrice.trim()) {
-        createPayload.customPrice = { fortLeeCore: referencePrice }
+      const referencePriceText = formatRidePricePerPerson(referencePrice)
+      if (hasColumbia && hasNonCore && referencePriceText) {
+        createPayload.customPrice = { fortLeeNonCore: referencePriceText }
+      } else if (hasColumbia && hasCore && referencePriceText) {
+        createPayload.customPrice = { fortLeeCore: referencePriceText }
       }
 
       const createRes = await wx.cloud.callFunction({
@@ -651,7 +686,8 @@ Page({
     if (!departureAddress || !destinationAddress) return this.showError("请选择出发地和目的地")
     if (departureAddress === destinationAddress) return this.showError("出发地与目的地不能相同")
     if (!departureDate || !departureTime) return this.showError("请完善出发日期和时间")
-    if (!referencePrice || !String(referencePrice).trim()) return this.showError("价格信息缺失，请重新选择地址")
+    const referencePriceText = formatRidePricePerPerson(referencePrice)
+    if (!referencePriceText) return this.showError("价格信息缺失，请重新选择地址")
 
     const selectedTime = this.parseDateTimeSafe(departureDate, departureTime)
     if (!selectedTime || isNaN(selectedTime.getTime())) return this.showError("时间解析失败，请重新选择日期和时间")
@@ -665,7 +701,7 @@ Page({
       `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
       `到达：${destinationAddress}\n` +
       `人数：${passengerCount}\n` +
-      `价格：${referencePrice}`
+      `价格：${referencePriceText}`
 
     this.setData({ submitting: true })
 
@@ -691,6 +727,8 @@ Page({
         departureDate, departureTime,
         passengerCount, referencePrice
       } = this.data
+      const referencePriceText = formatRidePricePerPerson(referencePrice, referencePrice)
+      const rideCity = getRideCitySnapshot()
 
       if (!userInfo) {
         this.showError("请先完善个人信息")
@@ -701,12 +739,14 @@ Page({
         name: "createTrip",
         data: {
           type: "request",
+          cityKey: rideCity.key || DEFAULT_CITY_KEY,
+          cityLabel: rideCity.label || "",
           departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
           destinations: [{ address: destinationAddress }],
           passengerCount,
           largeLuggageCount: 0,
           comment: "",
-          referencePrice
+          referencePrice: referencePriceText
         }
       })
 

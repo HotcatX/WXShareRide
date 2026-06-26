@@ -7,6 +7,7 @@ const _ = db.command
 
 const VISIBLE_STATUSES = ['open', 'full']
 const LIST_EXPIRE_GRACE = 30 * 60 * 1000
+const LIST_FAST_MODE_DEFAULT = true
 
 const TYPE_CONFIG = {
   carpool: {
@@ -20,19 +21,17 @@ const TYPE_CONFIG = {
       passengerCount: true,
       passengers: true,
       passengerID: true,
-      passengerIDs: true,
       referencePrice: true,
       price: true,
       displayPrice: true,
+      cityKey: true,
+      cityLabel: true,
       departureAtMs: true,
       latestDepartureAtMs: true,
       firstDepartureDate: true,
       firstDepartureTime: true,
       createdAt: true,
-      _openid: true,
-      driverOpenid: true,
-      driverID: true,
-      driverId: true
+      _openid: true
     }
   },
   request: {
@@ -45,24 +44,18 @@ const TYPE_CONFIG = {
       passengerCount: true,
       requestPassengerCount: true,
       passengerID: true,
-      passengerIDs: true,
-      passengers: true,
       referencePrice: true,
       price: true,
       displayPrice: true,
+      cityKey: true,
+      cityLabel: true,
       departureAtMs: true,
       latestDepartureAtMs: true,
       firstDepartureDate: true,
       firstDepartureTime: true,
       createdAt: true,
       _openid: true,
-      creatorOpenid: true,
-      passengerOpenid: true,
-      openid: true,
-      driverOpenid: true,
-      driverID: true,
-      driverId: true,
-      driver: true
+      driverOpenid: true
     }
   }
 }
@@ -75,14 +68,28 @@ function getLimit(event) {
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'carpool' || type === 'trip') return 'carpool'
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'carpool') return 'carpool'
+  if (type === 'request') return 'request'
   return 'all'
+}
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function normalizeCityKey(value) {
+  return normalizeText(value)
+}
+
+function buildCityKeyCondition(event = {}) {
+  const cityKey = normalizeCityKey(event.cityKey)
+  if (!cityKey || cityKey === 'all') return null
+  return { cityKey }
 }
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function getTimeValue(value) {
@@ -129,47 +136,24 @@ function addOpenid(set, value) {
   if (id) set.add(id)
 }
 
-async function getUser(openid) {
-  const id = cleanOpenid(openid)
-  if (!id) return null
-  const res = await db.collection('userInfo').where({ _openid: id }).limit(1).get()
-  return res.data && res.data[0] ? res.data[0] : null
-}
-
-function getBlockedOpenidsFromUser(user = {}) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addOpenid(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addOpenid(out, item && item.openid))
-  return out
-}
-
 function addPassengerOpenids(set, passengers) {
   ;(Array.isArray(passengers) ? passengers : []).forEach(item => {
-    if (typeof item === 'string') addOpenid(set, item)
-    else {
-      addOpenid(set, item && item._openid)
-      addOpenid(set, item && item.openid)
-      addOpenid(set, item && item.passengerOpenid)
-    }
+    addOpenid(set, item && item._openid)
   })
 }
 
 function getCarpoolPartyOpenids(doc = {}) {
   const ids = new Set()
-  addOpenid(ids, doc._openid || doc.driverOpenid || doc.driverID || doc.driverId)
+  addOpenid(ids, doc._openid)
   addPassengerOpenids(ids, doc.passengers)
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addOpenid(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addOpenid(ids, id))
   return Array.from(ids)
 }
 
 function getRequestPartyOpenids(doc = {}) {
   const ids = new Set()
-  addOpenid(ids, doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid)
-  addOpenid(ids, doc.driverOpenid || doc.driverID || doc.driverId || doc.driver)
+  addOpenid(ids, doc._openid)
+  addOpenid(ids, doc.driverOpenid)
   ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addOpenid(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addOpenid(ids, id))
-  addPassengerOpenids(ids, doc.passengers)
   return Array.from(ids)
 }
 
@@ -180,15 +164,8 @@ function getTripPartyOpenids(type, doc) {
 function stripPrivateListFields(item) {
   const out = Object.assign({}, item)
   delete out._openid
-  delete out.creatorOpenid
-  delete out.passengerOpenid
-  delete out.openid
   delete out.driverOpenid
-  delete out.driverID
-  delete out.driverId
-  delete out.driver
   delete out.passengerID
-  delete out.passengerIDs
   delete out.passengers
   return out
 }
@@ -224,29 +201,11 @@ async function getReverseBlocksFromUserBlocks(actorOpenid, routePartyIds) {
   return reverse
 }
 
-async function getReverseBlocksFromUserInfo(actorOpenid, routePartyIds) {
-  const reverse = new Set()
-  if (!routePartyIds.length) return reverse
-
-  for (let i = 0; i < routePartyIds.length; i += 20) {
-    const chunk = routePartyIds.slice(i, i + 20)
-    const res = await db.collection('userInfo')
-      .where({ _openid: _.in(chunk) })
-      .limit(20)
-      .get()
-    ;(res.data || []).forEach(user => {
-      if (getBlockedOpenidsFromUser(user).has(actorOpenid)) addOpenid(reverse, user && user._openid)
-    })
-  }
-  return reverse
-}
-
 async function buildBlockContext(actorOpenid, typedLists) {
   const actor = cleanOpenid(actorOpenid)
   if (!actor) return { actor: '', blockedByMe: new Set(), blockedMe: new Set() }
 
-  const user = await getUser(actor)
-  const blockedByMe = getBlockedOpenidsFromUser(user)
+  const blockedByMe = new Set()
   await addForwardBlocksFromUserBlocks(actor, blockedByMe)
 
   const partyIds = new Set()
@@ -260,8 +219,6 @@ async function buildBlockContext(actorOpenid, typedLists) {
 
   const routePartyIds = Array.from(partyIds)
   const blockedMe = await getReverseBlocksFromUserBlocks(actor, routePartyIds)
-  const legacyBlockedMe = await getReverseBlocksFromUserInfo(actor, routePartyIds)
-  legacyBlockedMe.forEach(id => addOpenid(blockedMe, id))
 
   return { actor, blockedByMe, blockedMe }
 }
@@ -282,26 +239,21 @@ async function readType(type, event) {
   const config = TYPE_CONFIG[type]
   const limit = getLimit(event)
   const quick = event && event.quick !== false
+  const fastOnly = quick && event.fastOnly !== false && LIST_FAST_MODE_DEFAULT
   const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
+  const fastCityCondition = buildCityKeyCondition(event)
 
-  const buildQuery = (where, orderField, queryLimit) => {
+  const buildQuery = (where, orderField, queryLimit, cityCondition) => {
+    const scopedWhere = cityCondition ? _.and([where, cityCondition]) : where
     let query = db.collection(config.collection)
-      .where(where)
+      .where(scopedWhere)
       .orderBy(orderField, orderField === 'createdAt' ? 'desc' : 'asc')
       .limit(queryLimit)
     if (quick) query = query.field(config.fields)
     return query
   }
 
-  const fallbackLimit = Math.min(limit, 20)
-  const queries = VISIBLE_STATUSES.flatMap(status => [
-    buildQuery({ status, departureAtMs: _.gte(minDepartureAtMs) }, 'departureAtMs', limit),
-    buildQuery({ status, latestDepartureAtMs: _.gte(minDepartureAtMs) }, 'latestDepartureAtMs', limit),
-    buildQuery({ status }, 'createdAt', fallbackLimit)
-  ])
-
-  const results = await Promise.all(queries.map(query => query.get()))
-  return mergeById(results.map(res => res.data || []))
+  const normalizeRows = rows => mergeById([rows])
     .map(item => {
       const status = normalizeTripStatus(item.status)
       return status === item.status ? item : Object.assign({}, item, { status })
@@ -314,10 +266,33 @@ async function readType(type, event) {
     })
     .sort((a, b) => getTripSortMs(a) - getTripSortMs(b))
     .slice(0, limit)
+
+  const fastWhere = {
+    status: _.in(VISIBLE_STATUSES),
+    latestDepartureAtMs: _.gte(minDepartureAtMs)
+  }
+
+  try {
+    const fastRes = await buildQuery(fastWhere, 'latestDepartureAtMs', limit, fastCityCondition).get()
+    const fastRows = normalizeRows(fastRes.data || [])
+    if (fastOnly || fastRows.length >= limit) return fastRows
+  } catch (e) {
+    console.warn('getTripList fast query failed, falling back:', e && (e.errMsg || e.message || e))
+  }
+
+  const fallbackLimit = Math.min(limit, 20)
+  const queries = VISIBLE_STATUSES.flatMap(status => [
+    buildQuery({ status, departureAtMs: _.gte(minDepartureAtMs) }, 'departureAtMs', limit, fastCityCondition),
+    buildQuery({ status, latestDepartureAtMs: _.gte(minDepartureAtMs) }, 'latestDepartureAtMs', limit, fastCityCondition),
+    buildQuery({ status }, 'createdAt', fallbackLimit, fastCityCondition)
+  ])
+
+  const results = await Promise.all(queries.map(query => query.get()))
+  return normalizeRows(mergeById(results.map(res => res.data || [])))
 }
 
 exports.main = async (event = {}) => {
-  const type = normalizeType(event.type || event.kind || event.routeType)
+  const type = normalizeType(event.type)
   const { OPENID: openid } = cloud.getWXContext()
 
   try {

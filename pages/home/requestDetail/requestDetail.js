@@ -2,7 +2,8 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { callTripManage, blockRideUser } = require("../../../utils/tripManage")
+const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -27,22 +28,8 @@ function formatDateNoYear(dateStr) {
   return `${Number(parts[1])}月${Number(parts[2])}日`
 }
 
-// 兼容 passengerID 可能为 string / array / 空
 function normalizePassengerID(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean).map(x => String(x))
-  if (typeof raw === 'string' && raw.trim()) return [raw.trim()]
-  if (raw) return [String(raw)]
-  return []
-}
-
-// 去重并过滤空值
-function uniq(arr) {
-  const s = new Set()
-  ;(arr || []).forEach(x => {
-    const v = String(x || '').trim()
-    if (v) s.add(v)
-  })
-  return Array.from(s)
+  return Array.isArray(raw) ? raw.filter(Boolean).map(x => String(x)) : []
 }
 
 Page({
@@ -63,6 +50,7 @@ Page({
     departAddress: '',
     destAddress: '',
     formattedDepartTime: '',
+    referencePriceText: '',
 
     // 乘客加入用
     seatLeft: 0,
@@ -87,7 +75,9 @@ Page({
     toastVisible: false,
     toastType: '',         // success / warning / error（你自己在 wxss 定义）
     toastIcon: '',
-    toastText: ''
+    toastText: '',
+    refresherTriggered: false,
+    refreshHintText: "下拉刷新最新路线信息"
   },
 
   async onLoad(options) {
@@ -128,10 +118,16 @@ Page({
   },
 
   async onPullDownRefresh() {
+    await this.onDetailRefresherRefresh()
+  },
+
+  async onDetailRefresherRefresh() {
+    this.setData({ refresherTriggered: true })
     try {
       const { tripId } = this.data
-      if (tripId) await this.loadTripDetail(tripId, { silent: true })
+      if (tripId) await this.loadTripDetail(tripId, { silent: true, force: true })
     } finally {
+      this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
@@ -273,16 +269,11 @@ Page({
 
     // 2) owner / driver openid
     const ownerOpenid = trip.openid || trip._openid || ''
-    const driverOpenid = trip.driverOpenid || trip.driverID || ''
+    const driverOpenid = trip.driverOpenid || ''
 
-    // 3) passengerID（兼容各种字段）
+    // 3) passengerID
     const passengerID = normalizePassengerID(trip.passengerID)
-    const passengerIdsAlt = uniq(
-      (Array.isArray(trip.passengerIds) && trip.passengerIds) ||
-      (Array.isArray(trip.passengers) && trip.passengers) ||
-      []
-    )
-    const joinedAll = uniq([...passengerID, ...passengerIdsAlt])
+    const joinedAll = passengerID
 
     // 4) 人数与余位（后端如果给 passengerCount 优先用）
     const passengerCount =
@@ -295,7 +286,7 @@ Page({
 
     // 5) 状态
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const st = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+    const st = rawStatus
     const isClosed = st !== 'open'
 
     // 6) 已登录才计算“我是谁”
@@ -312,6 +303,7 @@ Page({
       departAddress,
       destAddress,
       formattedDepartTime,
+      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格待定'),
 
       seatLeft,
       myOpenid,
@@ -335,31 +327,20 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
-    const { silent = false } = options
+    const { silent = false, force = false } = options
+    const cached = !force ? readTripDetailCache("request", id, { allowStale: true }) : null
+    if (cached && this.applyRequestDetailResult(cached, id, { silentError: true })) {
+      fetchTripDetail("request", id, { force: true })
+        .then(result => this.applyRequestDetailResult(result, id, { silentError: true }))
+        .catch(() => {})
+      return
+    }
+
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'getTripDetail',
-        data: { type: 'request', id }
-      })
-
-      if (!res.result || !res.result.success) {
-        if (this.data.trip && !(res.result && res.result.notFound)) {
-          return
-        }
-        const msg = (res.result && (res.result.errorMsg || res.result.msg)) || '加载失败'
-        this.setLoadError(msg)
-        return
-      }
-
-      const trip = res.result.data
-      if (!trip) {
-        this.setLoadError('该求车路线不存在或已被删除')
-        return
-      }
-
-      this.applyRequestData(trip)
+      const result = await fetchTripDetail("request", id, { force: true })
+      this.applyRequestDetailResult(result, id)
     } catch (err) {
       if (this.data.trip) {
         return
@@ -367,6 +348,23 @@ Page({
       console.error('loadTripDetail error:', err)
       this.setLoadError('网络异常，请稍后重试')
     }
+  },
+
+  applyRequestDetailResult(result = {}, id, options = {}) {
+    if (!result || !(result.ok || result.success)) {
+      if (this.data.trip && !(result && result.notFound)) return false
+      const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
+      this.setLoadError(msg)
+      return false
+    }
+
+    const trip = Array.isArray(result.data) ? result.data[0] : result.data
+    if (!trip) {
+      this.setLoadError('该求车路线不存在或已被删除')
+      return false
+    }
+
+    return this.applyRequestData(trip)
   },
 
   // =========================
@@ -435,7 +433,7 @@ Page({
   // =========================
   // ✅ 司机加入（tripManage）
   // =========================
-  async acceptAsDriver() {
+  async acceptRequest() {
     const {
       tripId,
       trip,
@@ -485,7 +483,7 @@ Page({
       const msg = (result && result.errorMsg) ? result.errorMsg : '接单失败'
       this.showToast(msg, 'none')
     } catch (e) {
-      console.error('acceptAsDriver error:', e)
+      console.error('acceptRequest error:', e)
       this.showToast('接单失败', 'none')
     } finally {
       this.setData({ submittingDriver: false })

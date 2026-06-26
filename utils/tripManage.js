@@ -2,6 +2,46 @@ function cleanText(value) {
   return String(value || "").trim()
 }
 
+function normalizeRidePriceInput(value) {
+  let text = cleanText(value).replace(/[^\d.]/g, "")
+  const firstDot = text.indexOf(".")
+  if (firstDot !== -1) {
+    text = text.slice(0, firstDot + 1) + text.slice(firstDot + 1).replace(/\./g, "")
+  }
+  const parts = text.split(".")
+  if (parts.length > 1) {
+    text = `${parts[0].slice(0, 4)}.${parts[1].slice(0, 2)}`
+  } else {
+    text = text.slice(0, 4)
+  }
+  if (text.startsWith(".")) text = `0${text}`
+  return text
+}
+
+function extractRidePriceNumber(value) {
+  const text = cleanText(value)
+  if (!text) return ""
+  const match = text.match(/(\d+(?:\.\d+)?)/)
+  if (!match) return ""
+  return normalizeRidePriceInput(match[1]).replace(/\.$/, "")
+}
+
+function formatRidePricePerPerson(value, fallback = "") {
+  const text = cleanText(value)
+  if (!text) return fallback
+  const n = extractRidePriceNumber(text)
+  if (n) return `${n}$/人`
+  return text
+}
+
+function formatRidePriceTag(value) {
+  const text = cleanText(value)
+  if (!text) return ""
+  if (text === "请参考打车价格" || text === "参考打车价格") return "参考价"
+  if (text === "价格以司机确认为准") return "司机确认"
+  return formatRidePricePerPerson(text)
+}
+
 function getResult(res) {
   return (res && res.result) || {}
 }
@@ -25,7 +65,24 @@ function markRideListStale() {
   }
 }
 
-function askReason(options = {}) {
+function normalizeReasonItems(reasons = [], otherText = "其他", allowCustom = true) {
+  const out = []
+  ;(Array.isArray(reasons) ? reasons : []).forEach(item => {
+    const text = cleanText(item)
+    if (text && !out.includes(text)) out.push(text)
+  })
+
+  if (allowCustom && !out.includes(otherText)) out.push(otherText)
+  if (out.length <= 6) return out
+
+  if (out.includes(otherText)) {
+    return out.filter(item => item !== otherText).slice(0, 5).concat(otherText)
+  }
+
+  return out.slice(0, 6)
+}
+
+function askCustomReason(options = {}) {
   return new Promise(resolve => {
     wx.showModal({
       title: options.title || "填写理由",
@@ -45,6 +102,38 @@ function askReason(options = {}) {
           resolve(null)
           return
         }
+        resolve(reason)
+      },
+      fail() {
+        resolve("")
+      }
+    })
+  })
+}
+
+function askReason(options = {}) {
+  const otherText = cleanText(options.otherText || "其他")
+  const reasons = normalizeReasonItems(options.reasons, otherText, options.allowCustom !== false)
+
+  if (!reasons.length || typeof wx.showActionSheet !== "function") {
+    return askCustomReason(options)
+  }
+
+  return new Promise(resolve => {
+    wx.showActionSheet({
+      itemList: reasons,
+      success: async (res) => {
+        const reason = reasons[Number(res.tapIndex)]
+        if (!reason) {
+          resolve("")
+          return
+        }
+
+        if (reason === otherText) {
+          resolve(await askCustomReason(options))
+          return
+        }
+
         resolve(reason)
       },
       fail() {
@@ -113,7 +202,7 @@ function isTargetRated(ratedTargetMap, targetOpenid) {
 async function rateTripUser(options = {}) {
   const targetOpenid = cleanText(options.targetOpenid)
   const tripId = cleanText(options.tripId || options.requestId || options.id)
-  const type = cleanText(options.type || options.sourceType || "carpool") || "carpool"
+  const type = cleanText(options.type || "carpool") || "carpool"
   const targetRole = cleanText(options.targetRole)
 
   if (!targetOpenid) {
@@ -163,7 +252,7 @@ async function rateTripUser(options = {}) {
 async function blockRideUser(options = {}) {
   const targetOpenid = cleanText(options.targetOpenid)
   const targetName = cleanText(options.targetName || options.name) || "该用户"
-  const type = cleanText(options.type || options.sourceType || "carpool") || "carpool"
+  const type = cleanText(options.type || "carpool") || "carpool"
   const tripId = cleanText(options.tripId || options.id)
   const requestId = cleanText(options.requestId || options.tripId || options.id)
 
@@ -280,6 +369,10 @@ module.exports = {
   rateTripUser,
   blockRideUser,
   markRideListStale,
+  normalizeRidePriceInput,
+  extractRidePriceNumber,
+  formatRidePricePerPerson,
+  formatRidePriceTag,
   formatScore,
   formatRideStats,
   attachRideStats,

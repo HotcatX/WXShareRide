@@ -121,9 +121,9 @@ function normalizeIds(ids) {
 }
 
 function getType(event) {
-  const value = String((event && (event.type || event.kind || event.routeType)) || '').toLowerCase()
-  if (value === 'carpool' || value === 'trip') return 'carpool'
-  if (value === 'request' || value === 'carpoolrequest') return 'request'
+  const value = String((event && event.type) || '').toLowerCase()
+  if (value === 'carpool') return 'carpool'
+  if (value === 'request') return 'request'
   return 'all'
 }
 
@@ -144,7 +144,7 @@ function getIdsForType(event, type) {
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function normalizeServedDelta(amount) {
@@ -175,7 +175,7 @@ function getCarpoolServedPeople(doc) {
     ? Math.max(0, capacity - left)
     : 0
   const passengerSignals = Math.max(passengers.size, joinedBySeat)
-  const hasDriver = drivers.size > 0 || !!(doc && (doc.driverID || doc.driverId))
+  const hasDriver = drivers.size > 0
   return normalizeServedDelta((hasDriver ? 1 : 0) + passengerSignals)
 }
 
@@ -189,7 +189,7 @@ function getRequestServedPeople(doc) {
     Number.isFinite(passengerCount) ? passengerCount : 0,
     doc && doc._openid ? 1 : 0
   )
-  const hasDriver = !!(doc && (doc.driverOpenid || doc.driverID || doc.driverId))
+  const hasDriver = !!(doc && doc.driverOpenid)
   return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
 }
 

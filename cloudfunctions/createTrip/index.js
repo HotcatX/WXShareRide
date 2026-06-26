@@ -5,6 +5,9 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 const TRIP_TIME_ZONE = 'America/New_York'
+const RIDE_SERVICE_CITY_KEY = 'ny_nj'
+const RIDE_SERVICE_CITY_LABEL = '纽约/新泽西'
+const RIDE_SERVICE_CITY_KEYS = new Set([RIDE_SERVICE_CITY_KEY, 'ny', 'nj'])
 
 function getZonedParts(date) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -92,7 +95,15 @@ function cleanText(value) {
 
 function normalizeCityKey(value) {
   const key = cleanText(value)
-  return key || 'ny_nj'
+  if (!key) return RIDE_SERVICE_CITY_KEY
+  if (RIDE_SERVICE_CITY_KEYS.has(key)) return RIDE_SERVICE_CITY_KEY
+  const err = new Error('unsupported_city')
+  err.code = 'unsupported_city'
+  throw err
+}
+
+function normalizeCityLabel() {
+  return RIDE_SERVICE_CITY_LABEL
 }
 
 function buildCustomPriceUpdate(customPrice) {
@@ -190,10 +201,11 @@ async function createCarpool(event, openid) {
 
   try {
     const departureMeta = buildDepartureMeta(event.departures)
+    const cityKey = normalizeCityKey(event.cityKey)
     const addRes = await transaction.collection('Carpool').add({
       data: {
-        cityKey: normalizeCityKey(event.cityKey),
-        cityLabel: cleanText(event.cityLabel || '纽约/新泽西'),
+        cityKey,
+        cityLabel: normalizeCityLabel(),
         departures: event.departures || [],
         destinations: event.destinations || [],
         passengerCount: event.passengerCount || 1,
@@ -224,12 +236,13 @@ async function createRequest(event, openid) {
 
   try {
     const departureMeta = buildDepartureMeta(event.departures)
+    const cityKey = normalizeCityKey(event.cityKey)
     const addRes = await transaction.collection('CarpoolRequest').add({
       data: {
         _openid: openid,
         passengerID: [openid],
-        cityKey: normalizeCityKey(event.cityKey),
-        cityLabel: cleanText(event.cityLabel || '纽约/新泽西'),
+        cityKey,
+        cityLabel: normalizeCityLabel(),
         departures: event.departures || [],
         destinations: event.destinations || [],
         passengerCount: event.passengerCount || 1,

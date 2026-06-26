@@ -2,7 +2,11 @@ const ALL_CITY_KEY = "all"
 const ALL_CITY_LABEL = "全部"
 const DEFAULT_CITY_KEY = "ny_nj"
 const DEFAULT_CITY_LABEL = "纽约/新泽西"
-const MARKET_CITY_STORAGE_KEY = "market_active_city_v2"
+const RIDE_DEFAULT_CITY_KEY = "ny"
+const RIDE_SERVICE_CITY_KEY = DEFAULT_CITY_KEY
+const RIDE_SERVICE_CITY_LABEL = DEFAULT_CITY_LABEL
+const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, "ny", "nj"]
+const MARKET_CITY_STORAGE_KEY = "market_active_city_v3"
 const RIDE_CITY_STORAGE_KEY = "ride_active_city_v1"
 
 const DEFAULT_CITY_TREE = [
@@ -15,21 +19,28 @@ const DEFAULT_CITY_TREE = [
         badge: "Hot",
         cities: [
           {
-            key: "ny_nj",
-            label: "纽约/新泽西",
-            aliases: ["纽约", "新泽西", "New York", "NYC", "Manhattan", "Brooklyn", "Queens", "Flushing", "Jersey", "NJ", "Newark", "Hoboken", "Jersey City", "Fort Lee", "Edison", "New Brunswick", "Princeton"]
+            key: "ny",
+            label: "纽约",
+            aliases: ["纽约", "New York", "NYC", "Manhattan", "Brooklyn", "Queens", "Flushing", "LIC", "Long Island City"]
+          },
+          {
+            key: "nj",
+            label: "新泽西",
+            aliases: ["新泽西", "Jersey", "NJ", "New Jersey", "Newark", "Hoboken", "Jersey City", "Fort Lee", "Edison", "New Brunswick", "Princeton"]
           },
           { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
           { key: "chicago", label: "芝加哥", aliases: ["芝加哥", "Chicago"] },
           { key: "la", label: "洛杉矶", aliases: ["洛杉矶", "LA", "Los Angeles", "Irvine", "Pasadena"] },
           { key: "bay_area", label: "旧金山湾区", aliases: ["旧金山", "湾区", "San Francisco", "Bay Area", "San Jose", "Berkeley", "Palo Alto", "Oakland"] },
-          { key: "seattle", label: "西雅图", aliases: ["西雅图", "Seattle", "Bellevue"] }
+          { key: "seattle", label: "西雅图", aliases: ["西雅图", "Seattle", "Bellevue"] },
+          { key: "other_city", label: "其他城市", aliases: ["其他", "其他城市", "Other City", "Other"] }
         ]
       },
       {
         title: "东北部",
         cities: [
-          { key: "ny_nj", label: "纽约/新泽西", aliases: ["纽约", "新泽西", "New York", "NYC", "NJ", "Jersey", "Fort Lee", "Jersey City", "Hoboken"] },
+          { key: "ny", label: "纽约", aliases: ["纽约", "New York", "NYC", "Manhattan", "Queens", "LIC"] },
+          { key: "nj", label: "新泽西", aliases: ["新泽西", "NJ", "Jersey", "Fort Lee", "Jersey City", "Hoboken"] },
           { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
           { key: "philadelphia", label: "费城", aliases: ["费城", "Philadelphia", "Philly"] },
           { key: "dc", label: "华盛顿DC", aliases: ["华盛顿", "Washington DC", "DC", "Arlington"] }
@@ -210,6 +221,48 @@ function getStoredCitySnapshot(storageKey, tree, fallbackKey = DEFAULT_CITY_KEY)
   }
 }
 
+function isRideServiceCityKey(cityKey) {
+  return RIDE_SERVICE_CITY_KEYS.includes(cleanText(cityKey))
+}
+
+function normalizeRideDisplayCityKey(cityKey) {
+  const key = cleanText(cityKey)
+  if (!key || key === ALL_CITY_KEY || key === RIDE_SERVICE_CITY_KEY) return RIDE_DEFAULT_CITY_KEY
+  return key
+}
+
+function normalizeRideServiceCityKey(cityKey) {
+  const key = cleanText(cityKey)
+  if (!key || isRideServiceCityKey(key)) return RIDE_SERVICE_CITY_KEY
+  return key
+}
+
+function getRideServiceCitySnapshot(city = {}) {
+  const source = city && typeof city === "object" ? city : { key: city }
+  const serviceKey = normalizeRideServiceCityKey(source.key || source.id || source.value)
+  if (serviceKey === RIDE_SERVICE_CITY_KEY) {
+    return {
+      key: RIDE_SERVICE_CITY_KEY,
+      label: RIDE_SERVICE_CITY_LABEL,
+      aliases: uniq([RIDE_SERVICE_CITY_LABEL, "纽约", "新泽西", "NY", "NJ", "New York", "New Jersey"])
+    }
+  }
+  const label = cleanText(source.label || source.name || source.title || serviceKey)
+  return {
+    key: serviceKey,
+    label,
+    aliases: uniq([label, ...(Array.isArray(source.aliases) ? source.aliases : [])])
+  }
+}
+
+function rideCityKeysMatch(leftKey, rightKey) {
+  const left = cleanText(leftKey)
+  const right = cleanText(rightKey)
+  if (!left || !right) return false
+  if (left === right) return true
+  return isRideServiceCityKey(left) && isRideServiceCityKey(right)
+}
+
 function setStoredCitySnapshot(storageKey, city) {
   try {
     wx.setStorageSync(storageKey, {
@@ -233,6 +286,10 @@ module.exports = {
   ALL_CITY_LABEL,
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
+  RIDE_DEFAULT_CITY_KEY,
+  RIDE_SERVICE_CITY_KEY,
+  RIDE_SERVICE_CITY_LABEL,
+  RIDE_SERVICE_CITY_KEYS,
   DEFAULT_CITY_TREE,
   MARKET_CITY_STORAGE_KEY,
   RIDE_CITY_STORAGE_KEY,
@@ -244,6 +301,11 @@ module.exports = {
   getCountryGroups,
   cityGroupsHaveResults,
   getStoredCitySnapshot,
+  isRideServiceCityKey,
+  normalizeRideDisplayCityKey,
+  normalizeRideServiceCityKey,
+  getRideServiceCitySnapshot,
+  rideCityKeysMatch,
   setStoredCitySnapshot,
   textMatchesCity
 }

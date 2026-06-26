@@ -156,7 +156,7 @@ function buildMyDisplayPatch(state = {}) {
     navTitle: config.navTitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
-    regionDisplay: state.region || '显示位置未填',
+    regionDisplay: state.region || '区域未填',
     apartmentDisplay: state.apartment || '',
     saveStateText: state.isSavingBio ? '保存中' : '自动保存',
     hasGoods: goods.length > 0,

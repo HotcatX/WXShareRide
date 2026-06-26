@@ -37,6 +37,11 @@ const LIST_FIELDS = {
   cityKey: true,
   cityLabel: true,
   region: true,
+  regionState: true,
+  regionArea: true,
+  regionKey: true,
+  regionDisplay: true,
+  buildingName: true,
   location: true,
   condition: true,
   desc: true,
@@ -287,17 +292,28 @@ function getDistanceSortOrigin(event = {}) {
   return normalizeLatLng(sort.origin || event.origin || event.myLocation || {})
 }
 
-function buildLocationForSave(regionStr, location = {}) {
+function buildLocationForSave(regionStr, location = {}, meta = {}) {
   const displayName = normalizeText(location.displayName || location.name || location.address || regionStr)
   if (!displayName) return {}
 
-  const parts = displayName.split("/").map(s => s.trim()).filter(Boolean)
+  const regionState = normalizeText(meta.regionState || location.regionState)
+  const regionArea = normalizeText(meta.regionArea || meta.areaLabel || location.regionArea || location.areaLabel)
+  const regionKey = normalizeText(meta.regionKey || location.regionKey)
+  const buildingName = normalizeText(meta.buildingName || location.buildingName)
+  const cityKey = normalizeText(meta.cityKey || location.cityKey)
+  const cityLabel = normalizeText(meta.cityLabel || location.cityLabel)
   return {
     displayName,
     name: normalizeText(location.name || displayName),
-    buildingName: normalizeText(location.buildingName || parts.slice(2).join(" / ")),
-    city: normalizeText(location.city || parts[1]),
-    state: normalizeText(location.state || parts[0]),
+    buildingName,
+    cityKey,
+    cityLabel,
+    regionState,
+    regionArea,
+    areaLabel: regionArea,
+    regionKey,
+    city: normalizeText(location.city),
+    state: normalizeText(location.state || regionState),
     zip: normalizeText(location.zip),
     country: normalizeText(location.country || "US"),
     lat: toFiniteNumber(location.lat ?? location.latitude),
@@ -311,24 +327,37 @@ function buildLocationForSave(regionStr, location = {}) {
   }
 }
 
-function parseRegion(regionStr) {
-  const parts = normalizeText(regionStr).split("/").map(s => s.trim()).filter(Boolean)
-  const rest = parts.slice(2)
-  return {
-    bigregion: parts.join(" / "),
-    address: rest.length ? rest.join(" / ") : (parts[1] || parts[0] || "")
-  }
-}
+async function upsertUserRegion(openid, item = {}) {
+  if (!openid || !item) return
+  const regionState = normalizeText(item.regionState)
+  const regionArea = normalizeText(item.regionArea)
+  const regionKey = normalizeText(item.regionKey)
+  if (!regionState || !regionArea || !regionKey) return
 
-async function upsertUserRegion(openid, regionStr, location = {}) {
-  if (!openid || !regionStr) return
-  const { bigregion, address } = parseRegion(regionStr)
-  const saveLocation = buildLocationForSave(regionStr, location)
-  if (!bigregion && !address && !saveLocation.displayName) return
+  const buildingName = normalizeText(item.buildingName)
+  const cityKey = normalizeText(item.cityKey)
+  const cityLabel = normalizeText(item.cityLabel)
+  const regionDisplay = normalizeText(item.regionDisplay || item.region)
+  const bigregion = [regionState, regionArea].filter(Boolean).join(" / ")
+  const saveLocation = buildLocationForSave(regionDisplay || bigregion, item.location || {}, {
+    regionState,
+    regionArea,
+    regionKey,
+    buildingName,
+    cityKey,
+    cityLabel
+  })
 
   const data = {
+    cityKey,
+    cityLabel,
     bigregion,
-    address: saveLocation.address || address,
+    address: buildingName,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay: regionDisplay || [regionState, regionArea, buildingName].filter(Boolean).join(" / "),
     bigregionUpdatedAt: db.serverDate()
   }
   if (saveLocation.displayName) data.location = saveLocation
@@ -623,6 +652,11 @@ function normalizeMarketItem(item = {}) {
     cityKey: normalizeCityKey(item.cityKey),
     cityLabel: normalizeText(item.cityLabel),
     region: normalizeText(item.region),
+    regionState: normalizeText(item.regionState || item.location?.regionState),
+    regionArea: normalizeText(item.regionArea || item.location?.regionArea || item.location?.areaLabel),
+    regionKey: normalizeText(item.regionKey || item.location?.regionKey),
+    regionDisplay: normalizeText(item.regionDisplay || item.region),
+    buildingName: normalizeText(item.buildingName || item.location?.buildingName),
     location: item.location || {},
     condition: normalizeText(item.condition) || defaultCondition,
     conditionText: normalizeText(item.condition) || defaultCondition,
@@ -829,8 +863,28 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   if (payload.cityKey !== undefined) data.cityKey = normalizeCityKey(payload.cityKey)
   if (payload.cityLabel !== undefined) data.cityLabel = normalizeText(payload.cityLabel)
   if (payload.region !== undefined) data.region = normalizeText(payload.region)
-  if (payload.location !== undefined || payload.region !== undefined) {
-    data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {})
+  if (payload.regionState !== undefined) data.regionState = normalizeText(payload.regionState)
+  if (payload.regionArea !== undefined) data.regionArea = normalizeText(payload.regionArea)
+  if (payload.regionKey !== undefined) data.regionKey = normalizeText(payload.regionKey)
+  if (payload.regionDisplay !== undefined) data.regionDisplay = normalizeText(payload.regionDisplay)
+  if (payload.buildingName !== undefined) data.buildingName = normalizeText(payload.buildingName)
+  if (
+    payload.location !== undefined ||
+    payload.region !== undefined ||
+    payload.regionState !== undefined ||
+    payload.regionArea !== undefined ||
+    payload.regionKey !== undefined ||
+    payload.buildingName !== undefined
+  ) {
+    const meta = {
+      cityKey: data.cityKey || oldItem.cityKey || payload.location?.cityKey,
+      cityLabel: data.cityLabel || oldItem.cityLabel || payload.location?.cityLabel,
+      regionState: data.regionState || oldItem.regionState || payload.location?.regionState,
+      regionArea: data.regionArea || oldItem.regionArea || payload.location?.regionArea || payload.location?.areaLabel,
+      regionKey: data.regionKey || oldItem.regionKey || payload.location?.regionKey,
+      buildingName: data.buildingName || oldItem.buildingName || payload.location?.buildingName
+    }
+    data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {}, meta)
   }
   if (payload.condition !== undefined) data.condition = normalizeText(payload.condition) || "99新"
   if (payload.desc !== undefined) data.desc = String(payload.desc || "")
@@ -897,7 +951,10 @@ async function createItem(event, openid) {
   const listingType = normalizeListingType(payload.listingType)
   const category = normalizeListingCategory(payload.category, listingType)
   const region = normalizeText(payload.region)
-  if (!title || !category || !region) return fail("missing_required_fields")
+  const regionState = normalizeText(payload.regionState)
+  const regionArea = normalizeText(payload.regionArea)
+  const regionKey = normalizeText(payload.regionKey)
+  if (!title || !category || !region || !regionState || !regionArea || !regionKey) return fail("missing_required_fields")
 
   const normalized = normalizePayloadForSave(payload)
   if (!normalized.ok) return normalized
@@ -921,7 +978,7 @@ async function createItem(event, openid) {
     _openid: openid
   }
 
-  await upsertUserRegion(openid, region, data.location || {})
+  await upsertUserRegion(openid, data)
   const files = collectMarketFiles(data)
   let itemId = ""
 
@@ -962,6 +1019,11 @@ async function updateItem(event, openid) {
     "cityKey",
     "cityLabel",
     "region",
+    "regionState",
+    "regionArea",
+    "regionKey",
+    "regionDisplay",
+    "buildingName",
     "location",
     "condition",
     "desc",
@@ -1003,7 +1065,9 @@ async function updateItem(event, openid) {
     }
   })
 
-  if (normalized.data.region) await upsertUserRegion(openid, normalized.data.region, normalized.data.location || {})
+  if (normalized.data.regionState && normalized.data.regionArea && normalized.data.regionKey) {
+    await upsertUserRegion(openid, { ...oldItem, ...normalized.data })
+  }
   await attachMarketFiles(collectMarketFiles({ ...oldItem, ...normalized.data }), id, openid)
   const deleteResult = await deleteFiles(removedFileIDs)
   await markFilesDeleted(removedFileIDs, openid, id)
@@ -1051,15 +1115,12 @@ function buildVisibleConditions(filters = {}) {
   if (cityKey && cityKey !== "all") {
     conditions.push({ cityKey })
   }
+  const regionKey = normalizeText(filters.regionKey || filters.areaKey)
+  if (regionKey && regionKey !== "all") {
+    conditions.push({ regionKey })
+  }
   if (filters.region && filters.region !== "全部") {
-    const region = filters.region
-    if (region.endsWith("/ 全部")) {
-      const prefix = region.replace(/\/\s*全部\s*$/, "/")
-      const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      conditions.push({ region: db.RegExp({ regexp: `^${esc}`, options: "i" }) })
-    } else {
-      conditions.push({ region })
-    }
+    conditions.push({ region: normalizeText(filters.region) })
   }
   const keyword = normalizeText(filters.keyword)
   if (keyword) {

@@ -57,15 +57,29 @@
         />
       </view>
 
+      <view
+        class="ride-field edit-field edit-field-action"
+        bindtap="onTapRegionPicker"
+        hover-class="ride-card-pressed"
+        hover-stay-time="80"
+      >
+        <text class="ride-field-label edit-field-label">城市/区域</text>
+        <view class="edit-value-action">
+          <text wx:if="{{regionDisplay}}" class="ride-field-value edit-value-text">{{regionDisplay}}</text>
+          <text wx:else class="ride-field-value edit-value-text ride-placeholder">选择城市和区域</text>
+          <text class="edit-chevron">›</text>
+        </view>
+      </view>
+
       <view class="ride-field edit-field edit-address-field">
-        <text class="ride-field-label edit-field-label">显示位置</text>
+        <text class="ride-field-label edit-field-label">大楼名称</text>
         <view class="edit-address-control">
           <input
             class="ride-input edit-input"
-            placeholder="手写地址/公寓/城市"
+            placeholder="选填，例如 1440,The Modern等"
             placeholder-class="ride-placeholder"
-            value="{{address}}"
-            data-field="address"
+            value="{{buildingName}}"
+            data-field="buildingName"
             bindinput="onInput"
           />
         </view>
@@ -185,5 +199,94 @@
 
     <view class="edit-bottom-space"></view>
   </scroll-view>
+
+  <view wx:if="{{cityPickerVisible}}">
+    <view class="rp-mask" bindtap="onCityPickerCancel"></view>
+    <view class="city-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">选择城市</text>
+        <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onCityPickerCancel">关闭</text>
+      </view>
+
+      <view class="city-search-wrap">
+        <input
+          class="city-search-input"
+          placeholder="搜索城市名称"
+          placeholder-class="city-search-placeholder"
+          value="{{citySearchKeyword}}"
+          bindinput="onCitySearchInput"
+          confirm-type="search"
+        />
+      </view>
+
+      <view class="city-body">
+        <view class="city-country-tabs">
+          <view
+            class="city-country {{item.className}} pressable"
+            wx:for="{{cityCountryTabs}}"
+            wx:key="code"
+            data-code="{{item.code}}"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onSelectCityCountry"
+          >
+            {{item.label}}
+          </view>
+        </view>
+
+        <scroll-view class="city-group-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="city-group" wx:for="{{cityPickerGroups}}" wx:key="title">
+            <view class="city-group-title">
+              <text wx:if="{{item.badge}}" class="city-hot-badge">{{item.badge}}</text>
+              <text>{{item.title}}</text>
+            </view>
+            <view class="city-grid">
+              <view
+                class="city-option {{city.className}} pressable"
+                wx:for="{{item.cities}}"
+                wx:for-item="city"
+                wx:key="key"
+                data-key="{{city.key}}"
+                hover-class="is-pressed"
+                hover-stay-time="80"
+                bindtap="onSelectCity"
+              >
+                {{city.label}}
+              </view>
+            </view>
+          </view>
+          <view wx:if="{{!cityPickerHasResults}}" class="city-empty">{{cityPickerEmptyText}}</view>
+          <view class="city-picker-hint">{{cityPickerHintText}}</view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{areaPickerVisible}}">
+    <view class="rp-mask" bindtap="onAreaPickerCancel"></view>
+    <view class="city-panel area-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">{{areaPickerTitle}}</text>
+        <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAreaPickerCancel">关闭</text>
+      </view>
+
+      <scroll-view class="area-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="city-grid area-grid">
+          <view
+            class="city-option area-option {{item.className}} pressable"
+            wx:for="{{areaOptions}}"
+            wx:key="key"
+            data-key="{{item.key}}"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onSelectProfileArea"
+          >
+            {{item.label}}
+          </view>
+        </view>
+        <view class="city-picker-hint">{{areaPickerHintText}}</view>
+      </scroll-view>
+    </view>
+  </view>
 
 </view>

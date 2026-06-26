@@ -87,20 +87,22 @@
 
           <text class="desc-text">{{item.descDisplay}}</text>
 
-          <view class="location-section">
-            <text class="section-title">{{item.locationLabel}}</text>
-            <text class="location-text">{{item.locationText}}</text>
-          </view>
-
           <view wx:if="{{item.hasSubletMeta}}" class="meta-grid">
             <view class="meta-cell" wx:for="{{item.subletMetaList}}" wx:key="label">
               <text class="meta-label">{{item.label}}</text>
               <text class="meta-value">{{item.value}}</text>
             </view>
           </view>
+
+          <view class="location-section">
+            <text class="section-title">{{item.locationLabel}}</text>
+            <text class="location-text">{{item.locationText}}</text>
+            <text class="section-title detail-address-title">{{item.locationDetailLabel}}</text>
+            <text class="location-text detail-address-text">{{item.locationDetailText}}</text>
+          </view>
         </view>
 
-        <view class="detail-action-bar {{dockVisibleClass}}">
+        <view class="detail-action-bar {{item.detailActionClass}} {{dockVisibleClass}}">
           <block wx:if="{{isOwner}}">
             <view class="owner-actions">
               <view class="action-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onEditItem">编辑</view>
@@ -109,7 +111,7 @@
           </block>
 
           <block wx:else>
-            <view class="side-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDetailQuickAction">
+            <view wx:if="{{item.showLocationAction}}" class="side-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onDetailQuickAction">
               {{item.locationActionText}}
             </view>
             <view class="action-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onContactSeller">

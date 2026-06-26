@@ -1,3 +1,7 @@
+const {
+  normalizeUserRegion
+} = require('./regionTree')
+
 function cleanText(value) {
   if (value === null || value === undefined) return ''
   if (typeof value === 'object') return ''
@@ -38,24 +42,15 @@ function firstDisplayText(values = []) {
 }
 
 function buildProfileDisplayLocation(user = {}) {
-  return firstDisplayText([
-    user.bigregion,
-    user.address,
-    getLocationObjectText(user.location),
-    user.apartment,
-    user.dorm,
-    user.addr,
-    user.region
-  ])
+  const region = normalizeUserRegion(user)
+  if (region && region.areaLabel) return region.areaLabel
+  return ''
 }
 
 function buildProfileApartmentDisplay(user = {}) {
-  const direct = firstDisplayText([user.apartment, user.dorm, user.addr])
-  if (direct) return direct
-
-  const region = firstDisplayText([user.bigregion])
-  const address = firstDisplayText([user.address])
-  if (region && address && region !== address) return address
+  const location = user.location && typeof user.location === 'object' ? user.location : {}
+  const buildingName = firstDisplayText([user.buildingName, location.buildingName])
+  if (buildingName) return buildingName
   return ''
 }
 

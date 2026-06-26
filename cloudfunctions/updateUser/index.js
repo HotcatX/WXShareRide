@@ -35,8 +35,14 @@ function normalizeLocationForSave(location) {
     displayName: displayName || address,
     name: normalizeLocationText(location.name || displayName || address),
     buildingName: normalizeLocationText(location.buildingName),
+    cityKey: normalizeLocationText(location.cityKey),
+    cityLabel: normalizeLocationText(location.cityLabel),
     address,
     region: normalizeLocationText(location.region || location.bigregion),
+    regionState: normalizeLocationText(location.regionState),
+    regionArea: normalizeLocationText(location.regionArea || location.areaLabel),
+    areaLabel: normalizeLocationText(location.areaLabel || location.regionArea),
+    regionKey: normalizeLocationText(location.regionKey),
     city: normalizeLocationText(location.city),
     state: normalizeLocationText(location.state),
     zip: normalizeLocationText(location.zip),
@@ -94,7 +100,14 @@ async function handleNormalUpdate(openid, event) {
     address,
     location,
 
+    cityKey,
+    cityLabel,
     bigregion,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay,
     bio
   } = event || {}
   const normalizedLocation = normalizeLocationForSave(location)
@@ -120,7 +133,14 @@ async function handleNormalUpdate(openid, event) {
           address: address || '',
           location: normalizedLocation || {},
 
+          cityKey: cityKey || '',
+          cityLabel: cityLabel || '',
           bigregion: bigregion || '',
+          buildingName: buildingName || '',
+          regionState: regionState || '',
+          regionArea: regionArea || '',
+          regionKey: regionKey || '',
+          regionDisplay: regionDisplay || '',
 
           carNumber: carNumber || '',
           carBrand: carBrand || '',
@@ -166,7 +186,14 @@ async function handleNormalUpdate(openid, event) {
     if (Object.prototype.hasOwnProperty.call(event || {}, 'location')) {
       updateData.location = normalizedLocation || {}
     }
+    if (typeof cityKey === 'string')      updateData.cityKey = cityKey
+    if (typeof cityLabel === 'string')    updateData.cityLabel = cityLabel
     if (typeof bigregion === 'string')    updateData.bigregion = bigregion
+    if (typeof buildingName === 'string') updateData.buildingName = buildingName
+    if (typeof regionState === 'string')  updateData.regionState = regionState
+    if (typeof regionArea === 'string')   updateData.regionArea = regionArea
+    if (typeof regionKey === 'string')    updateData.regionKey = regionKey
+    if (typeof regionDisplay === 'string') updateData.regionDisplay = regionDisplay
 
     if (typeof carNumber === 'string') updateData.carNumber = carNumber
     if (typeof carBrand === 'string')  updateData.carBrand  = carBrand

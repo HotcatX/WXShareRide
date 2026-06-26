@@ -50,7 +50,7 @@ function buildTradeItem(x = {}, type = 'sold') {
     imageSrc: x.imageSrc || x.thumbUrl || imageKey || (listingType === "sublet" ? "/images/sublease.png" : "/images/market.png"),
     thumbUrl: x.thumbUrl || '',
     otherOpenid: x.otherOpenid || (type === 'sold'
-      ? (x.buyerOpenid || x.buyer_openid || '')
+      ? (x.buyerOpenid || '')
       : (x._openid || '')),
     contactWechat: x.contactWechat || ''
   }

@@ -370,16 +370,11 @@ function buildLocationMeta(displayName, source = {}) {
   const name = normalizeLocationText(displayName || source.displayName || source.name || source.address)
   if (!name) return {}
 
-  const parts = name.split("/").map(s => s.trim()).filter(Boolean)
-  const legacyState = parts[0] || ""
-  const legacyArea = parts[1] || ""
-  const legacyBuilding = parts.slice(2).join(" / ")
-
   return {
     displayName: name,
-    buildingName: source.buildingName || legacyBuilding || "",
-    city: source.city || legacyArea || "",
-    state: source.state || legacyState || "",
+    buildingName: source.buildingName || "",
+    city: source.city || "",
+    state: source.state || "",
     zip: source.zip || "",
     country: source.country || "US",
     lat: toFiniteNumber(source.lat ?? source.latitude),
@@ -796,7 +791,7 @@ Page({
     })
   },
 
-  // ========== 选择图片（最多 6 张，首图字段兼容旧列表） ==========
+  // ========== 选择图片（最多 6 张） ==========
   async onChooseImage() {
     if (!this.ensureLoginBeforePost()) return
     if (this.data.imageUploading) {

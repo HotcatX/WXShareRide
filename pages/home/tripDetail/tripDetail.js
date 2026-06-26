@@ -48,21 +48,14 @@ function cleanOpenid(value) {
 }
 
 function getCarpoolDriverOpenid(trip = {}) {
-  return cleanOpenid(trip._openid || trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId)
+  return cleanOpenid(trip._openid)
 }
 
 function getCarpoolPassengerOpenids(trip = {}) {
   const ids = new Set()
   ;(Array.isArray(trip.passengers) ? trip.passengers : []).forEach(item => {
-    if (typeof item === 'string') ids.add(cleanOpenid(item))
-    else {
-      ids.add(cleanOpenid(item && item._openid))
-      ids.add(cleanOpenid(item && item.openid))
-      ids.add(cleanOpenid(item && item.passengerOpenid))
-    }
+    ids.add(cleanOpenid(item && item._openid))
   })
-  ;(Array.isArray(trip.passengerID) ? trip.passengerID : []).forEach(id => ids.add(cleanOpenid(id)))
-  ;(Array.isArray(trip.passengerIDs) ? trip.passengerIDs : []).forEach(id => ids.add(cleanOpenid(id)))
   ids.delete('')
   return Array.from(ids)
 }
@@ -620,7 +613,7 @@ Page({
 
   async onBlockDriver() {
     const { tripId, trip, driverOpenid, driverInfo, isOwner } = this.data
-    const targetOpenid = driverOpenid || (trip && (trip._openid || trip.driverOpenid || trip.driverID)) || ''
+    const targetOpenid = driverOpenid || (trip && trip._openid) || ''
     if (isOwner) {
       wx.showToast({ title: '不能拉黑自己', icon: 'none' })
       return

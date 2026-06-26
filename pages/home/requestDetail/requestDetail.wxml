@@ -97,7 +97,7 @@
     <button
       wx:elif="{{isFull}}"
       class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
-      bindtap="acceptAsDriver"
+      bindtap="acceptRequest"
       disabled="{{submittingDriver}}"
       loading="{{submittingDriver}}"
     >
@@ -114,7 +114,7 @@
       </button>
       <button
         class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
-        bindtap="acceptAsDriver"
+        bindtap="acceptRequest"
         disabled="{{submittingDriver || submittingPassenger}}"
         loading="{{submittingDriver}}"
       >

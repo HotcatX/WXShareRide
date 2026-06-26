@@ -26,22 +26,8 @@ function formatDateNoYear(dateStr) {
   return `${Number(parts[1])}月${Number(parts[2])}日`
 }
 
-// 兼容 passengerID 可能为 string / array / 空
 function normalizepassengerID(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean).map(x => String(x))
-  if (typeof raw === 'string' && raw.trim()) return [raw.trim()]
-  if (raw) return [String(raw)]
-  return []
-}
-
-// 去重并过滤空值
-function uniq(arr) {
-  const s = new Set()
-  ;(arr || []).forEach(x => {
-    const v = String(x || '').trim()
-    if (v) s.add(v)
-  })
-  return Array.from(s)
+  return Array.isArray(raw) ? raw.filter(Boolean).map(x => String(x)) : []
 }
 
 Page({
@@ -241,7 +227,7 @@ Page({
 
       // 2) owner / driver openid
       const ownerOpenid = trip.openid || trip._openid || ''
-      const driverOpenid = trip.driverOpenid || trip.driverID || ''
+      const driverOpenid = trip.driverOpenid || ''
 
       // 3) passengerID
       const passengerID = normalizepassengerID(trip.passengerID)
@@ -257,7 +243,7 @@ Page({
 
       // 5) 状态：只要不是 open 就视为不可加入
       const rawStatus = String(trip.status || 'open').toLowerCase()
-      const st = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+      const st = rawStatus
       const isClosed = st !== 'open'
 
       // 6) 已登录才计算“我是谁”

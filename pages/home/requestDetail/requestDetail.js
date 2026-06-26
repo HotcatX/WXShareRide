@@ -27,22 +27,8 @@ function formatDateNoYear(dateStr) {
   return `${Number(parts[1])}月${Number(parts[2])}日`
 }
 
-// 兼容 passengerID 可能为 string / array / 空
 function normalizePassengerID(raw) {
-  if (Array.isArray(raw)) return raw.filter(Boolean).map(x => String(x))
-  if (typeof raw === 'string' && raw.trim()) return [raw.trim()]
-  if (raw) return [String(raw)]
-  return []
-}
-
-// 去重并过滤空值
-function uniq(arr) {
-  const s = new Set()
-  ;(arr || []).forEach(x => {
-    const v = String(x || '').trim()
-    if (v) s.add(v)
-  })
-  return Array.from(s)
+  return Array.isArray(raw) ? raw.filter(Boolean).map(x => String(x)) : []
 }
 
 Page({
@@ -274,16 +260,11 @@ Page({
 
     // 2) owner / driver openid
     const ownerOpenid = trip.openid || trip._openid || ''
-    const driverOpenid = trip.driverOpenid || trip.driverID || ''
+    const driverOpenid = trip.driverOpenid || ''
 
-    // 3) passengerID（兼容各种字段）
+    // 3) passengerID
     const passengerID = normalizePassengerID(trip.passengerID)
-    const passengerIdsAlt = uniq(
-      (Array.isArray(trip.passengerIds) && trip.passengerIds) ||
-      (Array.isArray(trip.passengers) && trip.passengers) ||
-      []
-    )
-    const joinedAll = uniq([...passengerID, ...passengerIdsAlt])
+    const joinedAll = passengerID
 
     // 4) 人数与余位（后端如果给 passengerCount 优先用）
     const passengerCount =
@@ -296,7 +277,7 @@ Page({
 
     // 5) 状态
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const st = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+    const st = rawStatus
     const isClosed = st !== 'open'
 
     // 6) 已登录才计算“我是谁”
@@ -437,7 +418,7 @@ Page({
   // =========================
   // ✅ 司机加入（tripManage）
   // =========================
-  async acceptAsDriver() {
+  async acceptRequest() {
     const {
       tripId,
       trip,
@@ -487,7 +468,7 @@ Page({
       const msg = (result && result.errorMsg) ? result.errorMsg : '接单失败'
       this.showToast(msg, 'none')
     } catch (e) {
-      console.error('acceptAsDriver error:', e)
+      console.error('acceptRequest error:', e)
       this.showToast('接单失败', 'none')
     } finally {
       this.setData({ submittingDriver: false })

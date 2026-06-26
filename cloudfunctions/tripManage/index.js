@@ -30,13 +30,13 @@ function uniq(arr) {
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'request') return 'request'
   return 'carpool'
 }
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function cleanText(value, max = 160) {
@@ -74,40 +74,30 @@ function addId(set, value) {
   if (id) set.add(id)
 }
 
-function getBlockedOpenidsFromUserDoc(user = {}) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addId(out, item && item.openid))
-  return Array.from(out)
-}
-
 function getCarpoolPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(p => {
-    if (typeof p === 'string') addId(ids, p)
-    else addId(ids, p && p._openid)
+    addId(ids, p && p._openid)
   })
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
   return Array.from(ids)
 }
 
 function getRequestPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addId(ids, id))
   return Array.from(ids)
 }
 
 function getRequestDriverOpenid(doc = {}) {
-  return cleanText(doc.driverOpenid || doc.driverID || doc.driverId || doc.driver, 80)
+  return cleanText(doc.driverOpenid, 80)
 }
 
 function getRequestCreatorOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid, 80)
+  return cleanText(doc._openid, 80)
 }
 
 function getCarpoolDriverOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.driverOpenid || doc.driverID || doc.driverId, 80)
+  return cleanText(doc._openid, 80)
 }
 
 async function sendNotification(toOpenid, type, title, content, carpoolId, extra = {}) {
@@ -210,13 +200,6 @@ function computeWeightedRating(sum, count) {
   return Math.min(5, Math.max(0, Number(value.toFixed(1))))
 }
 
-function getBlockedUsers(user) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addId(out, item && item.openid))
-  return out
-}
-
 async function hasActiveBlock(blockerOpenid, targetOpenid) {
   if (!blockerOpenid || !targetOpenid || blockerOpenid === targetOpenid) return false
   const res = await db.collection('UserBlocks')
@@ -232,11 +215,6 @@ async function hasActiveBlock(blockerOpenid, targetOpenid) {
 
 async function checkBlockBetween(openidA, openidB) {
   if (!openidA || !openidB || openidA === openidB) return { blocked: false }
-  const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
-  const aBlocks = getBlockedUsers(a)
-  const bBlocks = getBlockedUsers(b)
-  if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
-  if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
   const [aActiveBlock, bActiveBlock] = await Promise.all([
     hasActiveBlock(openidA, openidB),
     hasActiveBlock(openidB, openidA)
@@ -258,11 +236,8 @@ async function checkBlockWithMany(actorOpenid, targetOpenids) {
 function buildClearDriverFields(req) {
   const next = {}
   if (Object.prototype.hasOwnProperty.call(req, 'driverOpenid')) next.driverOpenid = ''
-  if (Object.prototype.hasOwnProperty.call(req, 'driverID')) next.driverID = ''
-  if (Object.prototype.hasOwnProperty.call(req, 'driverId')) next.driverId = ''
   if (!Object.keys(next).length) {
     next.driverOpenid = ''
-    next.driverID = ''
   }
   return next
 }
@@ -294,7 +269,6 @@ async function kickPassengerFromCarpool(event, actorOpenid) {
       return !(item && item._openid === targetOpenid)
     })
   }
-  if (Array.isArray(trip.passengerID)) updateData.passengerID = _.pull(targetOpenid)
   if (normalizeTripStatus(trip.status) !== 'past') updateData.status = 'open'
 
   await db.collection('Carpool').doc(tripId).update({ data: updateData })
@@ -371,7 +345,6 @@ async function quitCarpoolPassenger(event, actorOpenid) {
       return !(item && item._openid === actorOpenid)
     })
   }
-  if (Array.isArray(trip.passengerID)) updateData.passengerID = _.pull(actorOpenid)
   if (normalizeTripStatus(trip.status) !== 'past') updateData.status = 'open'
 
   await db.collection('Carpool').doc(tripId).update({ data: updateData })
@@ -389,7 +362,7 @@ async function quitCarpoolPassenger(event, actorOpenid) {
   )
 
   await logAction({ action: 'quitTrip', type: 'carpool', tripId, actorOpenid, reason })
-  return { ok: true, success: true, action: 'quitTrip', sourceType: 'carpool' }
+  return { ok: true, success: true, action: 'quitTrip', type: 'carpool' }
 }
 
 async function kickDriverFromRequest(event, actorOpenid) {
@@ -589,7 +562,7 @@ async function quitRequestPassenger(event, actorOpenid) {
   )))
 
   await logAction({ action: 'quitTrip', type: 'request', tripId: requestId, actorOpenid, reason })
-  return { ok: true, success: true, action: 'quitTrip', sourceType: 'request' }
+  return { ok: true, success: true, action: 'quitTrip', type: 'request' }
 }
 
 async function acceptRequest(event, actorOpenid) {
@@ -638,7 +611,6 @@ async function acceptRequest(event, actorOpenid) {
     await reqRef.update({
       data: {
         driverOpenid: actorOpenid,
-        driverID: actorOpenid,
         updatedAt: new Date()
       }
     })
@@ -699,14 +671,6 @@ async function blockUser(event, actorOpenid) {
   if (targetOpenid === actorOpenid) return { ok: false, success: false, errorMsg: '不能拉黑自己' }
 
   const reason = getReason(event)
-  await updateUserByOpenid(actorOpenid, {
-    blockedUsers: _.addToSet(targetOpenid),
-    updatedAt: db.serverDate(),
-    updateTime: db.serverDate()
-  }, {
-    blockedUsers: [targetOpenid]
-  })
-
   const existingBlockRes = await db.collection('UserBlocks')
     .where({
       _openid: actorOpenid,
@@ -737,13 +701,12 @@ async function blockUser(event, actorOpenid) {
       }
     })
   }
-  await logAction({ action: 'blockUser', type: normalizeType(event.type || event.sourceType), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid, reason })
+  await logAction({ action: 'blockUser', type: normalizeType(event.type), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid, reason })
   return { ok: true, success: true, action: 'blockUser' }
 }
 
 async function getBlockList(event, actorOpenid) {
-  const user = await getUser(actorOpenid)
-  const blockedIds = new Set(getBlockedOpenidsFromUserDoc(user))
+  const blockedIds = new Set()
   let activeBlocks = []
 
   try {
@@ -807,20 +770,6 @@ async function getBlockList(event, actorOpenid) {
 async function unblockUser(event, actorOpenid) {
   const targetOpenid = cleanText(event.targetOpenid, 80)
   if (!targetOpenid) return { ok: false, success: false, errorMsg: '缺少解除对象' }
-  const user = await getUser(actorOpenid)
-  const blockedUserDetails = Array.isArray(user && user.blockedUserDetails)
-    ? user.blockedUserDetails.filter(item => cleanText(item && item.openid, 80) !== targetOpenid)
-    : undefined
-  const updateData = {
-    blockedUsers: _.pull(targetOpenid),
-    updatedAt: db.serverDate(),
-    updateTime: db.serverDate()
-  }
-  if (blockedUserDetails) updateData.blockedUserDetails = blockedUserDetails
-
-  await updateUserByOpenid(actorOpenid, {
-    ...updateData
-  })
   try {
     await db.collection('UserBlocks')
       .where({
@@ -837,7 +786,7 @@ async function unblockUser(event, actorOpenid) {
   } catch (e) {
     console.error('tripManage unblockUser UserBlocks update error:', e)
   }
-  await logAction({ action: 'unblockUser', type: normalizeType(event.type || event.sourceType), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid })
+  await logAction({ action: 'unblockUser', type: normalizeType(event.type), tripId: cleanText(event.tripId || event.requestId || event.id, 80), actorOpenid, targetOpenid })
   return { ok: true, success: true, action: 'unblockUser' }
 }
 
@@ -908,7 +857,7 @@ async function updateRatingSummary(targetOpenid, targetRole, scoreDelta, countDe
 async function rateUser(event, actorOpenid) {
   const targetOpenid = cleanText(event.targetOpenid, 80)
   const tripId = cleanText(event.tripId || event.requestId || event.id, 80)
-  const type = normalizeType(event.type || event.sourceType)
+  const type = normalizeType(event.type)
   const score = Math.floor(Number(event.score || event.rating))
   const comment = ''
 
@@ -976,7 +925,7 @@ async function rateUser(event, actorOpenid) {
 
 async function routeAction(event, actorOpenid) {
   const action = String(event.action || '').trim()
-  const type = normalizeType(event.type || event.sourceType || event.routeType)
+  const type = normalizeType(event.type)
 
   if (action === 'blockUser') return blockUser(event, actorOpenid)
   if (action === 'getBlockList') return getBlockList(event, actorOpenid)
@@ -984,12 +933,12 @@ async function routeAction(event, actorOpenid) {
   if (action === 'rateUser') return rateUser(event, actorOpenid)
 
   if (type === 'request') {
-    if (action === 'acceptRequest' || action === 'acceptAsDriver') return acceptRequest(event, actorOpenid)
+    if (action === 'acceptRequest') return acceptRequest(event, actorOpenid)
     if (action === 'kickDriver') return kickDriverFromRequest(event, actorOpenid)
     if (action === 'kickPassenger') return kickPassengerFromRequest(event, actorOpenid)
-    if (action === 'deleteTrip' || action === 'creatorQuitAndDelete') return deleteRequest(event, actorOpenid)
-    if (action === 'quitDriver' || action === 'driverQuitRequest') return quitRequestDriver(event, actorOpenid)
-    if (action === 'quitTrip' || action === 'passengerQuitRequest') return quitRequestPassenger(event, actorOpenid)
+    if (action === 'deleteTrip') return deleteRequest(event, actorOpenid)
+    if (action === 'quitDriver') return quitRequestDriver(event, actorOpenid)
+    if (action === 'quitTrip') return quitRequestPassenger(event, actorOpenid)
   }
 
   if (action === 'kickPassenger') return kickPassengerFromCarpool(event, actorOpenid)

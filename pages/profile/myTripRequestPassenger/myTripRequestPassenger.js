@@ -204,9 +204,9 @@ Page({
 
       // ✅ myOpenid 必须可靠：云函数不返回则调用 login 获取
       const myOpenid = rr.openid || (await this.getMyOpenid()) || ''
-      const creatorOpenid = trip._openid || trip.creatorOpenid || trip.passengerOpenid || ''
+      const creatorOpenid = trip._openid || ''
       const rawStatus = String(trip.status || 'open').toLowerCase()
-      const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+      const isRequestCompleted = rawStatus === 'past'
       const ratedTargetMap = buildRatedTargetMap(rr)
       const displayTrip = {
         ...trip,
@@ -229,8 +229,7 @@ Page({
         this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
 
       // 2) 司机信息（若已接单）
-      const driverOpenid =
-        trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId || trip.driver || ''
+      const driverOpenid = trip.driverOpenid || ''
       let driverInfo = null
       if (driverOpenid) {
         driverInfo = buildDriverInfo(rr.driverInfo, driverOpenid, ratedTargetMap)
@@ -246,10 +245,9 @@ Page({
         }
       }
 
-      // 3) 其他乘客：显示除“我本人”以外所有加入乘客（兼容 passengerID/passengerIDs）
+      // 3) 其他乘客：显示除“我本人”以外所有加入乘客
       const a1 = Array.isArray(trip.passengerID) ? trip.passengerID : []
-      const a2 = Array.isArray(trip.passengerIDs) ? trip.passengerIDs : []
-      const passengerOpenids = Array.from(new Set([...a1, ...a2].filter(Boolean)))
+      const passengerOpenids = Array.from(new Set(a1.filter(Boolean)))
 
       const filteredOpenids = passengerOpenids.filter(op => {
         if (!op) return false

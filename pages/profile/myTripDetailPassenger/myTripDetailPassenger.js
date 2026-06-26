@@ -13,7 +13,7 @@ const {
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
-  return value === 'request' || value === 'carpoolrequest' ? 'request' : 'carpool'
+  return value === 'request' ? 'request' : 'carpool'
 }
 
 function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
@@ -237,16 +237,14 @@ Page({
 
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+    const isTripCompleted = rawStatus === 'past'
     const ratedTargetMap = buildRatedTargetMap(detailResult)
     const displayTrip = {
       ...trip,
       referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
     }
 
-    // Carpool 的司机一般就是 trip._openid（创建者），也兼容 driver 字段
-    const driverOpenid =
-      trip._openid || trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId || ''
+    const driverOpenid = trip._openid || ''
 
     let driverInfo = null
     if (driverOpenid) {
@@ -300,7 +298,7 @@ Page({
 
     const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const isTripCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+    const isTripCompleted = rawStatus === 'past'
     const ratedTargetMap = buildRatedTargetMap(rr)
     const displayTrip = {
       ...trip,
@@ -310,9 +308,7 @@ Page({
     // 当前用户 openid：优先 rr.openid，否则调用 login 获取
     const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
 
-    // 司机 openid：CarpoolRequest 常见 driverOpenid/driverID（兼容大小写）
-    const driverOpenid =
-      trip.driverOpenid || trip.driverOpenId || trip.driverID || trip.driverId || trip.driver || ''
+    const driverOpenid = trip.driverOpenid || ''
 
     let driverInfo = null
     if (driverOpenid) {
@@ -329,10 +325,8 @@ Page({
       }
     }
 
-    // ✅ 乘客 openids：合并 passengerID + passengerIDs（兼容历史字段），去重
     const a1 = Array.isArray(trip.passengerID) ? trip.passengerID : []
-    const a2 = Array.isArray(trip.passengerIDs) ? trip.passengerIDs : []
-    const passengerOpenids = Array.from(new Set([...a1, ...a2].filter(Boolean)))
+    const passengerOpenids = Array.from(new Set(a1.filter(Boolean)))
 
     // ✅ 仅剔除“我自己”，不剔除创建者（创建者也是乘客之一）
     const filteredOpenids = passengerOpenids.filter(op => {

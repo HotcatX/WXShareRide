@@ -128,7 +128,7 @@ Page({
 
       const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
       const rawStatus = String(trip.status || '').toLowerCase()
-      const status = rawStatus === 'close' || rawStatus === 'closed' ? 'past' : rawStatus
+      const status = rawStatus
       const isTripCompleted = status === 'past'
       const displayTrip = {
         ...trip,

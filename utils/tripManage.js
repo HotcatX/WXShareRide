@@ -202,7 +202,7 @@ function isTargetRated(ratedTargetMap, targetOpenid) {
 async function rateTripUser(options = {}) {
   const targetOpenid = cleanText(options.targetOpenid)
   const tripId = cleanText(options.tripId || options.requestId || options.id)
-  const type = cleanText(options.type || options.sourceType || "carpool") || "carpool"
+  const type = cleanText(options.type || "carpool") || "carpool"
   const targetRole = cleanText(options.targetRole)
 
   if (!targetOpenid) {
@@ -252,7 +252,7 @@ async function rateTripUser(options = {}) {
 async function blockRideUser(options = {}) {
   const targetOpenid = cleanText(options.targetOpenid)
   const targetName = cleanText(options.targetName || options.name) || "该用户"
-  const type = cleanText(options.type || options.sourceType || "carpool") || "carpool"
+  const type = cleanText(options.type || "carpool") || "carpool"
   const tripId = cleanText(options.tripId || options.id)
   const requestId = cleanText(options.requestId || options.tripId || options.id)
 

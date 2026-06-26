@@ -217,18 +217,14 @@ Page({
       const requestOwnerOpenid = request.openid || request._openid || ''
       const myOpenid = this.data.myOpenid || ''
 
-      const joinedArrRaw =
-        (Array.isArray(request.passengerID) && request.passengerID) ||
-        (Array.isArray(request.passengerIds) && request.passengerIds) ||
-        (Array.isArray(request.passengers) && request.passengers) ||
-        []
+      const joinedArrRaw = Array.isArray(request.passengerID) ? request.passengerID : []
       const joinedArr = uniq(joinedArrRaw)
 
       const isOwner = !!(requestOwnerOpenid && myOpenid && requestOwnerOpenid === myOpenid)
       const joinedAsPassenger = !!(myOpenid && joinedArr.includes(myOpenid))
 
       // 3) 接单状态
-      const driverOpenid = request.driverOpenid || request.driverID || ''
+      const driverOpenid = request.driverOpenid || ''
       const isAccepted = !!driverOpenid || (request.status && request.status !== 'open')
       const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
 
@@ -261,7 +257,7 @@ Page({
   },
 
   // 司机成为该路线司机
-  async acceptAsDriver() {
+  async acceptRequest() {
     const {
       requestId,
       request,
@@ -289,11 +285,7 @@ Page({
     }
 
     // 规则2：如果已作为乘客加入，则不能接单（双保险）
-    const joinedArrRaw =
-      (request && Array.isArray(request.passengerID) && request.passengerID) ||
-      (request && Array.isArray(request.passengerIds) && request.passengerIds) ||
-      (request && Array.isArray(request.passengers) && request.passengers) ||
-      []
+    const joinedArrRaw = request && Array.isArray(request.passengerID) ? request.passengerID : []
     const joinedArr = uniq(joinedArrRaw)
     const alreadyPassenger = joinedAsPassenger || (myOpenid && joinedArr.includes(myOpenid))
 
@@ -329,7 +321,7 @@ Page({
       return
 
     } catch (e) {
-      console.error('acceptAsDriver error:', e)
+      console.error('acceptRequest error:', e)
       wx.showToast({ title: '接单失败', icon: 'none' })
     } finally {
       this.setData({ submitting: false })

@@ -149,21 +149,10 @@ function wrapTripForCard(raw, opts = {}) {
   const dep0 = (Array.isArray(raw.departures) && raw.departures[0]) ? raw.departures[0] : {}
   const dest0 = (Array.isArray(raw.destinations) && raw.destinations[0]) ? raw.destinations[0] : {}
 
-  const fromAddress =
-    (raw._fromAddress || raw.fromAddress || raw.from || raw.departure || raw.start || raw.startAddress ||
-      dep0.address || dep0.name || dep0.label || dep0.text || '')
-
-  const toAddress =
-    (raw._toAddress || raw.toAddress || raw.to || raw.destination || raw.end || raw.endAddress ||
-      dest0.address || dest0.name || dest0.label || dest0.text || '')
-
-  const date =
-    (raw.date || raw.departDate || raw.departureDate || raw.tripDate || raw.requestDate ||
-      dep0.date || dep0.departDate || '')
-
-  const time =
-    (raw.time || raw.departTime || raw.departureTime || raw.tripTime || raw.requestTime ||
-      dep0.time || dep0.departTime || '')
+  const fromAddress = raw._fromAddress || dep0.address || ''
+  const toAddress = raw._toAddress || dest0.address || ''
+  const date = dep0.date || ''
+  const time = dep0.time || ''
 
   const dateCN = formatDateCNNoYear(date)
   const weekday = getWeekdayCN(date)
@@ -176,21 +165,18 @@ function wrapTripForCard(raw, opts = {}) {
         ? `${dateCN} ${weekday}`
         : (dateCN || time || '')))
 
-  const tripId = raw.carpoolId || raw.tripId || raw._id || raw.docId || raw.id || ''
-  const isRequest = from === 'CarpoolRequest'
+  const tripId = raw.tripId || raw._id || ''
+  const isRequest = from === 'request'
   const requestPassengerCount =
-    raw._requestPassengerCount ||
     raw.passengerCount ||
-    raw.passengersCount ||
-    (Array.isArray(raw.passengers) ? raw.passengers.length : 0) ||
     1
   const seatText = isRequest
     ? `${requestPassengerCount}人求车`
-    : `余位 ${raw.availSeatNum || raw.availableSeats || raw.seatLeft || 0}`
+    : `余位 ${raw.availSeatNum || 0}`
   const priceText = formatRidePriceTag(raw.referencePrice || raw.price || raw.displayPrice || '')
 
   // ===== 状态识别（past / open / full）=====
-  const statusText = raw.statusText || raw.status || raw.requestStatus || raw.state || ''
+  const statusText = raw.status || ''
   const st = String(statusText || '').toLowerCase()
 
   let statusKey = 'open'
@@ -198,8 +184,6 @@ function wrapTripForCard(raw, opts = {}) {
     st.includes('past') ||
     st.includes('expired') ||
     st.includes('done') ||
-    st.includes('close') ||
-    st.includes('closed') ||
     st.includes('结束') ||
     st.includes('过期')
   ) {
@@ -534,7 +518,7 @@ Page({
     const tripId = ds.tripid || ds.id || ''
     const role = String(ds.role || '').toLowerCase()
     const from = String(ds.from || '').toLowerCase()
-    const sourceType = from === 'carpoolrequest' ? 'request' : 'carpool'
+    const sourceType = from === 'request' ? 'request' : 'carpool'
 
     if (!tripId) {
       wx.showToast({ title: '缺少路线ID', icon: 'none' })
@@ -649,7 +633,7 @@ Page({
       driverCreateList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'driverCreate',
-          from: item.from || 'Carpool',
+          from: item.from || 'carpool',
           idx
         })
       )
@@ -659,7 +643,7 @@ Page({
       driverJoinList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'driverJoin',
-          from: item.from || 'CarpoolRequest',
+          from: item.from || 'request',
           idx
         })
       )
@@ -669,7 +653,7 @@ Page({
       passengerCreateList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'passengerCreate',
-          from: item.from || 'CarpoolRequest',
+          from: item.from || 'request',
           idx
         })
       )
@@ -679,7 +663,7 @@ Page({
       passengerJoinList.map((item, idx) =>
         wrapTripForCard(item.tripData || item, {
           role: item.role || 'passenger',
-          from: item.from || 'Carpool',
+          from: item.from || 'carpool',
           idx
         })
       )

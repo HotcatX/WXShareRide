@@ -41,7 +41,7 @@ function formatDateCNNoYear(dateStr) {
 
 function normalizeTripStatus(status) {
   const value = String(status || 'open').toLowerCase()
-  return value === 'close' || value === 'closed' ? 'past' : value
+  return value
 }
 
 function getStatuses(event) {
@@ -58,17 +58,14 @@ function isVisibleDoc(doc, statuses) {
 
 function normalizeTripData(raw, source) {
   const doc = raw || {}
-  const dep0 = Array.isArray(doc.departures) && doc.departures.length ? doc.departures[0] : (doc.departure || {})
-  const dest0 = Array.isArray(doc.destinations) && doc.destinations.length ? doc.destinations[0] : (doc.destination || {})
+  const isRequest = source === 'request'
+  const dep0 = Array.isArray(doc.departures) && doc.departures.length ? doc.departures[0] : {}
+  const dest0 = Array.isArray(doc.destinations) && doc.destinations.length ? doc.destinations[0] : {}
 
-  const fromAddress =
-    doc.fromAddress || doc._fromAddress || dep0.address || dep0.name || doc.departureAddress || doc.startAddress || ''
-
-  const toAddress =
-    doc.toAddress || doc._toAddress || dest0.address || dest0.name || doc.destinationAddress || doc.endAddress || ''
-
-  const date = doc.date || dep0.date || doc.departDate || doc.departureDate || doc.tripDate || doc.requestDate || ''
-  const time = doc.time || dep0.time || doc.departTime || doc.departureTime || doc.tripTime || doc.requestTime || ''
+  const fromAddress = dep0.address || ''
+  const toAddress = dest0.address || ''
+  const date = dep0.date || ''
+  const time = dep0.time || ''
 
   const dateCN = formatDateCNNoYear(date)
   const weekday = getWeekdayCN(date)
@@ -78,7 +75,7 @@ function normalizeTripData(raw, source) {
       : (dateCN && weekday) ? `${dateCN} ${weekday}`
         : (dateCN || time || ''))
 
-  const statusText = doc.statusText || doc.status || (source === 'CarpoolRequest' ? 'request' : '')
+  const statusText = doc.statusText || doc.status || (isRequest ? 'request' : '')
 
   return Object.assign({}, doc, {
     status: normalizeTripStatus(doc.status),
@@ -86,7 +83,7 @@ function normalizeTripData(raw, source) {
     _toAddress: doc._toAddress || toAddress,
     _timeLabel: timeLabel,
     statusText,
-    _isRequest: source === 'CarpoolRequest'
+    _isRequest: isRequest
   })
 }
 
@@ -163,9 +160,9 @@ exports.main = async (event = {}) => {
     const carpoolMap = await fetchMap('Carpool', uniq(tripDriver.concat(tripPassenger)))
     const requestMap = await fetchMap('CarpoolRequest', uniq(tripDriverJoin.concat(tripPassengerCreate).concat(tripPassenger)))
 
-    const driverCreate = buildList(tripDriver, carpoolMap, statuses, 'driverCreate', 'Carpool')
-    const driverJoin = buildList(tripDriverJoin, requestMap, statuses, 'driverJoin', 'CarpoolRequest')
-    const passengerCreate = buildList(tripPassengerCreate, requestMap, statuses, 'passengerCreate', 'CarpoolRequest')
+    const driverCreate = buildList(tripDriver, carpoolMap, statuses, 'driverCreate', 'carpool')
+    const driverJoin = buildList(tripDriverJoin, requestMap, statuses, 'driverJoin', 'request')
+    const passengerCreate = buildList(tripPassengerCreate, requestMap, statuses, 'passengerCreate', 'request')
 
     const passengerJoin = []
     tripPassenger.forEach(id => {
@@ -176,8 +173,8 @@ exports.main = async (event = {}) => {
           passengerJoin.push({
             _id: id,
             role: 'passenger',
-            from: 'Carpool',
-            tripData: normalizeTripData(doc, 'Carpool')
+            from: 'carpool',
+            tripData: normalizeTripData(doc, 'carpool')
           })
         }
         return
@@ -188,8 +185,8 @@ exports.main = async (event = {}) => {
         passengerJoin.push({
           _id: id,
           role: 'passenger',
-          from: 'CarpoolRequest',
-          tripData: normalizeTripData(req, 'CarpoolRequest')
+          from: 'request',
+          tripData: normalizeTripData(req, 'request')
         })
       }
     })

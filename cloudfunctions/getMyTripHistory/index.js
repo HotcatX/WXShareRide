@@ -113,17 +113,17 @@ exports.main = async (event, context) => {
 
     // 3.1 driver_create
     for (const id of driverCreateIds) {
-      pushOne(id, 'driver_create', 'Carpool', carpoolMap.get(id))
+      pushOne(id, 'driver_create', 'carpool', carpoolMap.get(id))
     }
 
     // 3.2 driver_join
     for (const id of driverJoinIds) {
-      pushOne(id, 'driver_join', 'CarpoolRequest', requestMap.get(id))
+      pushOne(id, 'driver_join', 'request', requestMap.get(id))
     }
 
     // 3.2.1 passenger_create
     for (const id of passengerCreateIds) {
-      pushOne(id, 'passenger_create', 'CarpoolRequest', requestPassengerCreateMap.get(id))
+      pushOne(id, 'passenger_create', 'request', requestPassengerCreateMap.get(id))
     }
 
     // 3.3 passenger（Carpool 优先；如需 CarpoolRequest 优先，把下面两行顺序对调即可）
@@ -131,9 +131,9 @@ exports.main = async (event, context) => {
       const docCarpool = passengerCarpoolMap.get(id)
       const docReq = passengerRequestMap.get(id)
 
-      if (docCarpool) pushOne(id, 'passenger', 'Carpool', docCarpool)
-      else if (docReq) pushOne(id, 'passenger', 'CarpoolRequest', docReq)
-      else pushOne(id, 'passenger', 'Unknown', null)
+      if (docCarpool) pushOne(id, 'passenger', 'carpool', docCarpool)
+      else if (docReq) pushOne(id, 'passenger', 'request', docReq)
+      else pushOne(id, 'passenger', 'unknown', null)
     }
 
     // 4) 合并去重（同一个 _id 可能在不同列表重复出现：例如你既是司机创建又在 passengerHistory 里）

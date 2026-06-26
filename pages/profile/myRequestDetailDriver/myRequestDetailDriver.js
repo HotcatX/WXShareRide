@@ -176,10 +176,10 @@ Page({
 
       // 3) 判断是否本路线司机
       const myOpenid = (rawResult && rawResult.openid) ? rawResult.openid : ''
-      const driverOpenid = trip.driverOpenid || trip.driverID || trip.driverId || ''
+      const driverOpenid = trip.driverOpenid || ''
       const isMyRequest = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
       const rawStatus = String(trip.status || 'open').toLowerCase()
-      const isRequestCompleted = rawStatus === 'past' || rawStatus === 'close' || rawStatus === 'closed'
+      const isRequestCompleted = rawStatus === 'past'
       const displayTrip = {
         ...trip,
         referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
@@ -188,7 +188,7 @@ Page({
       // 4) 拉取乘客信息：通过 passengerID（数组）读取 openids
       const passengerOpenids = Array.isArray(trip.passengerID)
         ? trip.passengerID.filter(Boolean)
-        : (Array.isArray(trip.passengerIds) ? trip.passengerIds.filter(Boolean) : [])
+        : []
 
       let passengers = []
       if (isMyRequest && passengerOpenids.length > 0) {

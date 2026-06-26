@@ -1,5 +1,6 @@
 {
   "pages": [
+    "pages/market/market",
     "pages/home/home",
     "pages/other/login/login",
     "pages/other/privacy/privacy",
@@ -22,7 +23,6 @@
     "pages/profile/myTripDetailPassenger/myTripDetailPassenger",
     "pages/profile/notification/notification",
     "pages/profile/blockList/blockList",
-    "pages/market/market",
     "pages/market/marketDetail/marketDetail",
     "pages/market/marketPost/marketPost",
     "pages/market/marketSeller/marketSeller",
@@ -52,7 +52,7 @@
       }
     ]
   },
-  "entryPagePath": "pages/home/home",
+  "entryPagePath": "pages/market/market",
   "permission": {
     "scope.userLocation": {
       "desc": "用于选择位置并计算二手商品和转租房源距离"

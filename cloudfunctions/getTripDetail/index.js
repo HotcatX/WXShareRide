@@ -37,7 +37,7 @@ const PUBLIC_DRIVER_FIELDS = {
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'request') return 'request'
   return 'carpool'
 }
 
@@ -53,13 +53,6 @@ function cleanText(value, max = 120) {
 function addId(set, value) {
   const id = cleanText(value, 80)
   if (id) set.add(id)
-}
-
-function getBlockedUsers(user = {}) {
-  const out = new Set()
-  ;(Array.isArray(user && user.blockedUsers) ? user.blockedUsers : []).forEach(id => addId(out, id))
-  ;(Array.isArray(user && user.blockedUserDetails) ? user.blockedUserDetails : []).forEach(item => addId(out, item && item.openid))
-  return out
 }
 
 async function getUser(openid) {
@@ -83,11 +76,6 @@ async function hasActiveBlock(blockerOpenid, targetOpenid) {
 
 async function checkBlockBetween(openidA, openidB) {
   if (!openidA || !openidB || openidA === openidB) return { blocked: false }
-  const [a, b] = await Promise.all([getUser(openidA), getUser(openidB)])
-  const aBlocks = getBlockedUsers(a)
-  const bBlocks = getBlockedUsers(b)
-  if (aBlocks.has(openidB)) return { blocked: true, blocker: openidA, target: openidB }
-  if (bBlocks.has(openidA)) return { blocked: true, blocker: openidB, target: openidA }
   const [aActiveBlock, bActiveBlock] = await Promise.all([
     hasActiveBlock(openidA, openidB),
     hasActiveBlock(openidB, openidA)
@@ -100,43 +88,27 @@ async function checkBlockBetween(openidA, openidB) {
 function getCarpoolPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(item => {
-    if (typeof item === 'string') addId(ids, item)
-    else {
-      addId(ids, item && item._openid)
-      addId(ids, item && item.openid)
-      addId(ids, item && item.passengerOpenid)
-    }
+    addId(ids, item && item._openid)
   })
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addId(ids, id))
   return Array.from(ids)
 }
 
 function getRequestPassengerOpenids(doc = {}) {
   const ids = new Set()
   ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
-  ;(Array.isArray(doc.passengerIDs) ? doc.passengerIDs : []).forEach(id => addId(ids, id))
-  ;(Array.isArray(doc.passengers) ? doc.passengers : []).forEach(item => {
-    if (typeof item === 'string') addId(ids, item)
-    else {
-      addId(ids, item && item._openid)
-      addId(ids, item && item.openid)
-      addId(ids, item && item.passengerOpenid)
-    }
-  })
   return Array.from(ids)
 }
 
 function getCarpoolDriverOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.driverOpenid || doc.driverID || doc.driverId, 80)
+  return cleanText(doc._openid, 80)
 }
 
 function getRequestCreatorOpenid(doc = {}) {
-  return cleanText(doc._openid || doc.creatorOpenid || doc.passengerOpenid || doc.openid, 80)
+  return cleanText(doc._openid, 80)
 }
 
 function getRequestDriverOpenid(doc = {}) {
-  return cleanText(doc.driverOpenid || doc.driverID || doc.driverId || doc.driver, 80)
+  return cleanText(doc.driverOpenid, 80)
 }
 
 function getTripParticipantOpenids(type, doc) {
@@ -161,6 +133,21 @@ function normalizeDriverInfo(user = {}, driverOpenid = '') {
     carBrand: user.carBrand || '',
     carModel: user.carModel || ''
   }
+}
+
+function sanitizeTripDoc(doc = {}) {
+  const item = { ...doc }
+  delete item.driverID
+  delete item.driverId
+  delete item.driverOpenId
+  delete item.passengerIDs
+  delete item.passengerIds
+  delete item.creatorOpenid
+  delete item.passengerOpenid
+  delete item.openid
+  delete item.routeCityKey
+  delete item.routeCityLabel
+  return item
 }
 
 function canExposeDriverInfo(actorOpenid, type, doc = {}) {
@@ -221,7 +208,7 @@ async function getRatedTargetOpenids(type, tripId, actorOpenid) {
 exports.main = async (event = {}) => {
   const wxContext = cloud.getWXContext()
   const id = String(event.id || event.tripId || event.requestId || '').trim()
-  const type = normalizeType(event.type || event.sourceType || event.routeType)
+  const type = normalizeType(event.type)
   const config = TYPE_CONFIG[type]
 
   if (!id) {
@@ -267,11 +254,11 @@ exports.main = async (event = {}) => {
     return {
       ok: true,
       success: true,
-      data: res.data,
+      data: sanitizeTripDoc(res.data),
       driverInfo,
       openid: wxContext.OPENID || '',
       type,
-      from: config.collection,
+      from: type,
       ratedTargetOpenids,
       ratingState: {
         ratedTargetOpenids

@@ -658,7 +658,7 @@ Page({
 
   normalizeTripStatus(status) {
     const value = String(status || "open").toLowerCase()
-    return value === "close" || value === "closed" ? "past" : value
+    return value
   },
 
   getTripPriceText(raw) {
@@ -1219,7 +1219,7 @@ Page({
   },
 
   // =========================
-  // 跳转详情：兼容旧逻辑
+  // 跳转详情
   // =========================
   findDetailItem(id, type) {
     const fromGroups = []

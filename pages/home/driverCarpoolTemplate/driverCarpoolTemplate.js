@@ -418,9 +418,6 @@ Page({
       }
 
       const payload = {
-        // 归属
-        // _openid: openid,
-        driverID: userInfo._id,   // 你项目里常用 userInfo._id
         templateName,
 
         // 路线模板信息

@@ -126,8 +126,6 @@ function buildDetailItem(x = {}) {
     conditionDisplay,
     desc: x.desc || copy.defaultDesc,
     descDisplay: x.desc || copy.defaultDesc,
-    postDate: x.postDate || '刚刚发布',
-    postDateDisplay: x.postDate || '刚刚发布',
     imageFileID: x.imageFileID || "",
     thumbFileID: x.thumbFileID || "",
     imageFileIDs,

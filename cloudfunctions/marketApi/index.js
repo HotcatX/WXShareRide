@@ -40,7 +40,6 @@ const LIST_FIELDS = {
   location: true,
   condition: true,
   desc: true,
-  postDate: true,
   imageFileID: true,
   thumbFileID: true,
   imageFileIDs: true,
@@ -55,9 +54,6 @@ const LIST_FIELDS = {
   createTime: true,
   updateTime: true,
   buyerOpenid: true,
-  buyer_openid: true,
-  isSold: true,
-  sold: true,
   wantCount: true,
   viewCount: true,
   availableStartDate: true,
@@ -583,6 +579,13 @@ function buildSubletSummary(item = {}) {
 }
 
 function normalizeMarketItem(item = {}) {
+  const sourceItem = { ...item }
+  delete sourceItem.postDate
+  delete sourceItem.postDateDisplay
+  delete sourceItem.buyer_openid
+  delete sourceItem.isSold
+  delete sourceItem.sold
+
   const listingType = normalizeListingType(item.listingType)
   const title = normalizeText(item.title) || (listingType === "sublet" ? "未命名房源" : "未命名商品")
   const priceText = formatPrice(item.price)
@@ -604,7 +607,7 @@ function normalizeMarketItem(item = {}) {
     : "成色未填"
   const defaultDesc = listingType === "sublet" ? "发布者暂未填写详细描述。" : "卖家暂未填写详细描述。"
   return {
-    ...item,
+    ...sourceItem,
     _id: item._id,
     id: item._id,
     listingType,
@@ -626,8 +629,6 @@ function normalizeMarketItem(item = {}) {
     conditionDisplay: normalizeText(item.condition) || defaultCondition,
     desc: item.desc || "",
     descDisplay: item.desc || defaultDesc,
-    postDate: item.postDate || "刚刚发布",
-    postDateDisplay: item.postDate || "刚刚发布",
     imageFileID: normalizeFileID(item.imageFileID),
     thumbFileID: normalizeFileID(item.thumbFileID),
     imageFileIDs: Array.isArray(item.imageFileIDs) ? item.imageFileIDs.map(normalizeFileID).filter(Boolean) : [],
@@ -901,8 +902,6 @@ async function createItem(event, openid) {
   const normalized = normalizePayloadForSave(payload)
   if (!normalized.ok) return normalized
 
-  const now = new Date()
-  const postDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
   const clientRequestId = normalizeClientRequestId(payload.clientRequestId)
   const idempotentGoodsId = buildIdempotentGoodsId(openid, clientRequestId)
   const data = {
@@ -915,7 +914,6 @@ async function createItem(event, openid) {
     desc: normalized.data.desc || "",
     wantCount: 0,
     viewCount: 0,
-    postDate,
     createTime: db.serverDate(),
     updateTime: db.serverDate(),
     status: "online",
@@ -1074,12 +1072,7 @@ function buildVisibleConditions(filters = {}) {
 
 function buildListingTypeCondition(value) {
   const listingType = normalizeListingType(value)
-  if (listingType === "sublet") return { listingType: "sublet" }
-  return _.or([
-    { listingType: _.exists(false) },
-    { listingType: "" },
-    { listingType: "goods" }
-  ])
+  return { listingType }
 }
 
 function buildOwnerListCondition(openid, listingType, visibleOnly = false) {
@@ -1370,30 +1363,19 @@ async function tradeList(event, openid) {
   if (!openid) return fail("not_logged_in")
   const type = event.type === "bought" ? "bought" : "sold"
   const queryCondition = type === "sold"
-    ? _.or([
-      { _openid: openid, isSold: true },
-      { _openid: openid, sold: true },
-      { _openid: openid, status: "sold" }
-    ])
-    : _.or([
-      { buyerOpenid: openid, isSold: true },
-      { buyerOpenid: openid, sold: true },
-      { buyerOpenid: openid, status: "sold" },
-      { buyer_openid: openid, isSold: true },
-      { buyer_openid: openid, sold: true },
-      { buyer_openid: openid, status: "sold" }
-    ])
+    ? { _openid: openid, status: "sold" }
+    : { buyerOpenid: openid, status: "sold" }
   let query = db.collection(GOODS_COLLECTION).where(queryCondition)
   if (typeof query.field === "function") query = query.field(LIST_FIELDS)
   const result = await queryPaged(query, event)
   if (!result.ok) return result
   const otherOpenids = (result.items || []).map(item => type === "sold"
-    ? (item.buyerOpenid || item.buyer_openid || "")
+    ? (item.buyerOpenid || "")
     : (item._openid || ""))
   const wxMap = await getWechatMap(otherOpenids)
   const items = (result.items || []).map(item => {
     const otherOpenid = type === "sold"
-      ? (item.buyerOpenid || item.buyer_openid || "")
+      ? (item.buyerOpenid || "")
       : (item._openid || "")
     return {
       ...item,

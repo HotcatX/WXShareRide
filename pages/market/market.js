@@ -298,6 +298,23 @@ function formatShortDateText(value) {
   return `${match[2]}-${match[3]}`
 }
 
+function timestampMs(value) {
+  if (!value) return 0
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === "string") {
+    const ms = Date.parse(value)
+    return Number.isFinite(ms) ? ms : 0
+  }
+  if (typeof value === "object") {
+    if (typeof value.toDate === "function") return value.toDate().getTime()
+    if (value.$date) return timestampMs(value.$date)
+    if (value.seconds !== undefined) return Number(value.seconds) * 1000
+    if (value._seconds !== undefined) return Number(value._seconds) * 1000
+  }
+  return 0
+}
+
 function buildSubletStartText(item = {}) {
   const startText = formatShortDateText(item.availableStartDate || item.pickupStartDate)
   if (!startText) return normalizeSubletCategory(item.roomType || item.category) || "转租"
@@ -1088,12 +1105,9 @@ Page({
       sellerNameText,
       sellerAvatar,
       viewCount: Number(x.viewCount) || 0,
-      postDate: x.postDate,
-
-      // 旧字段
+      createTime: x.createTime,
+      updateTime: x.updateTime,
       imageFileID: x.imageFileID || "",
-
-      // 新字段（可没有，兼容老数据）
       thumbFileID: x.thumbFileID || "",
       imageFileIDs: Array.isArray(x.imageFileIDs) ? x.imageFileIDs : [],
       thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
@@ -1783,7 +1797,7 @@ Page({
         const da = Number.isFinite(a.distanceMiles) ? a.distanceMiles : Number.POSITIVE_INFINITY
         const db = Number.isFinite(b.distanceMiles) ? b.distanceMiles : Number.POSITIVE_INFINITY
         if (da !== db) return da - db
-        return String(b.postDate || "").localeCompare(String(a.postDate || ""))
+        return timestampMs(b.createTime) - timestampMs(a.createTime)
       })
     }
 

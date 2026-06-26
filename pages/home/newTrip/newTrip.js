@@ -614,7 +614,6 @@ Page({
         type: "carpool",
         cityKey: rideCity.key || DEFAULT_CITY_KEY,
         cityLabel: rideCity.label || "",
-        driverID: userInfo._id,
         departures,
         destinations,
         passengerCount,

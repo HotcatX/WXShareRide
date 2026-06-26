@@ -85,7 +85,7 @@
     <button
       wx:else
       class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
-      bindtap="acceptAsDriver"
+      bindtap="acceptRequest"
       disabled="{{submitting}}"
       loading="{{submitting}}"
     >

@@ -82,7 +82,7 @@ function buildDepartureMeta(departures) {
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
-  if (type === 'request' || type === 'carpoolrequest') return 'request'
+  if (type === 'request') return 'request'
   return 'carpool'
 }
 
@@ -192,7 +192,6 @@ async function createCarpool(event, openid) {
     const departureMeta = buildDepartureMeta(event.departures)
     const addRes = await transaction.collection('Carpool').add({
       data: {
-        driverID: event.driverID || '',
         cityKey: normalizeCityKey(event.cityKey),
         cityLabel: cleanText(event.cityLabel || '纽约/新泽西'),
         departures: event.departures || [],
@@ -258,7 +257,7 @@ exports.main = async (event = {}) => {
   if (!openid) return { ok: false, success: false, errorMsg: '未获取到 openid' }
 
   try {
-    const type = normalizeType(event.type || event.routeType)
+    const type = normalizeType(event.type)
     return type === 'request'
       ? await createRequest(event, openid)
       : await createCarpool(event, openid)

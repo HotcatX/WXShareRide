@@ -6,6 +6,8 @@ const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
+const MARKET_PROFILE_REGION_HANDOFF_KEY = "market_profile_region_handoff_v1"
+const MARKET_PROFILE_REGION_HANDOFF_MAX_AGE_MS = 10 * 60 * 1000
 const { showDataError } = require("../../../utils/error")
 const {
   ALL_CITY_KEY,
@@ -142,6 +144,63 @@ function markMarketPostSuccessFilter(payload = {}) {
       regionLabel: normalizeLocationText(payload.regionArea)
     })
   } catch (e) {}
+}
+
+function readMarketProfileRegionHandoff() {
+  try {
+    const value = wx.getStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY)
+    if (!value || typeof value !== "object") return null
+    const ts = Number(value.ts) || 0
+    if (!ts || Date.now() - ts > MARKET_PROFILE_REGION_HANDOFF_MAX_AGE_MS) {
+      wx.removeStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY)
+      return null
+    }
+    if (!normalizeLocationText(value.regionKey) || !normalizeLocationText(value.regionArea)) return null
+    return value
+  } catch (e) {
+    return null
+  }
+}
+
+function mergeProfileRegionHandoff(user = {}, handoff = null) {
+  if (!handoff) return user || {}
+  const location = handoff.location && typeof handoff.location === "object" ? handoff.location : {}
+  const cloudLocation = (user && user.location) || {}
+  const cityKey = normalizeLocationText(handoff.cityKey || location.cityKey || user?.cityKey || cloudLocation.cityKey)
+  const cityLabel = normalizeLocationText(handoff.cityLabel || location.cityLabel || user?.cityLabel || cloudLocation.cityLabel)
+  const buildingName = normalizeLocationText(handoff.buildingName || location.buildingName || user?.buildingName || cloudLocation.buildingName)
+  const regionState = normalizeLocationText(handoff.regionState || location.regionState || user?.regionState || cloudLocation.regionState)
+  const regionArea = normalizeLocationText(handoff.regionArea || location.regionArea || location.areaLabel || user?.regionArea || cloudLocation.regionArea || cloudLocation.areaLabel)
+  const regionKey = normalizeLocationText(handoff.regionKey || location.regionKey || user?.regionKey || cloudLocation.regionKey)
+  const regionDisplay = normalizeLocationText(handoff.regionDisplay || location.region || user?.regionDisplay || cloudLocation.region)
+  const bigregion = normalizeLocationText(handoff.bigregion) ||
+    normalizeLocationText(user?.bigregion) ||
+    [cityLabel, regionArea].filter(Boolean).join(" / ")
+
+  return {
+    ...(user || {}),
+    cityKey,
+    cityLabel,
+    bigregion,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay,
+    location: {
+      ...cloudLocation,
+      ...location,
+      cityKey,
+      cityLabel,
+      buildingName,
+      region: regionDisplay,
+      regionState,
+      regionArea,
+      areaLabel: regionArea,
+      regionKey,
+      source: location.source || "profileHandoff"
+    }
+  }
 }
 
 function getMarketApiResult(res) {
@@ -658,7 +717,10 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
-      const user = (res?.result?.data || [])[0] || null
+      const user = mergeProfileRegionHandoff(
+        (res?.result?.data || [])[0] || null,
+        readMarketProfileRegionHandoff()
+      )
       const profileWechatID = normalizeLocationText(user?.wechatID)
       const regionMeta = buildProfileRegionMeta(user || {})
       const locationDisplay = buildProfileMapLocationDisplay(user || {})
@@ -817,7 +879,10 @@ Page({
   async _getMyUserInfo() {
     try {
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
-      return (res?.result?.data || [])[0] || {}
+      return mergeProfileRegionHandoff(
+        (res?.result?.data || [])[0] || {},
+        readMarketProfileRegionHandoff()
+      )
     } catch (e) {
       console.error("[marketPost] getUserInfo failed:", e)
       showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")

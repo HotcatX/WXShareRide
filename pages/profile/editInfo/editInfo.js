@@ -46,6 +46,7 @@ const INITIAL_CITY_TREE = normalizeCityTree(DEFAULT_CITY_TREE)
 const INITIAL_REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
 const CITY_PICKER_HINT = '选择你常用发布和交易的城市，下一步选择城市下的小区域。'
 const AREA_PICKER_HINT = '请选择城市下的小区域，用于二手和转租的区域标签。'
+const MARKET_PROFILE_REGION_HANDOFF_KEY = 'market_profile_region_handoff_v1'
 const CITY_STATE_BY_KEY = {
   ny_nj: 'NY_NJ',
   ny: 'NY_NJ',
@@ -83,6 +84,23 @@ function getCityStateKey(cityKey = '') {
 
 function buildRegionDisplayParts(cityLabel, areaLabel, buildingName = '') {
   return [cityLabel, areaLabel, buildingName].map(normalizeText).filter(Boolean).join(' / ')
+}
+
+function markMarketProfileRegionHandoff(updateData = {}) {
+  try {
+    wx.setStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY, {
+      ts: Date.now(),
+      cityKey: normalizeText(updateData.cityKey),
+      cityLabel: normalizeText(updateData.cityLabel),
+      bigregion: normalizeText(updateData.bigregion),
+      buildingName: normalizeText(updateData.buildingName),
+      regionState: normalizeText(updateData.regionState),
+      regionArea: normalizeText(updateData.regionArea),
+      regionKey: normalizeText(updateData.regionKey),
+      regionDisplay: normalizeText(updateData.regionDisplay),
+      location: updateData.location && typeof updateData.location === 'object' ? updateData.location : {}
+    })
+  } catch (e) {}
 }
 
 function buildCityPickerGroups(tree, countryCode, activeCityKey, keyword = '') {
@@ -737,6 +755,9 @@ Page({
     }
 
     const updateData = this.buildUpdateData()
+    if (this.data.from === 'marketPost') {
+      markMarketProfileRegionHandoff(updateData)
+    }
     const payloadKey = this.getSavePayloadKey(updateData)
     if (!this.data.unsaved && payloadKey === this._lastSavedPayloadKey) {
       return true

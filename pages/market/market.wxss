@@ -20,28 +20,28 @@
   padding: 12rpx 24rpx 8rpx;
   display: flex;
   align-items: center;
-  gap: 18rpx;
+  gap: 10rpx;
   box-sizing: border-box;
 }
 
 .region-entry{
-  width: 178rpx;
+  width: 214rpx;
   height: 64rpx;
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  gap: 6rpx;
   color: #111418;
   box-sizing: border-box;
 }
 
 .region-text{
-  max-width: 136rpx;
+  max-width: 176rpx;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 31rpx;
-  line-height: 40rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
   font-weight: 900;
 }
 

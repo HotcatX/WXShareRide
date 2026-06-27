@@ -1119,6 +1119,11 @@ Page({
   },
 
   onTapSeller(e) {
+    const managed = e.currentTarget.dataset.managed
+    if (managed === true || managed === "true") {
+      wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+      return
+    }
     const openid = e.currentTarget.dataset.openid
     const type = e.currentTarget.dataset.type || this.data.activeListingType || "goods"
     if (!openid) return
@@ -1331,11 +1336,15 @@ Page({
     const cardMetaText = isSublet
       ? buildSubletMetaText(displayItem)
       : (compactMarketText(x.condition) || category || "二手")
+    const isManagedSeller = x.managedByAdmin === true
     const sellerNameText = compactMarketText(x.sellerName || x.nickName || x.nickname) || (isSublet ? "转租发布者" : "二手卖家")
     const sellerAvatar = compactMarketText(x.sellerAvatar || x.avatarUrl) || "/images/profile.png"
     return this._withDistance({
       id: x._id,
       _openid: x._openid,
+      managedByAdmin: isManagedSeller,
+      sellerWechat: x.sellerWechat || "",
+      sellerPhone: x.sellerPhone || "",
       listingType,
       isSublet,
       cardClass: isSublet ? "market-card--sublet" : "market-card--goods",
@@ -1404,7 +1413,10 @@ Page({
 
   _hydrateSellerProfilesFromCache(goods = [], options = {}) {
     const rows = Array.isArray(goods) ? goods : []
-    const openids = Array.from(new Set(rows.map(item => item && item._openid).filter(Boolean)))
+    const openids = Array.from(new Set(rows
+      .filter(item => !(item && item.managedByAdmin && item.sellerNameText))
+      .map(item => item && item._openid)
+      .filter(Boolean)))
     if (!openids.length) return rows
 
     this._sellerProfileCache = this._sellerProfileCache || {}
@@ -1434,6 +1446,7 @@ Page({
     let changed = false
     const list = (Array.isArray(rows) ? rows : []).map(item => {
       if (!item || !item._openid) return item
+      if (item.managedByAdmin && item.sellerNameText) return item
       const profile = this._sellerProfileCache[item._openid] || {}
       const sellerNameText = profile.name || item.sellerNameText
       const sellerAvatar = profile.avatar || item.sellerAvatar || "/images/profile.png"

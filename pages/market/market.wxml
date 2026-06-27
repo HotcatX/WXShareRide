@@ -97,6 +97,7 @@
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
+                data-managed="{{item.managedByAdmin}}"
               >
                 <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
@@ -116,6 +117,7 @@
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
+                data-managed="{{item.managedByAdmin}}"
               >
                 <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name">{{item.sellerNameText}}</text>

@@ -175,6 +175,13 @@ function buildDetailItem(x = {}) {
     viewCount: x.viewCount || 0,
     viewCountText: `${Number(x.viewCount) || 0} 人浏览`,
     _openid: x._openid,
+    managedByAdmin: x.managedByAdmin === true,
+    managedByOpenid: x.managedByOpenid || "",
+    sellerName: normalizeText(x.sellerName),
+    sellerWechat: normalizeText(x.sellerWechat),
+    sellerPhone: normalizeText(x.sellerPhone),
+    sellerAvatar: normalizeText(x.sellerAvatar),
+    sellerNote: normalizeText(x.sellerNote),
     pickup: preciseLocationText || regionDisplay || "",
     navTitle: copy.navTitle,
     pickupLabel: copy.pickupLabel,
@@ -309,6 +316,14 @@ function buildSellerFromProfile(profile, listingType = "goods") {
   }
 }
 
+function buildSellerFromManagedItem(item = {}) {
+  return {
+    nameDisplay: normalizeText(item.sellerName) || buildDefaultSeller(item.listingType).nameDisplay,
+    avatarDisplay: normalizeText(item.sellerAvatar) || "/images/profile.png",
+    regionDisplay: normalizeText(item.regionDisplay || item.region) || "区域未填"
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -394,6 +409,11 @@ Page({
   },
 
   async _getSellerWechatByOpenid(openid) {
+    const itemWechat = normalizeText(this.data.item?.sellerWechat)
+    if (itemWechat) {
+      this.setData({ sellerWechat: itemWechat })
+      return itemWechat
+    }
     if (this.data.sellerWechat) return this.data.sellerWechat
     const cached = readMarketSellerProfile(openid, { allowStale: true })
     if (cached && cached.wechatID) {
@@ -537,7 +557,14 @@ Page({
       hasImageUrls: imgUrls.length > 0,
       hasMultipleImages: imgUrls.length > 1
     })
-    this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
+    if (detailItem.managedByAdmin) {
+      this.setData({
+        seller: buildSellerFromManagedItem(detailItem),
+        sellerWechat: detailItem.sellerWechat || ""
+      })
+    } else {
+      this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
+    }
     return true
   },
 
@@ -690,6 +717,10 @@ Page({
   },
 
   onViewSellerProfile() {
+    if (this.data.item?.managedByAdmin) {
+      wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+      return
+    }
     const openid = this.data.item?._openid
     if (!openid) return
     wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
@@ -723,6 +754,14 @@ Page({
 
   async onContactSeller() {
     if (!this.ensureLoginBeforeContact()) return
+    const directWechat = normalizeText(this.data.item?.sellerWechat)
+    if (directWechat) {
+      wx.setClipboardData({
+        data: directWechat,
+        success: () => wx.showToast({ title: "微信号已复制", icon: "success" })
+      })
+      return
+    }
     const openid = this.data.item?._openid
     if (!openid) {
       wx.showToast({ title: "发布者信息缺失", icon: "none" })

@@ -11,6 +11,9 @@ const ADS_COLLECTION = "market_ads"
 const AD_EVENTS_COLLECTION = "market_ad_events"
 const VIEW_EVENTS_COLLECTION = "market_view_events"
 const USER_COLLECTION = "userInfo"
+const ADMIN_COLLECTION = "market_admins"
+const IMPORT_BATCH_COLLECTION = "MarketImportBatches"
+const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
@@ -59,6 +62,16 @@ const LIST_FIELDS = {
   createTime: true,
   updateTime: true,
   buyerOpenid: true,
+  managedByAdmin: true,
+  managedByOpenid: true,
+  managedSource: true,
+  adminBatchId: true,
+  adminExternalId: true,
+  sellerName: true,
+  sellerWechat: true,
+  sellerPhone: true,
+  sellerAvatar: true,
+  sellerNote: true,
   wantCount: true,
   viewCount: true,
   availableStartDate: true,
@@ -888,6 +901,11 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   }
   if (payload.condition !== undefined) data.condition = normalizeText(payload.condition) || "99新"
   if (payload.desc !== undefined) data.desc = String(payload.desc || "")
+  if (payload.sellerName !== undefined) data.sellerName = normalizeText(payload.sellerName)
+  if (payload.sellerWechat !== undefined) data.sellerWechat = normalizeText(payload.sellerWechat)
+  if (payload.sellerPhone !== undefined) data.sellerPhone = normalizeText(payload.sellerPhone)
+  if (payload.sellerAvatar !== undefined) data.sellerAvatar = normalizeFileID(payload.sellerAvatar) || normalizeText(payload.sellerAvatar)
+  if (payload.sellerNote !== undefined) data.sellerNote = normalizeText(payload.sellerNote)
 
   if (payload.availableStartDate !== undefined) data.availableStartDate = normalizeText(payload.availableStartDate)
   if (payload.leaseEndDate !== undefined) data.leaseEndDate = normalizeText(payload.leaseEndDate)
@@ -944,9 +962,7 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   return ok({ data })
 }
 
-async function createItem(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const payload = event.payload || event.data || event
+function buildCreateItemForSave(payload = {}, openid = "", options = {}) {
   const title = normalizeText(payload.title)
   const listingType = normalizeListingType(payload.listingType)
   const category = normalizeListingCategory(payload.category, listingType)
@@ -975,11 +991,25 @@ async function createItem(event, openid) {
     updateTime: db.serverDate(),
     status: "online",
     clientRequestId,
-    _openid: openid
+    _openid: openid,
+    ...(options.extraData && typeof options.extraData === "object" ? options.extraData : {})
   }
 
+  return ok({
+    data,
+    files: collectMarketFiles(data),
+    idempotentGoodsId
+  })
+}
+
+async function createItem(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const payload = event.payload || event.data || event
+  const built = buildCreateItemForSave(payload, openid)
+  if (!built.ok) return built
+  const { data, files, idempotentGoodsId } = built
+
   await upsertUserRegion(openid, data)
-  const files = collectMarketFiles(data)
   let itemId = ""
 
   if (idempotentGoodsId) {
@@ -997,6 +1027,322 @@ async function createItem(event, openid) {
 
   await attachMarketFiles(files, itemId, openid)
   return ok({ id: itemId, itemId, status: "online" })
+}
+
+function getAdminOpenidSet() {
+  const raw = [
+    process.env.MARKET_ADMIN_OPENIDS,
+    process.env.ADMIN_OPENIDS
+  ].map(normalizeText).filter(Boolean).join(",")
+  return new Set(raw.split(/[,\s]+/).map(normalizeText).filter(Boolean))
+}
+
+function userHasAdminFlag(user = {}) {
+  const role = normalizeText(user.role || user.userRole).toLowerCase()
+  const roles = Array.isArray(user.roles)
+    ? user.roles.map(item => normalizeText(item).toLowerCase())
+    : []
+  return user.isAdmin === true ||
+    user.admin === true ||
+    user.marketAdmin === true ||
+    user.isMarketAdmin === true ||
+    role === "admin" ||
+    role === "market_admin" ||
+    roles.includes("admin") ||
+    roles.includes("market_admin")
+}
+
+async function isAdminOpenid(openid) {
+  const id = normalizeText(openid)
+  if (!id) return { isAdmin: false, source: "" }
+
+  if (getAdminOpenidSet().has(id)) return { isAdmin: true, source: "env" }
+
+  try {
+    const adminDoc = await db.collection(ADMIN_COLLECTION).doc(id).get().catch(() => null)
+    if (adminDoc && adminDoc.data) {
+      const status = normalizeText(adminDoc.data.status || "active").toLowerCase()
+      if (status !== "disabled" && status !== "inactive") return { isAdmin: true, source: ADMIN_COLLECTION }
+    }
+  } catch (e) {}
+
+  try {
+    const adminRes = await db.collection(ADMIN_COLLECTION).where({ openid: id }).limit(1).get().catch(() => null)
+    const row = adminRes && adminRes.data && adminRes.data[0]
+    if (row) {
+      const status = normalizeText(row.status || "active").toLowerCase()
+      if (status !== "disabled" && status !== "inactive") return { isAdmin: true, source: ADMIN_COLLECTION }
+    }
+  } catch (e) {}
+
+  try {
+    const userRes = await db.collection(USER_COLLECTION).where({ _openid: id }).limit(1).get()
+    const user = (userRes.data || [])[0]
+    if (userHasAdminFlag(user)) return { isAdmin: true, source: USER_COLLECTION }
+  } catch (e) {}
+
+  return { isAdmin: false, source: "" }
+}
+
+async function adminStatus(event, openid) {
+  if (!openid) return ok({ isAdmin: false, openid: "" })
+  const access = await isAdminOpenid(openid)
+  return ok({ openid, isAdmin: !!access.isAdmin, source: access.source || "" })
+}
+
+function buildAdminBatchId(value) {
+  const explicit = normalizeClientRequestId(value)
+  if (explicit) return explicit
+  return `market_admin_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`
+}
+
+function buildAdminExternalId(item = {}, index = 0) {
+  return normalizeClientRequestId(item.externalId || item.adminExternalId || item.importId || `row_${index + 1}`)
+}
+
+async function saveAdminCreatedItem(payload, openid, batchId, index) {
+  const listingType = normalizeListingType(payload.listingType)
+  const externalId = buildAdminExternalId(payload, index)
+  const clientRequestId = normalizeClientRequestId(payload.clientRequestId) ||
+    (payload.externalId || payload.adminExternalId || payload.importId
+      ? `admin_external_${externalId}`
+      : `${batchId}_${externalId}`)
+  const sellerName = normalizeText(payload.sellerName || payload.displayName || payload.contactName)
+  const sellerWechat = normalizeText(payload.sellerWechat || payload.wechatID || payload.wechatId || payload.wechat)
+  const sellerPhone = normalizeText(payload.sellerPhone || payload.phone)
+  const sourcePayload = {
+    ...payload,
+    listingType,
+    category: normalizeListingCategory(payload.category || payload.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
+    condition: payload.condition || (listingType === "sublet" ? "转租" : "99新"),
+    status: "online",
+    clientRequestId
+  }
+  const built = buildCreateItemForSave(sourcePayload, openid, {
+    extraData: {
+      managedByAdmin: true,
+      managedByOpenid: openid,
+      managedSource: "admin_bulk",
+      adminBatchId: batchId,
+      adminExternalId: externalId,
+      sellerName,
+      sellerWechat,
+      sellerPhone,
+      sellerAvatar: normalizeFileID(payload.sellerAvatar) || normalizeText(payload.sellerAvatar),
+      sellerNote: normalizeText(payload.sellerNote)
+    }
+  })
+  if (!built.ok) return built
+
+  const { data, files, idempotentGoodsId } = built
+  let itemId = ""
+  let deduped = false
+
+  if (idempotentGoodsId) {
+    const existing = await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).get().catch(() => null)
+    if (existing && existing.data && existing.data._openid === openid) {
+      itemId = idempotentGoodsId
+      deduped = true
+    } else {
+      await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).set({ data })
+      itemId = idempotentGoodsId
+    }
+  } else {
+    const res = await db.collection(GOODS_COLLECTION).add({ data })
+    itemId = res._id
+  }
+
+  await attachMarketFiles(files, itemId, openid)
+  return ok({
+    id: itemId,
+    itemId,
+    title: data.title,
+    listingType,
+    deduped,
+    externalId,
+    status: "online"
+  })
+}
+
+async function adminBulkCreate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const access = await isAdminOpenid(openid)
+  if (!access.isAdmin) return fail("forbidden")
+
+  const items = Array.isArray(event.items)
+    ? event.items
+    : (event.payload && Array.isArray(event.payload.items) ? event.payload.items : [])
+  if (!items.length) return fail("missing_items")
+  if (items.length > 50) return fail("too_many_items", { max: 50 })
+
+  const batchId = buildAdminBatchId(event.batchId || event.payload?.batchId)
+  const results = []
+  const failures = []
+
+  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).set({
+    data: {
+      batchId,
+      type: "market_admin_bulk",
+      source: "marketTrade",
+      _openid: openid,
+      adminOpenid: openid,
+      total: items.length,
+      success: 0,
+      failed: 0,
+      status: "running",
+      createTime: db.serverDate(),
+      updateTime: db.serverDate()
+    }
+  }).catch(e => {
+    console.error("[marketApi] create import batch failed:", e)
+  })
+
+  for (let i = 0; i < items.length; i += 1) {
+    try {
+      const row = items[i] && typeof items[i] === "object" ? items[i] : {}
+      const result = await saveAdminCreatedItem(row, openid, batchId, i)
+      if (result.ok) results.push({ index: i, ...result })
+      else failures.push({ index: i, error: result.error || "create_failed" })
+    } catch (e) {
+      failures.push({
+        index: i,
+        error: "database_error",
+        detail: e && (e.message || e.errMsg) ? String(e.message || e.errMsg) : ""
+      })
+    }
+  }
+
+  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).update({
+    data: {
+      success: results.length,
+      failed: failures.length,
+      status: failures.length ? (results.length ? "partial" : "failed") : "done",
+      results: results.map(item => ({
+        index: item.index,
+        id: item.id,
+        listingType: item.listingType,
+        title: item.title,
+        externalId: item.externalId,
+        deduped: !!item.deduped
+      })),
+      failures,
+      updateTime: db.serverDate()
+    }
+  }).catch(e => {
+    console.error("[marketApi] update import batch failed:", e)
+  })
+
+  return ok({
+    batchId,
+    total: items.length,
+    success: results.length,
+    failed: failures.length,
+    results,
+    failures
+  })
+}
+
+function sanitizeAdminTemplateData(input = {}) {
+  const listingType = normalizeListingType(input.listingType)
+  const data = {
+    listingType,
+    title: normalizeText(input.title),
+    price: toFiniteNumber(input.price) || 0,
+    category: normalizeListingCategory(input.category || input.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
+    condition: normalizeText(input.condition) || (listingType === "sublet" ? "转租" : "99新"),
+    sellerName: normalizeText(input.sellerName || input.displayName || input.contactName),
+    sellerWechat: normalizeText(input.sellerWechat || input.wechatID || input.wechatId || input.wechat),
+    sellerPhone: normalizeText(input.sellerPhone || input.phone),
+    cityKey: normalizeCityKey(input.cityKey),
+    cityLabel: normalizeText(input.cityLabel),
+    regionState: normalizeText(input.regionState),
+    regionArea: normalizeText(input.regionArea),
+    regionKey: normalizeText(input.regionKey),
+    buildingName: normalizeText(input.buildingName),
+    detailAddress: normalizeText(input.detailAddress),
+    location: input.location && typeof input.location === "object" ? buildLocationForSave(
+      normalizeText(input.regionDisplay || input.region || input.detailAddress),
+      input.location,
+      {
+        cityKey: input.cityKey,
+        cityLabel: input.cityLabel,
+        regionState: input.regionState,
+        regionArea: input.regionArea,
+        regionKey: input.regionKey,
+        buildingName: input.buildingName
+      }
+    ) : {},
+    pickupStartDate: normalizeText(input.pickupStartDate),
+    pickupEndDate: normalizeText(input.pickupEndDate),
+    deposit: normalizeText(input.deposit),
+    roomType: listingType === "sublet" ? normalizeSubletCategory(input.roomType || input.category) : "",
+    housingType: normalizeText(input.housingType),
+    furnished: normalizeBoolean(input.furnished),
+    utilitiesIncluded: normalizeBoolean(input.utilitiesIncluded),
+    genderPreference: normalizeText(input.genderPreference),
+    roommateCount: normalizeText(input.roommateCount),
+    externalId: normalizeClientRequestId(input.externalId)
+  }
+  return data
+}
+
+async function adminListTemplates(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const access = await isAdminOpenid(openid)
+  if (!access.isAdmin) return fail("forbidden")
+  const limit = Math.min(50, Math.max(1, Number(event.limit) || 20))
+  const res = await db.collection(ADMIN_TEMPLATE_COLLECTION)
+    .where({ _openid: openid, status: "active" })
+    .limit(limit)
+    .get()
+  return ok({ templates: res.data || [], data: res.data || [] })
+}
+
+async function adminSaveTemplate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const access = await isAdminOpenid(openid)
+  if (!access.isAdmin) return fail("forbidden")
+  const payload = event.template || event.payload || event.data || {}
+  const name = normalizeText(payload.name || payload.templateName || payload.title || "代发模板").slice(0, 60)
+  const templateData = sanitizeAdminTemplateData(payload.data || payload)
+  if (!templateData.sellerName || !templateData.sellerWechat) return fail("missing_template_contact")
+  if (!templateData.cityKey || !templateData.regionKey || !templateData.regionArea) return fail("missing_template_region")
+
+  const explicitId = normalizeClientRequestId(payload.id || payload.templateId)
+  const templateId = explicitId || crypto.createHash("sha1")
+    .update(`${openid}:${name}:${templateData.sellerWechat}:${templateData.cityKey}:${templateData.regionKey}`)
+    .digest("hex")
+  const docId = `tpl_${templateId}`
+  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(docId).set({
+    data: {
+      _openid: openid,
+      adminOpenid: openid,
+      name,
+      status: "active",
+      data: templateData,
+      createTime: db.serverDate(),
+      updateTime: db.serverDate()
+    }
+  })
+  return ok({ id: docId, templateId: docId, name, template: { _id: docId, name, data: templateData } })
+}
+
+async function adminDeleteTemplate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const access = await isAdminOpenid(openid)
+  if (!access.isAdmin) return fail("forbidden")
+  const id = normalizeText(event.id || event.templateId)
+  if (!id) return fail("missing_id")
+  const doc = await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).get().catch(() => null)
+  const row = doc && doc.data
+  if (!row || row._openid !== openid) return fail("not_found")
+  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).update({
+    data: {
+      status: "deleted",
+      updateTime: db.serverDate()
+    }
+  })
+  return ok({ id })
 }
 
 async function updateItem(event, openid) {
@@ -1035,6 +1381,11 @@ async function updateItem(event, openid) {
     "pickupStartDate",
     "pickupEndDate",
     "status",
+    "sellerName",
+    "sellerWechat",
+    "sellerPhone",
+    "sellerAvatar",
+    "sellerNote",
     "availableStartDate",
     "leaseEndDate",
     "deposit",
@@ -1457,6 +1808,11 @@ exports.main = async (event = {}) => {
     if (action === "myList") return myList(event, OPENID)
     if (action === "sellerList") return sellerList(event)
     if (action === "tradeList") return tradeList(event, OPENID)
+    if (action === "adminStatus") return adminStatus(event, OPENID)
+    if (action === "adminBulkCreate") return adminBulkCreate(event, OPENID)
+    if (action === "adminListTemplates") return adminListTemplates(event, OPENID)
+    if (action === "adminSaveTemplate") return adminSaveTemplate(event, OPENID)
+    if (action === "adminDeleteTemplate") return adminDeleteTemplate(event, OPENID)
     if (action === "listAds") return listAds(event)
     if (action === "trackAdClick") return trackAdClick(event, OPENID)
     if (action === "create") return createItem(event, OPENID)

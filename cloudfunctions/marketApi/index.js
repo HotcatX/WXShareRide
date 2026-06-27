@@ -195,6 +195,19 @@ function normalizeCityKey(value) {
   return key.replace(/\//g, "_")
 }
 
+function normalizeRegionKeys(value) {
+  const source = Array.isArray(value) ? value : [value]
+  const out = []
+  const seen = new Set()
+  source.forEach(item => {
+    const key = normalizeText(item)
+    if (!key || key === "all" || seen.has(key)) return
+    seen.add(key)
+    out.push(key)
+  })
+  return out
+}
+
 function getEventListingType(event = {}) {
   const filters = event.filters || {}
   return normalizeListingType(event.listingType || filters.listingType)
@@ -1471,8 +1484,11 @@ function buildVisibleConditions(filters = {}) {
   if (cityKey && cityKey !== "all") {
     conditions.push({ cityKey })
   }
+  const regionKeys = normalizeRegionKeys(filters.regionKeys || filters.areaKeys)
   const regionKey = normalizeText(filters.regionKey || filters.areaKey)
-  if (regionKey && regionKey !== "all") {
+  if (regionKeys.length) {
+    conditions.push({ regionKey: _.in(regionKeys) })
+  } else if (regionKey && regionKey !== "all") {
     conditions.push({ regionKey })
   }
   if (filters.region && filters.region !== "全部") {

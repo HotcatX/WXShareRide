@@ -127,8 +127,27 @@ function normalizeObjectCache(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }
 
+function normalizeAreaKeys(value) {
+  const source = Array.isArray(value) ? value : [value]
+  const out = []
+  const seen = new Set()
+  source.forEach(item => {
+    const key = String(item || "").trim()
+    if (!key || key === ALL_AREA_KEY || seen.has(key)) return
+    seen.add(key)
+    out.push(key)
+  })
+  return out
+}
+
+function getAreaCacheKey(areaKeys = []) {
+  const keys = normalizeAreaKeys(areaKeys).sort()
+  return keys.length ? keys.join(",") : ALL_AREA_KEY
+}
+
 function getGoodsCacheKey(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY) {
-  return `${GOODS_CACHE_KEY_PREFIX}_${normalizeListingType(type)}_${cityKey || MARKET_DEFAULT_CITY_KEY}_${regionKey || ALL_AREA_KEY}`
+  const areaKey = Array.isArray(regionKey) ? getAreaCacheKey(regionKey) : (regionKey || ALL_AREA_KEY)
+  return `${GOODS_CACHE_KEY_PREFIX}_${normalizeListingType(type)}_${cityKey || MARKET_DEFAULT_CITY_KEY}_${areaKey}`
 }
 
 function readGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY) {
@@ -188,11 +207,14 @@ function normalizeCoordKey(location = {}) {
 }
 
 function buildListQueryKey(filters = {}, sort = {}) {
+  const areaKey = Array.isArray(filters.regionKeys)
+    ? getAreaCacheKey(filters.regionKeys)
+    : String(filters.regionKey || ALL_AREA_KEY)
   return [
     normalizeListingType(filters.listingType),
     String(filters.category || "全部"),
     String(filters.cityKey || MARKET_DEFAULT_CITY_KEY),
-    String(filters.regionKey || ALL_AREA_KEY),
+    areaKey,
     String(filters.keyword || "").trim(),
     String(sort.by || ""),
     normalizeCoordKey(sort.origin || {})
@@ -417,6 +439,25 @@ function findAreaInTree(tree, areaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_C
   return null
 }
 
+function getAreaSelectionMeta(tree, areaKeys = [], cityKey = MARKET_DEFAULT_CITY_KEY) {
+  const validKeys = []
+  const labels = []
+  normalizeAreaKeys(areaKeys).forEach(key => {
+    const match = findAreaInTree(tree, key, cityKey)
+    if (!match || validKeys.includes(match.area.key)) return
+    validKeys.push(match.area.key)
+    labels.push(match.area.label)
+  })
+  return {
+    keys: validKeys,
+    activeKey: validKeys[0] || ALL_AREA_KEY,
+    label: labels.length === 0
+      ? ALL_AREA_LABEL
+      : (labels.length === 1 ? labels[0] : `已选${labels.length}个`),
+    labels
+  }
+}
+
 function getAreaStateKey(tree, activeStateKey = "NY", cityKey = MARKET_DEFAULT_CITY_KEY) {
   const states = getAreaStatesForCity(tree, cityKey)
   return states.some(state => state.key === activeStateKey)
@@ -439,20 +480,24 @@ function buildAreaOptions(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_
   const selectedKey = getAreaStateKey(tree, activeStateKey, cityKey)
   const state = states.find(item => item.key === selectedKey) || states[0] || { areas: [] }
   const explicitAreas = (state.areas || []).filter(area => !isImplicitAllStateArea(area, state))
+  const selectedAreaKeys = normalizeAreaKeys(activeAreaKey)
   return [
     { key: ALL_AREA_KEY, label: ALL_AREA_LABEL },
     ...explicitAreas
   ].map(area => ({
     ...area,
-    className: area.key === activeAreaKey ? "active" : ""
+    className: area.key === ALL_AREA_KEY
+      ? (!selectedAreaKeys.length ? "active" : "")
+      : (selectedAreaKeys.includes(area.key) ? "active" : "")
   }))
 }
 
 function buildAreaUiPatch(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY) {
   const nextStateKey = getAreaStateKey(tree, activeStateKey, cityKey)
   const stateTabs = buildAreaStateTabs(tree, nextStateKey, cityKey)
-  const optionAreaKey = findAreaInTree(tree, activeAreaKey, cityKey) ? activeAreaKey : ALL_AREA_KEY
-  const areaOptions = buildAreaOptions(tree, nextStateKey, optionAreaKey, cityKey)
+  const optionAreaKeys = normalizeAreaKeys(activeAreaKey)
+    .filter(key => !!findAreaInTree(tree, key, cityKey))
+  const areaOptions = buildAreaOptions(tree, nextStateKey, optionAreaKeys, cityKey)
   return {
     activeAreaStateKey: nextStateKey,
     areaStateTabs: stateTabs,
@@ -552,6 +597,7 @@ Page({
     priceSortLabel: "默认",
     distanceSortLabel: "按距离",
     activeAreaKey: ALL_AREA_KEY,
+    activeAreaKeys: [],
     activeAreaLabel: ALL_AREA_LABEL,
     activeAreaStateKey: "NY",
     resultTitle: LISTING_TYPE_CONFIG.goods.resultTitle,
@@ -708,16 +754,16 @@ Page({
   _applyAreaUi(areaKey = ALL_AREA_KEY, options = {}) {
     const areaTree = normalizeRegionTree(options.areaTree || this.data.areaTree || DEFAULT_REGION_TREE)
     const cityKey = options.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const match = findAreaInTree(areaTree, areaKey, cityKey)
-    const activeStateKey = getAreaStateKey(areaTree, options.stateKey || match?.state?.key || this.data.activeAreaStateKey || "NY", cityKey)
-    const activeAreaKey = match ? match.area.key : ALL_AREA_KEY
-    const activeAreaLabel = match ? match.area.label : ALL_AREA_LABEL
+    const selection = getAreaSelectionMeta(areaTree, areaKey, cityKey)
+    const firstMatch = findAreaInTree(areaTree, selection.activeKey, cityKey)
+    const activeStateKey = getAreaStateKey(areaTree, options.stateKey || firstMatch?.state?.key || this.data.activeAreaStateKey || "NY", cityKey)
 
     this.setData({
       areaTree,
-      activeAreaKey,
-      activeAreaLabel,
-      ...buildAreaUiPatch(areaTree, activeStateKey, activeAreaKey, cityKey)
+      activeAreaKey: selection.activeKey,
+      activeAreaKeys: selection.keys,
+      activeAreaLabel: selection.label,
+      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey)
     })
   },
 
@@ -744,6 +790,7 @@ Page({
       category: this.data.activeCategory,
       cityKey: this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
       regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
+      regionKeys: this.data.activeAreaKeys || [],
       keyword: this.data.keyword
     }, this._buildListSort())
   },
@@ -1068,6 +1115,7 @@ Page({
       activeCategory: "全部",
       categoryTabs: buildCategoryTabs(this.data.categories, "全部"),
       activeAreaKey: ALL_AREA_KEY,
+      activeAreaKeys: [],
       activeAreaLabel: ALL_AREA_LABEL,
       areaPickerVisible: false,
       ...buildAreaUiPatch(areaTree, activeStateKey, ALL_AREA_KEY, cityKey),
@@ -1091,7 +1139,7 @@ Page({
     const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
     this.setData({
       areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKey || ALL_AREA_KEY, cityKey)
+      ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey)
     })
   },
 
@@ -1105,7 +1153,7 @@ Page({
     const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
     this.setData({
       activeAreaStateKey: key,
-      ...buildAreaUiPatch(areaTree, key, this.data.activeAreaKey || ALL_AREA_KEY, cityKey)
+      ...buildAreaUiPatch(areaTree, key, this.data.activeAreaKeys || [], cityKey)
     })
   },
 
@@ -1113,21 +1161,28 @@ Page({
     const key = e.currentTarget.dataset.key || ALL_AREA_KEY
     const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
     const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const match = findAreaInTree(areaTree, key, cityKey)
-    const activeAreaKey = match ? match.area.key : ALL_AREA_KEY
-    const activeAreaLabel = match ? match.area.label : ALL_AREA_LABEL
+    const match = key === ALL_AREA_KEY ? null : findAreaInTree(areaTree, key, cityKey)
+    const currentKeys = normalizeAreaKeys(this.data.activeAreaKeys || this.data.activeAreaKey)
+    let nextKeys = []
+    if (match) {
+      nextKeys = currentKeys.includes(match.area.key)
+        ? currentKeys.filter(item => item !== match.area.key)
+        : [...currentKeys, match.area.key]
+    }
+    const selection = getAreaSelectionMeta(areaTree, nextKeys, cityKey)
     const activeAreaStateKey = getAreaStateKey(areaTree, match ? match.state.key : (this.data.activeAreaStateKey || "NY"), cityKey)
 
     this._resetGoodsStateForFetch({
-      activeAreaKey,
-      activeAreaLabel,
-      areaPickerVisible: false,
-      ...buildAreaUiPatch(areaTree, activeAreaStateKey, activeAreaKey, cityKey)
+      activeAreaKey: selection.activeKey,
+      activeAreaKeys: selection.keys,
+      activeAreaLabel: selection.label,
+      areaPickerVisible: true,
+      ...buildAreaUiPatch(areaTree, activeAreaStateKey, selection.keys, cityKey)
     })
     this.updateMarketHeaderState(0)
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
-    await this._fetchFirstPage({ force: true, reason: `area:${activeAreaKey}` })
+    await this._fetchFirstPage({ force: true, reason: `area:${getAreaCacheKey(selection.keys)}` })
   },
 
   async onSelectCat(e) {
@@ -1254,7 +1309,7 @@ Page({
     if (!options.force) {
       const cached = readCachedRegionTree()
       if (cached) {
-        this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, { areaTree: cached })
+        this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: cached })
         return cached
       }
     }
@@ -1274,12 +1329,12 @@ Page({
 
       const tree = normalizeRegionTree(docData)
       writeCachedRegionTree(tree)
-      this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, { areaTree: tree })
+      this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
       return tree
     } catch (e) {
       console.error("regionTree 加载失败：", e)
       const tree = normalizeRegionTree(DEFAULT_REGION_TREE)
-      this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, { areaTree: tree })
+      this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
       return tree
     }
   },
@@ -1835,6 +1890,7 @@ Page({
       cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
       cityAliases: this.data.activeCityAliases || [],
       regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
+      regionKeys: this.data.activeAreaKeys || [],
       regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
       keyword: this.data.keyword
     }
@@ -1891,7 +1947,7 @@ Page({
         this._saveGoodsToCache(rawRows, {
           type: filters.listingType,
           cityKey: filters.cityKey,
-          regionKey: filters.regionKey,
+          regionKey: getAreaCacheKey(filters.regionKeys || filters.regionKey),
           nextSkip: result.nextSkip || rawRows.length,
           hasMore: !!result.hasMore
         })
@@ -1930,6 +1986,7 @@ Page({
       cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
       cityAliases: this.data.activeCityAliases || [],
       regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
+      regionKeys: this.data.activeAreaKeys || [],
       regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
       keyword: this.data.keyword
     }
@@ -1973,11 +2030,12 @@ Page({
       })
 
       if (!sort.by && filters.category === "全部" && !String(filters.keyword || "").trim()) {
-        const cached = readGoodsCacheEntry(filters.listingType, filters.cityKey, filters.regionKey) || {}
+        const regionCacheKey = getAreaCacheKey(filters.regionKeys || filters.regionKey)
+        const cached = readGoodsCacheEntry(filters.listingType, filters.cityKey, regionCacheKey) || {}
         this._saveGoodsToCache([...(cached.list || []), ...rawBatch], {
           type: filters.listingType,
           cityKey: filters.cityKey,
-          regionKey: filters.regionKey,
+          regionKey: regionCacheKey,
           nextSkip: result.nextSkip || (skip + rawBatch.length),
           hasMore: !!result.hasMore
         })
@@ -2007,7 +2065,8 @@ Page({
     const activeType = normalizeListingType(baseFilters.listingType || this.data.activeListingType)
     const siblingType = activeType === "goods" ? "sublet" : "goods"
     const cityKey = baseFilters.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const regionKey = baseFilters.regionKey || this.data.activeAreaKey || ALL_AREA_KEY
+    const regionKeys = normalizeAreaKeys(baseFilters.regionKeys || this.data.activeAreaKeys || [])
+    const regionKey = getAreaCacheKey(regionKeys)
     const cached = readGoodsCacheEntry(siblingType, cityKey, regionKey)
     if (isGoodsCacheFresh(cached)) return
 
@@ -2017,7 +2076,8 @@ Page({
       cityKey,
       cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
       cityAliases: this.data.activeCityAliases || [],
-      regionKey,
+      regionKey: regionKeys[0] || ALL_AREA_KEY,
+      regionKeys,
       regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
       keyword: ""
     }
@@ -2307,7 +2367,7 @@ Page({
       const cached = readGoodsCacheEntry(
         this.data.activeListingType,
         this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-        this.data.activeAreaKey || ALL_AREA_KEY
+        getAreaCacheKey(this.data.activeAreaKeys || [])
       )
       if (!cached || !cached.ts || !Array.isArray(cached.list)) return { restored: false, isFresh: false }
       const cacheAge = Date.now() - cached.ts
@@ -2341,7 +2401,7 @@ Page({
     try {
       const type = meta.type || this.data.activeListingType
       const cityKey = meta.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-      const regionKey = meta.regionKey || this.data.activeAreaKey || ALL_AREA_KEY
+      const regionKey = meta.regionKey || getAreaCacheKey(this.data.activeAreaKeys || [])
       writeGoodsCacheEntry(type, cityKey, regionKey, {
         ts: Date.now(),
         changedAt: getMarketGoodsChangedAt(),

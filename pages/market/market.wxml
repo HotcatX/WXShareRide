@@ -45,8 +45,8 @@
         <text>{{priceSortLabel === '默认' ? '价格' : priceSortLabel}}</text>
         <text class="filter-caret">⌄</text>
       </view>
-      <view class="filter-chip {{activeAreaKey !== 'all' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenAreaPicker">
-        <text>{{activeAreaKey === 'all' ? '区域' : activeAreaLabel}}</text>
+      <view class="filter-chip {{activeAreaKeys.length ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenAreaPicker">
+        <text>{{activeAreaKeys.length ? activeAreaLabel : '区域'}}</text>
         <text class="filter-caret">⌄</text>
       </view>
     </view>

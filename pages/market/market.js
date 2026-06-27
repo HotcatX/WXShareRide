@@ -777,13 +777,12 @@ Page({
   _applyPostSuccessFilter(filter = {}) {
     const listingType = normalizeListingType(filter.listingType)
     const cityKey = String(filter.cityKey || MARKET_DEFAULT_CITY_KEY).trim() || MARKET_DEFAULT_CITY_KEY
-    const regionKey = String(filter.regionKey || ALL_AREA_KEY).trim() || ALL_AREA_KEY
 
     setStoredListingType(listingType)
     this._userSortTouched = false
     this._applyListingTypeUi(listingType, { category: "全部" })
     const snapshot = this._applyCityUi(cityKey)
-    this._applyAreaUi(regionKey, { cityKey: snapshot.key })
+    this._applyAreaUi(ALL_AREA_KEY, { cityKey: snapshot.key })
     this._resetGoodsStateForFetch({
       keyword: "",
       ...this._getDefaultSortPatch()

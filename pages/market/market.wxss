@@ -1136,9 +1136,30 @@
   font-weight: 900;
 }
 
+.area-option-scroll{
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.area-section{
+  padding: 18rpx 22rpx 0;
+}
+
+.area-section-title{
+  margin: 0 4rpx 12rpx;
+  color: #14171a;
+  font-size: 28rpx;
+  line-height: 36rpx;
+  font-weight: 900;
+}
+
+.area-section.area-section-all{
+  padding-top: 22rpx;
+}
+
 .area-option-grid{
   align-content: start;
-  padding: 22rpx;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14rpx;

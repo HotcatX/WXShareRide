@@ -310,19 +310,25 @@
           </view>
         </scroll-view>
 
-        <view class="area-option-grid">
-          <view
-            class="area-option {{item.className}} pressable"
-            wx:for="{{areaOptions}}"
-            wx:key="key"
-            data-key="{{item.key}}"
-            hover-class="is-pressed"
-            hover-stay-time="80"
-            bindtap="onSelectArea"
-          >
-            {{item.label}}
+        <scroll-view class="area-option-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="area-section {{section.className}}" wx:for="{{areaSections}}" wx:for-item="section" wx:key="key">
+            <view wx:if="{{section.title}}" class="area-section-title">{{section.title}}</view>
+            <view class="area-option-grid">
+              <view
+                class="area-option {{area.className}} pressable"
+                wx:for="{{section.areas}}"
+                wx:for-item="area"
+                wx:key="key"
+                data-key="{{area.key}}"
+                hover-class="is-pressed"
+                hover-stay-time="80"
+                bindtap="onSelectArea"
+              >
+                {{area.label}}
+              </view>
+            </view>
           </view>
-        </view>
+        </scroll-view>
       </view>
     </view>
   </view>

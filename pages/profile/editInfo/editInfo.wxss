@@ -391,8 +391,20 @@ page{
 .area-scroll{
   flex: 1;
   min-height: 0;
-  padding: 24rpx 22rpx calc(20rpx + env(safe-area-inset-bottom));
+  padding: 18rpx 22rpx calc(20rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
+}
+
+.area-section{
+  margin-bottom: 20rpx;
+}
+
+.area-section-title{
+  margin: 4rpx 4rpx 12rpx;
+  color: #14171a;
+  font-size: 28rpx;
+  line-height: 36rpx;
+  font-weight: 900;
 }
 
 .area-grid{

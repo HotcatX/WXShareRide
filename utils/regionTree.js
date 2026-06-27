@@ -1,6 +1,6 @@
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
-const REGION_TREE_STORAGE_KEY = "market_region_tree_v4"
+const REGION_TREE_STORAGE_KEY = "market_region_tree_v5"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 
 const STATE_CODES = [
@@ -17,17 +17,23 @@ const CORE_STATE_LABELS = {
 
 const CORE_STATE_AREAS = {
   NY_NJ: [
-    { key: "ny_manhattan_uptown", label: "曼哈顿上城", aliases: ["上城", "Uptown", "Upper Manhattan"] },
-    { key: "ny_manhattan_midtown", label: "曼哈顿中城", aliases: ["中城", "Midtown"] },
-    { key: "ny_manhattan_downtown", label: "曼哈顿下城", aliases: ["下城", "Downtown", "Lower Manhattan"] },
-    { key: "ny_lic_queens", label: "LIC/Queens", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
-    { key: "nj_fort_lee", label: "Fortlee", aliases: ["Fort Lee", "FL"] },
-    { key: "nj_newport", label: "Newport", aliases: ["New Port"] },
-    { key: "nj_grove_st", label: "Grove St", aliases: ["Grove Street", "Grove"] },
-    { key: "nj_jsq", label: "JSQ", aliases: ["Journal Square"] },
-    { key: "nj_harrison", label: "Harrison", aliases: [] },
-    { key: "ny_nj_other", label: "其他", aliases: ["其他NY", "NY其他", "其他NJ", "NJ其他", "Other NY", "Other NJ", "Other"] }
+    { key: "ny_manhattan_uptown", label: "曼哈顿上城", groupKey: "ny", groupLabel: "纽约", aliases: ["上城", "Uptown", "Upper Manhattan"] },
+    { key: "ny_manhattan_midtown", label: "曼哈顿中城", groupKey: "ny", groupLabel: "纽约", aliases: ["中城", "Midtown"] },
+    { key: "ny_manhattan_downtown", label: "曼哈顿下城", groupKey: "ny", groupLabel: "纽约", aliases: ["下城", "Downtown", "Lower Manhattan"] },
+    { key: "ny_lic_queens", label: "LIC/Queens", groupKey: "ny", groupLabel: "纽约", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
+    { key: "ny_other", label: "其他", groupKey: "ny", groupLabel: "纽约", aliases: ["其他NY", "NY其他", "Other NY", "ny_nj_other"] },
+    { key: "nj_fort_lee", label: "Fortlee", groupKey: "nj", groupLabel: "NJ", aliases: ["Fort Lee", "FL"] },
+    { key: "nj_newport", label: "Newport", groupKey: "nj", groupLabel: "NJ", aliases: ["New Port"] },
+    { key: "nj_grove_st", label: "Grove St", groupKey: "nj", groupLabel: "NJ", aliases: ["Grove Street", "Grove"] },
+    { key: "nj_jsq", label: "JSQ", groupKey: "nj", groupLabel: "NJ", aliases: ["Journal Square"] },
+    { key: "nj_harrison", label: "Harrison", groupKey: "nj", groupLabel: "NJ", aliases: [] },
+    { key: "nj_other", label: "其他", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ", "ny_nj_other"] }
   ]
+}
+
+const AREA_GROUP_LABELS = {
+  ny: "纽约",
+  nj: "NJ"
 }
 
 function cleanText(value) {
@@ -76,14 +82,28 @@ function buildDefaultRegionTree() {
 
 const DEFAULT_REGION_TREE = buildDefaultRegionTree()
 
+function normalizeAreaGroupKey(groupKey, areaKey) {
+  const raw = cleanText(groupKey).toLowerCase()
+  if (raw === "ny" || raw === "new york" || raw === "纽约") return "ny"
+  if (raw === "nj" || raw === "new jersey" || raw === "新泽西") return "nj"
+  const key = cleanText(areaKey).toLowerCase()
+  if (key.startsWith("ny_")) return "ny"
+  if (key.startsWith("nj_")) return "nj"
+  return raw
+}
+
 function normalizeArea(area, stateKey) {
   if (!area) return null
   if (typeof area === "string") {
     const label = cleanText(area)
     if (!label) return null
+    const key = `${stateKey.toLowerCase()}_${slugKey(label) || "area"}`
+    const groupKey = normalizeAreaGroupKey("", key)
     return {
-      key: `${stateKey.toLowerCase()}_${slugKey(label) || "area"}`,
+      key,
       label,
+      groupKey,
+      groupLabel: AREA_GROUP_LABELS[groupKey] || "",
       aliases: [label]
     }
   }
@@ -91,9 +111,12 @@ function normalizeArea(area, stateKey) {
   const label = cleanText(area.label || area.name || area.title || area.value || area.key)
   if (!label) return null
   const key = cleanText(area.key || area.id || area.value) || `${stateKey.toLowerCase()}_${slugKey(label) || "area"}`
+  const groupKey = normalizeAreaGroupKey(area.groupKey || area.group || area.sectionKey, key)
   return {
     key,
     label,
+    groupKey,
+    groupLabel: cleanText(area.groupLabel || area.groupName || area.sectionLabel) || AREA_GROUP_LABELS[groupKey] || "",
     aliases: uniq([label, ...(Array.isArray(area.aliases) ? area.aliases : [])])
   }
 }
@@ -216,6 +239,39 @@ function buildRegionBaseDisplay(stateLabel, areaLabel) {
   return buildRegionDisplay(stateLabel, areaLabel)
 }
 
+function buildAreaSections(areas = []) {
+  const sections = []
+  const byKey = new Map()
+  ;(Array.isArray(areas) ? areas : []).forEach(area => {
+    const areaKey = cleanText(area && area.key)
+    if (!areaKey) return
+    if (areaKey === ALL_AREA_KEY || areaKey.endsWith("_all")) {
+      sections.push({
+        key: areaKey,
+        title: "",
+        className: "area-section-all",
+        areas: [area]
+      })
+      return
+    }
+
+    const groupKey = normalizeAreaGroupKey(area.groupKey, areaKey) || "other"
+    const groupLabel = cleanText(area.groupLabel) || AREA_GROUP_LABELS[groupKey] || ""
+    if (!byKey.has(groupKey)) {
+      const section = {
+        key: groupKey,
+        title: groupLabel,
+        className: groupLabel ? "" : "area-section-plain",
+        areas: []
+      }
+      byKey.set(groupKey, section)
+      sections.push(section)
+    }
+    byKey.get(groupKey).areas.push(area)
+  })
+  return sections.filter(section => section.areas.length)
+}
+
 function resolveRegionSelection(tree, input = {}) {
   const stateKey = normalizeStateKey(input.stateKey || input.regionState || input.state)
   if (!stateKey) return null
@@ -330,6 +386,7 @@ module.exports = {
   findArea,
   buildRegionDisplay,
   buildRegionBaseDisplay,
+  buildAreaSections,
   resolveRegionSelection,
   normalizeUserRegion,
   buildItemRegionAreaText,

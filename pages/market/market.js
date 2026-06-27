@@ -21,6 +21,7 @@ const {
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
   buildItemRegionAreaText,
+  buildAreaSections,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require("../../utils/regionTree")
@@ -451,10 +452,12 @@ function buildAreaUiPatch(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_
   const nextStateKey = getAreaStateKey(tree, activeStateKey, cityKey)
   const stateTabs = buildAreaStateTabs(tree, nextStateKey, cityKey)
   const optionAreaKey = findAreaInTree(tree, activeAreaKey, cityKey) ? activeAreaKey : ALL_AREA_KEY
+  const areaOptions = buildAreaOptions(tree, nextStateKey, optionAreaKey, cityKey)
   return {
     activeAreaStateKey: nextStateKey,
     areaStateTabs: stateTabs,
-    areaOptions: buildAreaOptions(tree, nextStateKey, optionAreaKey, cityKey),
+    areaOptions,
+    areaSections: buildAreaSections(areaOptions),
     areaHasStateTabs: stateTabs.length > 1
   }
 }
@@ -571,6 +574,7 @@ Page({
     areaTree: DEFAULT_REGION_TREE,
     areaStateTabs: buildAreaStateTabs(DEFAULT_REGION_TREE, "NY"),
     areaOptions: buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY),
+    areaSections: buildAreaSections(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY)),
     areaHasStateTabs: true,
     areaPickerVisible: false,
 

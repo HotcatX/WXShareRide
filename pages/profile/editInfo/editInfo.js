@@ -13,6 +13,7 @@ const {
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
   findState,
+  buildAreaSections,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require('../../../utils/regionTree')
@@ -180,6 +181,7 @@ Page({
     areaPickerVisible: false,
     areaPickerTitle: '选择区域',
     areaOptions: [],
+    areaSections: [],
     areaPickerHintText: AREA_PICKER_HINT,
 
     phone: '',
@@ -400,7 +402,8 @@ Page({
       : this.data.areaOptions
     this.setData({
       regionTree,
-      areaOptions
+      areaOptions,
+      areaSections: buildAreaSections(areaOptions)
     })
   },
 
@@ -509,6 +512,7 @@ Page({
       citySearchKeyword: '',
       areaPickerTitle: `选择${cityLabel}区域`,
       areaOptions,
+      areaSections: buildAreaSections(areaOptions),
       areaPickerVisible: areaOptions.length > 1
     })
     if (areaOptions.length <= 1 && areaOptions[0]) {
@@ -536,16 +540,18 @@ Page({
     if (!areaKey || !areaLabel) return
     const cityLabel = normalizeText(this.data.regionCityLabel)
     const baseDisplay = buildRegionDisplayParts(cityLabel, areaLabel)
+    const areaOptions = (this.data.areaOptions || []).map(item => ({
+      ...item,
+      className: item.key === areaKey ? 'active' : ''
+    }))
     this.setData({
       bigregion: baseDisplay,
       regionAreaKey: areaKey,
       regionAreaLabel: areaLabel,
       regionDisplay: baseDisplay,
       areaPickerVisible: false,
-      areaOptions: (this.data.areaOptions || []).map(item => ({
-        ...item,
-        className: item.key === areaKey ? 'active' : ''
-      }))
+      areaOptions,
+      areaSections: buildAreaSections(areaOptions)
     })
     this.markDirtyAndSave()
   },

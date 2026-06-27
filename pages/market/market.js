@@ -59,6 +59,7 @@ const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
 const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v3"
 const MARKET_AD_CACHE_KEY_PREFIX = "market_ads_cache_v1"
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内视为新缓存；仍会后台刷新保证进入/切换有新数据
 const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
@@ -219,6 +220,19 @@ function setStoredListingType(type) {
   try {
     wx.setStorageSync(LISTING_TYPE_STORAGE_KEY, normalizeListingType(type))
   } catch (e) {}
+}
+
+function takePostSuccessFilter() {
+  try {
+    const value = wx.getStorageSync(MARKET_POST_SUCCESS_FILTER_KEY)
+    wx.removeStorageSync(MARKET_POST_SUCCESS_FILTER_KEY)
+    if (!value || typeof value !== "object") return null
+    const ts = Number(value.ts) || 0
+    if (!ts || Date.now() - ts > 10 * 60 * 1000) return null
+    return value
+  } catch (e) {
+    return null
+  }
 }
 
 function toFiniteNumber(value) {
@@ -759,6 +773,25 @@ Page({
     }
   },
 
+  _applyPostSuccessFilter(filter = {}) {
+    const listingType = normalizeListingType(filter.listingType)
+    const cityKey = String(filter.cityKey || MARKET_DEFAULT_CITY_KEY).trim() || MARKET_DEFAULT_CITY_KEY
+    const regionKey = String(filter.regionKey || ALL_AREA_KEY).trim() || ALL_AREA_KEY
+
+    setStoredListingType(listingType)
+    this._userSortTouched = false
+    this._applyListingTypeUi(listingType, { category: "全部" })
+    const snapshot = this._applyCityUi(cityKey)
+    this._applyAreaUi(regionKey, { cityKey: snapshot.key })
+    this._resetGoodsStateForFetch({
+      keyword: "",
+      ...this._getDefaultSortPatch()
+    })
+    this.updateMarketHeaderState(0)
+    this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
+    this._fetchFirstPage({ force: true, reason: "postSuccess" })
+  },
+
   _switchListingType(type, options = {}) {
     const listingType = normalizeListingType(type)
     const prevType = this.data.activeListingType || "goods"
@@ -928,6 +961,12 @@ Page({
   async onShow() {
     if (!this._marketBootstrapped) {
       this._startMarketBootstrap()
+      return
+    }
+
+    const postFilter = takePostSuccessFilter()
+    if (postFilter) {
+      this._applyPostSuccessFilter(postFilter)
       return
     }
 

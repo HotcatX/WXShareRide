@@ -5,6 +5,7 @@ const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
 const { showDataError } = require("../../../utils/error")
 const {
   ALL_CITY_KEY,
@@ -133,6 +134,19 @@ function createSubmitRequestId() {
 function markMarketGoodsChanged() {
   try {
     wx.setStorageSync(MARKET_REFRESH_KEY, Date.now())
+  } catch (e) {}
+}
+
+function markMarketPostSuccessFilter(payload = {}) {
+  try {
+    wx.setStorageSync(MARKET_POST_SUCCESS_FILTER_KEY, {
+      ts: Date.now(),
+      listingType: normalizeListingType(payload.listingType),
+      cityKey: normalizeLocationText(payload.cityKey),
+      cityLabel: normalizeLocationText(payload.cityLabel),
+      regionKey: normalizeLocationText(payload.regionKey),
+      regionLabel: normalizeLocationText(payload.regionArea)
+    })
   } catch (e) {}
 }
 
@@ -580,9 +594,10 @@ Page({
     this._unlockSubmit()
   },
 
-  _finishSubmitSuccess(title) {
+  _finishSubmitSuccess(title, postFilter = null) {
     this._activeSubmitRequestId = ""
     markMarketGoodsChanged()
+    if (postFilter) markMarketPostSuccessFilter(postFilter)
     wx.showToast({ title, icon: "success" })
     setTimeout(() => {
       wx.navigateBack({
@@ -1304,7 +1319,7 @@ onChooseCondition() {
       getMarketApiResult(checkRes)
 
       keepSubmitLocked = true
-      this._finishSubmitSuccess(this.data.isEdit ? "已保存" : "已提交")
+      this._finishSubmitSuccess(this.data.isEdit ? "已保存" : "已提交", payload)
     } catch (e) {
       console.error(e)
       showDataError("发布失败", e, "发布信息保存到数据库失败，请稍后重试。")

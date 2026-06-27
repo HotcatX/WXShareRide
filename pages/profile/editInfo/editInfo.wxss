@@ -408,11 +408,16 @@ page{
 }
 
 .area-grid{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
   padding-bottom: 4rpx;
 }
 
 .area-option{
-  height: 68rpx;
+  height: 58rpx;
+  padding: 0 8rpx;
+  font-size: 21rpx;
+  line-height: 27rpx;
 }
 
 .rp-panel{

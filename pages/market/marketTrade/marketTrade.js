@@ -533,7 +533,7 @@ Page({
     adminCategoryIndex: GOODS_CATEGORY_OPTIONS.indexOf("其他"),
     adminImageCountText: "0/6",
     adminCanAddImage: true,
-    adminRegionDisplay: "纽约/新泽西 / 曼哈顿上城",
+    adminRegionDisplay: "纽约/新泽西 / 哥大步行楼",
     adminDetailAddressDisplay: "地图选点",
     adminDetailAddressMutedClass: "muted",
     adminShowSubletFields: false

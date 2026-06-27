@@ -1,6 +1,6 @@
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
-const REGION_TREE_STORAGE_KEY = "market_region_tree_v5"
+const REGION_TREE_STORAGE_KEY = "market_region_tree_v6"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 
 const STATE_CODES = [
@@ -17,17 +17,21 @@ const CORE_STATE_LABELS = {
 
 const CORE_STATE_AREAS = {
   NY_NJ: [
-    { key: "ny_manhattan_uptown", label: "曼哈顿上城", groupKey: "ny", groupLabel: "纽约", aliases: ["上城", "Uptown", "Upper Manhattan"] },
-    { key: "ny_manhattan_midtown", label: "曼哈顿中城", groupKey: "ny", groupLabel: "纽约", aliases: ["中城", "Midtown"] },
+    { key: "ny_columbia_walkup", label: "哥大步行楼", groupKey: "ny", groupLabel: "纽约", aliases: ["哥大步行楼", "Columbia Walkup"] },
+    { key: "ny_inwood", label: "Inwood", groupKey: "ny", groupLabel: "纽约", aliases: ["Inwood"] },
+    { key: "ny_96_st", label: "96街周边", groupKey: "ny", groupLabel: "纽约", aliases: ["96街", "96街周边", "96th St"] },
+    { key: "ny_midtown_west", label: "中城西", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown West"] },
+    { key: "ny_midtown_central", label: "中城中", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown Central"] },
+    { key: "ny_midtown_east", label: "中城东", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown East"] },
     { key: "ny_manhattan_downtown", label: "曼哈顿下城", groupKey: "ny", groupLabel: "纽约", aliases: ["下城", "Downtown", "Lower Manhattan"] },
     { key: "ny_lic_queens", label: "LIC/Queens", groupKey: "ny", groupLabel: "纽约", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
-    { key: "ny_other", label: "其他", groupKey: "ny", groupLabel: "纽约", aliases: ["其他NY", "NY其他", "Other NY", "ny_nj_other"] },
+    { key: "ny_other", label: "其他", groupKey: "ny", groupLabel: "纽约", aliases: ["其他NY", "NY其他", "Other NY"] },
     { key: "nj_fort_lee", label: "Fortlee", groupKey: "nj", groupLabel: "NJ", aliases: ["Fort Lee", "FL"] },
     { key: "nj_newport", label: "Newport", groupKey: "nj", groupLabel: "NJ", aliases: ["New Port"] },
     { key: "nj_grove_st", label: "Grove St", groupKey: "nj", groupLabel: "NJ", aliases: ["Grove Street", "Grove"] },
     { key: "nj_jsq", label: "JSQ", groupKey: "nj", groupLabel: "NJ", aliases: ["Journal Square"] },
     { key: "nj_harrison", label: "Harrison", groupKey: "nj", groupLabel: "NJ", aliases: [] },
-    { key: "nj_other", label: "其他", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ", "ny_nj_other"] }
+    { key: "nj_other", label: "其他", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
   ]
 }
 

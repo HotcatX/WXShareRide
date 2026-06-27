@@ -1161,15 +1161,15 @@
 .area-option-grid{
   align-content: start;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14rpx;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
   overflow: hidden;
 }
 
 .area-option{
   min-width: 0;
-  height: 66rpx;
-  padding: 0 14rpx;
+  height: 58rpx;
+  padding: 0 8rpx;
   border-radius: 14rpx;
   background: #f4f6f8;
   color: #59636f;
@@ -1178,8 +1178,8 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  font-size: 24rpx;
-  line-height: 31rpx;
+  font-size: 20rpx;
+  line-height: 26rpx;
   font-weight: 900;
   overflow: hidden;
   text-overflow: ellipsis;

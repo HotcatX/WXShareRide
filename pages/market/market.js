@@ -70,12 +70,13 @@ const MARKET_DETAIL_PRELOAD_LIMIT = 3
 const MARKET_AD_MIN_GOODS = 3
 const MARKET_AD_INSERT_MIN_INDEX = 2
 const MARKET_AD_INSERT_MAX_INDEX = 5
-const MARKET_DEFAULT_CITY_KEY = "ny"
-const MARKET_DEFAULT_CITY_LABEL = "纽约"
+const MARKET_DEFAULT_CITY_KEY = "ny_nj"
+const MARKET_DEFAULT_CITY_LABEL = "纽约/新泽西"
 const MARKET_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求加入，或先选择“其他城市”，系统会按你填写的位置和距离排序。"
 const CITY_REGION_STATE_KEYS = {
-  ny: ["NY"],
-  nj: ["NJ"],
+  ny_nj: ["NY_NJ"],
+  ny: ["NY_NJ"],
+  nj: ["NY_NJ"],
   boston: ["MA"],
   philadelphia: ["PA"],
   dc: ["DC"],
@@ -673,7 +674,7 @@ Page({
 
   _applyCityUi(cityKey = MARKET_DEFAULT_CITY_KEY, options = {}) {
     const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
-    const normalizedCityKey = cityKey === "ny_nj" || cityKey === "all" ? MARKET_DEFAULT_CITY_KEY : cityKey
+    const normalizedCityKey = cityKey === "all" ? MARKET_DEFAULT_CITY_KEY : cityKey
     const snapshot = getCitySnapshot(cityTree, normalizedCityKey || MARKET_DEFAULT_CITY_KEY)
     const activeCountryCode = options.countryCode || this.data.activeCityCountryCode || "US"
     const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")

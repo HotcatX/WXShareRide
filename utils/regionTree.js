@@ -1,31 +1,32 @@
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
-const REGION_TREE_STORAGE_KEY = "market_region_tree_v3"
+const REGION_TREE_STORAGE_KEY = "market_region_tree_v4"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 
 const STATE_CODES = [
-  "NY", "NJ", "CA", "MA", "PA", "CT", "RI", "NH", "VT", "ME",
+  "NY_NJ", "CA", "MA", "PA", "CT", "RI", "NH", "VT", "ME",
   "MD", "VA", "DC", "DE", "NC", "SC", "GA", "FL", "IL", "MI",
   "OH", "IN", "WI", "MN", "IA", "MO", "KS", "NE", "TX", "WA",
   "OR", "AZ", "CO", "UT", "NV", "NM", "TN", "KY", "AL", "LA",
   "OK", "AR", "MS", "ID", "MT", "WY", "ND", "SD", "AK", "HI", "WV"
 ]
 
+const CORE_STATE_LABELS = {
+  NY_NJ: "纽约/新泽西"
+}
+
 const CORE_STATE_AREAS = {
-  NY: [
+  NY_NJ: [
     { key: "ny_manhattan_uptown", label: "曼哈顿上城", aliases: ["上城", "Uptown", "Upper Manhattan"] },
     { key: "ny_manhattan_midtown", label: "曼哈顿中城", aliases: ["中城", "Midtown"] },
     { key: "ny_manhattan_downtown", label: "曼哈顿下城", aliases: ["下城", "Downtown", "Lower Manhattan"] },
     { key: "ny_lic_queens", label: "LIC/Queens", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
-    { key: "ny_other", label: "其他", aliases: ["其他NY", "NY其他", "Other NY"] }
-  ],
-  NJ: [
     { key: "nj_fort_lee", label: "Fortlee", aliases: ["Fort Lee", "FL"] },
     { key: "nj_newport", label: "Newport", aliases: ["New Port"] },
     { key: "nj_grove_st", label: "Grove St", aliases: ["Grove Street", "Grove"] },
     { key: "nj_jsq", label: "JSQ", aliases: ["Journal Square"] },
     { key: "nj_harrison", label: "Harrison", aliases: [] },
-    { key: "nj_other", label: "其他", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
+    { key: "ny_nj_other", label: "其他", aliases: ["其他NY", "NY其他", "其他NJ", "NJ其他", "Other NY", "Other NJ", "Other"] }
   ]
 }
 
@@ -68,7 +69,7 @@ function buildAllStateArea(stateKey) {
 function buildDefaultRegionTree() {
   return STATE_CODES.map(code => ({
     key: code,
-    label: code,
+    label: CORE_STATE_LABELS[code] || code,
     areas: CORE_STATE_AREAS[code] || [buildAllStateArea(code)]
   }))
 }
@@ -99,9 +100,9 @@ function normalizeArea(area, stateKey) {
 
 function normalizeState(state = {}) {
   const rawKey = cleanText(state.key || state.code || state.value || state.label || state.name)
-  const key = rawKey.toUpperCase()
+  const key = normalizeStateKey(rawKey)
   if (!key) return null
-  const label = cleanText(state.label || state.name || state.title || key) || key
+  const label = CORE_STATE_LABELS[key] || cleanText(state.label || state.name || state.title || key) || key
   let areas = []
   if (Array.isArray(state.areas)) {
     areas = state.areas.map(area => normalizeArea(area, key)).filter(Boolean)
@@ -134,7 +135,31 @@ function normalizeRegionTree(source) {
   if (!Array.isArray(tree) || !tree.length) tree = DEFAULT_REGION_TREE
 
   const normalized = tree.map(normalizeState).filter(Boolean)
-  return normalized.length ? normalized : DEFAULT_REGION_TREE
+  const merged = []
+  const byKey = new Map()
+  normalized.forEach(state => {
+    const existing = byKey.get(state.key)
+    if (!existing) {
+      const next = {
+        ...state,
+        label: CORE_STATE_LABELS[state.key] || state.label,
+        areas: []
+      }
+      byKey.set(state.key, next)
+      merged.push(next)
+    }
+    const target = byKey.get(state.key)
+    const seen = new Set((target.areas || []).map(area => area.key))
+    ;(state.areas || []).forEach(area => {
+      if (!area.key || seen.has(area.key)) return
+      seen.add(area.key)
+      target.areas.push({
+        ...area,
+        stateKey: target.key
+      })
+    })
+  })
+  return merged.length ? merged : DEFAULT_REGION_TREE
 }
 
 function flattenAreas(tree) {
@@ -152,12 +177,20 @@ function flattenAreas(tree) {
 }
 
 function findState(tree, stateKey) {
-  const key = cleanText(stateKey).toUpperCase()
+  const key = normalizeStateKey(stateKey)
   const states = normalizeRegionTree(tree)
   return states.find(state =>
     state.key === key ||
     cleanText(state.label).toUpperCase() === key
   ) || null
+}
+
+function normalizeStateKey(value) {
+  const key = cleanText(value).toUpperCase()
+  if (key === "NY" || key === "NJ" || key === "NY/NJ" || key === "纽约" || key === "新泽西" || key === "纽约/新泽西") {
+    return "NY_NJ"
+  }
+  return key
 }
 
 function findArea(state, areaKeyOrLabel) {
@@ -184,7 +217,7 @@ function buildRegionBaseDisplay(stateLabel, areaLabel) {
 }
 
 function resolveRegionSelection(tree, input = {}) {
-  const stateKey = cleanText(input.stateKey || input.regionState || input.state).toUpperCase()
+  const stateKey = normalizeStateKey(input.stateKey || input.regionState || input.state)
   if (!stateKey) return null
   const state = findState(tree, stateKey)
   if (!state) return null
@@ -212,7 +245,7 @@ function resolveRegionSelection(tree, input = {}) {
 function normalizeUserRegion(user = {}, tree = DEFAULT_REGION_TREE) {
   const location = user.location && typeof user.location === "object" ? user.location : {}
   const areaLabel = cleanText(user.regionArea || location.regionArea || location.areaLabel)
-  const stateKey = cleanText(user.regionState || location.regionState || location.state)
+  const stateKey = normalizeStateKey(user.regionState || location.regionState || location.state)
   const areaKey = cleanText(user.regionKey || location.regionKey)
   const buildingCandidate = cleanText(
     user.buildingName ||

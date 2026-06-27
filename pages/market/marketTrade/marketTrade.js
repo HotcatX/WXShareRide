@@ -19,8 +19,7 @@ const LISTING_TYPE_OPTIONS = [
   { key: "sublet", label: "转租" }
 ]
 const CITY_OPTIONS = [
-  { key: "ny", label: "纽约", stateKey: "NY" },
-  { key: "nj", label: "新泽西", stateKey: "NJ" },
+  { key: "ny_nj", label: "纽约/新泽西", stateKey: "NY_NJ" },
   { key: "other_city", label: "其他城市", stateKey: "OTHER" }
 ]
 const REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
@@ -48,10 +47,9 @@ function getDefaultCategory(listingType) {
   return normalizeListingType(listingType) === "sublet" ? "Studio" : "其他"
 }
 
-function getCityOption(cityKey = "ny") {
+function getCityOption(cityKey = "ny_nj") {
   const key = normalizeText(cityKey).toLowerCase()
-  if (["new york", "nyc", "纽约"].includes(key)) return CITY_OPTIONS[0]
-  if (["new jersey", "jersey", "新泽西"].includes(key)) return CITY_OPTIONS[1]
+  if (["ny", "nj", "new york", "nyc", "纽约", "new jersey", "jersey", "新泽西", "ny/nj", "纽约/新泽西"].includes(key)) return CITY_OPTIONS[0]
   return CITY_OPTIONS.find(item => item.key === key) || CITY_OPTIONS[0]
 }
 
@@ -61,7 +59,7 @@ function normalizeAreaLabel(area = {}, stateKey = "") {
   return normalizeText(area.label)
 }
 
-function getAreaOptions(cityKey = "ny") {
+function getAreaOptions(cityKey = "ny_nj") {
   const city = getCityOption(cityKey)
   const state = findState(REGION_TREE, city.stateKey)
   if (!state) {
@@ -74,7 +72,7 @@ function getAreaOptions(cityKey = "ny") {
   })).filter(item => item.key && item.label)
 }
 
-function getAreaOption(cityKey = "ny", areaKeyOrLabel = "") {
+function getAreaOption(cityKey = "ny_nj", areaKeyOrLabel = "") {
   const city = getCityOption(cityKey)
   const state = findState(REGION_TREE, city.stateKey)
   const raw = normalizeText(areaKeyOrLabel)
@@ -189,7 +187,7 @@ function buildRegionDisplay(cityLabel, areaLabel, buildingName = "") {
 function defaultAdminDraft(overrides = {}) {
   const today = new Date()
   const listingType = normalizeListingType(overrides.listingType)
-  const city = getCityOption(overrides.cityKey || overrides.city || "ny")
+  const city = getCityOption(overrides.cityKey || overrides.city || "ny_nj")
   const area = getAreaOption(city.key, overrides.regionKey || overrides.regionArea || overrides.area)
   return {
     listingType,
@@ -244,7 +242,7 @@ function pick(row = {}, keys = []) {
 function normalizeImportedDraft(row = {}) {
   const listingType = normalizeListingType(pick(row, ["listingType", "type", "类型", "发布类型"]))
   const cityRaw = pick(row, ["cityKey", "city", "城市"])
-  const city = getCityOption(cityRaw || "ny")
+  const city = getCityOption(cityRaw || "ny_nj")
   const area = getAreaOption(city.key, pick(row, ["regionKey", "regionArea", "area", "区域", "小区域"]))
   const imageFileIDs = Array.isArray(row.imageFileIDs)
     ? row.imageFileIDs.map(normalizeFileID).filter(Boolean)
@@ -529,13 +527,13 @@ Page({
     adminListingTypeIndex: 0,
     cityOptions: CITY_OPTIONS,
     adminCityIndex: 0,
-    adminAreaOptions: getAreaOptions("ny"),
+    adminAreaOptions: getAreaOptions("ny_nj"),
     adminAreaIndex: 0,
     adminCategoryOptions: GOODS_CATEGORY_OPTIONS,
     adminCategoryIndex: GOODS_CATEGORY_OPTIONS.indexOf("其他"),
     adminImageCountText: "0/6",
     adminCanAddImage: true,
-    adminRegionDisplay: "纽约 / 曼哈顿上城",
+    adminRegionDisplay: "纽约/新泽西 / 曼哈顿上城",
     adminDetailAddressDisplay: "地图选点",
     adminDetailAddressMutedClass: "muted",
     adminShowSubletFields: false

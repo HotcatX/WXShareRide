@@ -2,12 +2,17 @@ const ALL_CITY_KEY = "all"
 const ALL_CITY_LABEL = "全部"
 const DEFAULT_CITY_KEY = "ny_nj"
 const DEFAULT_CITY_LABEL = "纽约/新泽西"
-const RIDE_DEFAULT_CITY_KEY = "ny"
+const RIDE_DEFAULT_CITY_KEY = DEFAULT_CITY_KEY
 const RIDE_SERVICE_CITY_KEY = DEFAULT_CITY_KEY
 const RIDE_SERVICE_CITY_LABEL = DEFAULT_CITY_LABEL
 const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, "ny", "nj"]
 const MARKET_CITY_STORAGE_KEY = "market_active_city_v3"
 const RIDE_CITY_STORAGE_KEY = "ride_active_city_v1"
+const NY_NJ_ALIASES = [
+  "纽约/新泽西", "纽约", "新泽西", "NY", "NJ", "NY/NJ", "NYC", "New York", "New Jersey",
+  "Manhattan", "Queens", "LIC", "Long Island City", "Jersey", "Jersey City", "Fort Lee",
+  "Hoboken", "Newark"
+]
 
 const DEFAULT_CITY_TREE = [
   {
@@ -19,14 +24,9 @@ const DEFAULT_CITY_TREE = [
         badge: "Hot",
         cities: [
           {
-            key: "ny",
-            label: "纽约",
-            aliases: ["纽约", "New York", "NYC", "Manhattan", "Brooklyn", "Queens", "Flushing", "LIC", "Long Island City"]
-          },
-          {
-            key: "nj",
-            label: "新泽西",
-            aliases: ["新泽西", "Jersey", "NJ", "New Jersey", "Newark", "Hoboken", "Jersey City", "Fort Lee", "Edison", "New Brunswick", "Princeton"]
+            key: DEFAULT_CITY_KEY,
+            label: DEFAULT_CITY_LABEL,
+            aliases: NY_NJ_ALIASES
           },
           { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
           { key: "chicago", label: "芝加哥", aliases: ["芝加哥", "Chicago"] },
@@ -39,8 +39,7 @@ const DEFAULT_CITY_TREE = [
       {
         title: "东北部",
         cities: [
-          { key: "ny", label: "纽约", aliases: ["纽约", "New York", "NYC", "Manhattan", "Queens", "LIC"] },
-          { key: "nj", label: "新泽西", aliases: ["新泽西", "NJ", "Jersey", "Fort Lee", "Jersey City", "Hoboken"] },
+          { key: DEFAULT_CITY_KEY, label: DEFAULT_CITY_LABEL, aliases: NY_NJ_ALIASES },
           { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
           { key: "philadelphia", label: "费城", aliases: ["费城", "Philadelphia", "Philly"] },
           { key: "dc", label: "华盛顿DC", aliases: ["华盛顿", "Washington DC", "DC", "Arlington"] }
@@ -95,14 +94,28 @@ function uniq(values) {
   return out
 }
 
+function normalizeCityKeyAlias(key) {
+  const text = cleanText(key).toLowerCase()
+  if (["ny", "nj", "new york", "new_york", "new jersey", "new-jersey", "new_jersey", "nyc", "jersey", "纽约", "新泽西"].includes(text)) {
+    return DEFAULT_CITY_KEY
+  }
+  return cleanText(key)
+}
+
 function normalizeCity(city = {}) {
-  const key = cleanText(city.key || city.id || city.value)
-  const label = cleanText(city.label || city.name || city.title)
+  const key = normalizeCityKeyAlias(city.key || city.id || city.value)
+  const label = key === DEFAULT_CITY_KEY
+    ? DEFAULT_CITY_LABEL
+    : cleanText(city.label || city.name || city.title)
   if (!key || !label) return null
   return {
     key,
     label,
-    aliases: uniq([label, ...(Array.isArray(city.aliases) ? city.aliases : [])])
+    aliases: uniq([
+      label,
+      ...(key === DEFAULT_CITY_KEY ? NY_NJ_ALIASES : []),
+      ...(Array.isArray(city.aliases) ? city.aliases : [])
+    ])
   }
 }
 
@@ -114,9 +127,15 @@ function normalizeCityTree(source) {
 
   const normalized = tree.map(country => {
     const groups = (Array.isArray(country.groups) ? country.groups : []).map(group => {
+      const seenCityKeys = new Set()
       const cities = (Array.isArray(group.cities) ? group.cities : [])
         .map(normalizeCity)
         .filter(Boolean)
+        .filter(city => {
+          if (seenCityKeys.has(city.key)) return false
+          seenCityKeys.add(city.key)
+          return true
+        })
       return {
         title: cleanText(group.title || group.label || "城市"),
         badge: cleanText(group.badge),
@@ -147,7 +166,7 @@ function flattenCityTree(tree) {
 }
 
 function getCityByKey(tree, key = DEFAULT_CITY_KEY) {
-  const target = cleanText(key) || DEFAULT_CITY_KEY
+  const target = normalizeCityKeyAlias(key) || DEFAULT_CITY_KEY
   if (target === ALL_CITY_KEY) {
     return { key: ALL_CITY_KEY, label: ALL_CITY_LABEL, aliases: [] }
   }
@@ -178,6 +197,7 @@ function getCountryGroups(tree, activeCode = "US", activeCityKey = DEFAULT_CITY_
   const normalized = normalizeCityTree(tree)
   const country = normalized.find(item => item.code === activeCode) || normalized[0]
   const keyword = cleanText(options.keyword).toLowerCase()
+  const normalizedActiveCityKey = normalizeCityKeyAlias(activeCityKey) || DEFAULT_CITY_KEY
   const seenSearchKeys = new Set()
   return (country ? country.groups : []).map((group, groupIndex) => {
     const cities = options.includeAll && groupIndex === 0
@@ -194,7 +214,7 @@ function getCountryGroups(tree, activeCode = "US", activeCityKey = DEFAULT_CITY_
       ...group,
       cities: visibleCities.map(city => ({
         ...city,
-        className: city.key === activeCityKey ? "active" : ""
+        className: city.key === normalizedActiveCityKey ? "active" : ""
       }))
     }
   }).filter(group => group.cities.length)
@@ -222,17 +242,18 @@ function getStoredCitySnapshot(storageKey, tree, fallbackKey = DEFAULT_CITY_KEY)
 }
 
 function isRideServiceCityKey(cityKey) {
-  return RIDE_SERVICE_CITY_KEYS.includes(cleanText(cityKey))
+  return RIDE_SERVICE_CITY_KEYS.includes(cleanText(cityKey)) ||
+    normalizeCityKeyAlias(cityKey) === RIDE_SERVICE_CITY_KEY
 }
 
 function normalizeRideDisplayCityKey(cityKey) {
-  const key = cleanText(cityKey)
+  const key = normalizeCityKeyAlias(cityKey)
   if (!key || key === ALL_CITY_KEY || key === RIDE_SERVICE_CITY_KEY) return RIDE_DEFAULT_CITY_KEY
   return key
 }
 
 function normalizeRideServiceCityKey(cityKey) {
-  const key = cleanText(cityKey)
+  const key = normalizeCityKeyAlias(cityKey)
   if (!key || isRideServiceCityKey(key)) return RIDE_SERVICE_CITY_KEY
   return key
 }
@@ -244,7 +265,7 @@ function getRideServiceCitySnapshot(city = {}) {
     return {
       key: RIDE_SERVICE_CITY_KEY,
       label: RIDE_SERVICE_CITY_LABEL,
-      aliases: uniq([RIDE_SERVICE_CITY_LABEL, "纽约", "新泽西", "NY", "NJ", "New York", "New Jersey"])
+      aliases: uniq(NY_NJ_ALIASES)
     }
   }
   const label = cleanText(source.label || source.name || source.title || serviceKey)

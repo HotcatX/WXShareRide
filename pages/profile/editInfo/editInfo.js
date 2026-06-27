@@ -47,8 +47,9 @@ const INITIAL_REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
 const CITY_PICKER_HINT = '选择你常用发布和交易的城市，下一步选择城市下的小区域。'
 const AREA_PICKER_HINT = '请选择城市下的小区域，用于二手和转租的区域标签。'
 const CITY_STATE_BY_KEY = {
-  ny: 'NY',
-  nj: 'NJ',
+  ny_nj: 'NY_NJ',
+  ny: 'NY_NJ',
+  nj: 'NY_NJ',
   boston: 'MA',
   philadelphia: 'PA',
   dc: 'DC',
@@ -70,8 +71,9 @@ const CITY_STATE_BY_KEY = {
 }
 
 function normalizeProfileCityKey(key = '') {
-  const text = normalizeText(key)
-  return text === 'ny_nj' ? 'ny' : text
+  const text = normalizeText(key).toLowerCase()
+  if (['ny', 'nj', 'nyc', 'new york', 'new jersey', 'jersey', '纽约', '新泽西'].includes(text)) return 'ny_nj'
+  return normalizeText(key)
 }
 
 function getCityStateKey(cityKey = '') {
@@ -84,7 +86,7 @@ function buildRegionDisplayParts(cityLabel, areaLabel, buildingName = '') {
 }
 
 function buildCityPickerGroups(tree, countryCode, activeCityKey, keyword = '') {
-  return getCountryGroups(tree, countryCode || 'US', normalizeProfileCityKey(activeCityKey) || 'ny', {
+  return getCountryGroups(tree, countryCode || 'US', normalizeProfileCityKey(activeCityKey) || 'ny_nj', {
     includeAll: false,
     keyword
   })
@@ -120,9 +122,10 @@ function inferProfileCityKey(user = {}, location = {}) {
   const explicit = normalizeProfileCityKey(user.cityKey || location.cityKey)
   if (explicit) return explicit
   const stateKey = normalizeText(user.regionState || location.regionState).toUpperCase()
-  if (stateKey === 'NY') return 'ny'
-  if (stateKey === 'NJ') return 'nj'
-  return normalizeProfileCityKey(user.regionKey || location.regionKey)
+  if (stateKey === 'NY' || stateKey === 'NJ' || stateKey === 'NY_NJ') return 'ny_nj'
+  const regionKey = normalizeText(user.regionKey || location.regionKey).toLowerCase()
+  if (regionKey.startsWith('ny_') || regionKey.startsWith('nj_')) return 'ny_nj'
+  return normalizeProfileCityKey(regionKey)
 }
 
 Page({
@@ -264,7 +267,9 @@ Page({
         const location = user.location || {}
         const cityKey = inferProfileCityKey(user, location)
         const city = cityKey ? getCitySnapshot(this.data.cityTree || DEFAULT_CITY_TREE, cityKey) : null
-        const cityLabel = normalizeText(user.cityLabel || location.cityLabel || city?.label)
+        const cityLabel = city?.key === 'ny_nj'
+          ? city.label
+          : normalizeText(user.cityLabel || location.cityLabel || city?.label)
         const rawAreaKey = normalizeText(user.regionKey || location.regionKey)
         const rawAreaLabel = normalizeText(user.regionArea || location.regionArea || location.areaLabel)
         const areaKey = rawAreaKey && rawAreaKey !== cityKey ? rawAreaKey : ''
@@ -330,7 +335,7 @@ Page({
     const cityTree = normalizeCityTree(tree)
     const activeCountryCode = options.countryCode || this.data.activeCityCountryCode || 'US'
     const citySearchKeyword = typeof options.keyword === 'string' ? options.keyword : (this.data.citySearchKeyword || '')
-    const activeCityKey = normalizeProfileCityKey(this.data.regionCityKey || 'ny')
+    const activeCityKey = normalizeProfileCityKey(this.data.regionCityKey || 'ny_nj')
     const cityPickerGroups = buildCityPickerGroups(cityTree, activeCountryCode, activeCityKey, citySearchKeyword)
     this.setData({
       cityTree,
@@ -373,7 +378,7 @@ Page({
     const regionTree = normalizeRegionTree(tree)
     const activeAreaKey = this.data.regionAreaKey || ''
     const areaOptions = this.data.areaPickerVisible
-      ? getAreaOptionsForCity(regionTree, this.data.regionCityKey || 'ny', activeAreaKey)
+      ? getAreaOptionsForCity(regionTree, this.data.regionCityKey || 'ny_nj', activeAreaKey)
       : this.data.areaOptions
     this.setData({
       regionTree,
@@ -417,7 +422,7 @@ Page({
     const cityPickerGroups = buildCityPickerGroups(
       this.data.cityTree || DEFAULT_CITY_TREE,
       this.data.activeCityCountryCode || 'US',
-      this.data.regionCityKey || 'ny',
+      this.data.regionCityKey || 'ny_nj',
       ''
     )
     this.setData({
@@ -437,7 +442,7 @@ Page({
     const cityPickerGroups = buildCityPickerGroups(
       this.data.cityTree || DEFAULT_CITY_TREE,
       this.data.activeCityCountryCode || 'US',
-      this.data.regionCityKey || 'ny',
+      this.data.regionCityKey || 'ny_nj',
       keyword
     )
     this.setData({
@@ -452,7 +457,7 @@ Page({
     const cityPickerGroups = buildCityPickerGroups(
       this.data.cityTree || DEFAULT_CITY_TREE,
       code,
-      this.data.regionCityKey || 'ny',
+      this.data.regionCityKey || 'ny_nj',
       this.data.citySearchKeyword || ''
     )
     this.setData({

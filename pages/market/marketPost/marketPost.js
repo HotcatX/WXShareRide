@@ -84,21 +84,15 @@ function normalizeListingType(value) {
 }
 
 function getPostCitySnapshot(regionState = "", regionKey = "", regionArea = "") {
-  const cityKey = normalizeLocationText(regionKey)
-  if (cityKey) {
-    const normalizedCityKey = cityKey === "ny_nj" ? "ny" : cityKey
-    const city = getCitySnapshot(null, normalizedCityKey)
-    if (city.key === normalizedCityKey) return city
-  }
-
   const stateKey = normalizeLocationText(regionState).toUpperCase()
-  if (stateKey === "NY") return { key: "ny", label: "纽约", aliases: ["纽约", "New York", "NYC"] }
-  if (stateKey === "NJ") return { key: "nj", label: "新泽西", aliases: ["新泽西", "New Jersey", "NJ"] }
+  if (stateKey === "NY" || stateKey === "NJ" || stateKey === "NY_NJ") {
+    return getCitySnapshot(null, DEFAULT_CITY_KEY)
+  }
 
   const city = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
   if (city.key !== ALL_CITY_KEY) return city
   const label = normalizeLocationText(regionArea)
-  return label ? { key: cityKey || DEFAULT_CITY_KEY, label, aliases: [label] } : getCitySnapshot(null, DEFAULT_CITY_KEY)
+  return label ? { ...getCitySnapshot(null, DEFAULT_CITY_KEY), aliases: [label] } : getCitySnapshot(null, DEFAULT_CITY_KEY)
 }
 
 function normalizeSubletCategory(value) {
@@ -441,15 +435,15 @@ function buildProfileRegionMeta(user = {}) {
   }
 
   const buildingName = normalizeLocationText(region.buildingName)
-  const baseDisplay = normalizeLocationText(user.bigregion) || region.areaLabel
-  const fullDisplay = normalizeLocationText(user.regionDisplay) ||
-    [baseDisplay, buildingName].filter(Boolean).join(" / ")
+  const citySnapshot = getCitySnapshot(null, user.cityKey || user.location?.cityKey || DEFAULT_CITY_KEY)
+  const baseDisplay = [citySnapshot.label, region.areaLabel].filter(Boolean).join(" / ")
+  const fullDisplay = [baseDisplay, buildingName].filter(Boolean).join(" / ")
   return {
     hasRequired: !!(region.stateKey && region.areaKey),
     baseDisplay,
     fullDisplay,
-    cityKey: normalizeLocationText(user.cityKey || user.location?.cityKey),
-    cityLabel: normalizeLocationText(user.cityLabel || user.location?.cityLabel),
+    cityKey: citySnapshot.key,
+    cityLabel: citySnapshot.label,
     stateKey: region.stateKey,
     stateLabel: region.stateLabel,
     areaKey: region.areaKey,
@@ -1222,6 +1216,7 @@ onChooseCondition() {
       const region = normalizeLocationText(profileUpdates.region || this.data.region)
       const formCityKey = normalizeLocationText(profileUpdates.cityKey || this.data.cityKey)
       const formCityLabel = normalizeLocationText(profileUpdates.cityLabel || this.data.cityLabel)
+      const formCitySnapshot = getCitySnapshot(null, formCityKey || DEFAULT_CITY_KEY)
       const regionState = normalizeLocationText(profileUpdates.regionState || this.data.regionState)
       const regionArea = normalizeLocationText(profileUpdates.regionArea || this.data.regionArea)
       const regionKey = normalizeLocationText(profileUpdates.regionKey || this.data.regionKey)
@@ -1236,6 +1231,8 @@ onChooseCondition() {
       )
       const location = buildLocationMeta(locationName, {
         ...locationSource,
+        cityKey: formCitySnapshot.key,
+        cityLabel: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label),
         region,
         buildingName,
         regionState,
@@ -1255,8 +1252,8 @@ onChooseCondition() {
 
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
-      const postCity = formCityKey
-        ? { ...getCitySnapshot(null, formCityKey), key: formCityKey, label: formCityLabel || getCitySnapshot(null, formCityKey).label }
+      const postCity = formCitySnapshot
+        ? { ...formCitySnapshot, label: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label) }
         : getPostCitySnapshot(regionState, regionKey, regionArea)
 
       const payload = {

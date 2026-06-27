@@ -188,7 +188,11 @@ function normalizeListingCategory(value, listingType) {
 }
 
 function normalizeCityKey(value) {
-  return normalizeText(value).replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase()
+  const raw = normalizeText(value).toLowerCase()
+  if (["纽约", "新泽西", "纽约/新泽西"].includes(raw)) return "ny_nj"
+  const key = raw.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_/-]/g, "").toLowerCase()
+  if (["ny", "nj", "nyc", "ny/nj", "new_york", "new_jersey", "new-jersey", "jersey"].includes(key)) return "ny_nj"
+  return key.replace(/\//g, "_")
 }
 
 function getEventListingType(event = {}) {
@@ -875,6 +879,7 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   if (payload.category !== undefined) data.category = normalizeListingCategory(payload.category, listingType)
   if (payload.cityKey !== undefined) data.cityKey = normalizeCityKey(payload.cityKey)
   if (payload.cityLabel !== undefined) data.cityLabel = normalizeText(payload.cityLabel)
+  if (data.cityKey === "ny_nj") data.cityLabel = "纽约/新泽西"
   if (payload.region !== undefined) data.region = normalizeText(payload.region)
   if (payload.regionState !== undefined) data.regionState = normalizeText(payload.regionState)
   if (payload.regionArea !== undefined) data.regionArea = normalizeText(payload.regionArea)

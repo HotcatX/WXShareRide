@@ -570,6 +570,31 @@ Page({
     })
   },
 
+  _unlockSubmit() {
+    this._submitInFlight = false
+    this._setPostData({ submitting: false })
+  },
+
+  _resetSubmitState() {
+    this._activeSubmitRequestId = ""
+    this._unlockSubmit()
+  },
+
+  _finishSubmitSuccess(title) {
+    this._activeSubmitRequestId = ""
+    markMarketGoodsChanged()
+    wx.showToast({ title, icon: "success" })
+    setTimeout(() => {
+      wx.navigateBack({
+        delta: 1,
+        fail: () => {
+          this._resetSubmitState()
+          wx.switchTab({ url: "/pages/market/market" })
+        }
+      })
+    }, 900)
+  },
+
   onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const id = options?.id || ''
@@ -577,6 +602,8 @@ Page({
     const isEdit = !!id && String(mode).toLowerCase() === 'edit'
     const activeListingType = normalizeListingType(options?.type || options?.listingType)
     const config = getListingTypeConfig(activeListingType)
+    this._submitInFlight = false
+    this._activeSubmitRequestId = ""
 
     this._setPostData({
       statusBarHeight: sys.statusBarHeight || 0,
@@ -601,6 +628,11 @@ Page({
       this._applyDefaultLocation()
     }
     this._hasLoaded = true
+  },
+
+  onUnload() {
+    this._submitInFlight = false
+    this._activeSubmitRequestId = ""
   },
 
   onShow() {
@@ -1259,10 +1291,8 @@ onChooseCondition() {
 
         getMarketApiResult(updRes)
 
-        markMarketGoodsChanged()
         keepSubmitLocked = true
-        wx.showToast({ title: "已保存", icon: "success" })
-        setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
+        this._finishSubmitSuccess("已保存")
         return
       }
 
@@ -1273,17 +1303,14 @@ onChooseCondition() {
 
       getMarketApiResult(checkRes)
 
-      markMarketGoodsChanged()
       keepSubmitLocked = true
-      wx.showToast({ title: this.data.isEdit ? "已保存" : "已提交", icon: "success" })
-      setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
+      this._finishSubmitSuccess(this.data.isEdit ? "已保存" : "已提交")
     } catch (e) {
       console.error(e)
       showDataError("发布失败", e, "发布信息保存到数据库失败，请稍后重试。")
     } finally {
       if (!keepSubmitLocked) {
-        this._submitInFlight = false
-        this._setPostData({ submitting: false })
+        this._unlockSubmit()
       }
     }
   }

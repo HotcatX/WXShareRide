@@ -11,9 +11,12 @@ const ADS_COLLECTION = "market_ads"
 const AD_EVENTS_COLLECTION = "market_ad_events"
 const VIEW_EVENTS_COLLECTION = "market_view_events"
 const USER_COLLECTION = "userInfo"
-const ADMIN_COLLECTION = "market_admins"
 const IMPORT_BATCH_COLLECTION = "MarketImportBatches"
 const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
+const ADMIN_SETTINGS_COLLECTION = "MarketAdminSettings"
+const ADMIN_SESSION_COLLECTION = "MarketAdminSessions"
+const ADMIN_BULK_PASSWORD_DOC_ID = "bulk_publish_password"
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
@@ -1047,65 +1050,142 @@ async function createItem(event, openid) {
   return ok({ id: itemId, itemId, status: "online" })
 }
 
-function getAdminOpenidSet() {
-  const raw = [
-    process.env.MARKET_ADMIN_OPENIDS,
-    process.env.ADMIN_OPENIDS
-  ].map(normalizeText).filter(Boolean).join(",")
-  return new Set(raw.split(/[,\s]+/).map(normalizeText).filter(Boolean))
-}
-
-function userHasAdminFlag(user = {}) {
-  const role = normalizeText(user.role || user.userRole).toLowerCase()
-  const roles = Array.isArray(user.roles)
-    ? user.roles.map(item => normalizeText(item).toLowerCase())
-    : []
-  return user.isAdmin === true ||
-    user.admin === true ||
-    user.marketAdmin === true ||
-    user.isMarketAdmin === true ||
-    role === "admin" ||
-    role === "market_admin" ||
-    roles.includes("admin") ||
-    roles.includes("market_admin")
-}
-
-async function isAdminOpenid(openid) {
-  const id = normalizeText(openid)
-  if (!id) return { isAdmin: false, source: "" }
-
-  if (getAdminOpenidSet().has(id)) return { isAdmin: true, source: "env" }
-
-  try {
-    const adminDoc = await db.collection(ADMIN_COLLECTION).doc(id).get().catch(() => null)
-    if (adminDoc && adminDoc.data) {
-      const status = normalizeText(adminDoc.data.status || "active").toLowerCase()
-      if (status !== "disabled" && status !== "inactive") return { isAdmin: true, source: ADMIN_COLLECTION }
-    }
-  } catch (e) {}
-
-  try {
-    const adminRes = await db.collection(ADMIN_COLLECTION).where({ openid: id }).limit(1).get().catch(() => null)
-    const row = adminRes && adminRes.data && adminRes.data[0]
-    if (row) {
-      const status = normalizeText(row.status || "active").toLowerCase()
-      if (status !== "disabled" && status !== "inactive") return { isAdmin: true, source: ADMIN_COLLECTION }
-    }
-  } catch (e) {}
-
-  try {
-    const userRes = await db.collection(USER_COLLECTION).where({ _openid: id }).limit(1).get()
-    const user = (userRes.data || [])[0]
-    if (userHasAdminFlag(user)) return { isAdmin: true, source: USER_COLLECTION }
-  } catch (e) {}
-
-  return { isAdmin: false, source: "" }
-}
-
 async function adminStatus(event, openid) {
   if (!openid) return ok({ isAdmin: false, openid: "" })
-  const access = await isAdminOpenid(openid)
-  return ok({ openid, isAdmin: !!access.isAdmin, source: access.source || "" })
+  const session = await verifyAdminSession(event, openid, { silent: true })
+  return ok({
+    openid,
+    isAdmin: !!session.ok,
+    source: session.ok ? "password_session" : "",
+    expiresAtMs: session.expiresAtMs || 0
+  })
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex")
+}
+
+function readEnvPasswordConfig() {
+  const code = normalizeText(process.env.MARKET_BULK_ADMIN_CODE || process.env.MARKET_BULK_ADMIN_PASSWORD)
+  if (/^\d{6}$/.test(code)) {
+    return {
+      source: "env_code",
+      code
+    }
+  }
+  return null
+}
+
+async function readAdminPasswordConfig() {
+  try {
+    const doc = await db.collection(ADMIN_SETTINGS_COLLECTION).doc(ADMIN_BULK_PASSWORD_DOC_ID).get()
+    const data = doc && doc.data
+    if (data) {
+      const status = normalizeText(data.status || "active").toLowerCase()
+      if (status !== "disabled" && status !== "inactive") {
+        const code = normalizeText(data.code || data.password || data.adminCode)
+        if (/^\d{6}$/.test(code)) {
+          return {
+            source: ADMIN_SETTINGS_COLLECTION,
+            code
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  return readEnvPasswordConfig()
+}
+
+async function verifyAdminPasswordValue(password) {
+  const value = normalizeText(password)
+  if (!value) return { ok: false, error: "missing_password" }
+  if (!/^\d{6}$/.test(value)) return { ok: false, error: "invalid_password_format" }
+  const config = await readAdminPasswordConfig()
+  if (!config) return { ok: false, error: "password_not_configured" }
+
+  if (config.code && value === config.code) {
+    return { ok: true, source: config.source }
+  }
+  return { ok: false, error: "invalid_password" }
+}
+
+async function ensureAdminSessionCollection() {
+  if (typeof db.createCollection !== "function") return
+  await db.createCollection(ADMIN_SESSION_COLLECTION).catch(e => {
+    const text = String(e && (e.message || e.errMsg || e.code) || "")
+    if (!/exist|already|collection/i.test(text)) {
+      console.warn("[marketApi] create admin session collection failed:", e)
+    }
+  })
+}
+
+function getAdminTokenFromEvent(event = {}) {
+  return normalizeText(event.adminToken || event.token || event.payload?.adminToken || event.data?.adminToken)
+}
+
+function buildAdminSessionDocId(token) {
+  return `sess_${sha256(token).slice(0, 48)}`
+}
+
+async function createAdminSession(openid) {
+  const token = crypto.randomBytes(32).toString("hex")
+  const tokenHash = sha256(token)
+  const id = buildAdminSessionDocId(token)
+  const nowMs = Date.now()
+  const expiresAtMs = nowMs + ADMIN_SESSION_TTL_MS
+  await ensureAdminSessionCollection()
+  await db.collection(ADMIN_SESSION_COLLECTION).doc(id).set({
+    data: {
+      _openid: openid,
+      adminOpenid: openid,
+      tokenHash,
+      status: "active",
+      createTime: db.serverDate(),
+      updateTime: db.serverDate(),
+      createTimeMs: nowMs,
+      updateTimeMs: nowMs,
+      expiresAtMs
+    }
+  })
+  return { token, expiresAtMs }
+}
+
+async function verifyAdminSession(event = {}, openid = "", options = {}) {
+  const token = getAdminTokenFromEvent(event)
+  if (!openid) return { ok: false, error: "not_logged_in" }
+  if (!token) return { ok: false, error: "admin_session_required" }
+  const id = buildAdminSessionDocId(token)
+  const doc = await db.collection(ADMIN_SESSION_COLLECTION).doc(id).get().catch(() => null)
+  const row = doc && doc.data
+  if (!row) return { ok: false, error: "admin_session_invalid" }
+  if (row.tokenHash !== sha256(token)) return { ok: false, error: "admin_session_invalid" }
+  if (normalizeText(row.status || "active").toLowerCase() !== "active") return { ok: false, error: "admin_session_invalid" }
+  if (row._openid && row._openid !== openid) return { ok: false, error: "admin_session_invalid" }
+  if (Number(row.expiresAtMs) && Number(row.expiresAtMs) < Date.now()) return { ok: false, error: "admin_session_expired" }
+  if (!options.silent) {
+    await db.collection(ADMIN_SESSION_COLLECTION).doc(id).update({
+      data: {
+        updateTime: db.serverDate(),
+        updateTimeMs: Date.now()
+      }
+    }).catch(() => {})
+  }
+  return { ok: true, openid, expiresAtMs: Number(row.expiresAtMs) || 0 }
+}
+
+async function adminVerifyPassword(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const password = String(event.password || event.payload?.password || event.data?.password || "")
+  const verified = await verifyAdminPasswordValue(password)
+  if (!verified.ok) return fail(verified.error)
+  const session = await createAdminSession(openid)
+  return ok({
+    openid,
+    isAdmin: true,
+    source: verified.source || "password",
+    adminToken: session.token,
+    expiresAtMs: session.expiresAtMs
+  })
 }
 
 function buildAdminBatchId(value) {
@@ -1184,8 +1264,8 @@ async function saveAdminCreatedItem(payload, openid, batchId, index) {
 
 async function adminBulkCreate(event, openid) {
   if (!openid) return fail("not_logged_in")
-  const access = await isAdminOpenid(openid)
-  if (!access.isAdmin) return fail("forbidden")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
 
   const items = Array.isArray(event.items)
     ? event.items
@@ -1306,8 +1386,8 @@ function sanitizeAdminTemplateData(input = {}) {
 
 async function adminListTemplates(event, openid) {
   if (!openid) return fail("not_logged_in")
-  const access = await isAdminOpenid(openid)
-  if (!access.isAdmin) return fail("forbidden")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
   const limit = Math.min(50, Math.max(1, Number(event.limit) || 20))
   const res = await db.collection(ADMIN_TEMPLATE_COLLECTION)
     .where({ _openid: openid, status: "active" })
@@ -1318,8 +1398,8 @@ async function adminListTemplates(event, openid) {
 
 async function adminSaveTemplate(event, openid) {
   if (!openid) return fail("not_logged_in")
-  const access = await isAdminOpenid(openid)
-  if (!access.isAdmin) return fail("forbidden")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
   const payload = event.template || event.payload || event.data || {}
   const name = normalizeText(payload.name || payload.templateName || payload.title || "代发模板").slice(0, 60)
   const templateData = sanitizeAdminTemplateData(payload.data || payload)
@@ -1347,8 +1427,8 @@ async function adminSaveTemplate(event, openid) {
 
 async function adminDeleteTemplate(event, openid) {
   if (!openid) return fail("not_logged_in")
-  const access = await isAdminOpenid(openid)
-  if (!access.isAdmin) return fail("forbidden")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
   const id = normalizeText(event.id || event.templateId)
   if (!id) return fail("missing_id")
   const doc = await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).get().catch(() => null)
@@ -1830,6 +1910,8 @@ exports.main = async (event = {}) => {
     if (action === "sellerList") return sellerList(event)
     if (action === "tradeList") return tradeList(event, OPENID)
     if (action === "adminStatus") return adminStatus(event, OPENID)
+    if (action === "adminSessionStatus") return adminStatus(event, OPENID)
+    if (action === "adminVerifyPassword") return adminVerifyPassword(event, OPENID)
     if (action === "adminBulkCreate") return adminBulkCreate(event, OPENID)
     if (action === "adminListTemplates") return adminListTemplates(event, OPENID)
     if (action === "adminSaveTemplate") return adminSaveTemplate(event, OPENID)

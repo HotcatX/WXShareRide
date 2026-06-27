@@ -416,8 +416,8 @@ page{
 .area-option{
   height: 58rpx;
   padding: 0 8rpx;
-  font-size: 21rpx;
-  line-height: 27rpx;
+  font-size: 22rpx;
+  line-height: 28rpx;
 }
 
 .rp-panel{

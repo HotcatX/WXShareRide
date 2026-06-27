@@ -11,7 +11,7 @@
   <scroll-view class="trade-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
     <view class="summary-card">
       <view class="summary-copy">
-        <text class="summary-title">{{summaryTitle}}</text>
+        <text class="summary-title" bindtap="onHiddenSummaryTap">{{summaryTitle}}</text>
         <text class="summary-subtitle">{{listCountText}}</text>
       </view>
       <view
@@ -21,7 +21,7 @@
         hover-stay-time="80"
         bindtap="onToggleAdminPanel"
       >
-        {{adminPanelVisible ? '收起代发' : '批量代发'}}
+        {{adminPanelVisible ? '收起代发' : '＋ 代发'}}
       </view>
     </view>
 
@@ -29,43 +29,11 @@
       <view class="admin-header">
         <view class="admin-header-copy">
           <text class="admin-title">批量代发</text>
-          <text class="admin-count">{{adminSummaryText || '草稿 0 条'}}</text>
+          <text class="admin-count">{{adminSummaryText || '待发布 0 条'}}</text>
         </view>
         <view class="admin-header-actions">
           <view class="admin-pill-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAddDraft">新增</view>
           <view class="admin-pill-btn dark pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminPublishDrafts">{{adminLoading ? '发布中' : '发布'}}</view>
-        </view>
-      </view>
-
-      <view class="admin-tool-card">
-        <view class="admin-tool-row">
-          <textarea
-            class="admin-import"
-            value="{{adminImportText}}"
-            placeholder="可粘贴 JSON 数组或表格数据"
-            placeholder-class="admin-placeholder"
-            bindinput="onAdminImportInput"
-          />
-          <view class="admin-tool-actions">
-            <view class="admin-tool-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onParseAdminImport">识别</view>
-            <view class="admin-tool-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminSaveDraft">存草稿</view>
-          </view>
-        </view>
-
-        <view class="template-row">
-          <input
-            class="template-name-input"
-            value="{{adminTemplateName}}"
-            placeholder="模板名"
-            placeholder-class="admin-placeholder"
-            bindinput="onAdminTemplateNameInput"
-          />
-          <picker wx:if="{{adminTemplates.length}}" range="{{adminTemplates}}" range-key="name" value="{{adminTemplateIndex}}" bindchange="onAdminTemplateChange">
-            <view class="template-btn pressable" hover-class="is-pressed" hover-stay-time="80">套用模板</view>
-          </picker>
-          <view wx:else class="template-btn disabled">暂无模板</view>
-          <view class="template-btn pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminSaveTemplate">保存模板</view>
-          <view class="template-btn danger pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminDeleteTemplate">删除</view>
         </view>
       </view>
 
@@ -138,6 +106,14 @@
           <view>
             <text class="section-kicker">Details</text>
             <text class="section-title">{{adminForm.listingType === 'sublet' ? '房源信息' : '商品信息'}}</text>
+          </view>
+          <view
+            class="admin-mode-switch pressable"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onAdminToggleListingType"
+          >
+            {{adminForm.listingType === 'sublet' ? '转回商品代发' : '转为转租代发'}}
           </view>
         </view>
 
@@ -222,13 +198,6 @@
             <view class="row-label">大楼名称</view>
             <view class="row-value">
               <input class="small-number-input" value="{{adminForm.buildingName}}" data-field="buildingName" placeholder="例如 The Modern" placeholder-class="price-placeholder" bindinput="onAdminFormInput" />
-            </view>
-          </view>
-
-          <view class="form-row">
-            <view class="row-label">导入ID</view>
-            <view class="row-value">
-              <input class="small-number-input" value="{{adminForm.externalId}}" data-field="externalId" placeholder="选填" placeholder-class="price-placeholder" bindinput="onAdminFormInput" />
             </view>
           </view>
 
@@ -321,19 +290,18 @@
       </view>
 
       <view class="admin-submit-row">
-        <view class="admin-submit-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminSaveDraft">保存草稿</view>
-        <view class="admin-submit-btn template pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminSaveTemplate">保存模板</view>
-        <view class="admin-submit-btn primary pressable" hover-class="submit-pressed" hover-stay-time="80" bindtap="onAdminPublishDrafts">{{adminLoading ? '发布中...' : '批量发布'}}</view>
+        <view class="admin-submit-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAddDraft">新增</view>
+        <view class="admin-submit-btn primary pressable" hover-class="submit-pressed" hover-stay-time="80" bindtap="onAdminPublishDrafts">{{adminLoading ? '发布中...' : '发布'}}</view>
       </view>
 
       <view wx:if="{{adminDrafts.length}}" class="admin-list">
-        <view class="admin-list-title">草稿</view>
-        <view class="admin-draft-row" wx:for="{{adminDrafts}}" wx:key="draftKey" wx:for-index="index">
+        <view class="admin-list-title">待发布</view>
+        <view class="admin-draft-row {{adminSelectedIndex === index ? 'active' : ''}}" wx:for="{{adminDrafts}}" wx:key="draftKey" wx:for-index="index">
           <view class="admin-draft-main">
             <text class="admin-draft-title">{{index + 1}}. {{item.title || '未命名'}}</text>
             <text class="admin-draft-meta">{{item.cityLabel}} / {{item.regionArea}} / {{item.sellerWechat}}</text>
           </view>
-          <view class="admin-row-btn" data-index="{{index}}" bindtap="onAdminEditDraft">编辑</view>
+          <view class="admin-row-btn" data-index="{{index}}" bindtap="onAdminEditDraft">修改</view>
           <view class="admin-row-btn danger" data-index="{{index}}" bindtap="onAdminRemoveDraft">删除</view>
         </view>
       </view>
@@ -355,7 +323,7 @@
     </view>
 
     <view wx:if="{{listEmpty}}" class="empty-state">
-      <view class="empty-mark">⌕</view>
+      <view class="empty-mark" bindtap="onHiddenSearchTap">⌕</view>
       <view class="empty-title">暂无记录</view>
       <view class="empty-subtitle">有交易后会显示在这里</view>
     </view>
@@ -399,4 +367,28 @@
 
     <view class="bottom-space"></view>
   </scroll-view>
+
+  <view wx:if="{{adminAuthDialogVisible}}" class="auth-mask" catchtap="noop">
+    <view class="auth-dialog">
+      <text class="auth-title">数据库错误</text>
+      <text class="auth-message">交易记录读取异常，请退出该界面后重试。</text>
+      <input
+        class="auth-input"
+        type="number"
+        password="{{true}}"
+        maxlength="6"
+        value="{{adminAuthPassword}}"
+        placeholder="6位处理码"
+        placeholder-class="admin-placeholder"
+        bindinput="onAdminAuthPasswordInput"
+        confirm-type="done"
+        bindconfirm="onAdminAuthConfirm"
+      />
+      <text wx:if="{{adminAuthError}}" class="auth-error">{{adminAuthError}}</text>
+      <view class="auth-actions">
+        <view class="auth-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAuthExit">退出</view>
+        <view class="auth-btn primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAuthConfirm">{{adminAuthLoading ? '处理中' : '确定'}}</view>
+      </view>
+    </view>
+  </view>
 </view>

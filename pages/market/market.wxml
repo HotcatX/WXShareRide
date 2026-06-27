@@ -102,8 +102,12 @@
                 <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
               </view>
-              <text class="goods-distance">{{distanceSortActive ? (item.distanceText || item.regionShortText) : item.regionShortText}}</text>
-              <text class="goods-views">浏览 {{item.viewCount || 0}}</text>
+              <text wx:if="{{item.buildingNameText}}" class="card-building goods-building">{{item.buildingNameText}}</text>
+              <text wx:if="{{item.regionShortText}}" class="goods-region">{{item.regionShortText}}</text>
+              <view class="goods-views">
+                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <text>{{item.viewCount || 0}}</text>
+              </view>
             </view>
           </block>
 
@@ -122,8 +126,12 @@
                 <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name">{{item.sellerNameText}}</text>
               </view>
-              <text class="card-location">{{distanceSortActive ? (item.distanceText || item.regionShortText) : item.regionShortText}}</text>
-              <text class="card-views">浏览 {{item.viewCount || 0}}</text>
+              <text wx:if="{{item.buildingNameText}}" class="card-building">{{item.buildingNameText}}</text>
+              <text wx:if="{{item.regionShortText}}" class="card-location">{{item.regionShortText}}</text>
+              <view class="card-views">
+                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <text>{{item.viewCount || 0}}</text>
+              </view>
             </view>
           </block>
 

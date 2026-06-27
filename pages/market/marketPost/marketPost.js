@@ -436,7 +436,7 @@ function buildPostDisplayPatch(state = {}) {
     genderPreferenceDisplay: genderPreference,
     furnishedDisplay: state.furnished ? "带家具" : "未标注",
     utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
-    locationDisplay: locationInput || "建议去个人资料设置精确定位",
+    locationDisplay: locationInput || "设置地图定位后可按距离排序商品～",
     locationMutedClass: locationInput ? "" : "muted",
     regionLocationDisplay: regionInput || "去个人资料选择城市",
     regionLocationMutedClass: regionInput ? "" : "muted",

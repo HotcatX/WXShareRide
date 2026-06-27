@@ -12,6 +12,7 @@ const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
 const MARKET_MAX_IMAGE_COUNT = 6
+const ADMIN_SESSION_STORAGE_KEY = "market_bulk_admin_session_v1"
 const GOODS_CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
 const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
 const LISTING_TYPE_OPTIONS = [
@@ -231,6 +232,33 @@ function defaultAdminDraft(overrides = {}) {
   }
 }
 
+function cloneAdminDraft(draft = {}) {
+  return {
+    ...draft,
+    images: Array.isArray(draft.images) ? draft.images.slice() : [],
+    imageFileIDs: Array.isArray(draft.imageFileIDs) ? draft.imageFileIDs.slice() : [],
+    thumbFileIDs: Array.isArray(draft.thumbFileIDs) ? draft.thumbFileIDs.slice() : [],
+    location: draft.location && typeof draft.location === "object" ? { ...draft.location } : {}
+  }
+}
+
+function clearAdminDraftImages(draft = {}) {
+  return {
+    ...cloneAdminDraft(draft),
+    image: "",
+    images: [],
+    imageFileID: "",
+    imageFileIDs: [],
+    thumbFileID: "",
+    thumbFileIDs: [],
+    imageFileIDsText: "",
+    thumbFileIDsText: "",
+    imageUploading: false,
+    imageUploadProgress: 0,
+    imageUploadText: ""
+  }
+}
+
 function pick(row = {}, keys = []) {
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i]
@@ -284,34 +312,8 @@ function normalizeImportedDraft(row = {}) {
     imageFileIDsText: imageFileIDs.join("\n"),
     thumbFileIDsText: thumbFileIDs.join("\n"),
     location: row.location && typeof row.location === "object" ? row.location : {},
-    externalId: normalizeText(pick(row, ["externalId", "importId", "导入ID"]))
+    externalId: normalizeText(pick(row, ["externalId"]))
   })
-}
-
-function parseDelimitedText(text) {
-  const lines = String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  if (lines.length < 2) return []
-  const delimiter = lines[0].includes("\t") ? "\t" : ","
-  const headers = lines[0].split(delimiter).map(normalizeText)
-  return lines.slice(1).map(line => {
-    const values = line.split(delimiter)
-    const row = {}
-    headers.forEach((header, index) => {
-      row[header] = normalizeText(values[index])
-    })
-    return row
-  })
-}
-
-function parseAdminImportText(text) {
-  const raw = String(text || "").trim()
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    const list = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [])
-    if (list.length) return list.map(normalizeImportedDraft)
-  } catch (e) {}
-  return parseDelimitedText(raw).map(normalizeImportedDraft)
 }
 
 function validateDraft(draft = {}) {
@@ -324,9 +326,21 @@ function validateDraft(draft = {}) {
   return ""
 }
 
+function hasDraftContent(draft = {}) {
+  return !!(
+    normalizeText(draft.title) ||
+    normalizeText(draft.desc) ||
+    normalizeText(draft.sellerName) ||
+    normalizeText(draft.sellerWechat) ||
+    normalizeText(draft.buildingName) ||
+    previewImagesFromDraft(draft).length ||
+    orderedImageFileIDsFromDraft(draft).length
+  )
+}
+
 function attachDraftKeys(list = []) {
   return (Array.isArray(list) ? list : []).map((item, index) => ({
-    ...item,
+    ...cloneAdminDraft(item),
     draftKey: item.draftKey || `${Date.now()}_${index}_${Math.random().toString(16).slice(2, 8)}`
   }))
 }
@@ -401,51 +415,6 @@ function draftToPayload(draft = {}) {
   return payload
 }
 
-function draftToTemplatePayload(draft = {}) {
-  const payload = draftToPayload({
-    ...draft,
-    images: [],
-    image: "",
-    imageFileID: "",
-    imageFileIDs: [],
-    thumbFileID: "",
-    thumbFileIDs: [],
-    imageFileIDsText: "",
-    thumbFileIDsText: "",
-    desc: ""
-  })
-  delete payload.imageFileID
-  delete payload.imageFileIDs
-  delete payload.thumbFileID
-  delete payload.thumbFileIDs
-  delete payload.hasImage
-  delete payload.desc
-  return payload
-}
-
-function templateToDraft(template = {}) {
-  const data = template.data || template
-  return defaultAdminDraft({
-    ...data,
-    price: data.price === 0 || data.price ? String(data.price) : "0",
-    deposit: data.deposit === 0 || data.deposit ? String(data.deposit) : "",
-    roommateCount: data.roommateCount === 0 || data.roommateCount ? String(data.roommateCount) : "",
-    desc: "",
-    image: "",
-    images: [],
-    imageFileID: "",
-    imageFileIDs: [],
-    thumbFileID: "",
-    thumbFileIDs: [],
-    imageFileIDsText: "",
-    thumbFileIDsText: "",
-    imageUploading: false,
-    imageUploadProgress: 0,
-    imageUploadText: "",
-    externalId: ""
-  })
-}
-
 function buildTradeDisplayPatch(type, list = []) {
   return {
     pageTitle: type === "bought" ? "我买到的" : "我卖出的",
@@ -510,18 +479,23 @@ Page({
 
     adminChecked: false,
     isAdmin: false,
+    adminToken: "",
+    adminTokenExpiresAtMs: 0,
+    adminHiddenStage: "idle",
+    adminHiddenTitleTapCount: 0,
+    adminHiddenSearchTapCount: 0,
+    adminAuthDialogVisible: false,
+    adminAuthLoading: false,
+    adminAuthPassword: "",
+    adminAuthError: "",
     adminPanelVisible: false,
     adminLoading: false,
     adminSummaryText: "",
-    adminImportText: "",
     adminDrafts: [],
     adminSelectedIndex: -1,
     adminForm: defaultAdminDraft(),
     adminResults: [],
     adminFailures: [],
-    adminTemplateName: "",
-    adminTemplates: [],
-    adminTemplateIndex: -1,
 
     listingTypeOptions: LISTING_TYPE_OPTIONS,
     adminListingTypeIndex: 0,
@@ -565,25 +539,80 @@ Page({
   async init() {
     await Promise.all([
       this.fetchList(),
-      this.checkAdminStatus()
+      this.restoreAdminSession()
     ])
   },
 
-  async checkAdminStatus() {
+  getStoredAdminSession() {
+    try {
+      const session = wx.getStorageSync(ADMIN_SESSION_STORAGE_KEY) || {}
+      if (!session || !session.adminToken) return null
+      if (Number(session.expiresAtMs) && Number(session.expiresAtMs) <= Date.now()) {
+        wx.removeStorageSync(ADMIN_SESSION_STORAGE_KEY)
+        return null
+      }
+      return session
+    } catch (e) {
+      return null
+    }
+  },
+
+  setAdminSession(result = {}) {
+    const adminToken = normalizeText(result.adminToken)
+    const expiresAtMs = Number(result.expiresAtMs) || 0
+    if (!adminToken) return
+    try {
+      wx.setStorageSync(ADMIN_SESSION_STORAGE_KEY, { adminToken, expiresAtMs })
+    } catch (e) {}
+    this.setData({
+      adminChecked: true,
+      isAdmin: true,
+      adminToken,
+      adminTokenExpiresAtMs: expiresAtMs,
+      myOpenid: result.openid || this.data.myOpenid
+    })
+  },
+
+  clearAdminSession() {
+    try {
+      wx.removeStorageSync(ADMIN_SESSION_STORAGE_KEY)
+    } catch (e) {}
+    this.setData({
+      isAdmin: false,
+      adminToken: "",
+      adminTokenExpiresAtMs: 0,
+      adminPanelVisible: false
+    })
+  },
+
+  async restoreAdminSession() {
+    const session = this.getStoredAdminSession()
+    if (!session) {
+      this.setData({ adminChecked: true, isAdmin: false })
+      return
+    }
     try {
       const res = await wx.cloud.callFunction({
         name: "marketApi",
-        data: { action: "adminStatus" }
+        data: {
+          action: "adminSessionStatus",
+          adminToken: session.adminToken
+        }
       })
       const result = getMarketApiResult(res)
-      this.setData({
-        adminChecked: true,
-        isAdmin: !!result.isAdmin,
-        myOpenid: result.openid || this.data.myOpenid
+      if (!result.isAdmin) {
+        this.clearAdminSession()
+        this.setData({ adminChecked: true })
+        return
+      }
+      this.setAdminSession({
+        adminToken: session.adminToken,
+        expiresAtMs: result.expiresAtMs || session.expiresAtMs,
+        openid: result.openid
       })
-      if (result.isAdmin) this.loadAdminTemplates()
     } catch (e) {
-      this.setData({ adminChecked: true, isAdmin: false })
+      this.clearAdminSession()
+      this.setData({ adminChecked: true })
     }
   },
 
@@ -643,6 +672,128 @@ Page({
     })
   },
 
+  getAdminToken() {
+    const token = normalizeText(this.data.adminToken)
+    if (!token) return ""
+    if (Number(this.data.adminTokenExpiresAtMs) && Number(this.data.adminTokenExpiresAtMs) <= Date.now()) {
+      this.clearAdminSession()
+      return ""
+    }
+    return token
+  },
+
+  withAdminToken(data = {}) {
+    return {
+      ...data,
+      adminToken: this.getAdminToken()
+    }
+  },
+
+  handleAdminSessionError(e) {
+    const text = String(e && (e.message || e.errMsg || "") || "")
+    if (/admin_session|forbidden|not_logged_in/i.test(text)) {
+      this.clearAdminSession()
+      wx.showToast({ title: "请重新验证", icon: "none" })
+      return true
+    }
+    return false
+  },
+
+  onHiddenSummaryTap() {
+    if (this.data.type !== "sold" || this.data.isAdmin) return
+    const count = Number(this.data.adminHiddenTitleTapCount || 0) + 1
+    if (count >= 2) {
+      this.setData({
+        adminHiddenStage: "title",
+        adminHiddenTitleTapCount: 2,
+        adminHiddenSearchTapCount: 0
+      })
+      return
+    }
+    this.setData({
+      adminHiddenStage: "idle",
+      adminHiddenTitleTapCount: count,
+      adminHiddenSearchTapCount: 0
+    })
+  },
+
+  onHiddenSearchTap() {
+    if (this.data.type !== "sold" || this.data.isAdmin) return
+    if (this.data.adminHiddenStage !== "title") {
+      this.setData({
+        adminHiddenStage: "idle",
+        adminHiddenTitleTapCount: 0,
+        adminHiddenSearchTapCount: 0
+      })
+      return
+    }
+    const count = Number(this.data.adminHiddenSearchTapCount || 0) + 1
+    if (count >= 2) {
+      this.setData({
+        adminHiddenStage: "idle",
+        adminHiddenTitleTapCount: 0,
+        adminHiddenSearchTapCount: 0,
+        adminAuthDialogVisible: true,
+        adminAuthPassword: "",
+        adminAuthError: ""
+      })
+      return
+    }
+    this.setData({ adminHiddenSearchTapCount: count })
+  },
+
+  onAdminAuthPasswordInput(e) {
+    const code = String(e.detail.value || "").replace(/\D/g, "").slice(0, 6)
+    this.setData({
+      adminAuthPassword: code,
+      adminAuthError: ""
+    })
+  },
+
+  onAdminAuthExit() {
+    this.setData({
+      adminAuthDialogVisible: false,
+      adminAuthPassword: "",
+      adminAuthError: "",
+      adminAuthLoading: false
+    })
+    wx.navigateBack({ delta: 1 })
+  },
+
+  async onAdminAuthConfirm() {
+    if (this.data.adminAuthLoading) return
+    const password = String(this.data.adminAuthPassword || "").trim()
+    if (!/^\d{6}$/.test(password)) {
+      this.setData({ adminAuthError: "请输入6位处理码" })
+      return
+    }
+    this.setData({ adminAuthLoading: true, adminAuthError: "" })
+    try {
+      const res = await wx.cloud.callFunction({
+        name: "marketApi",
+        data: {
+          action: "adminVerifyPassword",
+          password
+        }
+      })
+      const result = getMarketApiResult(res)
+      this.setAdminSession(result)
+      this.setData({
+        adminAuthDialogVisible: false,
+        adminAuthPassword: "",
+        adminAuthLoading: false,
+        adminAuthError: ""
+      })
+      wx.showToast({ title: "已解锁", icon: "success" })
+    } catch (e) {
+      console.error("admin password verify failed:", e)
+      this.setData({
+        adminAuthLoading: false,
+        adminAuthError: "处理失败，请退出该界面"
+      })
+    }
+  },
+
   onToggleAdminPanel() {
     if (!this.data.isAdmin) return
     const next = !this.data.adminPanelVisible
@@ -699,50 +850,80 @@ Page({
     }
   },
 
-  _setAdminForm(form = {}) {
-    this.setData(this._buildAdminFormPatch(form))
+  _setAdminForm(form = {}, options = {}) {
+    const patch = this._buildAdminFormPatch(form)
+    const selectedIndex = Number(this.data.adminSelectedIndex)
+    if (options.syncDraft !== false && selectedIndex >= 0) {
+      const list = (this.data.adminDrafts || []).slice()
+      if (selectedIndex < list.length) {
+        list[selectedIndex] = {
+          ...cloneAdminDraft(patch.adminForm),
+          draftKey: list[selectedIndex]?.draftKey
+        }
+        patch.adminDrafts = attachDraftKeys(list)
+        patch.adminSummaryText = `待发布 ${list.length} 条`
+      }
+    }
+    this.setData(patch)
+  },
+
+  loadAdminDraftIntoForm(index, draft) {
+    const patch = this._buildAdminFormPatch(cloneAdminDraft(draft))
+    this.setData({
+      ...patch,
+      adminSelectedIndex: index
+    })
   },
 
   onAdminFormInput(e) {
     const field = e.currentTarget.dataset.field
     if (!field) return
-    if (["buildingName", "detailAddress"].includes(field)) {
-      this._setAdminForm({ ...this.data.adminForm, [field]: e.detail.value })
-      return
-    }
-    this.setData({ [`adminForm.${field}`]: e.detail.value })
+    this._setAdminForm({ ...this.data.adminForm, [field]: e.detail.value })
   },
 
   onAdminSwitchChange(e) {
     const field = e.currentTarget.dataset.field
     if (!field) return
-    this.setData({ [`adminForm.${field}`]: !!e.detail.value })
+    this._setAdminForm({ ...this.data.adminForm, [field]: !!e.detail.value })
   },
 
   onAdminSwitchTap(e) {
     const field = e.currentTarget.dataset.field
     if (!field) return
-    this.setData({ [`adminForm.${field}`]: !this.data.adminForm[field] })
+    this._setAdminForm({ ...this.data.adminForm, [field]: !this.data.adminForm[field] })
   },
 
-  onAdminListingTypeChange(e) {
-    const option = LISTING_TYPE_OPTIONS[Number(e.detail.value)] || LISTING_TYPE_OPTIONS[0]
+  setAdminListingType(listingType) {
+    if (this.data.adminForm?.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
+    }
+    const option = LISTING_TYPE_OPTIONS.find(item => item.key === normalizeListingType(listingType)) || LISTING_TYPE_OPTIONS[0]
+    const currentType = normalizeListingType(this.data.adminForm?.listingType)
+    const typeChanged = currentType !== option.key
     const next = {
       ...this.data.adminForm,
       listingType: option.key,
       category: getDefaultCategory(option.key),
       condition: option.key === "sublet" ? "转租" : "99新"
     }
-    this._setAdminForm(next)
+    this._setAdminForm(typeChanged ? clearAdminDraftImages(next) : next)
+  },
+
+  onAdminToggleListingType() {
+    const currentType = normalizeListingType(this.data.adminForm?.listingType)
+    this.setAdminListingType(currentType === "sublet" ? "goods" : "sublet")
+  },
+
+  onAdminListingTypeChange(e) {
+    const option = LISTING_TYPE_OPTIONS[Number(e.detail.value)] || LISTING_TYPE_OPTIONS[0]
+    this.setAdminListingType(option.key)
   },
 
   onAdminCategoryChange(e) {
     const options = this.data.adminCategoryOptions || getCategoryOptions(this.data.adminForm.listingType)
     const category = options[Number(e.detail.value)] || options[0]
-    this.setData({
-      "adminForm.category": category,
-      adminCategoryIndex: Math.max(0, options.indexOf(category))
-    })
+    this._setAdminForm({ ...this.data.adminForm, category })
   },
 
   onAdminCityChange(e) {
@@ -761,20 +942,25 @@ Page({
   onAdminAreaChange(e) {
     const area = (this.data.adminAreaOptions || [])[Number(e.detail.value)] || this.data.adminAreaOptions[0]
     if (!area) return
-    this.setData({
-      "adminForm.regionKey": area.key,
-      "adminForm.regionArea": area.label,
-      adminAreaIndex: Math.max(0, (this.data.adminAreaOptions || []).findIndex(item => item.key === area.key))
+    this._setAdminForm({
+      ...this.data.adminForm,
+      regionKey: area.key,
+      regionArea: area.label
     })
   },
 
   onAdminDateChange(e) {
     const field = e.currentTarget.dataset.field
     if (!field) return
-    this.setData({ [`adminForm.${field}`]: e.detail.value })
+    this._setAdminForm({ ...this.data.adminForm, [field]: e.detail.value })
   },
 
-  _setAdminImageUploadProgress(progress, text) {
+  _isAdminImageUploadActive(uploadToken) {
+    return !uploadToken || this._adminImageUploadToken === uploadToken
+  },
+
+  _setAdminImageUploadProgress(progress, text, uploadToken = "") {
+    if (!this._isAdminImageUploadActive(uploadToken)) return
     const nextProgress = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)))
     this.setData({
       "adminForm.imageUploadProgress": nextProgress,
@@ -808,6 +994,8 @@ Page({
       const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean).slice(0, remaining)
       if (!tempFiles.length) return
 
+      const uploadToken = `${Date.now()}_${Math.random().toString(16).slice(2)}`
+      this._adminImageUploadToken = uploadToken
       this._setAdminForm({
         ...form,
         image: baseImages.concat(tempFiles)[0] || "",
@@ -815,17 +1003,18 @@ Page({
         imageUploading: true,
         imageUploadProgress: 1,
         imageUploadText: tempFiles.length > 1 ? `准备上传 1/${tempFiles.length}` : "准备上传"
-      })
+      }, { syncDraft: false })
 
       const uploaded = []
       let failedCount = 0
       for (let i = 0; i < tempFiles.length; i += 1) {
+        if (!this._isAdminImageUploadActive(uploadToken)) return
         const localPath = tempFiles[i]
         const stepBase = (i / tempFiles.length) * 100
         const stepSize = 100 / tempFiles.length
         const labelSuffix = tempFiles.length > 1 ? ` ${i + 1}/${tempFiles.length}` : ""
         try {
-          this._setAdminImageUploadProgress(stepBase + stepSize * 0.06, `压缩${labelSuffix}`)
+          this._setAdminImageUploadProgress(stepBase + stepSize * 0.06, `压缩${labelSuffix}`, uploadToken)
           const [mainPath, thumbPath] = await Promise.all([
             compressForUpload(localPath, MARKET_MAIN_IMAGE_QUALITY),
             compressForUpload(localPath, MARKET_THUMB_IMAGE_QUALITY)
@@ -835,7 +1024,7 @@ Page({
           let thumbProgress = thumbPath ? 0 : 100
           const updateUploadProgress = () => {
             const weighted = 16 + mainProgress * 0.74 + thumbProgress * 0.10
-            this._setAdminImageUploadProgress(Math.min(99, stepBase + stepSize * (weighted / 100)), `上传${labelSuffix}`)
+            this._setAdminImageUploadProgress(Math.min(99, stepBase + stepSize * (weighted / 100)), `上传${labelSuffix}`, uploadToken)
           }
 
           const [fileID, thumbFID] = await Promise.all([
@@ -859,6 +1048,7 @@ Page({
         }
       }
 
+      if (!this._isAdminImageUploadActive(uploadToken)) return
       const nextImages = baseImages.concat(uploaded.map(item => item.localPath))
       const nextImageFileIDs = uniqFileIDs(baseImageFileIDs.concat(uploaded.map(item => item.fileID)))
       const nextThumbFileIDs = Array.from(new Set(baseThumbFileIDs.concat(uploaded.map(item => item.thumbFID || "").filter(Boolean))))
@@ -874,6 +1064,7 @@ Page({
         imageUploadProgress: uploaded.length ? 100 : 0,
         imageUploadText: failedCount ? "部分完成" : "已完成"
       })
+      this._adminImageUploadToken = ""
 
       if (!uploaded.length) wx.showToast({ title: "上传失败", icon: "none" })
       else if (failedCount) wx.showToast({ title: "部分图片失败", icon: "none" })
@@ -882,10 +1073,11 @@ Page({
       if (String(e && e.errMsg || "").toLowerCase().includes("cancel")) return
       console.error(e)
       wx.showToast({ title: "选择/上传失败", icon: "none" })
+      this._adminImageUploadToken = ""
       this._setAdminForm({
         ...this.data.adminForm,
         imageUploading: false
-      })
+      }, { syncDraft: false })
     }
   },
 
@@ -960,174 +1152,55 @@ Page({
     })
   },
 
-  onAdminTemplateNameInput(e) {
-    this.setData({ adminTemplateName: e.detail.value })
-  },
-
-  async loadAdminTemplates() {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "marketApi",
-        data: { action: "adminListTemplates", limit: 50 }
-      })
-      const result = getMarketApiResult(res)
-      const templates = result.templates || result.data || []
-      this.setData({
-        adminTemplates: templates,
-        adminTemplateIndex: templates.length ? 0 : -1
-      })
-    } catch (e) {
-      console.error("load admin templates failed:", e)
-    }
-  },
-
-  async onAdminSaveTemplate() {
-    const form = this.data.adminForm || {}
-    const contactError = (!normalizeText(form.sellerName) || !normalizeText(form.sellerWechat))
-      ? "模板需要显示名字和微信号"
-      : ""
-    if (contactError) {
-      wx.showToast({ title: contactError, icon: "none" })
+  async onAdminAddDraft() {
+    const current = this.data.adminForm || {}
+    if (current.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
       return
     }
-    const name = normalizeText(this.data.adminTemplateName) ||
-      normalizeText([form.sellerName, form.buildingName || form.regionArea].filter(Boolean).join(" - ")) ||
-      "代发模板"
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "marketApi",
-        data: {
-          action: "adminSaveTemplate",
-          template: {
-            name,
-            data: draftToTemplatePayload(form)
-          }
-        }
-      })
-      getMarketApiResult(res)
-      wx.showToast({ title: "模板已保存", icon: "success" })
-      this.setData({ adminTemplateName: name })
-      this.loadAdminTemplates()
-    } catch (e) {
-      console.error("save admin template failed:", e)
-      wx.showToast({ title: "模板保存失败", icon: "none" })
-    }
-  },
-
-  onAdminTemplateChange(e) {
-    const index = Number(e.detail.value)
-    const template = (this.data.adminTemplates || [])[index]
-    if (!template) return
-    this.setData({
-      adminTemplateIndex: index,
-      adminTemplateName: template.name || ""
-    })
-    this._setAdminForm(templateToDraft(template))
-    wx.showToast({ title: "已套用模板", icon: "success" })
-  },
-
-  async onAdminDeleteTemplate() {
-    const template = (this.data.adminTemplates || [])[this.data.adminTemplateIndex]
-    if (!template || !template._id) {
-      wx.showToast({ title: "暂无模板", icon: "none" })
-      return
-    }
-    const confirmed = await new Promise(resolve => {
-      wx.showModal({
-        title: "删除模板",
-        content: `删除模板「${template.name || "未命名"}」？`,
-        confirmText: "删除",
-        confirmColor: "#E54D42",
-        success: res => resolve(!!res.confirm),
-        fail: () => resolve(false)
-      })
-    })
-    if (!confirmed) return
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "marketApi",
-        data: { action: "adminDeleteTemplate", id: template._id }
-      })
-      getMarketApiResult(res)
-      wx.showToast({ title: "模板已删除", icon: "success" })
-      this.loadAdminTemplates()
-    } catch (e) {
-      console.error("delete admin template failed:", e)
-      wx.showToast({ title: "删除失败", icon: "none" })
-    }
-  },
-
-  onAdminImportInput(e) {
-    this.setData({ adminImportText: e.detail.value })
-  },
-
-  onParseAdminImport() {
-    const drafts = parseAdminImportText(this.data.adminImportText)
-    if (!drafts.length) {
-      wx.showToast({ title: "没有识别到数据", icon: "none" })
-      return
-    }
-    this.setData({
-      adminDrafts: attachDraftKeys(drafts),
-      adminSelectedIndex: 0,
-      adminSummaryText: `已导入 ${drafts.length} 条草稿`
-    })
-    this._setAdminForm(drafts[0])
-  },
-
-  onAdminAddDraft() {
-    this.setData({ adminSelectedIndex: -1 })
-    this._setAdminForm(defaultAdminDraft())
-  },
-
-  _saveCurrentDraft(options = {}) {
-    const draft = normalizeImportedDraft(this.data.adminForm)
+    const draft = normalizeImportedDraft(current)
     const error = validateDraft(draft)
     if (error) {
-      if (!options.silent) wx.showToast({ title: error, icon: "none" })
-      return false
+      wx.showToast({ title: error, icon: "none" })
+      return
     }
     const list = (this.data.adminDrafts || []).slice()
-    const index = Number(this.data.adminSelectedIndex)
-    if (index >= 0 && index < list.length) {
-      list[index] = draft
-    } else {
-      list.push(draft)
-    }
-    const selectedIndex = index >= 0 && index < list.length ? index : list.length - 1
+    list.push(cloneAdminDraft(draft))
+    const nextFormPatch = this._buildAdminFormPatch(clearAdminDraftImages(current))
     this.setData({
+      ...nextFormPatch,
       adminDrafts: attachDraftKeys(list),
-      adminSelectedIndex: selectedIndex,
-      adminSummaryText: `草稿 ${list.length} 条`
+      adminSelectedIndex: -1,
+      adminSummaryText: `待发布 ${list.length} 条`
     })
-    this._setAdminForm(list[selectedIndex])
-    if (!options.silent) wx.showToast({ title: "已保存草稿", icon: "success" })
-    return true
-  },
-
-  onAdminSaveDraft() {
-    this._saveCurrentDraft()
+    wx.showToast({ title: `已新增第${list.length}条`, icon: "success" })
   },
 
   onAdminEditDraft(e) {
+    if (this.data.adminForm?.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
+    }
     const index = Number(e.currentTarget.dataset.index)
     const draft = (this.data.adminDrafts || [])[index]
     if (!draft) return
-    this.setData({ adminSelectedIndex: index })
-    this._setAdminForm(draft)
+    this.loadAdminDraftIntoForm(index, draft)
   },
 
   onAdminRemoveDraft(e) {
+    if (this.data.adminForm?.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
+    }
     const index = Number(e.currentTarget.dataset.index)
     const list = attachDraftKeys((this.data.adminDrafts || []).filter((_, i) => i !== index))
     this.setData({
       adminDrafts: list,
       adminSelectedIndex: -1,
-      adminSummaryText: `草稿 ${list.length} 条`
+      adminSummaryText: `待发布 ${list.length} 条`
     })
     if (list.length) {
-      this.setData({ adminSelectedIndex: 0 })
-      this._setAdminForm(list[0])
+      this.loadAdminDraftIntoForm(0, list[0])
     } else {
       this._setAdminForm(defaultAdminDraft())
     }
@@ -1135,22 +1208,22 @@ Page({
 
   async onAdminPublishDrafts() {
     if (this.data.adminLoading) return
-    if (normalizeText(this.data.adminForm.title) || Number(this.data.adminSelectedIndex) >= 0) {
-      if (!this._saveCurrentDraft({ silent: true })) {
-        wx.showToast({ title: validateDraft(this.data.adminForm) || "请先保存草稿", icon: "none" })
-        return
-      }
+    if (this.data.adminForm?.imageUploading) {
+      wx.showToast({ title: "图片上传中", icon: "none" })
+      return
     }
-    let drafts = (this.data.adminDrafts || []).slice()
-    if (!drafts.length && normalizeText(this.data.adminForm.title)) {
-      if (!this._saveCurrentDraft({ silent: true })) {
-        wx.showToast({ title: validateDraft(this.data.adminForm) || "请先保存草稿", icon: "none" })
+    let drafts = (this.data.adminDrafts || []).map(cloneAdminDraft)
+    if (!drafts.length && hasDraftContent(this.data.adminForm)) {
+      const current = normalizeImportedDraft(this.data.adminForm)
+      const error = validateDraft(current)
+      if (error) {
+        wx.showToast({ title: error, icon: "none" })
         return
       }
-      drafts = (this.data.adminDrafts || []).slice()
+      drafts = [current]
     }
     if (!drafts.length) {
-      wx.showToast({ title: "请先添加草稿", icon: "none" })
+      wx.showToast({ title: "请先填写或新增", icon: "none" })
       return
     }
 
@@ -1178,11 +1251,11 @@ Page({
       const items = drafts.map(draftToPayload)
       const res = await wx.cloud.callFunction({
         name: "marketApi",
-        data: {
+        data: this.withAdminToken({
           action: "adminBulkCreate",
           batchId: `trade_${Date.now()}`,
           items
-        }
+        })
       })
       const result = getMarketApiResult(res)
       markMarketGoodsChanged()
@@ -1195,6 +1268,10 @@ Page({
       this.fetchList()
     } catch (e) {
       console.error("admin bulk publish failed", e)
+      if (this.handleAdminSessionError(e)) {
+        this.setData({ adminSummaryText: "请重新验证" })
+        return
+      }
       wx.showToast({ title: "批量发布失败", icon: "none" })
       this.setData({ adminSummaryText: "发布失败" })
     } finally {

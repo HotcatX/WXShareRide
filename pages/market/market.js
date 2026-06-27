@@ -1428,6 +1428,7 @@ Page({
     const rawImageSrc = compactMarketText(x.imageSrc)
     const imageSrc = x.thumbUrl || cachedThumbUrl || (rawImageSrc && rawImageSrc !== fallbackImage ? rawImageSrc : "") || fallbackImage
     const regionShortText = buildItemRegionAreaText(x)
+    const buildingNameText = compactMarketText(x.buildingName || x.location?.buildingName)
     const cardDescText = isSublet
       ? buildSubletDescText(displayItem)
       : compactMarketText(x.desc || x.condition || "卖家暂未填写描述")
@@ -1456,7 +1457,8 @@ Page({
       regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || "",
       regionKey: x.regionKey || x.location?.regionKey || "",
       regionDisplay: x.regionDisplay || x.region || "",
-      buildingName: x.buildingName || x.location?.buildingName || "",
+      buildingName: buildingNameText,
+      buildingNameText,
       location: x.location || {},
       condition: conditionText,
       conditionText,

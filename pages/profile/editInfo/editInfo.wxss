@@ -385,7 +385,43 @@ page{
 }
 
 .area-panel{
-  height: min(48vh, 620rpx);
+  height: min(64vh, 820rpx);
+}
+
+.area-section-tabs{
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
+  padding: 18rpx 22rpx 0;
+  box-sizing: border-box;
+}
+
+.area-section-tab{
+  min-width: 0;
+  height: 58rpx;
+  padding: 0 8rpx;
+  border-radius: 14rpx;
+  background: #f4f6f8;
+  color: #59636f;
+  border: 1rpx solid rgba(20,23,26,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 23rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.area-section-tab.active{
+  background: #0f9b95;
+  color: #ffffff;
+  border-color: #0f9b95;
+  box-shadow: 0 8rpx 18rpx rgba(15,155,149,0.22);
 }
 
 .area-scroll{
@@ -396,14 +432,26 @@ page{
 }
 
 .area-section{
-  margin-bottom: 20rpx;
+  margin-bottom: 6rpx;
 }
 
 .area-section-title{
   margin: 4rpx 4rpx 12rpx;
   color: #14171a;
-  font-size: 28rpx;
-  line-height: 36rpx;
+  font-size: 30rpx;
+  line-height: 38rpx;
+  font-weight: 900;
+}
+
+.area-group{
+  margin-bottom: 16rpx;
+}
+
+.area-group-title{
+  margin: 0 4rpx 10rpx;
+  color: #69727d;
+  font-size: 24rpx;
+  line-height: 32rpx;
   font-weight: 900;
 }
 

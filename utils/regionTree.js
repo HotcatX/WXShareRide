@@ -1,7 +1,8 @@
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
-const REGION_TREE_STORAGE_KEY = "market_region_tree_v6"
+const REGION_TREE_STORAGE_KEY = "market_region_tree_v7"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
+const AREA_PANEL_ALL_KEY = "all"
 
 const STATE_CODES = [
   "NY_NJ", "CA", "MA", "PA", "CT", "RI", "NH", "VT", "ME",
@@ -17,28 +18,56 @@ const CORE_STATE_LABELS = {
 
 const CORE_STATE_AREAS = {
   NY_NJ: [
-    { key: "ny_columbia_walkup", label: "哥大步行楼", groupKey: "ny", groupLabel: "纽约", aliases: ["哥大步行楼", "Columbia Walkup"] },
-    { key: "ny_inwood", label: "Inwood", groupKey: "ny", groupLabel: "纽约", aliases: ["Inwood"] },
-    { key: "ny_96_st", label: "96街周边", groupKey: "ny", groupLabel: "纽约", aliases: ["96街", "96街周边", "96th St"] },
-    { key: "ny_midtown_west", label: "中城西", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown West"] },
-    { key: "ny_midtown_central", label: "中城中", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown Central"] },
-    { key: "ny_midtown_east", label: "中城东", groupKey: "ny", groupLabel: "纽约", aliases: ["Midtown East"] },
-    { key: "ny_manhattan_downtown", label: "曼哈顿下城", groupKey: "ny", groupLabel: "纽约", aliases: ["下城", "Downtown", "Lower Manhattan"] },
-    { key: "ny_lic_queens", label: "LIC/Queens", groupKey: "ny", groupLabel: "纽约", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
-    { key: "ny_other", label: "其他", groupKey: "ny", groupLabel: "纽约", aliases: ["其他NY", "NY其他", "Other NY"] },
-    { key: "nj_fort_lee", label: "Fortlee", groupKey: "nj", groupLabel: "NJ", aliases: ["Fort Lee", "FL"] },
-    { key: "nj_newport", label: "Newport", groupKey: "nj", groupLabel: "NJ", aliases: ["New Port"] },
-    { key: "nj_grove_st", label: "Grove St", groupKey: "nj", groupLabel: "NJ", aliases: ["Grove Street", "Grove"] },
-    { key: "nj_jsq", label: "JSQ", groupKey: "nj", groupLabel: "NJ", aliases: ["Journal Square"] },
-    { key: "nj_harrison", label: "Harrison", groupKey: "nj", groupLabel: "NJ", aliases: [] },
-    { key: "nj_other", label: "其他", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
+    { key: "ny_columbia_walkup", label: "哥大步行楼", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["哥大步行楼", "Columbia Walkup"] },
+    { key: "ny_inwood", label: "Inwood", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["Inwood"] },
+    { key: "ny_96_st", label: "96街周边", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["96街", "96街周边", "96th St"] },
+    { key: "ny_midtown_west", label: "中城西", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown West"] },
+    { key: "ny_midtown_central", label: "中城中", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown Central"] },
+    { key: "ny_midtown_east", label: "中城东", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown East"] },
+    { key: "ny_manhattan_downtown", label: "曼哈顿下城", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_downtown", groupLabel: "曼哈顿下城", aliases: ["下城", "Downtown", "Lower Manhattan"] },
+    { key: "ny_lic_queens", label: "LIC/Queens", sectionKey: "ny", sectionLabel: "纽约", groupKey: "queens", groupLabel: "Queens", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
+    { key: "ny_other", label: "其他", sectionKey: "ny", sectionLabel: "纽约", groupKey: "ny_other", groupLabel: "其他", aliases: ["其他NY", "NY其他", "Other NY"] },
+    { key: "nj_fort_lee", label: "Fortlee", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Fort Lee", "FL"] },
+    { key: "nj_newport", label: "Newport", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["New Port"] },
+    { key: "nj_grove_st", label: "Grove St", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Grove Street", "Grove"] },
+    { key: "nj_jsq", label: "JSQ", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Journal Square"] },
+    { key: "nj_harrison", label: "Harrison", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: [] },
+    { key: "nj_other", label: "其他", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
   ]
+}
+
+const AREA_SECTION_LABELS = {
+  nj: "NJ",
+  ny: "纽约"
 }
 
 const AREA_GROUP_LABELS = {
   ny: "纽约",
-  nj: "NJ"
+  nj: "NJ",
+  manhattan_uptown: "曼哈顿上城",
+  manhattan_midtown: "曼哈顿中城",
+  manhattan_downtown: "曼哈顿下城",
+  queens: "Queens",
+  ny_other: "其他"
 }
+
+const AREA_SECTION_ORDER = ["ny", "nj", "other"]
+const AREA_SECTION_TAB_ORDER = ["all", "ny", "nj", "other"]
+const AREA_SECTION_TAB_LABELS = {
+  all: ALL_AREA_LABEL,
+  nj: "新泽西",
+  ny: "纽约",
+  other: "其他"
+}
+const AREA_GROUP_ORDER = [
+  "nj",
+  "manhattan_uptown",
+  "manhattan_midtown",
+  "manhattan_downtown",
+  "queens",
+  "ny_other",
+  "other"
+]
 
 function cleanText(value) {
   if (value === null || value === undefined) return ""
@@ -86,7 +115,88 @@ function buildDefaultRegionTree() {
 
 const DEFAULT_REGION_TREE = buildDefaultRegionTree()
 
+function getDefaultAreaSectionKey(areaKey) {
+  const key = cleanText(areaKey).toLowerCase()
+  if (key.startsWith("nj_")) return "nj"
+  if (key.startsWith("ny_")) return "ny"
+  return ""
+}
+
+function getDefaultAreaGroupKey(areaKey) {
+  const key = cleanText(areaKey).toLowerCase()
+  if (key.startsWith("nj_")) return "nj"
+  if (["ny_columbia_walkup", "ny_inwood", "ny_96_st"].includes(key)) return "manhattan_uptown"
+  if (["ny_midtown_west", "ny_midtown_central", "ny_midtown_east"].includes(key)) return "manhattan_midtown"
+  if (key === "ny_manhattan_downtown") return "manhattan_downtown"
+  if (key === "ny_lic_queens") return "queens"
+  if (key === "ny_other") return "ny_other"
+  if (key.startsWith("ny_")) return "ny"
+  return ""
+}
+
+function normalizeAreaSectionKey(sectionKey, areaKey) {
+  const inferred = getDefaultAreaSectionKey(areaKey)
+  if (inferred) return inferred
+  const raw = cleanText(sectionKey).toLowerCase()
+  if (raw === "ny" || raw === "new york" || raw === "纽约") return "ny"
+  if (raw === "nj" || raw === "new jersey" || raw === "新泽西") return "nj"
+  return raw
+}
+
+function getAreaPanelSectionKey(area = {}) {
+  const areaKey = cleanText(area && area.key)
+  if (!areaKey || areaKey === ALL_AREA_KEY || areaKey.endsWith("_all")) return AREA_PANEL_ALL_KEY
+  return normalizeAreaSectionKey(area.sectionKey, areaKey) ||
+    normalizeAreaGroupKey(area.groupKey, areaKey) ||
+    "other"
+}
+
+function getAreaPanelSectionLabel(sectionKey, area = {}) {
+  return AREA_SECTION_TAB_LABELS[sectionKey] ||
+    cleanText(area.sectionLabel || area.sectionName || area.parentLabel) ||
+    AREA_SECTION_LABELS[sectionKey] ||
+    sectionKey
+}
+
+function resolveAreaPanelSectionKey(areas = [], activeSectionKey = "", activeAreaKeys = []) {
+  const list = Array.isArray(areas) ? areas : []
+  const available = new Set(list.map(getAreaPanelSectionKey).filter(Boolean))
+  const requested = cleanText(activeSectionKey).toLowerCase()
+  if (requested && available.has(requested)) return requested
+  const selectedKeys = new Set((Array.isArray(activeAreaKeys) ? activeAreaKeys : [activeAreaKeys]).map(cleanText).filter(Boolean))
+  const selectedArea = list.find(area => selectedKeys.has(cleanText(area && area.key)))
+  if (selectedArea) return getAreaPanelSectionKey(selectedArea)
+  if (available.has(AREA_PANEL_ALL_KEY)) return AREA_PANEL_ALL_KEY
+  if (available.has("ny")) return "ny"
+  if (available.has("nj")) return "nj"
+  return Array.from(available)[0] || ""
+}
+
+function buildAreaSectionTabs(areas = [], activeSectionKey = "", activeAreaKeys = []) {
+  const list = Array.isArray(areas) ? areas : []
+  const byKey = new Map()
+  list.forEach(area => {
+    const key = getAreaPanelSectionKey(area)
+    if (!key || byKey.has(key)) return
+    byKey.set(key, {
+      key,
+      label: getAreaPanelSectionLabel(key, area)
+    })
+  })
+  const selectedKey = resolveAreaPanelSectionKey(list, activeSectionKey, activeAreaKeys)
+  return Array.from(byKey.values()).sort((a, b) => {
+    const ai = AREA_SECTION_TAB_ORDER.indexOf(a.key)
+    const bi = AREA_SECTION_TAB_ORDER.indexOf(b.key)
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+  }).map(tab => ({
+    ...tab,
+    className: tab.key === selectedKey ? "active" : ""
+  }))
+}
+
 function normalizeAreaGroupKey(groupKey, areaKey) {
+  const inferred = getDefaultAreaGroupKey(areaKey)
+  if (inferred) return inferred
   const raw = cleanText(groupKey).toLowerCase()
   if (raw === "ny" || raw === "new york" || raw === "纽约") return "ny"
   if (raw === "nj" || raw === "new jersey" || raw === "新泽西") return "nj"
@@ -103,9 +213,12 @@ function normalizeArea(area, stateKey) {
     if (!label) return null
     const key = `${stateKey.toLowerCase()}_${slugKey(label) || "area"}`
     const groupKey = normalizeAreaGroupKey("", key)
+    const sectionKey = normalizeAreaSectionKey("", key)
     return {
       key,
       label,
+      sectionKey,
+      sectionLabel: AREA_SECTION_LABELS[sectionKey] || "",
       groupKey,
       groupLabel: AREA_GROUP_LABELS[groupKey] || "",
       aliases: [label]
@@ -116,11 +229,14 @@ function normalizeArea(area, stateKey) {
   if (!label) return null
   const key = cleanText(area.key || area.id || area.value) || `${stateKey.toLowerCase()}_${slugKey(label) || "area"}`
   const groupKey = normalizeAreaGroupKey(area.groupKey || area.group || area.sectionKey, key)
+  const sectionKey = normalizeAreaSectionKey(area.sectionKey || area.section || area.parentKey, key)
   return {
     key,
     label,
+    sectionKey,
+    sectionLabel: cleanText(area.sectionLabel || area.sectionName || area.parentLabel) || AREA_SECTION_LABELS[sectionKey] || "",
     groupKey,
-    groupLabel: cleanText(area.groupLabel || area.groupName || area.sectionLabel) || AREA_GROUP_LABELS[groupKey] || "",
+    groupLabel: AREA_GROUP_LABELS[groupKey] || cleanText(area.groupLabel || area.groupName || area.sectionLabel) || "",
     aliases: uniq([label, ...(Array.isArray(area.aliases) ? area.aliases : [])])
   }
 }
@@ -243,17 +359,56 @@ function buildRegionBaseDisplay(stateLabel, areaLabel) {
   return buildRegionDisplay(stateLabel, areaLabel)
 }
 
-function buildAreaSections(areas = []) {
+function buildAreaSections(areas = [], options = {}) {
   const sections = []
-  const byKey = new Map()
+  const bySectionKey = new Map()
+  const visibleSectionKey = cleanText(options.visibleSectionKey).toLowerCase()
+
+  const getSection = (sectionKey, sectionLabel, className = "") => {
+    const key = sectionKey || "other"
+    if (!bySectionKey.has(key)) {
+      const section = {
+        key,
+        title: sectionLabel || "",
+        className,
+        groups: [],
+        areas: []
+      }
+      bySectionKey.set(key, section)
+      sections.push(section)
+    }
+    return bySectionKey.get(key)
+  }
+
+  const getGroup = (section, groupKey, groupLabel) => {
+    const key = groupKey || `${section.key}_plain`
+    let group = section.groups.find(item => item.key === key)
+    if (!group) {
+      group = {
+        key,
+        title: groupLabel || "",
+        showTitle: !!(groupLabel && groupLabel !== section.title),
+        areas: []
+      }
+      section.groups.push(group)
+    }
+    return group
+  }
+
   ;(Array.isArray(areas) ? areas : []).forEach(area => {
     const areaKey = cleanText(area && area.key)
     if (!areaKey) return
     if (areaKey === ALL_AREA_KEY || areaKey.endsWith("_all")) {
+      if (visibleSectionKey) return
       sections.push({
         key: areaKey,
         title: "",
         className: "area-section-all",
+        groups: [{
+          key: `${areaKey}_group`,
+          title: "",
+          areas: [area]
+        }],
         areas: [area]
       })
       return
@@ -261,19 +416,32 @@ function buildAreaSections(areas = []) {
 
     const groupKey = normalizeAreaGroupKey(area.groupKey, areaKey) || "other"
     const groupLabel = cleanText(area.groupLabel) || AREA_GROUP_LABELS[groupKey] || ""
-    if (!byKey.has(groupKey)) {
-      const section = {
-        key: groupKey,
-        title: groupLabel,
-        className: groupLabel ? "" : "area-section-plain",
-        areas: []
-      }
-      byKey.set(groupKey, section)
-      sections.push(section)
-    }
-    byKey.get(groupKey).areas.push(area)
+    const sectionKey = normalizeAreaSectionKey(area.sectionKey, areaKey) || groupKey || "other"
+    if (visibleSectionKey && sectionKey !== visibleSectionKey) return
+    const sectionLabel = cleanText(area.sectionLabel) || AREA_SECTION_LABELS[sectionKey] || ""
+    const section = getSection(sectionKey, sectionLabel, sectionLabel ? "area-section-block" : "area-section-plain")
+    const group = getGroup(section, groupKey, groupLabel)
+    group.areas.push(area)
+    section.areas.push(area)
   })
-  return sections.filter(section => section.areas.length)
+
+  const sortedSections = sections.filter(section => section.areas.length).sort((a, b) => {
+    if (a.className === "area-section-all") return -1
+    if (b.className === "area-section-all") return 1
+    const ai = AREA_SECTION_ORDER.indexOf(a.key)
+    const bi = AREA_SECTION_ORDER.indexOf(b.key)
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+  })
+
+  sortedSections.forEach(section => {
+    section.groups.sort((a, b) => {
+      const ai = AREA_GROUP_ORDER.indexOf(a.key)
+      const bi = AREA_GROUP_ORDER.indexOf(b.key)
+      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+    })
+  })
+
+  return sortedSections
 }
 
 function resolveRegionSelection(tree, input = {}) {
@@ -390,7 +558,9 @@ module.exports = {
   findArea,
   buildRegionDisplay,
   buildRegionBaseDisplay,
+  buildAreaSectionTabs,
   buildAreaSections,
+  resolveAreaPanelSectionKey,
   resolveRegionSelection,
   normalizeUserRegion,
   buildItemRegionAreaText,

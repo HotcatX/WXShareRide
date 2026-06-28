@@ -21,7 +21,9 @@ const {
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
   buildItemRegionAreaText,
+  buildAreaSectionTabs,
   buildAreaSections,
+  resolveAreaPanelSectionKey,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require("../../utils/regionTree")
@@ -492,17 +494,20 @@ function buildAreaOptions(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_
   }))
 }
 
-function buildAreaUiPatch(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY) {
+function buildAreaUiPatch(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY, activeSectionKey = "") {
   const nextStateKey = getAreaStateKey(tree, activeStateKey, cityKey)
   const stateTabs = buildAreaStateTabs(tree, nextStateKey, cityKey)
   const optionAreaKeys = normalizeAreaKeys(activeAreaKey)
     .filter(key => !!findAreaInTree(tree, key, cityKey))
   const areaOptions = buildAreaOptions(tree, nextStateKey, optionAreaKeys, cityKey)
+  const areaSectionKey = resolveAreaPanelSectionKey(areaOptions, activeSectionKey, optionAreaKeys)
   return {
     activeAreaStateKey: nextStateKey,
     areaStateTabs: stateTabs,
     areaOptions,
-    areaSections: buildAreaSections(areaOptions),
+    activeAreaSectionKey: areaSectionKey,
+    areaSectionTabs: buildAreaSectionTabs(areaOptions, areaSectionKey, optionAreaKeys),
+    areaSections: buildAreaSections(areaOptions, { visibleSectionKey: areaSectionKey }),
     areaHasStateTabs: stateTabs.length > 1
   }
 }
@@ -595,11 +600,12 @@ Page({
     activeCityLabel: MARKET_DEFAULT_CITY_LABEL,
     activeCityAliases: [],
     priceSortLabel: "默认",
-    distanceSortLabel: "按距离",
+    distanceSortLabel: "按时间",
     activeAreaKey: ALL_AREA_KEY,
     activeAreaKeys: [],
     activeAreaLabel: ALL_AREA_LABEL,
     activeAreaStateKey: "NY",
+    activeAreaSectionKey: ALL_AREA_KEY,
     resultTitle: LISTING_TYPE_CONFIG.goods.resultTitle,
     resultCountText: `0 ${LISTING_TYPE_CONFIG.goods.resultUnit}`,
     regions: ["全部"],
@@ -620,7 +626,8 @@ Page({
     areaTree: DEFAULT_REGION_TREE,
     areaStateTabs: buildAreaStateTabs(DEFAULT_REGION_TREE, "NY"),
     areaOptions: buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY),
-    areaSections: buildAreaSections(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY)),
+    areaSectionTabs: buildAreaSectionTabs(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY), ALL_AREA_KEY),
+    areaSections: buildAreaSections(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY), { visibleSectionKey: ALL_AREA_KEY }),
     areaHasStateTabs: true,
     areaPickerVisible: false,
 
@@ -757,13 +764,14 @@ Page({
     const selection = getAreaSelectionMeta(areaTree, areaKey, cityKey)
     const firstMatch = findAreaInTree(areaTree, selection.activeKey, cityKey)
     const activeStateKey = getAreaStateKey(areaTree, options.stateKey || firstMatch?.state?.key || this.data.activeAreaStateKey || "NY", cityKey)
+    const activeSectionKey = options.sectionKey || (selection.keys.length ? "" : (this.data.activeAreaSectionKey || ALL_AREA_KEY))
 
     this.setData({
       areaTree,
       activeAreaKey: selection.activeKey,
       activeAreaKeys: selection.keys,
       activeAreaLabel: selection.label,
-      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey)
+      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey, activeSectionKey)
     })
   },
 
@@ -821,7 +829,7 @@ Page({
       priceSortLabel: "默认",
       distanceSortActive: false,
       distanceSortClass: "",
-      distanceSortLabel: "按距离"
+      distanceSortLabel: "按时间"
     }
   },
 
@@ -934,7 +942,7 @@ Page({
       priceSortLabel: next === 'asc' ? '低到高' : (next === 'desc' ? '高到低' : '默认'),
       distanceSortActive: false,
       distanceSortClass: "",
-      distanceSortLabel: '按距离'
+      distanceSortLabel: '按时间'
     })
     if (wasDistanceSortActive) {
       this._resetGoodsStateForFetch()
@@ -967,10 +975,10 @@ Page({
 
     this.setData({
       distanceSortActive: next,
-      distanceSortClass: next ? "" : "active",
+      distanceSortClass: next ? "active" : "",
       priceSortOrder: next ? "none" : this.data.priceSortOrder,
       priceSortLabel: next ? "默认" : this.data.priceSortLabel,
-      distanceSortLabel: next ? "按时间" : "按距离"
+      distanceSortLabel: next ? "按距离" : "按时间"
     })
     this._resetGoodsStateForFetch()
     this._fetchFirstPage({ force: true, reason: next ? "distanceSort" : "distanceSortOff" })
@@ -1117,8 +1125,9 @@ Page({
       activeAreaKey: ALL_AREA_KEY,
       activeAreaKeys: [],
       activeAreaLabel: ALL_AREA_LABEL,
+      activeAreaSectionKey: ALL_AREA_KEY,
       areaPickerVisible: false,
-      ...buildAreaUiPatch(areaTree, activeStateKey, ALL_AREA_KEY, cityKey),
+      ...buildAreaUiPatch(areaTree, activeStateKey, ALL_AREA_KEY, cityKey, ALL_AREA_KEY),
       categoryPickerVisible: false,
       ...this._getDefaultSortPatch()
     })
@@ -1137,9 +1146,12 @@ Page({
     const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
     const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
     const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
+    const activeSectionKey = (this.data.activeAreaKeys || []).length
+      ? (this.data.activeAreaSectionKey === ALL_AREA_KEY ? "" : (this.data.activeAreaSectionKey || ""))
+      : (this.data.activeAreaSectionKey || ALL_AREA_KEY)
     this.setData({
       areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey)
+      ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey, activeSectionKey)
     })
   },
 
@@ -1153,8 +1165,34 @@ Page({
     const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
     this.setData({
       activeAreaStateKey: key,
-      ...buildAreaUiPatch(areaTree, key, this.data.activeAreaKeys || [], cityKey)
+      ...buildAreaUiPatch(areaTree, key, this.data.activeAreaKeys || [], cityKey, this.data.activeAreaSectionKey || ALL_AREA_KEY)
     })
+  },
+
+  async onSelectAreaSection(e) {
+    const key = e.currentTarget.dataset.key || ALL_AREA_KEY
+    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
+    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
+    const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
+    if (key !== ALL_AREA_KEY) {
+      this.setData({
+        ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey, key)
+      })
+      return
+    }
+
+    const selection = getAreaSelectionMeta(areaTree, [], cityKey)
+    this._resetGoodsStateForFetch({
+      activeAreaKey: selection.activeKey,
+      activeAreaKeys: selection.keys,
+      activeAreaLabel: selection.label,
+      areaPickerVisible: true,
+      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey, ALL_AREA_KEY)
+    })
+    this.updateMarketHeaderState(0)
+    const cacheState = this._restoreGoodsFromCache()
+    if (cacheState.restored) this.applyFilters(true)
+    await this._fetchFirstPage({ force: true, reason: "area:all" })
   },
 
   async onSelectArea(e) {
@@ -1171,13 +1209,16 @@ Page({
     }
     const selection = getAreaSelectionMeta(areaTree, nextKeys, cityKey)
     const activeAreaStateKey = getAreaStateKey(areaTree, match ? match.state.key : (this.data.activeAreaStateKey || "NY"), cityKey)
+    const activeAreaSectionKey = selection.keys.length
+      ? (match ? (match.area.sectionKey || this.data.activeAreaSectionKey || "") : "")
+      : ALL_AREA_KEY
 
     this._resetGoodsStateForFetch({
       activeAreaKey: selection.activeKey,
       activeAreaKeys: selection.keys,
       activeAreaLabel: selection.label,
       areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeAreaStateKey, selection.keys, cityKey)
+      ...buildAreaUiPatch(areaTree, activeAreaStateKey, selection.keys, cityKey, activeAreaSectionKey)
     })
     this.updateMarketHeaderState(0)
     const cacheState = this._restoreGoodsFromCache()

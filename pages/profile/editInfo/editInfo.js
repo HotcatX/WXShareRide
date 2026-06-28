@@ -9,11 +9,14 @@ const {
   cityGroupsHaveResults
 } = require('../../../utils/cityTree')
 const {
+  ALL_AREA_KEY,
   ALL_AREA_LABEL,
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
   findState,
+  buildAreaSectionTabs,
   buildAreaSections,
+  resolveAreaPanelSectionKey,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require('../../../utils/regionTree')
@@ -130,11 +133,24 @@ function normalizeAreaOption(area = {}, stateKey = '', activeAreaKey = '') {
 function getAreaOptionsForCity(regionTree, cityKey = '', activeAreaKey = '') {
   const stateKey = getCityStateKey(cityKey)
   const state = findState(regionTree, stateKey)
+  const allOption = { key: ALL_AREA_KEY, label: ALL_AREA_LABEL, className: activeAreaKey === ALL_AREA_KEY ? 'active' : '' }
   if (!state) {
-    const key = stateKey ? `${stateKey.toLowerCase()}_all` : ''
-    return key ? [{ key, label: ALL_AREA_LABEL, className: key === activeAreaKey ? 'active' : '' }] : []
+    return stateKey ? [allOption] : []
   }
-  return (state.areas || []).map(area => normalizeAreaOption(area, state.key, activeAreaKey)).filter(area => area.key && area.label)
+  const detailAreas = (state.areas || [])
+    .filter(area => !isImplicitAllArea(area, state.key))
+    .map(area => normalizeAreaOption(area, state.key, activeAreaKey))
+    .filter(area => area.key && area.label)
+  return [allOption, ...detailAreas]
+}
+
+function buildProfileAreaUiPatch(areaOptions = [], activeAreaKey = '', activeSectionKey = '') {
+  const sectionKey = resolveAreaPanelSectionKey(areaOptions, activeSectionKey, activeAreaKey)
+  return {
+    activeAreaSectionKey: sectionKey,
+    areaSectionTabs: buildAreaSectionTabs(areaOptions, sectionKey, activeAreaKey),
+    areaSections: buildAreaSections(areaOptions, { visibleSectionKey: sectionKey })
+  }
 }
 
 function inferProfileCityKey(user = {}, location = {}) {
@@ -181,6 +197,8 @@ Page({
     areaPickerVisible: false,
     areaPickerTitle: '选择区域',
     areaOptions: [],
+    activeAreaSectionKey: '',
+    areaSectionTabs: [],
     areaSections: [],
     areaPickerHintText: AREA_PICKER_HINT,
 
@@ -403,7 +421,7 @@ Page({
     this.setData({
       regionTree,
       areaOptions,
-      areaSections: buildAreaSections(areaOptions)
+      ...buildProfileAreaUiPatch(areaOptions, activeAreaKey, this.data.activeAreaSectionKey || '')
     })
   },
 
@@ -499,6 +517,7 @@ Page({
     const cityLabel = city.label
     const stateKey = getCityStateKey(cityKey)
     const areaOptions = getAreaOptionsForCity(this.data.regionTree || DEFAULT_REGION_TREE, cityKey, '')
+    const activeAreaSectionKey = resolveAreaPanelSectionKey(areaOptions, 'ny', '')
     this.setData({
       bigregion: cityLabel,
       regionCityKey: cityKey,
@@ -512,7 +531,7 @@ Page({
       citySearchKeyword: '',
       areaPickerTitle: `选择${cityLabel}区域`,
       areaOptions,
-      areaSections: buildAreaSections(areaOptions),
+      ...buildProfileAreaUiPatch(areaOptions, '', activeAreaSectionKey),
       areaPickerVisible: areaOptions.length > 1
     })
     if (areaOptions.length <= 1 && areaOptions[0]) {
@@ -524,6 +543,20 @@ Page({
 
   onAreaPickerCancel() {
     this.setData({ areaPickerVisible: false })
+  },
+
+  onSelectProfileAreaSection(e) {
+    const key = normalizeText(e.currentTarget.dataset.key).toLowerCase()
+    if (!key) return
+    const areaOptions = this.data.areaOptions || []
+    if (key === ALL_AREA_KEY) {
+      const allArea = areaOptions.find(item => item.key === ALL_AREA_KEY) || { key: ALL_AREA_KEY, label: ALL_AREA_LABEL }
+      this.applyAreaSelection(allArea)
+      return
+    }
+    this.setData({
+      ...buildProfileAreaUiPatch(areaOptions, this.data.regionAreaKey || '', key)
+    })
   },
 
   onSelectProfileArea(e) {
@@ -551,7 +584,7 @@ Page({
       regionDisplay: baseDisplay,
       areaPickerVisible: false,
       areaOptions,
-      areaSections: buildAreaSections(areaOptions)
+      ...buildProfileAreaUiPatch(areaOptions, areaKey, area.sectionKey || '')
     })
     this.markDirtyAndSave()
   },

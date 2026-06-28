@@ -270,21 +270,38 @@
         <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAreaPickerCancel">关闭</text>
       </view>
 
+      <view wx:if="{{areaSectionTabs.length > 1}}" class="area-section-tabs">
+        <view
+          class="area-section-tab {{item.className}} pressable"
+          wx:for="{{areaSectionTabs}}"
+          wx:key="key"
+          data-key="{{item.key}}"
+          hover-class="is-pressed"
+          hover-stay-time="80"
+          bindtap="onSelectProfileAreaSection"
+        >
+          {{item.label}}
+        </view>
+      </view>
+
       <scroll-view class="area-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
         <view class="area-section {{section.className}}" wx:for="{{areaSections}}" wx:for-item="section" wx:key="key">
           <view wx:if="{{section.title}}" class="area-section-title">{{section.title}}</view>
-          <view class="city-grid area-grid">
-            <view
-              class="city-option area-option {{area.className}} pressable"
-              wx:for="{{section.areas}}"
-              wx:for-item="area"
-              wx:key="key"
-              data-key="{{area.key}}"
-              hover-class="is-pressed"
-              hover-stay-time="80"
-              bindtap="onSelectProfileArea"
-            >
-              {{area.label}}
+          <view class="area-group" wx:for="{{section.groups}}" wx:for-item="group" wx:key="key">
+            <view wx:if="{{group.showTitle}}" class="area-group-title">{{group.title}}</view>
+            <view class="city-grid area-grid">
+              <view
+                class="city-option area-option {{area.className}} pressable"
+                wx:for="{{group.areas}}"
+                wx:for-item="area"
+                wx:key="key"
+                data-key="{{area.key}}"
+                hover-class="is-pressed"
+                hover-stay-time="80"
+                bindtap="onSelectProfileArea"
+              >
+                {{area.label}}
+              </view>
             </view>
           </view>
         </view>

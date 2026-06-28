@@ -34,7 +34,7 @@
 
     <view class="filter-row">
       <view class="filter-chip {{distanceSortActive ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
-        <text>{{distanceSortActive ? '按时间' : '按距离'}}</text>
+        <text>{{distanceSortActive ? '按距离' : '按时间'}}</text>
         <text class="filter-caret">⌄</text>
       </view>
       <view class="filter-chip {{activeCategory !== '全部' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenCategoryPicker">
@@ -303,36 +303,39 @@
         <text class="category-panel-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAreaPickerCancel">关闭</text>
       </view>
 
-      <view class="area-body {{areaHasStateTabs ? '' : 'single-state'}}">
-        <scroll-view wx:if="{{areaHasStateTabs}}" class="area-state-list" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+      <view class="area-body">
+        <view class="area-section-tabs">
           <view
-            class="area-state {{item.className}} pressable"
-            wx:for="{{areaStateTabs}}"
+            class="area-section-tab {{item.className}} pressable"
+            wx:for="{{areaSectionTabs}}"
             wx:key="key"
             data-key="{{item.key}}"
             hover-class="is-pressed"
             hover-stay-time="80"
-            bindtap="onSelectAreaState"
+            bindtap="onSelectAreaSection"
           >
             {{item.label}}
           </view>
-        </scroll-view>
+        </view>
 
         <scroll-view class="area-option-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
           <view class="area-section {{section.className}}" wx:for="{{areaSections}}" wx:for-item="section" wx:key="key">
             <view wx:if="{{section.title}}" class="area-section-title">{{section.title}}</view>
-            <view class="area-option-grid">
-              <view
-                class="area-option {{area.className}} pressable"
-                wx:for="{{section.areas}}"
-                wx:for-item="area"
-                wx:key="key"
-                data-key="{{area.key}}"
-                hover-class="is-pressed"
-                hover-stay-time="80"
-                bindtap="onSelectArea"
-              >
-                {{area.label}}
+            <view class="area-group" wx:for="{{section.groups}}" wx:for-item="group" wx:key="key">
+              <view wx:if="{{group.showTitle}}" class="area-group-title">{{group.title}}</view>
+              <view class="area-option-grid">
+                <view
+                  class="area-option {{area.className}} pressable"
+                  wx:for="{{group.areas}}"
+                  wx:for-item="area"
+                  wx:key="key"
+                  data-key="{{area.key}}"
+                  hover-class="is-pressed"
+                  hover-stay-time="80"
+                  bindtap="onSelectArea"
+                >
+                  {{area.label}}
+                </view>
               </view>
             </view>
           </view>

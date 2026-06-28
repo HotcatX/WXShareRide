@@ -76,6 +76,19 @@
       "timeout": 30
     },
     {
+      "name": "cleanupMarketImages",
+      "runtime": "Nodejs16.13",
+      "handler": "index.main",
+      "timeout": 60,
+      "triggers": [
+        {
+          "name": "cleanupMarketImagesDaily",
+          "type": "timer",
+          "config": "0 0 4 * * * *"
+        }
+      ]
+    },
+    {
       "name": "referralApi",
       "runtime": "Nodejs16.13",
       "handler": "index.main",

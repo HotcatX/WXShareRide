@@ -364,12 +364,13 @@ function buildAreaSections(areas = [], options = {}) {
   const bySectionKey = new Map()
   const visibleSectionKey = cleanText(options.visibleSectionKey).toLowerCase()
 
-  const getSection = (sectionKey, sectionLabel, className = "") => {
+  const getSection = (sectionKey, sectionLabel, className = "", displayTitle = sectionLabel) => {
     const key = sectionKey || "other"
     if (!bySectionKey.has(key)) {
       const section = {
         key,
-        title: sectionLabel || "",
+        title: displayTitle || "",
+        sectionLabel: sectionLabel || "",
         className,
         groups: [],
         areas: []
@@ -384,10 +385,11 @@ function buildAreaSections(areas = [], options = {}) {
     const key = groupKey || `${section.key}_plain`
     let group = section.groups.find(item => item.key === key)
     if (!group) {
+      const parentLabel = section.sectionLabel || section.title
       group = {
         key,
         title: groupLabel || "",
-        showTitle: !!(groupLabel && groupLabel !== section.title),
+        showTitle: !!(groupLabel && groupLabel !== parentLabel),
         areas: []
       }
       section.groups.push(group)
@@ -419,7 +421,8 @@ function buildAreaSections(areas = [], options = {}) {
     const sectionKey = normalizeAreaSectionKey(area.sectionKey, areaKey) || groupKey || "other"
     if (visibleSectionKey && sectionKey !== visibleSectionKey) return
     const sectionLabel = cleanText(area.sectionLabel) || AREA_SECTION_LABELS[sectionKey] || ""
-    const section = getSection(sectionKey, sectionLabel, sectionLabel ? "area-section-block" : "area-section-plain")
+    const displayTitle = visibleSectionKey === sectionKey ? "" : sectionLabel
+    const section = getSection(sectionKey, sectionLabel, sectionLabel ? "area-section-block" : "area-section-plain", displayTitle)
     const group = getGroup(section, groupKey, groupLabel)
     group.areas.push(area)
     section.areas.push(area)

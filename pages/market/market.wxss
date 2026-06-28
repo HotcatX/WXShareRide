@@ -920,8 +920,12 @@
 }
 
 .city-country-tabs{
+  height: 100%;
+  min-height: 0;
   padding: 18rpx 0;
   background: #f4f6f8;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .city-country{

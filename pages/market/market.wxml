@@ -227,7 +227,7 @@
       </view>
 
       <view class="city-body">
-        <view class="city-country-tabs">
+        <scroll-view class="city-country-tabs" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
           <view
             class="city-country {{item.className}} pressable"
             wx:for="{{cityCountryTabs}}"
@@ -239,7 +239,7 @@
           >
             {{item.label}}
           </view>
-        </view>
+        </scroll-view>
 
         <scroll-view class="city-group-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
           <view class="city-group" wx:for="{{cityPickerGroups}}" wx:key="title">

@@ -8,10 +8,52 @@ const RIDE_SERVICE_CITY_LABEL = DEFAULT_CITY_LABEL
 const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, "ny", "nj"]
 const MARKET_CITY_STORAGE_KEY = "market_active_city_v3"
 const RIDE_CITY_STORAGE_KEY = "ride_active_city_v1"
+const ALL_STATE_FILTER_KEY = "ALL_STATES"
 const NY_NJ_ALIASES = [
   "纽约/新泽西", "纽约", "新泽西", "NY", "NJ", "NY/NJ", "NYC", "New York", "New Jersey",
   "Manhattan", "Queens", "LIC", "Long Island City", "Jersey", "Jersey City", "Fort Lee",
   "Hoboken", "Newark"
+]
+
+const CITY_STATE_FILTERS = {
+  [DEFAULT_CITY_KEY]: { key: "NY_NJ", label: "NY/NJ" },
+  ny: { key: "NY_NJ", label: "NY/NJ" },
+  nj: { key: "NY_NJ", label: "NY/NJ" },
+  boston: { key: "MA", label: "MA" },
+  philadelphia: { key: "PA", label: "PA" },
+  dc: { key: "DC", label: "DC" },
+  la: { key: "CA", label: "CA" },
+  bay_area: { key: "CA", label: "CA" },
+  san_diego: { key: "CA", label: "CA" },
+  seattle: { key: "WA", label: "WA" },
+  chicago: { key: "IL", label: "IL" },
+  champaign: { key: "IL", label: "IL" },
+  ann_arbor: { key: "MI", label: "MI" },
+  columbus: { key: "OH", label: "OH" },
+  dallas: { key: "TX", label: "TX" },
+  houston: { key: "TX", label: "TX" },
+  austin: { key: "TX", label: "TX" },
+  atlanta: { key: "GA", label: "GA" },
+  miami: { key: "FL", label: "FL" },
+  orlando: { key: "FL", label: "FL" },
+  other_city: { key: "OTHER", label: "其他" }
+}
+
+const STATE_FILTER_ORDER = [
+  ALL_STATE_FILTER_KEY,
+  "NY_NJ",
+  "CA",
+  "MA",
+  "IL",
+  "TX",
+  "WA",
+  "PA",
+  "DC",
+  "MI",
+  "OH",
+  "GA",
+  "FL",
+  "OTHER"
 ]
 
 const DEFAULT_CITY_TREE = [
@@ -185,17 +227,62 @@ function getCitySnapshot(tree, key = DEFAULT_CITY_KEY) {
   }
 }
 
-function getCountryTabs(tree, activeCode = "US") {
-  return normalizeCityTree(tree).map(country => ({
-    code: country.code,
-    label: country.label,
-    className: country.code === activeCode ? "active" : ""
+function getCityStateFilter(city = {}) {
+  const key = normalizeCityKeyAlias(city.key)
+  return CITY_STATE_FILTERS[key] || { key: "OTHER", label: "其他" }
+}
+
+function normalizeStateFilterKey(value = "") {
+  const raw = cleanText(value).toUpperCase()
+  if (!raw || raw === "US" || raw === "USA" || raw === "ALL" || raw === "全部" || raw === "全部州") {
+    return ALL_STATE_FILTER_KEY
+  }
+  if (raw === "NY" || raw === "NJ" || raw === "NY/NJ" || raw === "NY_NJ" || raw === "纽约" || raw === "新泽西") {
+    return "NY_NJ"
+  }
+  if (raw === "OTHER" || raw === "其他") return "OTHER"
+  return raw
+}
+
+function getPrimaryCityCountry(tree) {
+  const normalized = normalizeCityTree(tree)
+  return normalized.find(item => item.code === "US") || normalized[0] || null
+}
+
+function getStateFilterTabs(tree, activeCode = ALL_STATE_FILTER_KEY) {
+  const country = getPrimaryCityCountry(tree)
+  const activeKey = normalizeStateFilterKey(activeCode)
+  const byKey = new Map()
+  if (country) {
+    country.groups.forEach(group => {
+      ;(group.cities || []).forEach(city => {
+        const state = getCityStateFilter(city)
+        if (!byKey.has(state.key)) byKey.set(state.key, state)
+      })
+    })
+  }
+  const tabs = [
+    { key: ALL_STATE_FILTER_KEY, label: "全部州" },
+    ...Array.from(byKey.values())
+  ].sort((a, b) => {
+    const ai = STATE_FILTER_ORDER.indexOf(a.key)
+    const bi = STATE_FILTER_ORDER.indexOf(b.key)
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+  })
+  return tabs.map(tab => ({
+    code: tab.key,
+    label: tab.label,
+    className: tab.key === activeKey ? "active" : ""
   }))
 }
 
-function getCountryGroups(tree, activeCode = "US", activeCityKey = DEFAULT_CITY_KEY, options = {}) {
-  const normalized = normalizeCityTree(tree)
-  const country = normalized.find(item => item.code === activeCode) || normalized[0]
+function getCountryTabs(tree, activeCode = ALL_STATE_FILTER_KEY) {
+  return getStateFilterTabs(tree, activeCode)
+}
+
+function getCountryGroups(tree, activeCode = ALL_STATE_FILTER_KEY, activeCityKey = DEFAULT_CITY_KEY, options = {}) {
+  const country = getPrimaryCityCountry(tree)
+  const stateFilterKey = normalizeStateFilterKey(activeCode)
   const keyword = cleanText(options.keyword).toLowerCase()
   const normalizedActiveCityKey = normalizeCityKeyAlias(activeCityKey) || DEFAULT_CITY_KEY
   const seenSearchKeys = new Set()
@@ -203,13 +290,19 @@ function getCountryGroups(tree, activeCode = "US", activeCityKey = DEFAULT_CITY_
     const cities = options.includeAll && groupIndex === 0
       ? [{ key: ALL_CITY_KEY, label: ALL_CITY_LABEL, aliases: [] }, ...group.cities.filter(city => city.key !== ALL_CITY_KEY)]
       : group.cities
+    const stateFilteredCities = stateFilterKey === ALL_STATE_FILTER_KEY
+      ? cities
+      : cities.filter(city => {
+        if (city.key === ALL_CITY_KEY) return stateFilterKey === ALL_STATE_FILTER_KEY
+        return getCityStateFilter(city).key === stateFilterKey
+      })
     const visibleCities = keyword
-      ? cities.filter(city => {
+      ? stateFilteredCities.filter(city => {
         if (!cityMatchesKeyword(city, keyword) || seenSearchKeys.has(city.key)) return false
         seenSearchKeys.add(city.key)
         return true
       })
-      : cities
+      : stateFilteredCities
     return {
       ...group,
       cities: visibleCities.map(city => ({

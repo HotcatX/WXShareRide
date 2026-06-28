@@ -5,6 +5,9 @@ const MARKET_PICKUP_MAX_MONTHS = 2
 const MARKET_SUBLET_MAX_MONTHS = 18
 const MARKET_DEFAULT_PICKUP_DAYS = 14
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
+const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
+const MARKET_PROFILE_REGION_HANDOFF_KEY = "market_profile_region_handoff_v1"
+const MARKET_PROFILE_REGION_HANDOFF_MAX_AGE_MS = 10 * 60 * 1000
 const { showDataError } = require("../../../utils/error")
 const {
   ALL_CITY_KEY,
@@ -13,6 +16,9 @@ const {
   getCitySnapshot,
   getStoredCitySnapshot
 } = require("../../../utils/cityTree")
+const {
+  normalizeUserRegion
+} = require("../../../utils/regionTree")
 
 const GOODS_CATEGORY_OPTIONS = [
  "家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"
@@ -39,8 +45,8 @@ const LISTING_TYPE_CONFIG = {
     conditionLabel: "新旧程度",
     startLabel: "可取开始",
     endLabel: "可取结束",
-    mapLocationLabel: "精确定位（用于计算距离）",
-    regionLocationLabel: "所住公寓",
+    mapLocationLabel: "精确定位",
+    regionLocationLabel: "区域位置",
     defaultCategory: "其他",
     defaultCondition: "99新",
     categoryOptions: GOODS_CATEGORY_OPTIONS,
@@ -65,8 +71,8 @@ const LISTING_TYPE_CONFIG = {
     conditionLabel: "房源状态",
     startLabel: "入住时间",
     endLabel: "租期结束",
-    mapLocationLabel: "精确定位（用于计算距离）",
-    regionLocationLabel: "所住公寓",
+    mapLocationLabel: "精确定位",
+    regionLocationLabel: "区域位置",
     defaultCategory: "Studio",
     defaultCondition: "转租",
     categoryOptions: SUBLET_CATEGORY_OPTIONS,
@@ -79,9 +85,16 @@ function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
 }
 
-function getPostCitySnapshot() {
+function getPostCitySnapshot(regionState = "", regionKey = "", regionArea = "") {
+  const stateKey = normalizeLocationText(regionState).toUpperCase()
+  if (stateKey === "NY" || stateKey === "NJ" || stateKey === "NY_NJ") {
+    return getCitySnapshot(null, DEFAULT_CITY_KEY)
+  }
+
   const city = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
-  return city.key === ALL_CITY_KEY ? getCitySnapshot(null, DEFAULT_CITY_KEY) : city
+  if (city.key !== ALL_CITY_KEY) return city
+  const label = normalizeLocationText(regionArea)
+  return label ? { ...getCitySnapshot(null, DEFAULT_CITY_KEY), aliases: [label] } : getCitySnapshot(null, DEFAULT_CITY_KEY)
 }
 
 function normalizeSubletCategory(value) {
@@ -118,6 +131,76 @@ function markMarketGoodsChanged() {
   try {
     wx.setStorageSync(MARKET_REFRESH_KEY, Date.now())
   } catch (e) {}
+}
+
+function markMarketPostSuccessFilter(payload = {}) {
+  try {
+    wx.setStorageSync(MARKET_POST_SUCCESS_FILTER_KEY, {
+      ts: Date.now(),
+      listingType: normalizeListingType(payload.listingType),
+      cityKey: normalizeLocationText(payload.cityKey),
+      cityLabel: normalizeLocationText(payload.cityLabel),
+      regionKey: normalizeLocationText(payload.regionKey),
+      regionLabel: normalizeLocationText(payload.regionArea)
+    })
+  } catch (e) {}
+}
+
+function readMarketProfileRegionHandoff() {
+  try {
+    const value = wx.getStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY)
+    if (!value || typeof value !== "object") return null
+    const ts = Number(value.ts) || 0
+    if (!ts || Date.now() - ts > MARKET_PROFILE_REGION_HANDOFF_MAX_AGE_MS) {
+      wx.removeStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY)
+      return null
+    }
+    if (!normalizeLocationText(value.regionKey) || !normalizeLocationText(value.regionArea)) return null
+    return value
+  } catch (e) {
+    return null
+  }
+}
+
+function mergeProfileRegionHandoff(user = {}, handoff = null) {
+  if (!handoff) return user || {}
+  const location = handoff.location && typeof handoff.location === "object" ? handoff.location : {}
+  const cloudLocation = (user && user.location) || {}
+  const cityKey = normalizeLocationText(handoff.cityKey || location.cityKey || user?.cityKey || cloudLocation.cityKey)
+  const cityLabel = normalizeLocationText(handoff.cityLabel || location.cityLabel || user?.cityLabel || cloudLocation.cityLabel)
+  const buildingName = normalizeLocationText(handoff.buildingName || location.buildingName || user?.buildingName || cloudLocation.buildingName)
+  const regionState = normalizeLocationText(handoff.regionState || location.regionState || user?.regionState || cloudLocation.regionState)
+  const regionArea = normalizeLocationText(handoff.regionArea || location.regionArea || location.areaLabel || user?.regionArea || cloudLocation.regionArea || cloudLocation.areaLabel)
+  const regionKey = normalizeLocationText(handoff.regionKey || location.regionKey || user?.regionKey || cloudLocation.regionKey)
+  const regionDisplay = normalizeLocationText(handoff.regionDisplay || location.region || user?.regionDisplay || cloudLocation.region)
+  const bigregion = normalizeLocationText(handoff.bigregion) ||
+    normalizeLocationText(user?.bigregion) ||
+    [cityLabel, regionArea].filter(Boolean).join(" / ")
+
+  return {
+    ...(user || {}),
+    cityKey,
+    cityLabel,
+    bigregion,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay,
+    location: {
+      ...cloudLocation,
+      ...location,
+      cityKey,
+      cityLabel,
+      buildingName,
+      region: regionDisplay,
+      regionState,
+      regionArea,
+      areaLabel: regionArea,
+      regionKey,
+      source: location.source || "profileHandoff"
+    }
+  }
 }
 
 function getMarketApiResult(res) {
@@ -353,9 +436,9 @@ function buildPostDisplayPatch(state = {}) {
     genderPreferenceDisplay: genderPreference,
     furnishedDisplay: state.furnished ? "带家具" : "未标注",
     utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
-    locationDisplay: locationInput || "去个人资料选择位置",
+    locationDisplay: locationInput || "设置地图定位后可按距离排序商品～",
     locationMutedClass: locationInput ? "" : "muted",
-    regionLocationDisplay: regionInput || "去个人资料填写所住公寓",
+    regionLocationDisplay: regionInput || "去个人资料选择城市",
     regionLocationMutedClass: regionInput ? "" : "muted",
     imageCountText: `${imageCount}/${MARKET_MAX_IMAGE_COUNT}`,
     canAddImage: imageCount < MARKET_MAX_IMAGE_COUNT && !state.imageUploading,
@@ -373,6 +456,12 @@ function buildLocationMeta(displayName, source = {}) {
   return {
     displayName: name,
     buildingName: source.buildingName || "",
+    cityKey: source.cityKey || "",
+    cityLabel: source.cityLabel || "",
+    regionState: source.regionState || "",
+    regionArea: source.regionArea || source.areaLabel || "",
+    areaLabel: source.areaLabel || source.regionArea || "",
+    regionKey: source.regionKey || "",
     city: source.city || "",
     state: source.state || "",
     zip: source.zip || "",
@@ -387,20 +476,39 @@ function buildLocationMeta(displayName, source = {}) {
   }
 }
 
-function isEmptyProfileRegion(value) {
-  const parts = normalizeLocationText(value).split("/").map(s => s.trim()).filter(Boolean)
-  if (!parts.length) return true
-  return parts.every(part => part === "无" || part === "—")
-}
+function buildProfileRegionMeta(user = {}) {
+  const region = normalizeUserRegion(user)
+  if (!region) {
+    return {
+      hasRequired: false,
+      baseDisplay: "",
+      fullDisplay: "",
+      cityKey: "",
+      cityLabel: "",
+      stateKey: "",
+      stateLabel: "",
+      areaKey: "",
+      areaLabel: "",
+      buildingName: ""
+    }
+  }
 
-function buildProfileRegionDisplay(user = {}) {
-  const bigregion = normalizeLocationText(user.bigregion)
-  const address = normalizeLocationText(user.address)
-  const hasRegion = bigregion && !isEmptyProfileRegion(bigregion)
-
-  if (hasRegion) return bigregion
-
-  return address
+  const buildingName = normalizeLocationText(region.buildingName)
+  const citySnapshot = getCitySnapshot(null, user.cityKey || user.location?.cityKey || DEFAULT_CITY_KEY)
+  const baseDisplay = [citySnapshot.label, region.areaLabel].filter(Boolean).join(" / ")
+  const fullDisplay = [baseDisplay, buildingName].filter(Boolean).join(" / ")
+  return {
+    hasRequired: !!(region.stateKey && region.areaKey),
+    baseDisplay,
+    fullDisplay,
+    cityKey: citySnapshot.key,
+    cityLabel: citySnapshot.label,
+    stateKey: region.stateKey,
+    stateLabel: region.stateLabel,
+    areaKey: region.areaKey,
+    areaLabel: region.areaLabel,
+    buildingName
+  }
 }
 
 function buildProfileMapLocationDisplay(user = {}) {
@@ -456,7 +564,13 @@ Page({
     category: LISTING_TYPE_CONFIG.goods.defaultCategory,
     price: "",
     condition: LISTING_TYPE_CONFIG.goods.defaultCondition,
+    cityKey: "",
+    cityLabel: "",
     region: "",
+    regionState: "",
+    regionArea: "",
+    regionKey: "",
+    buildingName: "",
     locationInput: "",
     location: {},
     ...buildDefaultPickupWindow("goods"),
@@ -502,7 +616,7 @@ Page({
     utilitiesIncludedDisplay: "未包含",
     locationDisplay: "去个人资料选择位置",
     locationMutedClass: "muted",
-    regionLocationDisplay: "去个人资料填写所住公寓",
+    regionLocationDisplay: "去个人资料选择城市",
     regionLocationMutedClass: "muted",
     submitDisabledClass: "",
     submitText: LISTING_TYPE_CONFIG.goods.submitCreate,
@@ -523,6 +637,32 @@ Page({
     })
   },
 
+  _unlockSubmit() {
+    this._submitInFlight = false
+    this._setPostData({ submitting: false })
+  },
+
+  _resetSubmitState() {
+    this._activeSubmitRequestId = ""
+    this._unlockSubmit()
+  },
+
+  _finishSubmitSuccess(title, postFilter = null) {
+    this._activeSubmitRequestId = ""
+    markMarketGoodsChanged()
+    if (postFilter) markMarketPostSuccessFilter(postFilter)
+    wx.showToast({ title, icon: "success" })
+    setTimeout(() => {
+      wx.navigateBack({
+        delta: 1,
+        fail: () => {
+          this._resetSubmitState()
+          wx.switchTab({ url: "/pages/market/market" })
+        }
+      })
+    }, 900)
+  },
+
   onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const id = options?.id || ''
@@ -530,6 +670,8 @@ Page({
     const isEdit = !!id && String(mode).toLowerCase() === 'edit'
     const activeListingType = normalizeListingType(options?.type || options?.listingType)
     const config = getListingTypeConfig(activeListingType)
+    this._submitInFlight = false
+    this._activeSubmitRequestId = ""
 
     this._setPostData({
       statusBarHeight: sys.statusBarHeight || 0,
@@ -556,6 +698,11 @@ Page({
     this._hasLoaded = true
   },
 
+  onUnload() {
+    this._submitInFlight = false
+    this._activeSubmitRequestId = ""
+  },
+
   onShow() {
     if (!this._hasLoaded || this.data.isEdit || this._locationTouched) return
     this._applyProfileLocation()
@@ -570,24 +717,40 @@ Page({
 
     try {
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
-      const user = (res?.result?.data || [])[0] || null
+      const user = mergeProfileRegionHandoff(
+        (res?.result?.data || [])[0] || null,
+        readMarketProfileRegionHandoff()
+      )
       const profileWechatID = normalizeLocationText(user?.wechatID)
-      const regionDisplay = buildProfileRegionDisplay(user || {})
+      const regionMeta = buildProfileRegionMeta(user || {})
       const locationDisplay = buildProfileMapLocationDisplay(user || {})
       if (this.data.isEdit || this._locationTouched) return false
-      if (!regionDisplay && !locationDisplay) {
+      if (!regionMeta.fullDisplay && !locationDisplay) {
         this._setPostData({ profileWechatID })
         return false
       }
 
       const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user?.location || {}),
-        region: regionDisplay,
+        buildingName: regionMeta.buildingName,
+        cityKey: regionMeta.cityKey,
+        cityLabel: regionMeta.cityLabel,
+        region: regionMeta.fullDisplay,
+        regionState: regionMeta.stateKey,
+        regionArea: regionMeta.areaLabel,
+        areaLabel: regionMeta.areaLabel,
+        regionKey: regionMeta.areaKey,
         source: user?.location ? (user.location.source || "profile") : "profile"
       }) : {}
       this._setPostData({
         profileWechatID,
-        region: regionDisplay,
+        region: regionMeta.fullDisplay,
+        cityKey: regionMeta.cityKey,
+        cityLabel: regionMeta.cityLabel,
+        regionState: regionMeta.stateKey,
+        regionArea: regionMeta.areaLabel,
+        regionKey: regionMeta.areaKey,
+        buildingName: regionMeta.buildingName,
         locationInput: locationDisplay,
         location
       })
@@ -667,7 +830,13 @@ Page({
         genderPreference: x.genderPreference || '不限',
         genderPreferenceIndex: optionIndexOf(SUBLET_GENDER_OPTIONS, x.genderPreference || '不限', 0),
         roommateCount: (x.roommateCount === 0 || x.roommateCount) ? String(x.roommateCount) : '',
+        cityKey: x.cityKey || x.location?.cityKey || '',
+        cityLabel: x.cityLabel || x.location?.cityLabel || '',
         region: x.region || '',
+        regionState: x.regionState || x.location?.regionState || '',
+        regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || '',
+        regionKey: x.regionKey || x.location?.regionKey || '',
+        buildingName: x.buildingName || x.location?.buildingName || '',
         locationInput: locationDisplayName,
         location: x.location || buildLocationMeta(locationDisplayName || x.region || '', { region: x.region || '' }),
 
@@ -710,7 +879,10 @@ Page({
   async _getMyUserInfo() {
     try {
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
-      return (res?.result?.data || [])[0] || {}
+      return mergeProfileRegionHandoff(
+        (res?.result?.data || [])[0] || {},
+        readMarketProfileRegionHandoff()
+      )
     } catch (e) {
       console.error("[marketPost] getUserInfo failed:", e)
       showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
@@ -730,20 +902,53 @@ Page({
     })
   },
 
+  _confirmPublishWithoutLocation(config = {}) {
+    return new Promise(resolve => {
+      wx.showModal({
+        title: "建议设置精确定位",
+        content: `${config.submitCreate || "发布"}后可展示给其他用户的距离；现在继续发布也可以，之后可在个人资料里补上。`,
+        confirmText: "去设置",
+        cancelText: "继续发布",
+        success: res => {
+          if (res.confirm) {
+            this.onTapProfileLocation()
+            resolve(false)
+            return
+          }
+          resolve(true)
+        },
+        fail: () => resolve(true)
+      })
+    })
+  },
+
   _applyProfileToForm(user = {}) {
     const profileWechatID = normalizeLocationText(user.wechatID)
-    const regionDisplay = buildProfileRegionDisplay(user || {})
+    const regionMeta = buildProfileRegionMeta(user || {})
     const locationDisplay = buildProfileMapLocationDisplay(user || {})
     const updates = { profileWechatID }
 
-    if (!this._locationTouched && (regionDisplay || locationDisplay)) {
+    if (!this._locationTouched && (regionMeta.fullDisplay || locationDisplay)) {
       const location = locationDisplay ? buildLocationMeta(locationDisplay, {
         ...(user.location || {}),
-        region: regionDisplay,
+        buildingName: regionMeta.buildingName,
+        cityKey: regionMeta.cityKey,
+        cityLabel: regionMeta.cityLabel,
+        region: regionMeta.fullDisplay,
+        regionState: regionMeta.stateKey,
+        regionArea: regionMeta.areaLabel,
+        areaLabel: regionMeta.areaLabel,
+        regionKey: regionMeta.areaKey,
         source: user.location ? (user.location.source || "profile") : "profile"
       }) : {}
       Object.assign(updates, {
-        region: regionDisplay,
+        region: regionMeta.fullDisplay,
+        cityKey: regionMeta.cityKey,
+        cityLabel: regionMeta.cityLabel,
+        regionState: regionMeta.stateKey,
+        regionArea: regionMeta.areaLabel,
+        regionKey: regionMeta.areaKey,
+        buildingName: regionMeta.buildingName,
         locationInput: locationDisplay,
         location
       })
@@ -1074,6 +1279,13 @@ onChooseCondition() {
       }
 
       const region = normalizeLocationText(profileUpdates.region || this.data.region)
+      const formCityKey = normalizeLocationText(profileUpdates.cityKey || this.data.cityKey)
+      const formCityLabel = normalizeLocationText(profileUpdates.cityLabel || this.data.cityLabel)
+      const formCitySnapshot = getCitySnapshot(null, formCityKey || DEFAULT_CITY_KEY)
+      const regionState = normalizeLocationText(profileUpdates.regionState || this.data.regionState)
+      const regionArea = normalizeLocationText(profileUpdates.regionArea || this.data.regionArea)
+      const regionKey = normalizeLocationText(profileUpdates.regionKey || this.data.regionKey)
+      const buildingName = normalizeLocationText(profileUpdates.buildingName || this.data.buildingName)
       const locationSource = profileUpdates.location || this.data.location || {}
       const locationName = normalizeLocationText(
         profileUpdates.locationInput ||
@@ -1084,21 +1296,30 @@ onChooseCondition() {
       )
       const location = buildLocationMeta(locationName, {
         ...locationSource,
-        region
+        cityKey: formCitySnapshot.key,
+        cityLabel: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label),
+        region,
+        buildingName,
+        regionState,
+        regionArea,
+        areaLabel: regionArea,
+        regionKey
       })
-      if (!region) {
-        this._promptEditProfile("请先填写所住公寓", `${config.submitCreate}前需要在个人资料里手写所住公寓，用于卡片和详情展示。`)
+      if (!region || !regionState || !regionArea || !regionKey) {
+        this._promptEditProfile("请先选择城市", `${config.submitCreate}前需要在个人资料里选择城市。`)
         return
       }
       if (!hasLatLng(location)) {
-        this._promptEditProfile("请先手动选点", `${config.submitCreate}前需要在个人资料里选择位置，用于计算距离。`)
-        return
+        const shouldContinue = await this._confirmPublishWithoutLocation(config)
+        if (!shouldContinue) return
       }
       if (!expireTime) return wx.showToast({ title: `请选择${config.pickupEndLabel}`, icon: "none" })
 
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
-      const postCity = getPostCitySnapshot()
+      const postCity = formCitySnapshot
+        ? { ...formCitySnapshot, label: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label) }
+        : getPostCitySnapshot(regionState, regionKey, regionArea)
 
       const payload = {
         listingType: activeListingType,
@@ -1108,6 +1329,11 @@ onChooseCondition() {
         cityKey: postCity.key,
         cityLabel: postCity.label,
         region,
+        regionState,
+        regionArea,
+        regionKey,
+        buildingName,
+        regionDisplay: region,
         location,
         condition: condition || config.defaultCondition,
         desc: desc || "",
@@ -1142,10 +1368,8 @@ onChooseCondition() {
 
         getMarketApiResult(updRes)
 
-        markMarketGoodsChanged()
         keepSubmitLocked = true
-        wx.showToast({ title: "已保存", icon: "success" })
-        setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
+        this._finishSubmitSuccess("已保存")
         return
       }
 
@@ -1156,17 +1380,14 @@ onChooseCondition() {
 
       getMarketApiResult(checkRes)
 
-      markMarketGoodsChanged()
       keepSubmitLocked = true
-      wx.showToast({ title: this.data.isEdit ? "已保存" : "已提交", icon: "success" })
-      setTimeout(() => wx.navigateBack({ delta: 1 }), 900)
+      this._finishSubmitSuccess(this.data.isEdit ? "已保存" : "已提交", payload)
     } catch (e) {
       console.error(e)
       showDataError("发布失败", e, "发布信息保存到数据库失败，请稍后重试。")
     } finally {
       if (!keepSubmitLocked) {
-        this._submitInFlight = false
-        this._setPostData({ submitting: false })
+        this._unlockSubmit()
       }
     }
   }

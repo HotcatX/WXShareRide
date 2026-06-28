@@ -7,11 +7,15 @@ const {
 const {
   DEFAULT_CITY_KEY,
   RIDE_CITY_STORAGE_KEY,
-  getStoredCitySnapshot
+  getStoredCitySnapshot,
+  getRideServiceCitySnapshot,
+  isRideServiceCityKey
 } = require("../../../utils/cityTree")
 
 function getRideCitySnapshot() {
-  return getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, null)
+  const stored = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
+  if (!isRideServiceCityKey(stored.key)) return getRideServiceCitySnapshot({ key: DEFAULT_CITY_KEY })
+  return getRideServiceCitySnapshot(stored)
 }
 
 Page({

@@ -3,7 +3,7 @@ const {
   buildProfileApartmentDisplay
 } = require("./profileDisplay")
 
-const MARKET_SELLER_PROFILE_CACHE_KEY = "market_seller_profile_cache_v1"
+const MARKET_SELLER_PROFILE_CACHE_KEY = "market_seller_profile_cache_v2"
 const SELLER_PROFILE_FRESH_MS = 10 * 60 * 1000
 const SELLER_PROFILE_MAX_STALE_MS = 24 * 60 * 60 * 1000
 const MAX_PROFILE_CACHE_SIZE = 120
@@ -113,8 +113,8 @@ function normalizeMarketSellerProfile(user = {}) {
   const name = cleanText(user.name || user.nickName || user.nickname) || "未设置昵称"
   const avatarRaw = cleanText(user.avatarRaw || user.avatarUrl || user.avatar || (user.userInfo && user.userInfo.avatarUrl))
   const avatarDisplay = cleanText(user.avatarDisplay) || avatarRaw || "/images/profile.png"
-  const region = cleanText(user.region || user.regionDisplay || buildProfileDisplayLocation(user))
-  const apartment = cleanText(user.apartment || user.apartmentDisplay || buildProfileApartmentDisplay(user))
+  const region = cleanText(buildProfileDisplayLocation(user) || user.regionDisplay)
+  const apartment = cleanText(buildProfileApartmentDisplay(user))
   const bio = cleanText(user.bio || user.bioDisplay || user.intro || user.signature)
 
   return {

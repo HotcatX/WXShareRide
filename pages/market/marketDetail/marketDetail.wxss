@@ -236,6 +236,14 @@
   word-break: break-word;
 }
 
+.detail-address-title{
+  margin-top: 14rpx;
+}
+
+.detail-address-text{
+  color: #69727d;
+}
+
 .meta-grid{
   margin-top: 24rpx;
   display: grid;
@@ -301,6 +309,10 @@
   gap: 10rpx;
   transition-property: opacity, transform;
   transition-duration: 120ms;
+}
+
+.detail-action-bar.single-action{
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .dock-hidden{

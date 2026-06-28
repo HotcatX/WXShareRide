@@ -20,28 +20,28 @@
   padding: 12rpx 24rpx 8rpx;
   display: flex;
   align-items: center;
-  gap: 18rpx;
+  gap: 10rpx;
   box-sizing: border-box;
 }
 
 .region-entry{
-  width: 178rpx;
+  width: 214rpx;
   height: 64rpx;
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  gap: 6rpx;
   color: #111418;
   box-sizing: border-box;
 }
 
 .region-text{
-  max-width: 136rpx;
+  max-width: 176rpx;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 31rpx;
-  line-height: 40rpx;
+  font-size: 28rpx;
+  line-height: 38rpx;
   font-weight: 900;
 }
 
@@ -278,7 +278,18 @@
 }
 
 .market-card--sublet .card-body{
-  min-height: 224rpx;
+  height: 250rpx;
+  min-height: 250rpx;
+}
+
+.market-card--sublet .card-title{
+  min-height: 72rpx;
+}
+
+.market-card--sublet .card-desc{
+  height: 30rpx;
+  min-height: 30rpx;
+  -webkit-line-clamp: 1;
 }
 
 .card-title{
@@ -350,30 +361,22 @@
   height: 36rpx;
   display: flex;
   align-items: center;
-  gap: 7rpx;
+  gap: 4rpx;
 }
 
 .goods-seller-touch{
   min-width: 0;
-  flex: 1;
+  flex: 0 0 112rpx;
+  max-width: 112rpx;
   display: flex;
   align-items: center;
-  gap: 6rpx;
+  gap: 5rpx;
 }
 
-.goods-seller-avatar{
-  width: 32rpx;
-  height: 32rpx;
-}
-
-.goods-seller-name{
-  font-size: 20rpx;
-  line-height: 28rpx;
-}
-
-.goods-distance,
-.goods-views{
-  flex: none;
+.card-building,
+.goods-region{
+  min-width: 0;
+  flex: 0 1 auto;
   color: #69727d;
   font-size: 18rpx;
   line-height: 26rpx;
@@ -383,12 +386,28 @@
   white-space: nowrap;
 }
 
-.goods-distance{
-  max-width: 72rpx;
+.goods-building{
+  margin-left: 8rpx;
+  max-width: 86rpx;
+}
+
+.goods-region{
+  max-width: 92rpx;
 }
 
 .goods-views{
+  flex: none;
+  margin-left: auto;
+  width: 42rpx;
   color: #9aa3ad;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  font-weight: 800;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2rpx;
 }
 
 .card-seller-row{
@@ -397,15 +416,16 @@
   height: 44rpx;
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  gap: 4rpx;
 }
 
 .seller-touch{
   min-width: 0;
-  flex: 1;
+  flex: 0 0 122rpx;
+  max-width: 122rpx;
   display: flex;
   align-items: center;
-  gap: 8rpx;
+  gap: 6rpx;
 }
 
 .seller-avatar{
@@ -428,9 +448,20 @@
   white-space: nowrap;
 }
 
-.card-location{
+.card-building{
+  margin-left: 2rpx;
   max-width: 84rpx;
-  flex: none;
+}
+
+.card-building.goods-building{
+  margin-left: 2rpx;
+  max-width: 86rpx;
+}
+
+.card-location{
+  min-width: 0;
+  max-width: 88rpx;
+  flex: 0 1 auto;
   color: #69727d;
   font-size: 19rpx;
   line-height: 28rpx;
@@ -442,10 +473,39 @@
 
 .card-views{
   flex: none;
+  margin-left: auto;
+  width: 42rpx;
   color: #9aa3ad;
   font-size: 18rpx;
   line-height: 26rpx;
   font-weight: 800;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2rpx;
+}
+
+.card-view-icon{
+  width: 18rpx;
+  height: 18rpx;
+  opacity: 0.62;
+  flex: none;
+}
+
+.goods-seller-avatar{
+  width: 32rpx;
+  height: 32rpx;
+}
+
+.goods-seller-name{
+  min-width: 0;
+  max-width: 74rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ad-card-row{
@@ -860,8 +920,12 @@
 }
 
 .city-country-tabs{
+  height: 100%;
+  min-height: 0;
   padding: 18rpx 0;
   background: #f4f6f8;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .city-country{
@@ -1057,6 +1121,177 @@
   box-shadow: 0 8rpx 18rpx rgba(15,155,149,0.22);
 }
 
+.area-panel{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10001;
+  height: min(64vh, 820rpx);
+  padding: 0 0 calc(22rpx + env(safe-area-inset-bottom));
+  border-top-left-radius: 22rpx;
+  border-top-right-radius: 22rpx;
+  background: #ffffff;
+  box-shadow: 0 -18rpx 40rpx rgba(17,20,24,0.14);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.area-panel .category-panel-header{
+  margin: 0 24rpx;
+  flex: none;
+}
+
+.area-body{
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.area-body.single-state{
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.area-section-tabs{
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
+  padding: 18rpx 22rpx 0;
+  box-sizing: border-box;
+}
+
+.area-section-tab{
+  min-width: 0;
+  height: 58rpx;
+  padding: 0 8rpx;
+  border-radius: 14rpx;
+  background: #f4f6f8;
+  color: #59636f;
+  border: 1rpx solid rgba(20,23,26,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 23rpx;
+  line-height: 30rpx;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.area-section-tab.active{
+  background: #0f9b95;
+  color: #ffffff;
+  border-color: #0f9b95;
+  box-shadow: 0 8rpx 18rpx rgba(15,155,149,0.22);
+}
+
+.area-state-list{
+  height: 100%;
+  padding: 16rpx 0;
+  background: #f4f6f8;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.area-state{
+  height: 72rpx;
+  padding-left: 24rpx;
+  border-left: 8rpx solid transparent;
+  color: #59636f;
+  display: flex;
+  align-items: center;
+  font-size: 26rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  box-sizing: border-box;
+}
+
+.area-state.active{
+  color: #0f9b95;
+  border-left-color: #0f9b95;
+  background: #ffffff;
+  font-weight: 900;
+}
+
+.area-option-scroll{
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.area-section{
+  padding: 18rpx 22rpx 0;
+}
+
+.area-section-title{
+  margin: 0 4rpx 12rpx;
+  color: #14171a;
+  font-size: 30rpx;
+  line-height: 38rpx;
+  font-weight: 900;
+}
+
+.area-section-block{
+  padding-top: 22rpx;
+}
+
+.area-section.area-section-all{
+  padding-top: 22rpx;
+}
+
+.area-group{
+  margin-bottom: 16rpx;
+}
+
+.area-group-title{
+  margin: 0 4rpx 10rpx;
+  color: #69727d;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  font-weight: 900;
+}
+
+.area-option-grid{
+  align-content: start;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
+  overflow: hidden;
+}
+
+.area-option{
+  min-width: 0;
+  height: 58rpx;
+  padding: 0 8rpx;
+  border-radius: 14rpx;
+  background: #f4f6f8;
+  color: #59636f;
+  border: 1rpx solid rgba(20,23,26,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 28rpx;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.area-option.active{
+  background: #0f9b95;
+  color: #ffffff;
+  border-color: #0f9b95;
+  box-shadow: 0 8rpx 18rpx rgba(15,155,149,0.22);
+}
+
 .pressable{
   transition-property: transform, opacity, background-color, box-shadow;
   transition-duration: 120ms;
@@ -1070,25 +1305,4 @@
 .card-pressed{
   opacity: 0.9;
   transform: scale(0.985);
-}
-
-.market-search-row{
-  display: flex;
-  align-items: center;
-  width: 100%;
-}
-
-.search-box{
-  flex: 1;
-  width: 100%;
-}
-
-.filter-chip--category {
-  font-weight: 800;
-  font-size: 28rpx;
-}
-
-.filter-chip--category .filter-caret {
-  font-weight: 800;
-  font-size: 24rpx;
 }

@@ -11,7 +11,7 @@ const defaultAvatarUrl =
 const LISTING_TYPE_CONFIG = {
   goods: {
     label: "二手",
-    navTitle: "我的市场",
+    navTitle: "我的发布",
     sectionTitle: "我发布的商品",
     emptyTitle: "还没有发布商品",
     emptySubtitle: "发布第一件闲置，让附近同学看到",
@@ -25,7 +25,7 @@ const LISTING_TYPE_CONFIG = {
   },
   sublet: {
     label: "转租",
-    navTitle: "我的市场",
+    navTitle: "我的发布",
     sectionTitle: "我发布的转租",
     emptyTitle: "还没有发布转租",
     emptySubtitle: "发布第一套房源，让附近同学看到",
@@ -156,7 +156,7 @@ function buildMyDisplayPatch(state = {}) {
     navTitle: config.navTitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
-    regionDisplay: state.region || '所住公寓未填',
+    regionDisplay: state.region || '区域未填',
     apartmentDisplay: state.apartment || '',
     saveStateText: state.isSavingBio ? '保存中' : '自动保存',
     hasGoods: goods.length > 0,
@@ -205,7 +205,7 @@ Page({
     hasGoods: false,
     goodsEmpty: true,
     allSelectedText: '全选',
-    navTitle: '我的市场',
+    navTitle: '我的发布',
     goodsTitleMain: '我发布的商品',
     goodsEmptyTitle: '还没有发布商品',
     goodsEmptySubtitle: '发布第一件闲置，让附近同学看到',

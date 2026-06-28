@@ -8,6 +8,7 @@ const _ = db.command
 const SUMMARY_COLLECTION = "ride_city_demand"
 const EVENT_COLLECTION = "ride_city_demand_events"
 const SERVICE_CITY_KEY = "ny_nj"
+const SERVICE_CITY_KEYS = new Set([SERVICE_CITY_KEY, "ny", "nj"])
 
 function cleanText(value, maxLength = 120) {
   return String(value || "")
@@ -73,8 +74,8 @@ exports.main = async (event = {}) => {
     return { success: false, errorMsg: "missing_city_key" }
   }
 
-  if (cityKey === SERVICE_CITY_KEY) {
-    return { success: true, skipped: true, cityKey, cityLabel }
+  if (SERVICE_CITY_KEYS.has(cityKey)) {
+    return { success: true, skipped: true, cityKey: SERVICE_CITY_KEY, cityLabel: "纽约/新泽西" }
   }
 
   const now = db.serverDate()

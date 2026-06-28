@@ -8,6 +8,8 @@ const _ = db.command
 const VISIBLE_STATUSES = ['open', 'full']
 const LIST_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_FAST_MODE_DEFAULT = true
+const RIDE_SERVICE_CITY_KEY = 'ny_nj'
+const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, 'ny', 'nj']
 
 const TYPE_CONFIG = {
   carpool: {
@@ -81,9 +83,14 @@ function normalizeCityKey(value) {
   return normalizeText(value)
 }
 
+function isRideServiceCityKey(value) {
+  return RIDE_SERVICE_CITY_KEYS.includes(normalizeCityKey(value))
+}
+
 function buildCityKeyCondition(event = {}) {
   const cityKey = normalizeCityKey(event.cityKey)
   if (!cityKey || cityKey === 'all') return null
+  if (isRideServiceCityKey(cityKey)) return { cityKey: _.in(RIDE_SERVICE_CITY_KEYS) }
   return { cityKey }
 }
 

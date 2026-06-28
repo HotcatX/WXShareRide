@@ -1,5 +1,25 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
+const {
+  DEFAULT_CITY_TREE,
+  normalizeCityTree,
+  getCitySnapshot,
+  getCountryTabs,
+  getCountryGroups,
+  cityGroupsHaveResults
+} = require('../../../utils/cityTree')
+const {
+  ALL_AREA_KEY,
+  ALL_AREA_LABEL,
+  DEFAULT_REGION_TREE,
+  normalizeRegionTree,
+  findState,
+  buildAreaSectionTabs,
+  buildAreaSections,
+  resolveAreaPanelSectionKey,
+  readCachedRegionTree,
+  writeCachedRegionTree
+} = require('../../../utils/regionTree')
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
@@ -26,6 +46,123 @@ function getLocationDisplay(location = {}, address = '') {
   )
 }
 
+const INITIAL_CITY_TREE = normalizeCityTree(DEFAULT_CITY_TREE)
+const INITIAL_REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
+const CITY_PICKER_HINT = '选择你常用发布和交易的城市，下一步选择城市下的小区域。'
+const AREA_PICKER_HINT = '请选择城市下的小区域，用于二手和转租的区域标签。'
+const MARKET_PROFILE_REGION_HANDOFF_KEY = 'market_profile_region_handoff_v1'
+const CITY_STATE_BY_KEY = {
+  ny_nj: 'NY_NJ',
+  ny: 'NY_NJ',
+  nj: 'NY_NJ',
+  boston: 'MA',
+  philadelphia: 'PA',
+  dc: 'DC',
+  la: 'CA',
+  bay_area: 'CA',
+  seattle: 'WA',
+  san_diego: 'CA',
+  chicago: 'IL',
+  ann_arbor: 'MI',
+  champaign: 'IL',
+  columbus: 'OH',
+  dallas: 'TX',
+  houston: 'TX',
+  atlanta: 'GA',
+  miami: 'FL',
+  orlando: 'FL',
+  austin: 'TX',
+  other_city: 'OTHER'
+}
+
+function normalizeProfileCityKey(key = '') {
+  const text = normalizeText(key).toLowerCase()
+  if (['ny', 'nj', 'nyc', 'new york', 'new jersey', 'jersey', '纽约', '新泽西'].includes(text)) return 'ny_nj'
+  return normalizeText(key)
+}
+
+function getCityStateKey(cityKey = '') {
+  const key = normalizeProfileCityKey(cityKey)
+  return CITY_STATE_BY_KEY[key] || key.toUpperCase()
+}
+
+function buildRegionDisplayParts(cityLabel, areaLabel, buildingName = '') {
+  return [cityLabel, areaLabel, buildingName].map(normalizeText).filter(Boolean).join(' / ')
+}
+
+function markMarketProfileRegionHandoff(updateData = {}) {
+  try {
+    wx.setStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY, {
+      ts: Date.now(),
+      cityKey: normalizeText(updateData.cityKey),
+      cityLabel: normalizeText(updateData.cityLabel),
+      bigregion: normalizeText(updateData.bigregion),
+      buildingName: normalizeText(updateData.buildingName),
+      regionState: normalizeText(updateData.regionState),
+      regionArea: normalizeText(updateData.regionArea),
+      regionKey: normalizeText(updateData.regionKey),
+      regionDisplay: normalizeText(updateData.regionDisplay),
+      location: updateData.location && typeof updateData.location === 'object' ? updateData.location : {}
+    })
+  } catch (e) {}
+}
+
+function buildCityPickerGroups(tree, countryCode, activeCityKey, keyword = '') {
+  return getCountryGroups(tree, countryCode || 'US', normalizeProfileCityKey(activeCityKey) || 'ny_nj', {
+    includeAll: false,
+    keyword
+  })
+}
+
+function isImplicitAllArea(area = {}, stateKey = '') {
+  const key = normalizeText(area.key).toLowerCase()
+  return !!stateKey && key === `${normalizeText(stateKey).toLowerCase()}_all`
+}
+
+function normalizeAreaOption(area = {}, stateKey = '', activeAreaKey = '') {
+  const key = normalizeText(area.key)
+  const label = isImplicitAllArea(area, stateKey) ? ALL_AREA_LABEL : normalizeText(area.label)
+  return {
+    ...area,
+    key,
+    label,
+    className: key === activeAreaKey ? 'active' : ''
+  }
+}
+
+function getAreaOptionsForCity(regionTree, cityKey = '', activeAreaKey = '') {
+  const stateKey = getCityStateKey(cityKey)
+  const state = findState(regionTree, stateKey)
+  const allOption = { key: ALL_AREA_KEY, label: ALL_AREA_LABEL, className: activeAreaKey === ALL_AREA_KEY ? 'active' : '' }
+  if (!state) {
+    return stateKey ? [allOption] : []
+  }
+  const detailAreas = (state.areas || [])
+    .filter(area => !isImplicitAllArea(area, state.key))
+    .map(area => normalizeAreaOption(area, state.key, activeAreaKey))
+    .filter(area => area.key && area.label)
+  return [allOption, ...detailAreas]
+}
+
+function buildProfileAreaUiPatch(areaOptions = [], activeAreaKey = '', activeSectionKey = '') {
+  const sectionKey = resolveAreaPanelSectionKey(areaOptions, activeSectionKey, activeAreaKey)
+  return {
+    activeAreaSectionKey: sectionKey,
+    areaSectionTabs: buildAreaSectionTabs(areaOptions, sectionKey, activeAreaKey),
+    areaSections: buildAreaSections(areaOptions, { visibleSectionKey: sectionKey })
+  }
+}
+
+function inferProfileCityKey(user = {}, location = {}) {
+  const explicit = normalizeProfileCityKey(user.cityKey || location.cityKey)
+  if (explicit) return explicit
+  const stateKey = normalizeText(user.regionState || location.regionState).toUpperCase()
+  if (stateKey === 'NY' || stateKey === 'NJ' || stateKey === 'NY_NJ') return 'ny_nj'
+  const regionKey = normalizeText(user.regionKey || location.regionKey).toLowerCase()
+  if (regionKey.startsWith('ny_') || regionKey.startsWith('nj_')) return 'ny_nj'
+  return normalizeProfileCityKey(regionKey)
+}
+
 Page({
   data: {
     from: 'profile',
@@ -36,17 +173,34 @@ Page({
     location: {},
     locationDisplay: '',
 
-    // ✅ 所住区域（存到 userInfo.bigregion）
+    // 所住区域（存到 userInfo.bigregion + 结构化区域字段）
     bigregion: '',
-    bigregionOptions: ['纽约/新泽西', '洛杉矶', '波士顿'],
-    bigregionIndex: 0,
+    regionCityKey: '',
+    regionCityLabel: '',
+    regionStateKey: '',
+    regionAreaKey: '',
+    regionStateLabel: '',
+    regionAreaLabel: '',
+    regionDisplay: '',
+    buildingName: '',
     locationPicking: false,
-    regionTree: [],
-    regionPickerVisible: false,
-    regionPickerValue: [0, 0, 0],
-    regionCol1: ['加载中'],
-    regionCol2: ['加载中'],
-    regionCol3: ['加载中'],
+    cityTree: INITIAL_CITY_TREE,
+    regionTree: INITIAL_REGION_TREE,
+    cityPickerVisible: false,
+    cityCountryTabs: getCountryTabs(INITIAL_CITY_TREE, 'US'),
+    cityPickerGroups: buildCityPickerGroups(INITIAL_CITY_TREE, 'US', ''),
+    activeCityCountryCode: 'US',
+    citySearchKeyword: '',
+    cityPickerHasResults: true,
+    cityPickerEmptyText: '没有找到相关城市',
+    cityPickerHintText: CITY_PICKER_HINT,
+    areaPickerVisible: false,
+    areaPickerTitle: '选择区域',
+    areaOptions: [],
+    activeAreaSectionKey: '',
+    areaSectionTabs: [],
+    areaSections: [],
+    areaPickerHintText: AREA_PICKER_HINT,
 
     phone: '',
     regionIndex: 0,
@@ -68,7 +222,7 @@ Page({
     customPriceNonCore: '',
     customPriceCore: '',
 
-    unsaved: false,
+    unsaved: false
   },
 
   async goBack() {
@@ -88,6 +242,8 @@ Page({
     this.setData({ from })
 
     this.loadUserInfo()
+    this.loadCityTreeFromCloud({ silent: true })
+    this.loadRegionTreeFromCloud({ silent: true })
   },
 
   onHide() {
@@ -147,14 +303,33 @@ Page({
         const user = res.result.data[0]
         const cp = user.customPrice || {}
         const location = user.location || {}
+        const cityKey = inferProfileCityKey(user, location)
+        const city = cityKey ? getCitySnapshot(this.data.cityTree || DEFAULT_CITY_TREE, cityKey) : null
+        const cityLabel = city?.key === 'ny_nj'
+          ? city.label
+          : normalizeText(user.cityLabel || location.cityLabel || city?.label)
+        const rawAreaKey = normalizeText(user.regionKey || location.regionKey)
+        const rawAreaLabel = normalizeText(user.regionArea || location.regionArea || location.areaLabel)
+        const areaKey = rawAreaKey && rawAreaKey !== cityKey ? rawAreaKey : ''
+        const areaLabel = areaKey ? (areaKey.toLowerCase().endsWith('_all') ? ALL_AREA_LABEL : rawAreaLabel) : ''
+        const stateKey = normalizeText(user.regionState || location.regionState) || getCityStateKey(cityKey)
+        const buildingName = normalizeText(user.buildingName || location.buildingName)
+        const regionBase = cityKey && cityLabel ? buildRegionDisplayParts(cityLabel, areaLabel) : ''
 
         this.setData({
           wechat: user.wechatID || '',
+          address: buildingName,
           location,
           locationDisplay: hasLatLng(location) ? getLocationDisplay(location, '') : '',
-          address: user.address || '',
-          bigregion: user.bigregion || '纽约/新泽西',
-          bigregionIndex: Math.max(0, this.data.bigregionOptions.indexOf(user.bigregion || '纽约/新泽西')),
+          bigregion: regionBase,
+          regionCityKey: regionBase ? cityKey : '',
+          regionCityLabel: regionBase ? cityLabel : '',
+          regionStateKey: regionBase ? stateKey : '',
+          regionAreaKey: regionBase ? areaKey : '',
+          regionStateLabel: regionBase ? stateKey : '',
+          regionAreaLabel: regionBase ? areaLabel : '',
+          regionDisplay: regionBase,
+          buildingName,
 
           phone: user.phone || '',
           regionIndex: (user.region === 'CN') ? 1 : 0,
@@ -180,9 +355,12 @@ Page({
   onInput(e) {
     const { field } = e.currentTarget.dataset
     const value = e.detail.value
-    if (field === 'address') {
+    if (field === 'buildingName' || field === 'address') {
+      const baseDisplay = buildRegionDisplayParts(this.data.regionCityLabel, this.data.regionAreaLabel)
       this.setData({
-        address: value
+        address: value,
+        buildingName: value,
+        regionDisplay: baseDisplay
       })
       this.markDirty()
       return
@@ -191,151 +369,270 @@ Page({
     this.markDirty()
   },
 
-  async loadRegionTreeFromCloud() {
+  _applyCityTree(tree, options = {}) {
+    const cityTree = normalizeCityTree(tree)
+    const activeCountryCode = options.countryCode || this.data.activeCityCountryCode || 'US'
+    const citySearchKeyword = typeof options.keyword === 'string' ? options.keyword : (this.data.citySearchKeyword || '')
+    const activeCityKey = normalizeProfileCityKey(this.data.regionCityKey || 'ny_nj')
+    const cityPickerGroups = buildCityPickerGroups(cityTree, activeCountryCode, activeCityKey, citySearchKeyword)
+    this.setData({
+      cityTree,
+      activeCityCountryCode,
+      cityCountryTabs: getCountryTabs(cityTree, activeCountryCode),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      citySearchKeyword
+    })
+  },
+
+  async loadCityTreeFromCloud(options = {}) {
+    const { silent = false } = options
     try {
       const db = wx.cloud.database()
       let docData = null
-  
       try {
         const doc = await db.collection('cityTree').doc('default').get()
-        docData = doc && doc.data ? doc.data : null
+        docData = doc?.data || null
       } catch (e) {}
-  
+
       if (!docData) {
         const res = await db.collection('cityTree').limit(1).get()
         docData = (res.data || [])[0] || null
       }
-  
-      let tree = docData
-  
-      // 兼容 cityTree 常见结构
-      if (tree && Array.isArray(tree.tree)) tree = tree.tree
-      if (tree && Array.isArray(tree.countries)) tree = tree.countries
-      if (tree && Array.isArray(tree.children)) tree = tree.children
-  
-      tree = Array.isArray(tree) ? tree : []
-  
-      // 只保留有 label 的项，并去掉“全部”
-      tree = tree.filter(x => x && x.label && x.label !== '全部')
-  
-      // 如果 cityTree 是扁平城市列表，例如 [{ key, label }]
-      if (tree.length && !tree[0].children) {
-        const labels = tree.map(x => x.label).filter(Boolean)
-  
-        this.setData({
-          regionTree: tree,
-          regionPickerValue: [0, 0, 0],
-          regionCol1: labels.length ? labels : ['纽约/新泽西'],
-          regionCol2: ['未设置'],
-          regionCol3: ['未设置']
-        })
-        return
-      }
-  
-      if (!tree.length) {
-        throw new Error('cityTree 数据为空或格式错误')
-      }
-  
-      const lv1 = tree[0]
-      const col1 = tree.map(x => x.label)
-      const col2 = (lv1.children || []).map(x => x.label || x).filter(Boolean)
-      const lv2 = (lv1.children || [])[0] || { children: [] }
-      const col3 = (lv2.children || []).map(x => x.label || x).filter(Boolean)
-  
-      this.setData({
-        regionTree: tree,
-        regionPickerValue: [0, 0, 0],
-        regionCol1: col1.length ? col1 : ['纽约/新泽西'],
-        regionCol2: col2.length ? col2 : ['未设置'],
-        regionCol3: col3.length ? col3 : ['未设置']
-      })
+
+      const tree = normalizeCityTree(docData)
+      if (!tree.length) throw new Error('cityTree 数据为空或格式错误')
+      this._applyCityTree(tree)
+      return tree
     } catch (e) {
       console.error('cityTree 加载失败：', e)
-  
-      // 兜底：至少让用户能选纽约/新泽西
-      this.setData({
-        regionTree: [
-          {
-            label: '纽约/新泽西',
-            children: []
-          }
-        ],
-        regionPickerValue: [0, 0, 0],
-        regionCol1: ['纽约/新泽西'],
-        regionCol2: ['未设置'],
-        regionCol3: ['未设置']
-      })
+      this._applyCityTree(DEFAULT_CITY_TREE)
+      if (!silent) wx.showToast({ title: '城市配置加载失败，已使用默认城市', icon: 'none' })
+      return normalizeCityTree(DEFAULT_CITY_TREE)
+    }
+  },
+
+  _applyRegionTree(tree) {
+    const regionTree = normalizeRegionTree(tree)
+    const activeAreaKey = this.data.regionAreaKey || ''
+    const areaOptions = this.data.areaPickerVisible
+      ? getAreaOptionsForCity(regionTree, this.data.regionCityKey || 'ny_nj', activeAreaKey)
+      : this.data.areaOptions
+    this.setData({
+      regionTree,
+      areaOptions,
+      ...buildProfileAreaUiPatch(areaOptions, activeAreaKey, this.data.activeAreaSectionKey || '')
+    })
+  },
+
+  async loadRegionTreeFromCloud(options = {}) {
+    const { silent = false } = options
+    const cached = readCachedRegionTree()
+    if (cached) this._applyRegionTree(cached)
+
+    try {
+      const db = wx.cloud.database()
+      let docData = null
+      try {
+        const doc = await db.collection('regionTree').doc('default').get()
+        docData = doc?.data || null
+      } catch (e) {}
+
+      if (!docData) {
+        const res = await db.collection('regionTree').limit(1).get()
+        docData = (res.data || [])[0] || null
+      }
+
+      const tree = normalizeRegionTree(docData)
+      if (!tree.length) throw new Error('regionTree 数据为空或格式错误')
+      writeCachedRegionTree(tree)
+      this._applyRegionTree(tree)
+      return tree
+    } catch (e) {
+      console.error('regionTree 加载失败：', e)
+      this._applyRegionTree(cached || DEFAULT_REGION_TREE)
+      if (!silent) wx.showToast({ title: '区域配置加载失败，已使用默认区域', icon: 'none' })
+      return normalizeRegionTree(cached || DEFAULT_REGION_TREE)
     }
   },
 
   async onTapRegionPicker() {
-    if (!this.data.regionTree.length) {
-      await this.loadRegionTreeFromCloud()
-    }
-
-    if (!this.data.regionTree.length) {
-      wx.showToast({ title: '地区配置加载失败', icon: 'none' })
-      return
-    }
-
-    this.setData({ regionPickerVisible: true })
-  },
-
-  onRegionPickerChange(e) {
-    const v = Array.isArray(e.detail.value) ? e.detail.value : [0, 0, 0]
-    const [v0, v1] = v
-    const tree = this.data.regionTree || []
-    const lv1 = tree[v0] || tree[0] || { children: [] }
-    const col2 = (lv1.children || []).map(x => x.label)
-    const lv2 = (lv1.children || [])[v1] || (lv1.children || [])[0] || { children: [] }
-    const col3 = (lv2.children || []).filter(Boolean)
-
+    if (!this.data.cityTree.length) await this.loadCityTreeFromCloud()
+    const cityPickerGroups = buildCityPickerGroups(
+      this.data.cityTree || DEFAULT_CITY_TREE,
+      this.data.activeCityCountryCode || 'US',
+      this.data.regionCityKey || 'ny_nj',
+      ''
+    )
     this.setData({
-      regionPickerValue: v,
-      regionCol2: col2.length ? col2 : ['未设置'],
-      regionCol3: col3.length ? col3 : ['未设置']
+      cityPickerVisible: true,
+      citySearchKeyword: '',
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
 
-  onRegionPickerCancel() {
-    this.setData({ regionPickerVisible: false })
+  onCityPickerCancel() {
+    this.setData({ cityPickerVisible: false, citySearchKeyword: '' })
   },
 
-  onRegionPickerConfirm() {
-    const pickerValue = Array.isArray(this.data.regionPickerValue) ? this.data.regionPickerValue : [0, 0, 0]
-    const [v0, v1, v2] = pickerValue
-    const tree = this.data.regionTree || []
-  
-    const lv1 = tree[v0] || tree[0]
-    const lv2Raw = (lv1 && lv1.children || [])[v1]
-    const lv2 = typeof lv2Raw === 'string' ? { label: lv2Raw, children: [] } : lv2Raw
-  
-    const lv3Raw = (this.data.regionCol3 || [])[v2]
-    const lv3 = typeof lv3Raw === 'string' ? lv3Raw : (lv3Raw && lv3Raw.label)
-  
-    const parts = [
-      lv1 && lv1.label,
-      lv2 && lv2.label,
-      lv3
-    ].map(normalizeText).filter(x => x && x !== '全部' && x !== '未设置' && x !== '加载中')
-  
-    const address = parts.join(' / ')
-  
-    if (!address) {
-      wx.showToast({ title: '请选择所住区域', icon: 'none' })
+  onCitySearchInput(e) {
+    const keyword = (e.detail && e.detail.value) || ''
+    const cityPickerGroups = buildCityPickerGroups(
+      this.data.cityTree || DEFAULT_CITY_TREE,
+      this.data.activeCityCountryCode || 'US',
+      this.data.regionCityKey || 'ny_nj',
+      keyword
+    )
+    this.setData({
+      citySearchKeyword: keyword,
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCityCountry(e) {
+    const code = e.currentTarget.dataset.code || 'US'
+    const cityPickerGroups = buildCityPickerGroups(
+      this.data.cityTree || DEFAULT_CITY_TREE,
+      code,
+      this.data.regionCityKey || 'ny_nj',
+      this.data.citySearchKeyword || ''
+    )
+    this.setData({
+      activeCityCountryCode: code,
+      cityCountryTabs: getCountryTabs(this.data.cityTree || DEFAULT_CITY_TREE, code),
+      cityPickerGroups,
+      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
+    })
+  },
+
+  onSelectCity(e) {
+    const key = normalizeProfileCityKey(e.currentTarget.dataset.key || '')
+    if (!key) return
+    const city = getCitySnapshot(this.data.cityTree || DEFAULT_CITY_TREE, key)
+    if (!city || city.key === 'all') return
+
+    const cityKey = normalizeProfileCityKey(city.key)
+    const cityLabel = city.label
+    const stateKey = getCityStateKey(cityKey)
+    const areaOptions = getAreaOptionsForCity(this.data.regionTree || DEFAULT_REGION_TREE, cityKey, '')
+    const activeAreaSectionKey = resolveAreaPanelSectionKey(areaOptions, 'ny', '')
+    this.setData({
+      bigregion: cityLabel,
+      regionCityKey: cityKey,
+      regionCityLabel: cityLabel,
+      regionStateKey: stateKey,
+      regionAreaKey: '',
+      regionStateLabel: stateKey,
+      regionAreaLabel: '',
+      regionDisplay: cityLabel,
+      cityPickerVisible: false,
+      citySearchKeyword: '',
+      areaPickerTitle: `选择${cityLabel}区域`,
+      areaOptions,
+      ...buildProfileAreaUiPatch(areaOptions, '', activeAreaSectionKey),
+      areaPickerVisible: areaOptions.length > 1
+    })
+    if (areaOptions.length <= 1 && areaOptions[0]) {
+      this.applyAreaSelection(areaOptions[0])
       return
     }
-  
+    if (areaOptions.length > 1) wx.showToast({ title: '请选择具体区域', icon: 'none' })
+  },
+
+  onAreaPickerCancel() {
+    this.setData({ areaPickerVisible: false })
+  },
+
+  onSelectProfileAreaSection(e) {
+    const key = normalizeText(e.currentTarget.dataset.key).toLowerCase()
+    if (!key) return
+    const areaOptions = this.data.areaOptions || []
+    if (key === ALL_AREA_KEY) {
+      const allArea = areaOptions.find(item => item.key === ALL_AREA_KEY) || { key: ALL_AREA_KEY, label: ALL_AREA_LABEL }
+      this.applyAreaSelection(allArea)
+      return
+    }
     this.setData({
-      address,
-      bigregion: address,
-      regionPickerVisible: false
+      ...buildProfileAreaUiPatch(areaOptions, this.data.regionAreaKey || '', key)
     })
-  
+  },
+
+  onSelectProfileArea(e) {
+    const key = normalizeText(e.currentTarget.dataset.key)
+    if (!key) return
+    const area = (this.data.areaOptions || []).find(item => item.key === key)
+    if (!area) return
+    this.applyAreaSelection(area)
+  },
+
+  applyAreaSelection(area = {}) {
+    const areaKey = normalizeText(area.key)
+    const areaLabel = normalizeText(area.label)
+    if (!areaKey || !areaLabel) return
+    const cityLabel = normalizeText(this.data.regionCityLabel)
+    const baseDisplay = buildRegionDisplayParts(cityLabel, areaLabel)
+    const areaOptions = (this.data.areaOptions || []).map(item => ({
+      ...item,
+      className: item.key === areaKey ? 'active' : ''
+    }))
+    this.setData({
+      bigregion: baseDisplay,
+      regionAreaKey: areaKey,
+      regionAreaLabel: areaLabel,
+      regionDisplay: baseDisplay,
+      areaPickerVisible: false,
+      areaOptions,
+      ...buildProfileAreaUiPatch(areaOptions, areaKey, area.sectionKey || '')
+    })
     this.markDirtyAndSave()
   },
 
   stopTouchMove() {},
+
+  _getCurrentRegionSelection() {
+    if (!this.data.regionCityKey || !this.data.regionCityLabel || !this.data.regionAreaKey || !this.data.regionAreaLabel) return null
+    return {
+      cityKey: this.data.regionCityKey,
+      cityLabel: this.data.regionCityLabel,
+      stateKey: this.data.regionStateKey || getCityStateKey(this.data.regionCityKey),
+      stateLabel: this.data.regionStateLabel || this.data.regionStateKey || getCityStateKey(this.data.regionCityKey),
+      areaKey: this.data.regionAreaKey,
+      areaLabel: this.data.regionAreaLabel,
+      buildingName: normalizeText(this.data.buildingName)
+    }
+  },
+
+  _getCurrentRegionMeta() {
+    const selection = this._getCurrentRegionSelection()
+    if (!selection) {
+      return {
+        baseDisplay: '',
+        fullDisplay: '',
+        cityKey: '',
+        cityLabel: '',
+        stateKey: '',
+        stateLabel: '',
+        areaKey: '',
+        areaLabel: '',
+        buildingName: normalizeText(this.data.buildingName)
+      }
+    }
+
+    const buildingName = normalizeText(this.data.buildingName)
+    return {
+      baseDisplay: buildRegionDisplayParts(selection.cityLabel, selection.areaLabel),
+      fullDisplay: buildRegionDisplayParts(selection.cityLabel, selection.areaLabel, buildingName),
+      cityKey: selection.cityKey,
+      cityLabel: selection.cityLabel,
+      stateKey: selection.stateKey,
+      stateLabel: selection.stateLabel,
+      areaKey: selection.areaKey,
+      areaLabel: selection.areaLabel,
+      buildingName
+    }
+  },
 
   onChooseLocation() {
     if (this.data.locationPicking) return
@@ -363,6 +660,14 @@ Page({
           address,
           lat,
           lng,
+          buildingName: this.data.buildingName || '',
+          cityKey: this.data.regionCityKey || '',
+          cityLabel: this.data.regionCityLabel || '',
+          region: this._getCurrentRegionMeta().fullDisplay,
+          regionState: this.data.regionStateKey || '',
+          regionArea: this.data.regionAreaLabel || '',
+          areaLabel: this.data.regionAreaLabel || '',
+          regionKey: this.data.regionAreaKey || '',
           source: 'wxChooseLocation',
           coordinateAccuracy: 'userSelected',
           provider: 'wx.chooseLocation',
@@ -393,23 +698,18 @@ Page({
     this.markDirty()
   },
 
-  onBigregionChange(e) {
-    const index = Number(e.detail.value) || 0
-    const value = this.data.bigregionOptions[index] || '纽约/新泽西'
-  
-    this.setData({
-      bigregionIndex: index,
-      bigregion: value
-    })
-  
-    this.markDirtyAndSave()
-  },
-
   buildUpdateData() {
     const {
       address,
       location,
       bigregion,
+      buildingName,
+      regionCityKey,
+      regionCityLabel,
+      regionStateKey,
+      regionAreaKey,
+      regionStateLabel,
+      regionAreaLabel,
       phone,
       regionIndex,
       customPriceNonCore,
@@ -417,11 +717,32 @@ Page({
     } = this.data
 
     const region = regionIndex == 0 ? 'US' : 'CN'
+    const regionMeta = this._getCurrentRegionMeta()
+    const locationPayload = location && typeof location === 'object'
+      ? {
+        ...location,
+        buildingName: regionMeta.buildingName,
+        cityKey: regionMeta.cityKey,
+        cityLabel: regionMeta.cityLabel,
+        region: regionMeta.fullDisplay,
+        regionState: regionMeta.stateKey,
+        regionArea: regionMeta.areaLabel,
+        areaLabel: regionMeta.areaLabel,
+        regionKey: regionMeta.areaKey
+      }
+      : {}
     const updateData = {
       wechatID: this.data.wechat || '',
-      address: address || '',
-      location: location && typeof location === 'object' ? location : {},
-      bigregion: bigregion || '纽约/新泽西',
+      address: buildingName || address || '',
+      location: locationPayload,
+      cityKey: regionCityKey || regionMeta.cityKey,
+      cityLabel: regionCityLabel || regionMeta.cityLabel,
+      bigregion: regionMeta.baseDisplay || bigregion || '',
+      buildingName: regionMeta.buildingName,
+      regionState: regionStateKey || regionMeta.stateKey,
+      regionArea: regionAreaLabel || regionMeta.areaLabel,
+      regionKey: regionAreaKey || regionMeta.areaKey,
+      regionDisplay: regionMeta.fullDisplay,
       name: this.data.name || '',
       avatarUrl: this.data.avatarUrl || '',
       zelleName: this.data.zelleName || '',
@@ -473,6 +794,9 @@ Page({
     }
 
     const updateData = this.buildUpdateData()
+    if (this.data.from === 'marketPost') {
+      markMarketProfileRegionHandoff(updateData)
+    }
     const payloadKey = this.getSavePayloadKey(updateData)
     if (!this.data.unsaved && payloadKey === this._lastSavedPayloadKey) {
       return true

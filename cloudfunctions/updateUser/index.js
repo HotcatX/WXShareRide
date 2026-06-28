@@ -11,6 +11,22 @@ function normalizeLocationText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
 
+function normalizeCityKey(value) {
+  const key = normalizeLocationText(value).toLowerCase()
+  if (['ny', 'nj', 'nyc', 'new york', 'new jersey', 'jersey', '纽约', '新泽西', '纽约/新泽西'].includes(key)) return 'ny_nj'
+  return normalizeLocationText(value)
+}
+
+function normalizeCityLabel(cityKey, cityLabel) {
+  return normalizeCityKey(cityKey) === 'ny_nj' ? '纽约/新泽西' : normalizeLocationText(cityLabel)
+}
+
+function normalizeRegionState(value) {
+  const key = normalizeLocationText(value).toUpperCase()
+  if (key === 'NY' || key === 'NJ' || key === 'NY_NJ' || key === '纽约' || key === '新泽西') return 'NY_NJ'
+  return normalizeLocationText(value)
+}
+
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === '') return null
   const n = Number(value)
@@ -35,8 +51,14 @@ function normalizeLocationForSave(location) {
     displayName: displayName || address,
     name: normalizeLocationText(location.name || displayName || address),
     buildingName: normalizeLocationText(location.buildingName),
+    cityKey: normalizeCityKey(location.cityKey),
+    cityLabel: normalizeCityLabel(location.cityKey, location.cityLabel),
     address,
     region: normalizeLocationText(location.region || location.bigregion),
+    regionState: normalizeRegionState(location.regionState),
+    regionArea: normalizeLocationText(location.regionArea || location.areaLabel),
+    areaLabel: normalizeLocationText(location.areaLabel || location.regionArea),
+    regionKey: normalizeLocationText(location.regionKey),
     city: normalizeLocationText(location.city),
     state: normalizeLocationText(location.state),
     zip: normalizeLocationText(location.zip),
@@ -94,9 +116,19 @@ async function handleNormalUpdate(openid, event) {
     address,
     location,
 
+    cityKey,
+    cityLabel,
     bigregion,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay,
     bio
   } = event || {}
+  const normalizedCityKey = normalizeCityKey(cityKey)
+  const normalizedCityLabel = normalizeCityLabel(normalizedCityKey, cityLabel)
+  const normalizedRegionState = normalizeRegionState(regionState)
   const normalizedLocation = normalizeLocationForSave(location)
 
   try {
@@ -120,7 +152,14 @@ async function handleNormalUpdate(openid, event) {
           address: address || '',
           location: normalizedLocation || {},
 
+          cityKey: normalizedCityKey || '',
+          cityLabel: normalizedCityLabel || '',
           bigregion: bigregion || '',
+          buildingName: buildingName || '',
+          regionState: normalizedRegionState || '',
+          regionArea: regionArea || '',
+          regionKey: regionKey || '',
+          regionDisplay: regionDisplay || '',
 
           carNumber: carNumber || '',
           carBrand: carBrand || '',
@@ -166,7 +205,14 @@ async function handleNormalUpdate(openid, event) {
     if (Object.prototype.hasOwnProperty.call(event || {}, 'location')) {
       updateData.location = normalizedLocation || {}
     }
+    if (typeof cityKey === 'string')      updateData.cityKey = normalizedCityKey
+    if (typeof cityLabel === 'string')    updateData.cityLabel = normalizedCityLabel
     if (typeof bigregion === 'string')    updateData.bigregion = bigregion
+    if (typeof buildingName === 'string') updateData.buildingName = buildingName
+    if (typeof regionState === 'string')  updateData.regionState = normalizedRegionState
+    if (typeof regionArea === 'string')   updateData.regionArea = regionArea
+    if (typeof regionKey === 'string')    updateData.regionKey = regionKey
+    if (typeof regionDisplay === 'string') updateData.regionDisplay = regionDisplay
 
     if (typeof carNumber === 'string') updateData.carNumber = carNumber
     if (typeof carBrand === 'string')  updateData.carBrand  = carBrand

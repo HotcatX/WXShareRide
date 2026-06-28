@@ -61,13 +61,13 @@
 
       <view class="profile-info-row" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
         <text class="profile-info-label">所住公寓</text>
-        <text class="profile-info-value">{{ isLoggedIn ? (address || '未填写') : '未登录' }}</text>
+        <text class="profile-info-value">{{ isLoggedIn ? (apartment || '未填写') : '未登录' }}</text>
       </view>
       <view class="profile-divider"></view>
 
       <view class="profile-info-row" bindtap="goEditProfile" hover-class="ride-pressed" hover-stay-time="80">
         <text class="profile-info-label">所住区域</text>
-        <text class="profile-info-value">{{ isLoggedIn ? (bigregion || '无') : '未登录' }}</text>
+        <text class="profile-info-value">{{ isLoggedIn ? (region || '无') : '未登录' }}</text>
       </view>
     </view>
 

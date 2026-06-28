@@ -5,7 +5,7 @@ const {
   fetchAndCacheMarketSellerProfiles
 } = require("../../../utils/marketSellerProfileCache")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
-const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v2"
+const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v3"
 const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
 
 const DETAIL_COPY = {
@@ -60,6 +60,16 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function toFiniteNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function hasLatLng(location = {}) {
+  return toFiniteNumber(location.lat ?? location.latitude) !== null &&
+    toFiniteNumber(location.lng ?? location.longitude) !== null
+}
+
 function formatAmountText(value) {
   const text = normalizeText(value)
   if (!text && text !== "0") return ""
@@ -92,6 +102,17 @@ function buildSubletMetaList(x = {}) {
   return rows
 }
 
+function buildPreciseLocationText(x = {}) {
+  const location = x.location && typeof x.location === "object" ? x.location : {}
+  if (!hasLatLng(location)) return ""
+  return normalizeText(
+    location.displayName ||
+    location.name ||
+    location.address ||
+    ""
+  )
+}
+
 function buildDetailItem(x = {}) {
   const listingType = normalizeListingType(x.listingType)
   const copy = getDetailCopy(listingType)
@@ -103,7 +124,10 @@ function buildDetailItem(x = {}) {
   const pickupText = listingType === "sublet"
     ? (x.leaseText || subletLeaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
     : (x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系卖家确认")
-  const locationText = x.pickup || x.region || (listingType === "sublet" ? "发布者未填写" : "卖家未填写")
+  const regionDisplay = normalizeText(x.regionDisplay || x.region)
+  const preciseLocationText = buildPreciseLocationText(x)
+  const locationText = regionDisplay || (listingType === "sublet" ? "发布者未填写区域" : "卖家未填写区域")
+  const locationDetailText = preciseLocationText || "暂未设置精确定位"
   const priceDisplay = listingType === "sublet" ? `${formatMarketPrice(x.price)}/月` : formatMarketPrice(x.price)
   const categoryDisplay = x.category || copy.defaultCategory
   const subletMetaList = listingType === "sublet" ? buildSubletMetaList(x) : []
@@ -123,6 +147,11 @@ function buildDetailItem(x = {}) {
     category: categoryDisplay,
     categoryDisplay,
     region: x.region || '',
+    regionState: x.regionState || x.location?.regionState || '',
+    regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || '',
+    regionKey: x.regionKey || x.location?.regionKey || '',
+    regionDisplay,
+    buildingName: x.buildingName || x.location?.buildingName || '',
     condition: conditionDisplay,
     conditionDisplay,
     desc: x.desc || copy.defaultDesc,
@@ -146,15 +175,26 @@ function buildDetailItem(x = {}) {
     viewCount: x.viewCount || 0,
     viewCountText: `${Number(x.viewCount) || 0} 人浏览`,
     _openid: x._openid,
-    pickup: x.pickup || x.region || "",
+    managedByAdmin: x.managedByAdmin === true,
+    managedByOpenid: x.managedByOpenid || "",
+    sellerName: normalizeText(x.sellerName),
+    sellerWechat: normalizeText(x.sellerWechat),
+    sellerPhone: normalizeText(x.sellerPhone),
+    sellerAvatar: normalizeText(x.sellerAvatar),
+    sellerNote: normalizeText(x.sellerNote),
+    pickup: preciseLocationText || regionDisplay || "",
     navTitle: copy.navTitle,
     pickupLabel: copy.pickupLabel,
     locationLabel: copy.locationLabel,
+    locationDetailLabel: "详细地址",
+    locationDetailText,
     descTitle: copy.descTitle,
     sellerOtherText: copy.sellerOtherText,
     locationActionText: copy.locationActionText,
     contactText: copy.contactText,
     pickupModalTitle: copy.pickupModalTitle,
+    showLocationAction: listingType !== "sublet",
+    detailActionClass: listingType === "sublet" ? "single-action" : "",
     subletMetaList,
     hasSubletMeta: subletMetaList.length > 0
   }
@@ -276,6 +316,14 @@ function buildSellerFromProfile(profile, listingType = "goods") {
   }
 }
 
+function buildSellerFromManagedItem(item = {}) {
+  return {
+    nameDisplay: normalizeText(item.sellerName) || buildDefaultSeller(item.listingType).nameDisplay,
+    avatarDisplay: normalizeText(item.sellerAvatar) || "/images/profile.png",
+    regionDisplay: normalizeText(item.regionDisplay || item.region) || "区域未填"
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -361,6 +409,11 @@ Page({
   },
 
   async _getSellerWechatByOpenid(openid) {
+    const itemWechat = normalizeText(this.data.item?.sellerWechat)
+    if (itemWechat) {
+      this.setData({ sellerWechat: itemWechat })
+      return itemWechat
+    }
     if (this.data.sellerWechat) return this.data.sellerWechat
     const cached = readMarketSellerProfile(openid, { allowStale: true })
     if (cached && cached.wechatID) {
@@ -504,7 +557,14 @@ Page({
       hasImageUrls: imgUrls.length > 0,
       hasMultipleImages: imgUrls.length > 1
     })
-    this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
+    if (detailItem.managedByAdmin) {
+      this.setData({
+        seller: buildSellerFromManagedItem(detailItem),
+        sellerWechat: detailItem.sellerWechat || ""
+      })
+    } else {
+      this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
+    }
     return true
   },
 
@@ -657,6 +717,10 @@ Page({
   },
 
   onViewSellerProfile() {
+    if (this.data.item?.managedByAdmin) {
+      wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+      return
+    }
     const openid = this.data.item?._openid
     if (!openid) return
     wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
@@ -690,6 +754,14 @@ Page({
 
   async onContactSeller() {
     if (!this.ensureLoginBeforeContact()) return
+    const directWechat = normalizeText(this.data.item?.sellerWechat)
+    if (directWechat) {
+      wx.setClipboardData({
+        data: directWechat,
+        success: () => wx.showToast({ title: "微信号已复制", icon: "success" })
+      })
+      return
+    }
     const openid = this.data.item?._openid
     if (!openid) {
       wx.showToast({ title: "发布者信息缺失", icon: "none" })

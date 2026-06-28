@@ -43,7 +43,6 @@
         <text class="section-kicker">Listings</text>
         <text class="goods-title-main">{{goodsTitleMain}}</text>
       </view>
-      <view class="add-small pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">发布</view>
     </view>
 
     <view class="listing-segment">
@@ -61,7 +60,7 @@
     </view>
 
     <view wx:if="{{goodsEmpty}}" class="empty-state">
-      <view class="empty-mark">＋</view>
+      <view class="empty-mark pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">＋</view>
       <view class="empty-title">{{goodsEmptyTitle}}</view>
       <view class="empty-subtitle">{{goodsEmptySubtitle}}</view>
       <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">去发布</view>

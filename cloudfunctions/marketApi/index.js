@@ -11,6 +11,12 @@ const ADS_COLLECTION = "market_ads"
 const AD_EVENTS_COLLECTION = "market_ad_events"
 const VIEW_EVENTS_COLLECTION = "market_view_events"
 const USER_COLLECTION = "userInfo"
+const IMPORT_BATCH_COLLECTION = "MarketImportBatches"
+const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
+const ADMIN_SETTINGS_COLLECTION = "MarketAdminSettings"
+const ADMIN_SESSION_COLLECTION = "MarketAdminSessions"
+const ADMIN_BULK_PASSWORD_DOC_ID = "bulk_publish_password"
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
@@ -37,6 +43,11 @@ const LIST_FIELDS = {
   cityKey: true,
   cityLabel: true,
   region: true,
+  regionState: true,
+  regionArea: true,
+  regionKey: true,
+  regionDisplay: true,
+  buildingName: true,
   location: true,
   condition: true,
   desc: true,
@@ -54,6 +65,16 @@ const LIST_FIELDS = {
   createTime: true,
   updateTime: true,
   buyerOpenid: true,
+  managedByAdmin: true,
+  managedByOpenid: true,
+  managedSource: true,
+  adminBatchId: true,
+  adminExternalId: true,
+  sellerName: true,
+  sellerWechat: true,
+  sellerPhone: true,
+  sellerAvatar: true,
+  sellerNote: true,
   wantCount: true,
   viewCount: true,
   availableStartDate: true,
@@ -170,7 +191,24 @@ function normalizeListingCategory(value, listingType) {
 }
 
 function normalizeCityKey(value) {
-  return normalizeText(value).replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase()
+  const raw = normalizeText(value).toLowerCase()
+  if (["纽约", "新泽西", "纽约/新泽西"].includes(raw)) return "ny_nj"
+  const key = raw.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_/-]/g, "").toLowerCase()
+  if (["ny", "nj", "nyc", "ny/nj", "new_york", "new_jersey", "new-jersey", "jersey"].includes(key)) return "ny_nj"
+  return key.replace(/\//g, "_")
+}
+
+function normalizeRegionKeys(value) {
+  const source = Array.isArray(value) ? value : [value]
+  const out = []
+  const seen = new Set()
+  source.forEach(item => {
+    const key = normalizeText(item)
+    if (!key || key === "all" || seen.has(key)) return
+    seen.add(key)
+    out.push(key)
+  })
+  return out
 }
 
 function getEventListingType(event = {}) {
@@ -287,17 +325,28 @@ function getDistanceSortOrigin(event = {}) {
   return normalizeLatLng(sort.origin || event.origin || event.myLocation || {})
 }
 
-function buildLocationForSave(regionStr, location = {}) {
+function buildLocationForSave(regionStr, location = {}, meta = {}) {
   const displayName = normalizeText(location.displayName || location.name || location.address || regionStr)
   if (!displayName) return {}
 
-  const parts = displayName.split("/").map(s => s.trim()).filter(Boolean)
+  const regionState = normalizeText(meta.regionState || location.regionState)
+  const regionArea = normalizeText(meta.regionArea || meta.areaLabel || location.regionArea || location.areaLabel)
+  const regionKey = normalizeText(meta.regionKey || location.regionKey)
+  const buildingName = normalizeText(meta.buildingName || location.buildingName)
+  const cityKey = normalizeText(meta.cityKey || location.cityKey)
+  const cityLabel = normalizeText(meta.cityLabel || location.cityLabel)
   return {
     displayName,
     name: normalizeText(location.name || displayName),
-    buildingName: normalizeText(location.buildingName || parts.slice(2).join(" / ")),
-    city: normalizeText(location.city || parts[1]),
-    state: normalizeText(location.state || parts[0]),
+    buildingName,
+    cityKey,
+    cityLabel,
+    regionState,
+    regionArea,
+    areaLabel: regionArea,
+    regionKey,
+    city: normalizeText(location.city),
+    state: normalizeText(location.state || regionState),
     zip: normalizeText(location.zip),
     country: normalizeText(location.country || "US"),
     lat: toFiniteNumber(location.lat ?? location.latitude),
@@ -311,24 +360,37 @@ function buildLocationForSave(regionStr, location = {}) {
   }
 }
 
-function parseRegion(regionStr) {
-  const parts = normalizeText(regionStr).split("/").map(s => s.trim()).filter(Boolean)
-  const rest = parts.slice(2)
-  return {
-    bigregion: parts.join(" / "),
-    address: rest.length ? rest.join(" / ") : (parts[1] || parts[0] || "")
-  }
-}
+async function upsertUserRegion(openid, item = {}) {
+  if (!openid || !item) return
+  const regionState = normalizeText(item.regionState)
+  const regionArea = normalizeText(item.regionArea)
+  const regionKey = normalizeText(item.regionKey)
+  if (!regionState || !regionArea || !regionKey) return
 
-async function upsertUserRegion(openid, regionStr, location = {}) {
-  if (!openid || !regionStr) return
-  const { bigregion, address } = parseRegion(regionStr)
-  const saveLocation = buildLocationForSave(regionStr, location)
-  if (!bigregion && !address && !saveLocation.displayName) return
+  const buildingName = normalizeText(item.buildingName)
+  const cityKey = normalizeText(item.cityKey)
+  const cityLabel = normalizeText(item.cityLabel)
+  const regionDisplay = normalizeText(item.regionDisplay || item.region)
+  const bigregion = [regionState, regionArea].filter(Boolean).join(" / ")
+  const saveLocation = buildLocationForSave(regionDisplay || bigregion, item.location || {}, {
+    regionState,
+    regionArea,
+    regionKey,
+    buildingName,
+    cityKey,
+    cityLabel
+  })
 
   const data = {
+    cityKey,
+    cityLabel,
     bigregion,
-    address: saveLocation.address || address,
+    address: buildingName,
+    buildingName,
+    regionState,
+    regionArea,
+    regionKey,
+    regionDisplay: regionDisplay || [regionState, regionArea, buildingName].filter(Boolean).join(" / "),
     bigregionUpdatedAt: db.serverDate()
   }
   if (saveLocation.displayName) data.location = saveLocation
@@ -623,6 +685,11 @@ function normalizeMarketItem(item = {}) {
     cityKey: normalizeCityKey(item.cityKey),
     cityLabel: normalizeText(item.cityLabel),
     region: normalizeText(item.region),
+    regionState: normalizeText(item.regionState || item.location?.regionState),
+    regionArea: normalizeText(item.regionArea || item.location?.regionArea || item.location?.areaLabel),
+    regionKey: normalizeText(item.regionKey || item.location?.regionKey),
+    regionDisplay: normalizeText(item.regionDisplay || item.region),
+    buildingName: normalizeText(item.buildingName || item.location?.buildingName),
     location: item.location || {},
     condition: normalizeText(item.condition) || defaultCondition,
     conditionText: normalizeText(item.condition) || defaultCondition,
@@ -828,12 +895,38 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   if (payload.category !== undefined) data.category = normalizeListingCategory(payload.category, listingType)
   if (payload.cityKey !== undefined) data.cityKey = normalizeCityKey(payload.cityKey)
   if (payload.cityLabel !== undefined) data.cityLabel = normalizeText(payload.cityLabel)
+  if (data.cityKey === "ny_nj") data.cityLabel = "纽约/新泽西"
   if (payload.region !== undefined) data.region = normalizeText(payload.region)
-  if (payload.location !== undefined || payload.region !== undefined) {
-    data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {})
+  if (payload.regionState !== undefined) data.regionState = normalizeText(payload.regionState)
+  if (payload.regionArea !== undefined) data.regionArea = normalizeText(payload.regionArea)
+  if (payload.regionKey !== undefined) data.regionKey = normalizeText(payload.regionKey)
+  if (payload.regionDisplay !== undefined) data.regionDisplay = normalizeText(payload.regionDisplay)
+  if (payload.buildingName !== undefined) data.buildingName = normalizeText(payload.buildingName)
+  if (
+    payload.location !== undefined ||
+    payload.region !== undefined ||
+    payload.regionState !== undefined ||
+    payload.regionArea !== undefined ||
+    payload.regionKey !== undefined ||
+    payload.buildingName !== undefined
+  ) {
+    const meta = {
+      cityKey: data.cityKey || oldItem.cityKey || payload.location?.cityKey,
+      cityLabel: data.cityLabel || oldItem.cityLabel || payload.location?.cityLabel,
+      regionState: data.regionState || oldItem.regionState || payload.location?.regionState,
+      regionArea: data.regionArea || oldItem.regionArea || payload.location?.regionArea || payload.location?.areaLabel,
+      regionKey: data.regionKey || oldItem.regionKey || payload.location?.regionKey,
+      buildingName: data.buildingName || oldItem.buildingName || payload.location?.buildingName
+    }
+    data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {}, meta)
   }
   if (payload.condition !== undefined) data.condition = normalizeText(payload.condition) || "99新"
   if (payload.desc !== undefined) data.desc = String(payload.desc || "")
+  if (payload.sellerName !== undefined) data.sellerName = normalizeText(payload.sellerName)
+  if (payload.sellerWechat !== undefined) data.sellerWechat = normalizeText(payload.sellerWechat)
+  if (payload.sellerPhone !== undefined) data.sellerPhone = normalizeText(payload.sellerPhone)
+  if (payload.sellerAvatar !== undefined) data.sellerAvatar = normalizeFileID(payload.sellerAvatar) || normalizeText(payload.sellerAvatar)
+  if (payload.sellerNote !== undefined) data.sellerNote = normalizeText(payload.sellerNote)
 
   if (payload.availableStartDate !== undefined) data.availableStartDate = normalizeText(payload.availableStartDate)
   if (payload.leaseEndDate !== undefined) data.leaseEndDate = normalizeText(payload.leaseEndDate)
@@ -890,14 +983,15 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   return ok({ data })
 }
 
-async function createItem(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const payload = event.payload || event.data || event
+function buildCreateItemForSave(payload = {}, openid = "", options = {}) {
   const title = normalizeText(payload.title)
   const listingType = normalizeListingType(payload.listingType)
   const category = normalizeListingCategory(payload.category, listingType)
   const region = normalizeText(payload.region)
-  if (!title || !category || !region) return fail("missing_required_fields")
+  const regionState = normalizeText(payload.regionState)
+  const regionArea = normalizeText(payload.regionArea)
+  const regionKey = normalizeText(payload.regionKey)
+  if (!title || !category || !region || !regionState || !regionArea || !regionKey) return fail("missing_required_fields")
 
   const normalized = normalizePayloadForSave(payload)
   if (!normalized.ok) return normalized
@@ -918,11 +1012,25 @@ async function createItem(event, openid) {
     updateTime: db.serverDate(),
     status: "online",
     clientRequestId,
-    _openid: openid
+    _openid: openid,
+    ...(options.extraData && typeof options.extraData === "object" ? options.extraData : {})
   }
 
-  await upsertUserRegion(openid, region, data.location || {})
-  const files = collectMarketFiles(data)
+  return ok({
+    data,
+    files: collectMarketFiles(data),
+    idempotentGoodsId
+  })
+}
+
+async function createItem(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const payload = event.payload || event.data || event
+  const built = buildCreateItemForSave(payload, openid)
+  if (!built.ok) return built
+  const { data, files, idempotentGoodsId } = built
+
+  await upsertUserRegion(openid, data)
   let itemId = ""
 
   if (idempotentGoodsId) {
@@ -940,6 +1048,399 @@ async function createItem(event, openid) {
 
   await attachMarketFiles(files, itemId, openid)
   return ok({ id: itemId, itemId, status: "online" })
+}
+
+async function adminStatus(event, openid) {
+  if (!openid) return ok({ isAdmin: false, openid: "" })
+  const session = await verifyAdminSession(event, openid, { silent: true })
+  return ok({
+    openid,
+    isAdmin: !!session.ok,
+    source: session.ok ? "password_session" : "",
+    expiresAtMs: session.expiresAtMs || 0
+  })
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex")
+}
+
+function readEnvPasswordConfig() {
+  const code = normalizeText(process.env.MARKET_BULK_ADMIN_CODE || process.env.MARKET_BULK_ADMIN_PASSWORD)
+  if (/^\d{6}$/.test(code)) {
+    return {
+      source: "env_code",
+      code
+    }
+  }
+  return null
+}
+
+async function readAdminPasswordConfig() {
+  try {
+    const doc = await db.collection(ADMIN_SETTINGS_COLLECTION).doc(ADMIN_BULK_PASSWORD_DOC_ID).get()
+    const data = doc && doc.data
+    if (data) {
+      const status = normalizeText(data.status || "active").toLowerCase()
+      if (status !== "disabled" && status !== "inactive") {
+        const code = normalizeText(data.code || data.password || data.adminCode)
+        if (/^\d{6}$/.test(code)) {
+          return {
+            source: ADMIN_SETTINGS_COLLECTION,
+            code
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  return readEnvPasswordConfig()
+}
+
+async function verifyAdminPasswordValue(password) {
+  const value = normalizeText(password)
+  if (!value) return { ok: false, error: "missing_password" }
+  if (!/^\d{6}$/.test(value)) return { ok: false, error: "invalid_password_format" }
+  const config = await readAdminPasswordConfig()
+  if (!config) return { ok: false, error: "password_not_configured" }
+
+  if (config.code && value === config.code) {
+    return { ok: true, source: config.source }
+  }
+  return { ok: false, error: "invalid_password" }
+}
+
+async function ensureAdminSessionCollection() {
+  if (typeof db.createCollection !== "function") return
+  await db.createCollection(ADMIN_SESSION_COLLECTION).catch(e => {
+    const text = String(e && (e.message || e.errMsg || e.code) || "")
+    if (!/exist|already|collection/i.test(text)) {
+      console.warn("[marketApi] create admin session collection failed:", e)
+    }
+  })
+}
+
+function getAdminTokenFromEvent(event = {}) {
+  return normalizeText(event.adminToken || event.token || event.payload?.adminToken || event.data?.adminToken)
+}
+
+function buildAdminSessionDocId(token) {
+  return `sess_${sha256(token).slice(0, 48)}`
+}
+
+async function createAdminSession(openid) {
+  const token = crypto.randomBytes(32).toString("hex")
+  const tokenHash = sha256(token)
+  const id = buildAdminSessionDocId(token)
+  const nowMs = Date.now()
+  const expiresAtMs = nowMs + ADMIN_SESSION_TTL_MS
+  await ensureAdminSessionCollection()
+  await db.collection(ADMIN_SESSION_COLLECTION).doc(id).set({
+    data: {
+      _openid: openid,
+      adminOpenid: openid,
+      tokenHash,
+      status: "active",
+      createTime: db.serverDate(),
+      updateTime: db.serverDate(),
+      createTimeMs: nowMs,
+      updateTimeMs: nowMs,
+      expiresAtMs
+    }
+  })
+  return { token, expiresAtMs }
+}
+
+async function verifyAdminSession(event = {}, openid = "", options = {}) {
+  const token = getAdminTokenFromEvent(event)
+  if (!openid) return { ok: false, error: "not_logged_in" }
+  if (!token) return { ok: false, error: "admin_session_required" }
+  const id = buildAdminSessionDocId(token)
+  const doc = await db.collection(ADMIN_SESSION_COLLECTION).doc(id).get().catch(() => null)
+  const row = doc && doc.data
+  if (!row) return { ok: false, error: "admin_session_invalid" }
+  if (row.tokenHash !== sha256(token)) return { ok: false, error: "admin_session_invalid" }
+  if (normalizeText(row.status || "active").toLowerCase() !== "active") return { ok: false, error: "admin_session_invalid" }
+  if (row._openid && row._openid !== openid) return { ok: false, error: "admin_session_invalid" }
+  if (Number(row.expiresAtMs) && Number(row.expiresAtMs) < Date.now()) return { ok: false, error: "admin_session_expired" }
+  if (!options.silent) {
+    await db.collection(ADMIN_SESSION_COLLECTION).doc(id).update({
+      data: {
+        updateTime: db.serverDate(),
+        updateTimeMs: Date.now()
+      }
+    }).catch(() => {})
+  }
+  return { ok: true, openid, expiresAtMs: Number(row.expiresAtMs) || 0 }
+}
+
+async function adminVerifyPassword(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const password = String(event.password || event.payload?.password || event.data?.password || "")
+  const verified = await verifyAdminPasswordValue(password)
+  if (!verified.ok) return fail(verified.error)
+  const session = await createAdminSession(openid)
+  return ok({
+    openid,
+    isAdmin: true,
+    source: verified.source || "password",
+    adminToken: session.token,
+    expiresAtMs: session.expiresAtMs
+  })
+}
+
+function buildAdminBatchId(value) {
+  const explicit = normalizeClientRequestId(value)
+  if (explicit) return explicit
+  return `market_admin_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`
+}
+
+function buildAdminExternalId(item = {}, index = 0) {
+  return normalizeClientRequestId(item.externalId || item.adminExternalId || item.importId || `row_${index + 1}`)
+}
+
+async function saveAdminCreatedItem(payload, openid, batchId, index) {
+  const listingType = normalizeListingType(payload.listingType)
+  const externalId = buildAdminExternalId(payload, index)
+  const clientRequestId = normalizeClientRequestId(payload.clientRequestId) ||
+    (payload.externalId || payload.adminExternalId || payload.importId
+      ? `admin_external_${externalId}`
+      : `${batchId}_${externalId}`)
+  const sellerName = normalizeText(payload.sellerName || payload.displayName || payload.contactName)
+  const sellerWechat = normalizeText(payload.sellerWechat || payload.wechatID || payload.wechatId || payload.wechat)
+  const sellerPhone = normalizeText(payload.sellerPhone || payload.phone)
+  const sourcePayload = {
+    ...payload,
+    listingType,
+    category: normalizeListingCategory(payload.category || payload.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
+    condition: payload.condition || (listingType === "sublet" ? "转租" : "99新"),
+    status: "online",
+    clientRequestId
+  }
+  const built = buildCreateItemForSave(sourcePayload, openid, {
+    extraData: {
+      managedByAdmin: true,
+      managedByOpenid: openid,
+      managedSource: "admin_bulk",
+      adminBatchId: batchId,
+      adminExternalId: externalId,
+      sellerName,
+      sellerWechat,
+      sellerPhone,
+      sellerAvatar: normalizeFileID(payload.sellerAvatar) || normalizeText(payload.sellerAvatar),
+      sellerNote: normalizeText(payload.sellerNote)
+    }
+  })
+  if (!built.ok) return built
+
+  const { data, files, idempotentGoodsId } = built
+  let itemId = ""
+  let deduped = false
+
+  if (idempotentGoodsId) {
+    const existing = await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).get().catch(() => null)
+    if (existing && existing.data && existing.data._openid === openid) {
+      itemId = idempotentGoodsId
+      deduped = true
+    } else {
+      await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).set({ data })
+      itemId = idempotentGoodsId
+    }
+  } else {
+    const res = await db.collection(GOODS_COLLECTION).add({ data })
+    itemId = res._id
+  }
+
+  await attachMarketFiles(files, itemId, openid)
+  return ok({
+    id: itemId,
+    itemId,
+    title: data.title,
+    listingType,
+    deduped,
+    externalId,
+    status: "online"
+  })
+}
+
+async function adminBulkCreate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
+
+  const items = Array.isArray(event.items)
+    ? event.items
+    : (event.payload && Array.isArray(event.payload.items) ? event.payload.items : [])
+  if (!items.length) return fail("missing_items")
+  if (items.length > 50) return fail("too_many_items", { max: 50 })
+
+  const batchId = buildAdminBatchId(event.batchId || event.payload?.batchId)
+  const results = []
+  const failures = []
+
+  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).set({
+    data: {
+      batchId,
+      type: "market_admin_bulk",
+      source: "marketTrade",
+      _openid: openid,
+      adminOpenid: openid,
+      total: items.length,
+      success: 0,
+      failed: 0,
+      status: "running",
+      createTime: db.serverDate(),
+      updateTime: db.serverDate()
+    }
+  }).catch(e => {
+    console.error("[marketApi] create import batch failed:", e)
+  })
+
+  for (let i = 0; i < items.length; i += 1) {
+    try {
+      const row = items[i] && typeof items[i] === "object" ? items[i] : {}
+      const result = await saveAdminCreatedItem(row, openid, batchId, i)
+      if (result.ok) results.push({ index: i, ...result })
+      else failures.push({ index: i, error: result.error || "create_failed" })
+    } catch (e) {
+      failures.push({
+        index: i,
+        error: "database_error",
+        detail: e && (e.message || e.errMsg) ? String(e.message || e.errMsg) : ""
+      })
+    }
+  }
+
+  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).update({
+    data: {
+      success: results.length,
+      failed: failures.length,
+      status: failures.length ? (results.length ? "partial" : "failed") : "done",
+      results: results.map(item => ({
+        index: item.index,
+        id: item.id,
+        listingType: item.listingType,
+        title: item.title,
+        externalId: item.externalId,
+        deduped: !!item.deduped
+      })),
+      failures,
+      updateTime: db.serverDate()
+    }
+  }).catch(e => {
+    console.error("[marketApi] update import batch failed:", e)
+  })
+
+  return ok({
+    batchId,
+    total: items.length,
+    success: results.length,
+    failed: failures.length,
+    results,
+    failures
+  })
+}
+
+function sanitizeAdminTemplateData(input = {}) {
+  const listingType = normalizeListingType(input.listingType)
+  const data = {
+    listingType,
+    title: normalizeText(input.title),
+    price: toFiniteNumber(input.price) || 0,
+    category: normalizeListingCategory(input.category || input.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
+    condition: normalizeText(input.condition) || (listingType === "sublet" ? "转租" : "99新"),
+    sellerName: normalizeText(input.sellerName || input.displayName || input.contactName),
+    sellerWechat: normalizeText(input.sellerWechat || input.wechatID || input.wechatId || input.wechat),
+    sellerPhone: normalizeText(input.sellerPhone || input.phone),
+    cityKey: normalizeCityKey(input.cityKey),
+    cityLabel: normalizeText(input.cityLabel),
+    regionState: normalizeText(input.regionState),
+    regionArea: normalizeText(input.regionArea),
+    regionKey: normalizeText(input.regionKey),
+    buildingName: normalizeText(input.buildingName),
+    detailAddress: normalizeText(input.detailAddress),
+    location: input.location && typeof input.location === "object" ? buildLocationForSave(
+      normalizeText(input.regionDisplay || input.region || input.detailAddress),
+      input.location,
+      {
+        cityKey: input.cityKey,
+        cityLabel: input.cityLabel,
+        regionState: input.regionState,
+        regionArea: input.regionArea,
+        regionKey: input.regionKey,
+        buildingName: input.buildingName
+      }
+    ) : {},
+    pickupStartDate: normalizeText(input.pickupStartDate),
+    pickupEndDate: normalizeText(input.pickupEndDate),
+    deposit: normalizeText(input.deposit),
+    roomType: listingType === "sublet" ? normalizeSubletCategory(input.roomType || input.category) : "",
+    housingType: normalizeText(input.housingType),
+    furnished: normalizeBoolean(input.furnished),
+    utilitiesIncluded: normalizeBoolean(input.utilitiesIncluded),
+    genderPreference: normalizeText(input.genderPreference),
+    roommateCount: normalizeText(input.roommateCount),
+    externalId: normalizeClientRequestId(input.externalId)
+  }
+  return data
+}
+
+async function adminListTemplates(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
+  const limit = Math.min(50, Math.max(1, Number(event.limit) || 20))
+  const res = await db.collection(ADMIN_TEMPLATE_COLLECTION)
+    .where({ _openid: openid, status: "active" })
+    .limit(limit)
+    .get()
+  return ok({ templates: res.data || [], data: res.data || [] })
+}
+
+async function adminSaveTemplate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
+  const payload = event.template || event.payload || event.data || {}
+  const name = normalizeText(payload.name || payload.templateName || payload.title || "代发模板").slice(0, 60)
+  const templateData = sanitizeAdminTemplateData(payload.data || payload)
+  if (!templateData.sellerName || !templateData.sellerWechat) return fail("missing_template_contact")
+  if (!templateData.cityKey || !templateData.regionKey || !templateData.regionArea) return fail("missing_template_region")
+
+  const explicitId = normalizeClientRequestId(payload.id || payload.templateId)
+  const templateId = explicitId || crypto.createHash("sha1")
+    .update(`${openid}:${name}:${templateData.sellerWechat}:${templateData.cityKey}:${templateData.regionKey}`)
+    .digest("hex")
+  const docId = `tpl_${templateId}`
+  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(docId).set({
+    data: {
+      _openid: openid,
+      adminOpenid: openid,
+      name,
+      status: "active",
+      data: templateData,
+      createTime: db.serverDate(),
+      updateTime: db.serverDate()
+    }
+  })
+  return ok({ id: docId, templateId: docId, name, template: { _id: docId, name, data: templateData } })
+}
+
+async function adminDeleteTemplate(event, openid) {
+  if (!openid) return fail("not_logged_in")
+  const session = await verifyAdminSession(event, openid)
+  if (!session.ok) return fail(session.error || "forbidden")
+  const id = normalizeText(event.id || event.templateId)
+  if (!id) return fail("missing_id")
+  const doc = await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).get().catch(() => null)
+  const row = doc && doc.data
+  if (!row || row._openid !== openid) return fail("not_found")
+  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).update({
+    data: {
+      status: "deleted",
+      updateTime: db.serverDate()
+    }
+  })
+  return ok({ id })
 }
 
 async function updateItem(event, openid) {
@@ -962,6 +1463,11 @@ async function updateItem(event, openid) {
     "cityKey",
     "cityLabel",
     "region",
+    "regionState",
+    "regionArea",
+    "regionKey",
+    "regionDisplay",
+    "buildingName",
     "location",
     "condition",
     "desc",
@@ -973,6 +1479,11 @@ async function updateItem(event, openid) {
     "pickupStartDate",
     "pickupEndDate",
     "status",
+    "sellerName",
+    "sellerWechat",
+    "sellerPhone",
+    "sellerAvatar",
+    "sellerNote",
     "availableStartDate",
     "leaseEndDate",
     "deposit",
@@ -1003,7 +1514,9 @@ async function updateItem(event, openid) {
     }
   })
 
-  if (normalized.data.region) await upsertUserRegion(openid, normalized.data.region, normalized.data.location || {})
+  if (normalized.data.regionState && normalized.data.regionArea && normalized.data.regionKey) {
+    await upsertUserRegion(openid, { ...oldItem, ...normalized.data })
+  }
   await attachMarketFiles(collectMarketFiles({ ...oldItem, ...normalized.data }), id, openid)
   const deleteResult = await deleteFiles(removedFileIDs)
   await markFilesDeleted(removedFileIDs, openid, id)
@@ -1051,15 +1564,15 @@ function buildVisibleConditions(filters = {}) {
   if (cityKey && cityKey !== "all") {
     conditions.push({ cityKey })
   }
+  const regionKeys = normalizeRegionKeys(filters.regionKeys || filters.areaKeys)
+  const regionKey = normalizeText(filters.regionKey || filters.areaKey)
+  if (regionKeys.length) {
+    conditions.push({ regionKey: _.in(regionKeys) })
+  } else if (regionKey && regionKey !== "all") {
+    conditions.push({ regionKey })
+  }
   if (filters.region && filters.region !== "全部") {
-    const region = filters.region
-    if (region.endsWith("/ 全部")) {
-      const prefix = region.replace(/\/\s*全部\s*$/, "/")
-      const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      conditions.push({ region: db.RegExp({ regexp: `^${esc}`, options: "i" }) })
-    } else {
-      conditions.push({ region })
-    }
+    conditions.push({ region: normalizeText(filters.region) })
   }
   const keyword = normalizeText(filters.keyword)
   if (keyword) {
@@ -1396,6 +1909,13 @@ exports.main = async (event = {}) => {
     if (action === "myList") return myList(event, OPENID)
     if (action === "sellerList") return sellerList(event)
     if (action === "tradeList") return tradeList(event, OPENID)
+    if (action === "adminStatus") return adminStatus(event, OPENID)
+    if (action === "adminSessionStatus") return adminStatus(event, OPENID)
+    if (action === "adminVerifyPassword") return adminVerifyPassword(event, OPENID)
+    if (action === "adminBulkCreate") return adminBulkCreate(event, OPENID)
+    if (action === "adminListTemplates") return adminListTemplates(event, OPENID)
+    if (action === "adminSaveTemplate") return adminSaveTemplate(event, OPENID)
+    if (action === "adminDeleteTemplate") return adminDeleteTemplate(event, OPENID)
     if (action === "listAds") return listAds(event)
     if (action === "trackAdClick") return trackAdClick(event, OPENID)
     if (action === "create") return createItem(event, OPENID)

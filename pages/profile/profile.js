@@ -49,7 +49,8 @@ Page({
     customPriceNonCore: '',
     customPriceCore: '',
 
-    bigregion: '',
+    region: '',
+    apartment: '',
 
     unreadCount: 0,
     walletUnreadCount: 0,
@@ -228,7 +229,6 @@ Page({
           name: user.name || '',
           wechatID: user.wechatID || '',
           address: user.address || '',
-          bigregion: user.bigregion || '',
 
           customPriceNonCore: priceObj.fortLeeNonCore || '',
           customPriceCore: priceObj.fortLeeCore || '',

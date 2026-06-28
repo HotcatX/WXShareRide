@@ -1,10 +1,10 @@
 <view class="market-page">
   <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="market-search-row" style="{{marketSearchRowStyle}}">
-      <!-- <view class="region-entry pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
+      <view class="region-entry pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
         <text class="region-text">{{activeRegionShortLabel}}</text>
         <text class="region-caret">⌄</text>
-      </view> -->
+      </view>
 
       <view class="search-box">
         <text class="search-symbol">⌕</text>
@@ -33,15 +33,8 @@
     </view>
 
     <view class="filter-row">
-      <!-- <view class="filter-chip filter-chip--category">
-        <text>筛选</text>
-      </view> -->
-      <view class="filter-chip filter-chip--category pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTapRegion">
-        <text>{{activeRegionShortLabel}}</text>
-        <text class="filter-caret">⌄</text>
-      </view>
       <view class="filter-chip {{distanceSortActive ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleDistanceSort">
-        <text>{{distanceSortActive ? '距离最近' : '综合排序'}}</text>
+        <text>{{distanceSortActive ? '按距离' : '按时间'}}</text>
         <text class="filter-caret">⌄</text>
       </view>
       <view class="filter-chip {{activeCategory !== '全部' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenCategoryPicker">
@@ -50,6 +43,10 @@
       </view>
       <view class="filter-chip {{priceSortLabel !== '默认' ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onTogglePriceSort">
         <text>{{priceSortLabel === '默认' ? '价格' : priceSortLabel}}</text>
+        <text class="filter-caret">⌄</text>
+      </view>
+      <view class="filter-chip {{activeAreaKeys.length ? 'active' : ''}} pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onOpenAreaPicker">
+        <text>{{activeAreaKeys.length ? activeAreaLabel : '区域'}}</text>
         <text class="filter-caret">⌄</text>
       </view>
     </view>
@@ -100,12 +97,17 @@
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
+                data-managed="{{item.managedByAdmin}}"
               >
                 <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
               </view>
-              <text class="goods-distance">{{item.distanceText || item.regionShortText}}</text>
-              <text class="goods-views">浏览 {{item.viewCount || 0}}</text>
+              <text wx:if="{{item.buildingNameText}}" class="card-building goods-building">{{item.buildingNameText}}</text>
+              <text wx:if="{{item.regionShortText}}" class="goods-region">{{item.regionShortText}}</text>
+              <view class="goods-views">
+                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <text>{{item.viewCount || 0}}</text>
+              </view>
             </view>
           </block>
 
@@ -119,12 +121,17 @@
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
                 data-type="{{item.listingType}}"
+                data-managed="{{item.managedByAdmin}}"
               >
                 <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name">{{item.sellerNameText}}</text>
               </view>
-              <text class="card-location">{{item.regionShortText}}</text>
-              <text class="card-views">浏览 {{item.viewCount || 0}}</text>
+              <text wx:if="{{item.buildingNameText}}" class="card-building">{{item.buildingNameText}}</text>
+              <text wx:if="{{item.regionShortText}}" class="card-location">{{item.regionShortText}}</text>
+              <view class="card-views">
+                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <text>{{item.viewCount || 0}}</text>
+              </view>
             </view>
           </block>
 
@@ -220,7 +227,7 @@
       </view>
 
       <view class="city-body">
-        <view class="city-country-tabs">
+        <scroll-view class="city-country-tabs" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
           <view
             class="city-country {{item.className}} pressable"
             wx:for="{{cityCountryTabs}}"
@@ -232,7 +239,7 @@
           >
             {{item.label}}
           </view>
-        </view>
+        </scroll-view>
 
         <scroll-view class="city-group-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
           <view class="city-group" wx:for="{{cityPickerGroups}}" wx:key="title">
@@ -283,6 +290,56 @@
         >
           {{item.label}}
         </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{areaPickerVisible}}">
+    <view class="category-mask" bindtap="onAreaPickerCancel"></view>
+
+    <view class="area-panel" catchtouchmove="stopTouchMove">
+      <view class="category-panel-header">
+        <text class="category-panel-title">选择区域</text>
+        <text class="category-panel-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAreaPickerCancel">关闭</text>
+      </view>
+
+      <view class="area-body">
+        <view class="area-section-tabs">
+          <view
+            class="area-section-tab {{item.className}} pressable"
+            wx:for="{{areaSectionTabs}}"
+            wx:key="key"
+            data-key="{{item.key}}"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onSelectAreaSection"
+          >
+            {{item.label}}
+          </view>
+        </view>
+
+        <scroll-view class="area-option-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="area-section {{section.className}}" wx:for="{{areaSections}}" wx:for-item="section" wx:key="key">
+            <view wx:if="{{section.title}}" class="area-section-title">{{section.title}}</view>
+            <view class="area-group" wx:for="{{section.groups}}" wx:for-item="group" wx:key="key">
+              <view wx:if="{{group.showTitle}}" class="area-group-title">{{group.title}}</view>
+              <view class="area-option-grid">
+                <view
+                  class="area-option {{area.className}} pressable"
+                  wx:for="{{group.areas}}"
+                  wx:for-item="area"
+                  wx:key="key"
+                  data-key="{{area.key}}"
+                  hover-class="is-pressed"
+                  hover-stay-time="80"
+                  bindtap="onSelectArea"
+                >
+                  {{area.label}}
+                </view>
+              </view>
+            </view>
+          </view>
+        </scroll-view>
       </view>
     </view>
   </view>

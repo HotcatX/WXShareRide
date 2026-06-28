@@ -4,9 +4,8 @@ const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
 const { prefetchTripDetails } = require("../../utils/tripDetailCache")
 const {
-  DEFAULT_CITY_KEY,
-  DEFAULT_CITY_LABEL,
   DEFAULT_CITY_TREE,
+  RIDE_DEFAULT_CITY_KEY,
   RIDE_CITY_STORAGE_KEY,
   normalizeCityTree,
   getCitySnapshot,
@@ -14,14 +13,13 @@ const {
   getCountryGroups,
   cityGroupsHaveResults,
   getStoredCitySnapshot,
+  isRideServiceCityKey,
+  normalizeRideDisplayCityKey,
   setStoredCitySnapshot
 } = require("../../utils/cityTree")
 
 const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
-
-function isRideServiceCity(cityKey) {
-  return String(cityKey || "") === DEFAULT_CITY_KEY
-}
+const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
 
 // =========================
 // 按发车时间排序（date + time）
@@ -250,15 +248,15 @@ Page({
     statusBarHeight: 80,
     homeTopbarStyle: '',
     pageTitle: '共享出行',
-    activeCityKey: DEFAULT_CITY_KEY,
-    activeCityLabel: DEFAULT_CITY_LABEL,
-    activeCityAliases: [DEFAULT_CITY_LABEL],
+    activeCityKey: RIDE_DEFAULT_CITY_SNAPSHOT.key,
+    activeCityLabel: RIDE_DEFAULT_CITY_SNAPSHOT.label,
+    activeCityAliases: RIDE_DEFAULT_CITY_SNAPSHOT.aliases,
     isRideServiceAvailable: true,
     rideDemandSubmitting: false,
     rideDemandRequested: false,
     cityTree: DEFAULT_CITY_TREE,
     cityCountryTabs: getCountryTabs(DEFAULT_CITY_TREE, "US"),
-    cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", DEFAULT_CITY_KEY),
+    cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", RIDE_DEFAULT_CITY_KEY),
     cityPickerVisible: false,
     activeCityCountryCode: "US",
     citySearchKeyword: "",
@@ -346,8 +344,8 @@ Page({
   },
 
   onLoad(options) {
-    const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE)
-    this._applyCityUi((options && options.city) || storedCity.key || DEFAULT_CITY_KEY, { persist: false })
+    const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
+    this._applyCityUi((options && options.city) || storedCity.key || RIDE_DEFAULT_CITY_KEY, { persist: false })
     this.setData(getHomeNavMetrics())
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
@@ -405,9 +403,9 @@ Page({
     })
   },
 
-  _applyCityUi(cityKey = DEFAULT_CITY_KEY, options = {}) {
+  _applyCityUi(cityKey = RIDE_DEFAULT_CITY_KEY, options = {}) {
     const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
-    const snapshot = getCitySnapshot(cityTree, cityKey || DEFAULT_CITY_KEY)
+    const snapshot = getCitySnapshot(cityTree, normalizeRideDisplayCityKey(cityKey || RIDE_DEFAULT_CITY_KEY))
     const activeCode = options.countryCode || this.data.activeCityCountryCode || "US"
     const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
     const cityPickerGroups = getCountryGroups(cityTree, activeCode, snapshot.key, { keyword: citySearchKeyword })
@@ -416,7 +414,7 @@ Page({
       activeCityKey: snapshot.key,
       activeCityLabel: snapshot.label,
       activeCityAliases: snapshot.aliases,
-      isRideServiceAvailable: isRideServiceCity(snapshot.key),
+      isRideServiceAvailable: isRideServiceCityKey(snapshot.key),
       rideDemandRequested: false,
       cityTree,
       activeCityCountryCode: activeCode,
@@ -445,10 +443,10 @@ Page({
       }
 
       const tree = normalizeCityTree(docData)
-      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: tree })
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
     } catch (e) {
       console.error("cityTree 加载失败：", e)
-      this._applyCityUi(this.data.activeCityKey || DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
     }
   },
 
@@ -457,7 +455,7 @@ Page({
     const cityPickerGroups = getCountryGroups(
       cityTree,
       this.data.activeCityCountryCode || "US",
-      this.data.activeCityKey || DEFAULT_CITY_KEY
+      this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY
     )
     this.setData({
       cityPickerVisible: true,
@@ -479,7 +477,7 @@ Page({
     const cityPickerGroups = getCountryGroups(
       cityTree,
       this.data.activeCityCountryCode || "US",
-      this.data.activeCityKey || DEFAULT_CITY_KEY,
+      this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
       { keyword }
     )
     this.setData({
@@ -493,7 +491,7 @@ Page({
     const code = e.currentTarget.dataset.code || "US"
     const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
     const citySearchKeyword = this.data.citySearchKeyword || ""
-    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || DEFAULT_CITY_KEY, {
+    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, {
       keyword: citySearchKeyword
     })
     this.setData({
@@ -505,10 +503,10 @@ Page({
   },
 
   onSelectCity(e) {
-    const key = e.currentTarget.dataset.key || DEFAULT_CITY_KEY
+    const key = e.currentTarget.dataset.key || RIDE_DEFAULT_CITY_KEY
     const snapshot = this._applyCityUi(key)
     this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
-    if (isRideServiceCity(snapshot.key)) {
+    if (isRideServiceCityKey(snapshot.key)) {
       this.scheduleHomeShowRefresh()
     }
   },
@@ -551,7 +549,7 @@ Page({
   },
 
   goCarpoolList() {
-    wx.navigateTo({ url: `/pages/home/carpoolList/carpoolList?city=${this.data.activeCityKey || DEFAULT_CITY_KEY}` })
+    wx.navigateTo({ url: `/pages/home/carpoolList/carpoolList?city=${this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY}` })
   },
 
   // =========================
@@ -794,14 +792,14 @@ Page({
   onShareAppMessage() {
     return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
-      path: `/pages/home/home?city=${this.data.activeCityKey || DEFAULT_CITY_KEY}`
+      path: `/pages/home/home?city=${this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY}`
     })
   },
 
   onShareTimeline() {
     return getApp().withReferralShare({
       title: '共享出行, 一键往返 NY-NJ',
-      query: `city=${this.data.activeCityKey || DEFAULT_CITY_KEY}`
+      query: `city=${this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY}`
     })
   },
 

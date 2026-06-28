@@ -718,7 +718,7 @@ Page({
 
   onViewSellerProfile() {
     if (this.data.item?.managedByAdmin) {
-      wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+      wx.showToast({ title: "无信息", icon: "none" })
       return
     }
     const openid = this.data.item?._openid

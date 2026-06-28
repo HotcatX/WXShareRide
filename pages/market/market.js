@@ -1262,7 +1262,7 @@ Page({
   onTapSeller(e) {
     const managed = e.currentTarget.dataset.managed
     if (managed === true || managed === "true") {
-      wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+      wx.showToast({ title: "无信息", icon: "none" })
       return
     }
     const openid = e.currentTarget.dataset.openid

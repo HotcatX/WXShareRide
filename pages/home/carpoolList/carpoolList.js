@@ -8,6 +8,10 @@ const {
   RIDE_DEFAULT_CITY_KEY,
   RIDE_SERVICE_CITY_LABEL,
   RIDE_CITY_STORAGE_KEY,
+<<<<<<< HEAD
+=======
+  loadCityTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -36,6 +40,37 @@ const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
 const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
 
+<<<<<<< HEAD
+=======
+const DEFAULT_FROM_PLACES = [
+  "Manhattan",
+  "哥大/Columbia",
+  "NYU",
+  "Fordham",
+  "JFK",
+  "LGA",
+  "EWR",
+  "Fort Lee",
+  "Jersey City",
+  "Hoboken"
+]
+
+const DEFAULT_TO_PLACES = [
+  "Manhattan",
+  "哥大/Columbia",
+  "NYU",
+  "Fordham",
+  "JFK",
+  "LGA",
+  "EWR",
+  "Fort Lee",
+  "Jersey City",
+  "Hoboken",
+  "Brooklyn",
+  "Queens"
+]
+
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
 Page({
   data: {
     loading: true,
@@ -121,7 +156,11 @@ Page({
     this._initFilterFromShare = { from, to, time }
 
     const cachedOptions = this.getCachedFilterOptions()
+<<<<<<< HEAD
     const defaultOptions = cachedOptions || this.buildFilterOptionData([], [])
+=======
+    const defaultOptions = cachedOptions || this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES)
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
 
     this.setData({
       statusBarHeight: info.statusBarHeight,
@@ -215,6 +254,7 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -232,6 +272,16 @@ Page({
     } catch (e) {
       console.error("cityTree 加载失败：", e)
       this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
+=======
+      const tree = await loadCityTreeConfig()
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
+    } catch (e) {
+      console.error("cityTree 加载失败：", e)
+      const tree = normalizeCityTree(DEFAULT_CITY_TREE)
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     }
   },
 
@@ -356,7 +406,14 @@ Page({
       const toList = Array.isArray(cached.toPlaceList) ? cached.toPlaceList : []
       if (!fromList.length && !toList.length) return null
 
+<<<<<<< HEAD
       return this.buildFilterOptionData(fromList, toList)
+=======
+      return this.buildFilterOptionData(
+        [...DEFAULT_FROM_PLACES, ...fromList],
+        [...DEFAULT_TO_PLACES, ...toList]
+      )
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     } catch (e) {
       return null
     }
@@ -527,6 +584,7 @@ Page({
   async loadFromToOptionsFromDBMerged() {
     if (this._optionsLoading) return
     this._optionsLoading = true
+<<<<<<< HEAD
   
     try {
       const db = wx.cloud.database()
@@ -544,16 +602,42 @@ Page({
       const fromList = this.uniqNonEmpty(fromRaw)
       const toList = this.uniqNonEmpty(toRaw)
   
+=======
+
+    try {
+      const db = wx.cloud.database()
+      const [dep1, arr1, dep2, arr2] = await Promise.all([
+        db.collection("Departure").get(),
+        db.collection("Arrival").get(),
+        db.collection("Departure_Request").get(),
+        db.collection("Arrival_Request").get()
+      ])
+
+      const depDocs = [...(dep1.data || []), ...(dep2.data || [])]
+      const arrDocs = [...(arr1.data || []), ...(arr2.data || [])]
+
+      const fromRaw = depDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
+      const toRaw = arrDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
+
+      const fromList = this.uniqNonEmpty([...DEFAULT_FROM_PLACES, ...fromRaw])
+      const toList = this.uniqNonEmpty([...DEFAULT_TO_PLACES, ...toRaw])
+
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       this.cacheFilterOptions(fromList, toList)
       this.applyFilterOptionData(this.buildFilterOptionData(fromList, toList))
     } catch (e) {
       console.error("loadFromToOptionsFromDBMerged error", e)
+<<<<<<< HEAD
   
       const cachedOptions = this.getCachedFilterOptions()
       if (cachedOptions) {
         this.applyFilterOptionData(cachedOptions)
       } else {
         this.applyFilterOptionData(this.buildFilterOptionData([], []))
+=======
+      if (!this.data.fromPlaceList.length || !this.data.toPlaceList.length) {
+        this.applyFilterOptionData(this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES))
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       }
     } finally {
       this._optionsLoading = false

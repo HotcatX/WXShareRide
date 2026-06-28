@@ -3,6 +3,10 @@ const { showDataError } = require("../../utils/error")
 const {
   DEFAULT_CITY_TREE,
   MARKET_CITY_STORAGE_KEY,
+<<<<<<< HEAD
+=======
+  loadCityTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -24,6 +28,10 @@ const {
   buildAreaSectionTabs,
   buildAreaSections,
   resolveAreaPanelSectionKey,
+<<<<<<< HEAD
+=======
+  loadRegionTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   readCachedRegionTree,
   writeCachedRegionTree
 } = require("../../utils/regionTree")
@@ -1260,7 +1268,11 @@ Page({
   onTapSeller(e) {
     const managed = e.currentTarget.dataset.managed
     if (managed === true || managed === "true") {
+<<<<<<< HEAD
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
+=======
+      wx.showToast({ title: "无信息", icon: "none" })
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       return
     }
     const openid = e.currentTarget.dataset.openid
@@ -1325,6 +1337,7 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -1339,10 +1352,19 @@ Page({
 
       const tree = normalizeCityTree(docData)
       this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
+=======
+      const tree = await loadCityTreeConfig()
+      this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     } catch (e) {
       console.error("cityTree 加载失败：", e)
       const tree = normalizeCityTree(DEFAULT_CITY_TREE)
       this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
+<<<<<<< HEAD
+=======
+      return tree
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     }
   },
 
@@ -1356,6 +1378,7 @@ Page({
     }
 
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -1370,6 +1393,10 @@ Page({
 
       const tree = normalizeRegionTree(docData)
       writeCachedRegionTree(tree)
+=======
+      const { tree, fromCloud } = await loadRegionTreeConfig(options)
+      if (fromCloud) writeCachedRegionTree(tree)
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
       return tree
     } catch (e) {

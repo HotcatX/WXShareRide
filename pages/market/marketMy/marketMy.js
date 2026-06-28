@@ -11,7 +11,11 @@ const defaultAvatarUrl =
 const LISTING_TYPE_CONFIG = {
   goods: {
     label: "二手",
+<<<<<<< HEAD
     navTitle: "我的发布",
+=======
+    navTitle: "我的市场",
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     sectionTitle: "我发布的商品",
     emptyTitle: "还没有发布商品",
     emptySubtitle: "发布第一件闲置，让附近同学看到",
@@ -25,7 +29,11 @@ const LISTING_TYPE_CONFIG = {
   },
   sublet: {
     label: "转租",
+<<<<<<< HEAD
     navTitle: "我的发布",
+=======
+    navTitle: "我的市场",
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     sectionTitle: "我发布的转租",
     emptyTitle: "还没有发布转租",
     emptySubtitle: "发布第一套房源，让附近同学看到",
@@ -205,7 +213,11 @@ Page({
     hasGoods: false,
     goodsEmpty: true,
     allSelectedText: '全选',
+<<<<<<< HEAD
     navTitle: '我的发布',
+=======
+    navTitle: '我的市场',
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     goodsTitleMain: '我发布的商品',
     goodsEmptyTitle: '还没有发布商品',
     goodsEmptySubtitle: '发布第一件闲置，让附近同学看到',

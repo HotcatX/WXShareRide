@@ -7,6 +7,10 @@ const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
   RIDE_CITY_STORAGE_KEY,
+<<<<<<< HEAD
+=======
+  loadCityTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -430,6 +434,7 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -447,6 +452,16 @@ Page({
     } catch (e) {
       console.error("cityTree 加载失败：", e)
       this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
+=======
+      const tree = await loadCityTreeConfig()
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
+    } catch (e) {
+      console.error("cityTree 加载失败：", e)
+      const tree = normalizeCityTree(DEFAULT_CITY_TREE)
+      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     }
   },
 

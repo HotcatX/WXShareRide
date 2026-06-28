@@ -188,7 +188,10 @@ Page({
       const myOpenid = (rawResult && rawResult.openid) ? rawResult.openid : ''
       const driverOpenid = trip.driverOpenid || ''
       const isMyRequest = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
+<<<<<<< HEAD
       
+=======
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past'
       const displayTrip = {

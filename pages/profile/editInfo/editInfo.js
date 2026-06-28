@@ -2,6 +2,10 @@ const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia0
 const { showDataError } = require('../../../utils/error')
 const {
   DEFAULT_CITY_TREE,
+<<<<<<< HEAD
+=======
+  loadCityTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -17,6 +21,10 @@ const {
   buildAreaSectionTabs,
   buildAreaSections,
   resolveAreaPanelSectionKey,
+<<<<<<< HEAD
+=======
+  loadRegionTreeConfig,
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   readCachedRegionTree,
   writeCachedRegionTree
 } = require('../../../utils/regionTree')
@@ -388,6 +396,7 @@ Page({
   async loadCityTreeFromCloud(options = {}) {
     const { silent = false } = options
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -401,6 +410,9 @@ Page({
       }
 
       const tree = normalizeCityTree(docData)
+=======
+      const tree = await loadCityTreeConfig(options)
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       if (!tree.length) throw new Error('cityTree 数据为空或格式错误')
       this._applyCityTree(tree)
       return tree
@@ -431,6 +443,7 @@ Page({
     if (cached) this._applyRegionTree(cached)
 
     try {
+<<<<<<< HEAD
       const db = wx.cloud.database()
       let docData = null
       try {
@@ -446,6 +459,11 @@ Page({
       const tree = normalizeRegionTree(docData)
       if (!tree.length) throw new Error('regionTree 数据为空或格式错误')
       writeCachedRegionTree(tree)
+=======
+      const { tree, fromCloud } = await loadRegionTreeConfig(options)
+      if (!tree.length) throw new Error('regionTree 数据为空或格式错误')
+      if (fromCloud) writeCachedRegionTree(tree)
+>>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       this._applyRegionTree(tree)
       return tree
     } catch (e) {

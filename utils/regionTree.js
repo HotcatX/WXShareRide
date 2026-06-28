@@ -1,6 +1,6 @@
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
-const REGION_TREE_STORAGE_KEY = "market_region_tree_v7"
+const REGION_TREE_STORAGE_KEY = "market_region_tree_v8"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 const AREA_PANEL_ALL_KEY = "all"
 
@@ -27,12 +27,12 @@ const CORE_STATE_AREAS = {
     { key: "ny_manhattan_downtown", label: "曼哈顿下城", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_downtown", groupLabel: "曼哈顿下城", aliases: ["下城", "Downtown", "Lower Manhattan"] },
     { key: "ny_lic_queens", label: "LIC/Queens", sectionKey: "ny", sectionLabel: "纽约", groupKey: "queens", groupLabel: "Queens", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
     { key: "ny_other", label: "其他", sectionKey: "ny", sectionLabel: "纽约", groupKey: "ny_other", groupLabel: "其他", aliases: ["其他NY", "NY其他", "Other NY"] },
-    { key: "nj_fort_lee", label: "Fortlee", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Fort Lee", "FL"] },
-    { key: "nj_newport", label: "Newport", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["New Port"] },
-    { key: "nj_grove_st", label: "Grove St", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Grove Street", "Grove"] },
-    { key: "nj_jsq", label: "JSQ", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["Journal Square"] },
-    { key: "nj_harrison", label: "Harrison", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: [] },
-    { key: "nj_other", label: "其他", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj", groupLabel: "NJ", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
+    { key: "nj_fort_lee", label: "Fortlee", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_north", groupLabel: "新泽西北方", aliases: ["Fort Lee", "FL"] },
+    { key: "nj_newport", label: "Newport", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["New Port"] },
+    { key: "nj_grove_st", label: "Grove St", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["Grove Street", "Grove"] },
+    { key: "nj_jsq", label: "JSQ", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["Journal Square"] },
+    { key: "nj_harrison", label: "Harrison", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_deep", groupLabel: "新泽西深处", aliases: [] },
+    { key: "nj_other", label: "其他", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_other", groupLabel: "其他", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
   ]
 }
 
@@ -48,7 +48,11 @@ const AREA_GROUP_LABELS = {
   manhattan_midtown: "曼哈顿中城",
   manhattan_downtown: "曼哈顿下城",
   queens: "Queens",
-  ny_other: "其他"
+  ny_other: "其他",
+  nj_north: "新泽西北方",
+  nj_south: "新泽西南方",
+  nj_deep: "新泽西深处",
+  nj_other: "其他"
 }
 
 const AREA_SECTION_ORDER = ["ny", "nj", "other"]
@@ -60,6 +64,10 @@ const AREA_SECTION_TAB_LABELS = {
   other: "其他"
 }
 const AREA_GROUP_ORDER = [
+  "nj_north",
+  "nj_south",
+  "nj_deep",
+  "nj_other",
   "nj",
   "manhattan_uptown",
   "manhattan_midtown",
@@ -195,9 +203,10 @@ function buildAreaSectionTabs(areas = [], activeSectionKey = "", activeAreaKeys 
 }
 
 function normalizeAreaGroupKey(groupKey, areaKey) {
+  const raw = cleanText(groupKey).toLowerCase()
+  if (raw && raw !== "new york" && raw !== "纽约" && raw !== "new jersey" && raw !== "新泽西") return raw
   const inferred = getDefaultAreaGroupKey(areaKey)
   if (inferred) return inferred
-  const raw = cleanText(groupKey).toLowerCase()
   if (raw === "ny" || raw === "new york" || raw === "纽约") return "ny"
   if (raw === "nj" || raw === "new jersey" || raw === "新泽西") return "nj"
   const key = cleanText(areaKey).toLowerCase()

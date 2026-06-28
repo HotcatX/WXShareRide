@@ -3,6 +3,7 @@ const { showDataError } = require("../../utils/error")
 const {
   DEFAULT_CITY_TREE,
   MARKET_CITY_STORAGE_KEY,
+  loadCityTreeConfig,
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -24,6 +25,7 @@ const {
   buildAreaSectionTabs,
   buildAreaSections,
   resolveAreaPanelSectionKey,
+  loadRegionTreeConfig,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require("../../utils/regionTree")
@@ -1325,24 +1327,14 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("cityTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("cityTree").limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeCityTree(docData)
+      const tree = await loadCityTreeConfig()
       this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
     } catch (e) {
       console.error("cityTree 加载失败：", e)
       const tree = normalizeCityTree(DEFAULT_CITY_TREE)
       this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
+      return tree
     }
   },
 
@@ -1356,20 +1348,8 @@ Page({
     }
 
     try {
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("regionTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("regionTree").limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeRegionTree(docData)
-      writeCachedRegionTree(tree)
+      const { tree, fromCloud } = await loadRegionTreeConfig(options)
+      if (fromCloud) writeCachedRegionTree(tree)
       this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
       return tree
     } catch (e) {

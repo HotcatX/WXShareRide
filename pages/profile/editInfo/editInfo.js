@@ -2,6 +2,7 @@ const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia0
 const { showDataError } = require('../../../utils/error')
 const {
   DEFAULT_CITY_TREE,
+  loadCityTreeConfig,
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -17,6 +18,7 @@ const {
   buildAreaSectionTabs,
   buildAreaSections,
   resolveAreaPanelSectionKey,
+  loadRegionTreeConfig,
   readCachedRegionTree,
   writeCachedRegionTree
 } = require('../../../utils/regionTree')
@@ -388,19 +390,7 @@ Page({
   async loadCityTreeFromCloud(options = {}) {
     const { silent = false } = options
     try {
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection('cityTree').doc('default').get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection('cityTree').limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeCityTree(docData)
+      const tree = await loadCityTreeConfig(options)
       if (!tree.length) throw new Error('cityTree 数据为空或格式错误')
       this._applyCityTree(tree)
       return tree
@@ -431,21 +421,9 @@ Page({
     if (cached) this._applyRegionTree(cached)
 
     try {
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection('regionTree').doc('default').get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection('regionTree').limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeRegionTree(docData)
+      const { tree, fromCloud } = await loadRegionTreeConfig(options)
       if (!tree.length) throw new Error('regionTree 数据为空或格式错误')
-      writeCachedRegionTree(tree)
+      if (fromCloud) writeCachedRegionTree(tree)
       this._applyRegionTree(tree)
       return tree
     } catch (e) {

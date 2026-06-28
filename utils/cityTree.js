@@ -1,3 +1,5 @@
+const { loadPublicConfigDoc } = require("./cloudConfig")
+
 const ALL_CITY_KEY = "all"
 const ALL_CITY_LABEL = "全部"
 const DEFAULT_CITY_KEY = "ny_nj"
@@ -193,6 +195,11 @@ function normalizeCityTree(source) {
   }).filter(country => country.label && country.groups.length)
 
   return normalized.length ? normalized : DEFAULT_CITY_TREE
+}
+
+async function loadCityTreeConfig(options = {}) {
+  const doc = await loadPublicConfigDoc("cityTree", options)
+  return normalizeCityTree(doc || DEFAULT_CITY_TREE)
 }
 
 function flattenCityTree(tree) {
@@ -407,6 +414,7 @@ module.exports = {
   DEFAULT_CITY_TREE,
   MARKET_CITY_STORAGE_KEY,
   RIDE_CITY_STORAGE_KEY,
+  loadCityTreeConfig,
   normalizeCityTree,
   flattenCityTree,
   getCityByKey,

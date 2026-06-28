@@ -16,6 +16,8 @@ const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
 const ADMIN_SETTINGS_COLLECTION = "MarketAdminSettings"
 const ADMIN_SESSION_COLLECTION = "MarketAdminSessions"
 const ADMIN_BULK_PASSWORD_DOC_ID = "bulk_publish_password"
+const PUBLIC_CONFIG_DOC_ID = "default"
+const PUBLIC_CONFIG_COLLECTIONS = new Set(["cityTree", "regionTree"])
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
@@ -1850,6 +1852,33 @@ async function trackAdClick(event = {}, openid = "") {
   }
 }
 
+function getRequestedConfigCollections(event = {}) {
+  const source = Array.isArray(event.collections)
+    ? event.collections
+    : [event.collection || event.name]
+  const out = []
+  const seen = new Set()
+  source.forEach(item => {
+    const collection = normalizeText(item)
+    if (!PUBLIC_CONFIG_COLLECTIONS.has(collection) || seen.has(collection)) return
+    seen.add(collection)
+    out.push(collection)
+  })
+  return out
+}
+
+async function publicConfig(event = {}) {
+  const collections = getRequestedConfigCollections(event)
+  if (!collections.length) return fail("invalid_config_collection")
+
+  const docs = {}
+  await Promise.all(collections.map(async collection => {
+    const doc = await db.collection(collection).doc(PUBLIC_CONFIG_DOC_ID).get().catch(() => null)
+    docs[collection] = doc && doc.data ? doc.data : null
+  }))
+  return ok({ docs, data: docs })
+}
+
 async function getWechatMap(openids) {
   const uniq = Array.from(new Set((openids || []).filter(Boolean)))
   const map = {}
@@ -1918,6 +1947,7 @@ exports.main = async (event = {}) => {
     if (action === "adminDeleteTemplate") return adminDeleteTemplate(event, OPENID)
     if (action === "listAds") return listAds(event)
     if (action === "trackAdClick") return trackAdClick(event, OPENID)
+    if (action === "publicConfig") return publicConfig(event)
     if (action === "create") return createItem(event, OPENID)
     if (action === "update") return updateItem(event, OPENID)
     if (action === "delete") return deleteItem(event, OPENID)

@@ -174,25 +174,13 @@
             </view>
           </view>
 
-          <picker range="{{cityOptions}}" range-key="label" value="{{adminCityIndex}}" bindchange="onAdminCityChange">
-            <view class="form-row pressable" hover-class="row-pressed" hover-stay-time="80">
-              <view class="row-label">城市</view>
-              <view class="row-value">
-                <text>{{adminForm.cityLabel}}</text>
-                <text class="row-arrow">›</text>
-              </view>
+          <view class="form-row pressable" hover-class="row-pressed" hover-stay-time="80" bindtap="onAdminTapRegionPicker">
+            <view class="row-label">城市/区域</view>
+            <view class="row-value">
+              <text class="{{adminRegionDisplay ? '' : 'muted'}}">{{adminRegionDisplay || '请选择地区/城市'}}</text>
+              <text class="row-arrow">›</text>
             </view>
-          </picker>
-
-          <picker range="{{adminAreaOptions}}" range-key="label" value="{{adminAreaIndex}}" bindchange="onAdminAreaChange">
-            <view class="form-row pressable" hover-class="row-pressed" hover-stay-time="80">
-              <view class="row-label">区域</view>
-              <view class="row-value">
-                <text>{{adminForm.regionArea}}</text>
-                <text class="row-arrow">›</text>
-              </view>
-            </view>
-          </picker>
+          </view>
 
           <view class="form-row">
             <view class="row-label">大楼名称</view>
@@ -272,12 +260,12 @@
             </view>
           </block>
 
-          <view class="form-row location-row">
+          <!-- <view class="form-row location-row">
             <view class="row-label">区域大楼</view>
             <view class="row-value location-value">
               <text>{{adminRegionDisplay}}</text>
             </view>
-          </view>
+          </view> -->
 
           <view class="form-row location-row pressable" hover-class="row-pressed" hover-stay-time="80" bindtap="onAdminChooseLocation">
             <view class="row-label">详细地址</view>
@@ -299,7 +287,7 @@
         <view class="admin-draft-row {{adminSelectedIndex === index ? 'active' : ''}}" wx:for="{{adminDrafts}}" wx:key="draftKey" wx:for-index="index">
           <view class="admin-draft-main">
             <text class="admin-draft-title">{{index + 1}}. {{item.title || '未命名'}}</text>
-            <text class="admin-draft-meta">{{item.cityLabel}} / {{item.regionArea}} / {{item.sellerWechat}}</text>
+            <text class="admin-draft-meta">{{item.regionState}} / {{item.regionCounty}} / {{item.regionArea}} / {{item.sellerWechat}}</text>
           </view>
           <view class="admin-row-btn" data-index="{{index}}" bindtap="onAdminEditDraft">修改</view>
           <view class="admin-row-btn danger" data-index="{{index}}" bindtap="onAdminRemoveDraft">删除</view>
@@ -388,6 +376,138 @@
       <view class="auth-actions">
         <view class="auth-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAuthExit">退出</view>
         <view class="auth-btn primary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAuthConfirm">{{adminAuthLoading ? '处理中' : '确定'}}</view>
+      </view>
+    </view>
+  </view>
+  <!-- 第一层：选择州 / 大地区 -->
+  <view wx:if="{{adminCityPickerVisible}}">
+    <view class="rp-mask" bindtap="onAdminCityPickerCancel"></view>
+
+    <view class="city-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">选择地区</text>
+        <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminCityPickerCancel">关闭</text>
+      </view>
+
+      <view class="city-search-wrap">
+        <input
+          class="city-search-input"
+          placeholder="搜索地区名称"
+          placeholder-class="city-search-placeholder"
+          value="{{adminCitySearchKeyword}}"
+          bindinput="onAdminCitySearchInput"
+          confirm-type="search"
+        />
+      </view>
+
+      <scroll-view class="city-group-scroll city-group-scroll--single" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="city-group" wx:for="{{adminCityPickerGroups}}" wx:key="title">
+          <view class="city-group-title">
+            <text wx:if="{{item.badge}}" class="city-hot-badge">{{item.badge}}</text>
+            <text>{{item.title}}</text>
+          </view>
+
+          <view class="city-grid">
+            <view
+              class="city-option {{city.className}} pressable"
+              wx:for="{{item.cities}}"
+              wx:for-item="city"
+              wx:key="key"
+              data-key="{{city.key}}"
+              hover-class="is-pressed"
+              hover-stay-time="80"
+              bindtap="onAdminSelectCity"
+            >
+              {{city.label}}
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{!adminCityPickerHasResults}}" class="city-empty">
+          {{adminCityPickerEmptyText}}
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 第二层 + 第三层：左边小区域，右边细分区域 -->
+  <view wx:if="{{adminAreaPickerVisible}}">
+    <view class="rp-mask" bindtap="onAdminAreaPickerCancel"></view>
+
+    <view class="city-panel area-panel" catchtouchmove="stopTouchMove">
+      <view class="city-header">
+        <text class="city-title">{{adminAreaPickerTitle}}</text>
+        <text class="city-close pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAdminAreaPickerCancel">关闭</text>
+      </view>
+
+      <view class="area-two-col">
+        <scroll-view class="area-left-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view
+            class="area-left-option {{item.className}} pressable"
+            wx:for="{{adminAreaGroupOptions}}"
+            wx:key="key"
+            data-key="{{item.key}}"
+            hover-class="is-pressed"
+            hover-stay-time="80"
+            bindtap="onAdminSelectAreaGroup"
+          >
+            {{item.label}}
+          </view>
+        </scroll-view>
+
+        <scroll-view class="area-right-scroll" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="city-grid area-grid">
+            <view
+              class="city-option area-option {{item.className}} pressable"
+              wx:for="{{adminAreaOptions}}"
+              wx:key="key"
+              data-key="{{item.key}}"
+              hover-class="is-pressed"
+              hover-stay-time="80"
+              bindtap="onAdminSelectArea"
+            >
+              {{item.label}}
+            </view>
+          </view>
+
+          <view wx:if="{{!adminAreaOptions.length}}" class="city-empty">
+            请选择左侧区域
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{adminAreaPickerVisible}}" class="region-mask" catchtap="onAdminAreaPickerCancel">
+  <view class="region-sheet area-sheet" catchtap="noop">
+    <view class="region-sheet-head">
+      <text class="region-sheet-title">{{adminAreaPickerTitle}}</text>
+      <text class="region-sheet-close" bindtap="onAdminAreaPickerCancel">×</text>
+    </view>
+      <view class="area-picker-body">
+        <scroll-view class="area-group-list" scroll-y="{{true}}">
+          <view
+            wx:for="{{adminAreaGroupOptions}}"
+            wx:key="key"
+            class="area-group-item {{item.className}}"
+            data-key="{{item.key}}"
+            bindtap="onAdminSelectAreaGroup"
+          >
+            {{item.label}}
+          </view>
+        </scroll-view>
+
+        <scroll-view class="area-option-list" scroll-y="{{true}}">
+          <view
+            wx:for="{{adminAreaOptions}}"
+            wx:key="key"
+            class="area-option-item {{item.className}}"
+            data-key="{{item.key}}"
+            bindtap="onAdminSelectArea"
+          >
+            {{item.label}}
+          </view>
+        </scroll-view>
       </view>
     </view>
   </view>

@@ -77,7 +77,7 @@ Page({
     toastIcon: '',
     toastText: '',
     refresherTriggered: false,
-    refreshHintText: "下拉刷新最新路线信息"
+    refreshHintText: ""
   },
 
   async onLoad(options) {
@@ -215,6 +215,81 @@ Page({
     return true
   },
 
+  async ensureWechatBeforeAction() {
+    const openid = wx.getStorageSync('openid') || ''
+    if (!openid) return false
+  
+    // 1. 优先读取个人中心本地 userInfo
+    const localUserInfo = wx.getStorageSync('userInfo') || {}
+    const localWechatID = String(
+      localUserInfo.wechatID ||
+      localUserInfo.wechatId ||
+      localUserInfo.wechat ||
+      ''
+    ).trim()
+  
+    if (localWechatID) return true
+  
+    // 2. 再读取云端 User_info
+    try {
+      const db = wx.cloud.database()
+      const res = await db.collection('userInfo')
+        .where({
+          _openid: openid
+        })
+        .limit(1)
+        .get()
+  
+      const user = res.data && res.data[0]
+      const wechatID = String(
+        (user && (user.wechatID || user.wechatId || user.wechat)) || ''
+      ).trim()
+  
+      if (wechatID) {
+        // 顺便同步回本地，避免下次重复误判
+        wx.setStorageSync('userInfo', {
+          ...localUserInfo,
+          ...user,
+          wechatID
+        })
+        return true
+      }
+  
+      const { tripId } = this.data
+      const pendingUrl = `/pages/home/requestDetail/requestDetail?id=${tripId}`
+
+      wx.setStorageSync('pendingPage', {
+        url: pendingUrl
+      })
+
+      wx.showModal({
+        title: '请完善个人信息',
+        content: '加入或接单前需要填写微信号，现在前往填写？',
+        confirmText: '去填写',
+        cancelText: '取消',
+        success: (res) => {
+          if (res.confirm) {
+            wx.navigateTo({
+              url: '/pages/profile/editInfo/editInfo'
+            })
+          }
+        }
+      })
+
+      return false
+
+    } catch (err) {
+      console.error('ensureWechatBeforeAction error:', err)
+  
+      wx.showToast({
+        title: '请先完善微信号',
+        icon: 'none'
+      })
+  
+      return false
+    }
+  },
+
   applyCachedPreview(id) {
     let applied = false
 
@@ -286,8 +361,8 @@ Page({
 
     // 5) 状态
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const st = rawStatus
-    const isClosed = st !== 'open'
+    const closedStatusList = ['closed', 'cancelled', 'canceled', 'deleted', 'finished', 'completed']
+    const isClosed = closedStatusList.includes(rawStatus)
 
     // 6) 已登录才计算“我是谁”
     const myOpenid = wx.getStorageSync('openid') || ''
@@ -367,11 +442,7 @@ Page({
     return this.applyRequestData(trip)
   },
 
-  // =========================
-  // =========================
   // 乘客加入
-  // =========================
-  // =========================
   async joinAsPassenger() {
     const {
       tripId,
@@ -399,10 +470,10 @@ Page({
     if (acceptedByMe) return this.showToast('你已是该路线司机，无法作为乘客加入', 'none')
     if (joinedByMe) return this.showToast('你已加入该路线', 'none')
 
-    const st = String((trip && trip.status) || 'open')
-    if (st !== 'open') return this.showToast(`当前状态不可加入：${st}`, 'none')
     if (isClosed) return this.showToast('该路线已结束', 'none')
     if (isFull) return this.showToast('该路线已满员', 'none')
+
+    if (!(await this.ensureWechatBeforeAction())) return
 
     this.setData({ submittingPassenger: true })
 
@@ -466,6 +537,9 @@ Page({
       else this.showToast('已被其他司机接单', 'none')
       return
     }
+
+    if (!this.ensureLoginBeforeAction('requestDetail:accept')) return
+    if (!(await this.ensureWechatBeforeAction())) return
 
     this.setData({ submittingDriver: true })
 

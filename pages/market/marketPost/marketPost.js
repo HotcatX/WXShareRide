@@ -85,7 +85,7 @@ function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
 }
 
-function getPostCitySnapshot(regionState = "", regionKey = "", regionArea = "") {
+function getPostCitySnapshot(regionState = "", regionCounty = "", regionArea = "") {
   const stateKey = normalizeLocationText(regionState).toUpperCase()
   if (stateKey === "NY" || stateKey === "NJ" || stateKey === "NY_NJ") {
     return getCitySnapshot(null, DEFAULT_CITY_KEY)
@@ -138,9 +138,6 @@ function markMarketPostSuccessFilter(payload = {}) {
     wx.setStorageSync(MARKET_POST_SUCCESS_FILTER_KEY, {
       ts: Date.now(),
       listingType: normalizeListingType(payload.listingType),
-      cityKey: normalizeLocationText(payload.cityKey),
-      cityLabel: normalizeLocationText(payload.cityLabel),
-      regionKey: normalizeLocationText(payload.regionKey),
       regionLabel: normalizeLocationText(payload.regionArea)
     })
   } catch (e) {}
@@ -155,7 +152,7 @@ function readMarketProfileRegionHandoff() {
       wx.removeStorageSync(MARKET_PROFILE_REGION_HANDOFF_KEY)
       return null
     }
-    if (!normalizeLocationText(value.regionKey) || !normalizeLocationText(value.regionArea)) return null
+    if (!normalizeLocationText(value.regionArea)) return null
     return value
   } catch (e) {
     return null
@@ -164,41 +161,32 @@ function readMarketProfileRegionHandoff() {
 
 function mergeProfileRegionHandoff(user = {}, handoff = null) {
   if (!handoff) return user || {}
+
   const location = handoff.location && typeof handoff.location === "object" ? handoff.location : {}
   const cloudLocation = (user && user.location) || {}
-  const cityKey = normalizeLocationText(handoff.cityKey || location.cityKey || user?.cityKey || cloudLocation.cityKey)
-  const cityLabel = normalizeLocationText(handoff.cityLabel || location.cityLabel || user?.cityLabel || cloudLocation.cityLabel)
-  const buildingName = normalizeLocationText(handoff.buildingName || location.buildingName || user?.buildingName || cloudLocation.buildingName)
-  const regionState = normalizeLocationText(handoff.regionState || location.regionState || user?.regionState || cloudLocation.regionState)
-  const regionArea = normalizeLocationText(handoff.regionArea || location.regionArea || location.areaLabel || user?.regionArea || cloudLocation.regionArea || cloudLocation.areaLabel)
-  const regionKey = normalizeLocationText(handoff.regionKey || location.regionKey || user?.regionKey || cloudLocation.regionKey)
-  const regionDisplay = normalizeLocationText(handoff.regionDisplay || location.region || user?.regionDisplay || cloudLocation.region)
-  const bigregion = normalizeLocationText(handoff.bigregion) ||
-    normalizeLocationText(user?.bigregion) ||
-    [cityLabel, regionArea].filter(Boolean).join(" / ")
+
+  const regionState = normalizeLocationText(
+    handoff.regionState || user?.regionState || cloudLocation.regionState
+  )
+  const regionCounty = normalizeLocationText(
+    handoff.regionCounty || user?.regionCounty || cloudLocation.regionCounty
+  )
+  const regionArea = normalizeLocationText(
+    handoff.regionArea || user?.regionArea || cloudLocation.regionArea
+  )
+  const Apartment = normalizeLocationText(
+    handoff.Apartment || user?.Apartment
+  )
 
   return {
     ...(user || {}),
-    cityKey,
-    cityLabel,
-    bigregion,
-    buildingName,
     regionState,
+    regionCounty,
     regionArea,
-    regionKey,
-    regionDisplay,
+    Apartment,
     location: {
       ...cloudLocation,
-      ...location,
-      cityKey,
-      cityLabel,
-      buildingName,
-      region: regionDisplay,
-      regionState,
-      regionArea,
-      areaLabel: regionArea,
-      regionKey,
-      source: location.source || "profileHandoff"
+      ...location
     }
   }
 }
@@ -396,8 +384,22 @@ function toFiniteNumber(value) {
 }
 
 function hasLatLng(location = {}) {
-  return toFiniteNumber(location.lat ?? location.latitude) !== null &&
-    toFiniteNumber(location.lng ?? location.longitude) !== null
+  if (!location || typeof location !== "object") return false
+
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
+
+  return lat !== null && lng !== null
+}
+
+function getPostLocationDisplay(location = {}, address = "") {
+  return normalizeLocationText(
+    location.displayName ||
+    location.name ||
+    location.buildingName ||
+    location.address ||
+    address
+  )
 }
 
 function buildPostDisplayPatch(state = {}) {
@@ -407,9 +409,16 @@ function buildPostDisplayPatch(state = {}) {
   const showSubletFields = normalizeListingType(state.activeListingType) === "sublet"
   const category = normalizeLocationText(state.category) || "其他"
   const locationInput = normalizeLocationText(state.locationInput)
-  const regionInput = normalizeLocationText(state.region)
+
+  const regionInput = [
+    state.regionState,
+    state.regionCounty,
+    state.regionArea
+  ].map(normalizeLocationText).filter(Boolean).join(" / ")
+
   const housingType = normalizeLocationText(state.housingType)
   const genderPreference = normalizeLocationText(state.genderPreference) || "不限"
+
   const imageCount = Math.min(MARKET_MAX_IMAGE_COUNT, Math.max(
     previewImagesFromState(state).length,
     orderedImageFileIDsFromState(state).length
@@ -436,10 +445,15 @@ function buildPostDisplayPatch(state = {}) {
     genderPreferenceDisplay: genderPreference,
     furnishedDisplay: state.furnished ? "带家具" : "未标注",
     utilitiesIncludedDisplay: state.utilitiesIncluded ? "已包含" : "未包含",
+
+    // 精确定位显示
     locationDisplay: locationInput || "设置地图定位后可按距离排序商品～",
     locationMutedClass: locationInput ? "" : "muted",
+
+    // 区域位置显示
     regionLocationDisplay: regionInput || "去个人资料选择城市",
     regionLocationMutedClass: regionInput ? "" : "muted",
+
     imageCountText: `${imageCount}/${MARKET_MAX_IMAGE_COUNT}`,
     canAddImage: imageCount < MARKET_MAX_IMAGE_COUNT && !state.imageUploading,
     submitDisabledClass: submitting ? "disabled" : "",
@@ -450,87 +464,67 @@ function buildPostDisplayPatch(state = {}) {
 }
 
 function buildLocationMeta(displayName, source = {}) {
-  const name = normalizeLocationText(displayName || source.displayName || source.name || source.address)
-  if (!name) return {}
+  const name = normalizeLocationText(
+    displayName ||
+    source.displayName ||
+    source.name ||
+    source.buildingName ||
+    source.address
+  )
+
+  const lat = toFiniteNumber(source.lat ?? source.latitude)
+  const lng = toFiniteNumber(source.lng ?? source.longitude)
+
+  if (!name && lat === null && lng === null) return {}
 
   return {
     displayName: name,
-    buildingName: source.buildingName || "",
-    cityKey: source.cityKey || "",
-    cityLabel: source.cityLabel || "",
-    regionState: source.regionState || "",
-    regionArea: source.regionArea || source.areaLabel || "",
-    areaLabel: source.areaLabel || source.regionArea || "",
-    regionKey: source.regionKey || "",
-    city: source.city || "",
-    state: source.state || "",
-    zip: source.zip || "",
-    country: source.country || "US",
-    lat: toFiniteNumber(source.lat ?? source.latitude),
-    lng: toFiniteNumber(source.lng ?? source.longitude),
-    address: source.address || "",
-    region: source.region || "",
-    source: source.source || "manual",
-    coordinateAccuracy: source.coordinateAccuracy || "",
-    provider: source.provider || ""
+    name: normalizeLocationText(source.name || name),
+    buildingName: normalizeLocationText(source.buildingName),
+    address: normalizeLocationText(source.address),
+    lat,
+    lng
   }
 }
 
 function buildProfileRegionMeta(user = {}) {
-  const region = normalizeUserRegion(user)
-  if (!region) {
-    return {
-      hasRequired: false,
-      baseDisplay: "",
-      fullDisplay: "",
-      cityKey: "",
-      cityLabel: "",
-      stateKey: "",
-      stateLabel: "",
-      areaKey: "",
-      areaLabel: "",
-      buildingName: ""
-    }
-  }
+  const regionState = normalizeLocationText(user.regionState)
+  const regionCounty = normalizeLocationText(user.regionCounty)
+  const regionArea = normalizeLocationText(user.regionArea)
+  const Apartment = normalizeLocationText(user.Apartment)
 
-  const buildingName = normalizeLocationText(region.buildingName)
-  const citySnapshot = getCitySnapshot(null, user.cityKey || user.location?.cityKey || DEFAULT_CITY_KEY)
-  const baseDisplay = [citySnapshot.label, region.areaLabel].filter(Boolean).join(" / ")
-  const fullDisplay = [baseDisplay, buildingName].filter(Boolean).join(" / ")
+  const baseDisplay = [regionState, regionCounty, regionArea]
+    .filter(Boolean)
+    .join(" / ")
+
+  const fullDisplay = [baseDisplay, Apartment]
+    .filter(Boolean)
+    .join(" / ")
+
   return {
-    hasRequired: !!(region.stateKey && region.areaKey),
+    hasRequired: !!(regionState && regionCounty && regionArea),
     baseDisplay,
     fullDisplay,
-    cityKey: citySnapshot.key,
-    cityLabel: citySnapshot.label,
-    stateKey: region.stateKey,
-    stateLabel: region.stateLabel,
-    areaKey: region.areaKey,
-    areaLabel: region.areaLabel,
-    buildingName
+    regionState,
+    regionCounty,
+    regionArea,
+    Apartment
   }
 }
 
 function buildProfileMapLocationDisplay(user = {}) {
   const location = user.location || {}
   if (!hasLatLng(location)) return ""
-  return normalizeLocationText(
-    location.displayName ||
-    location.name ||
-    location.address ||
-    ""
-  )
+  return getPostLocationDisplay(location, "")
 }
 
 function buildItemMapLocationDisplay(item = {}) {
   const location = item.location || {}
-  if (!location || typeof location !== "object") return ""
   if (!hasLatLng(location)) return ""
-  return normalizeLocationText(
-    location.displayName ||
-    location.name ||
-    location.address ||
-    ""
+
+  return getPostLocationDisplay(
+    location,
+    item.locationInput || item.buildingName || item.Apartment || item.region || ""
   )
 }
 
@@ -564,13 +558,10 @@ Page({
     category: LISTING_TYPE_CONFIG.goods.defaultCategory,
     price: "",
     condition: LISTING_TYPE_CONFIG.goods.defaultCondition,
-    cityKey: "",
-    cityLabel: "",
-    region: "",
     regionState: "",
+    regionCounty: "",
     regionArea: "",
-    regionKey: "",
-    buildingName: "",
+    Apartment: "",
     locationInput: "",
     location: {},
     ...buildDefaultPickupWindow("goods"),
@@ -704,7 +695,17 @@ Page({
   },
 
   onShow() {
-    if (!this._hasLoaded || this.data.isEdit || this._locationTouched) return
+    if (!this._hasLoaded) return
+  
+    if (this.data.isEdit) {
+      if (this._profileLocationReturnPending) {
+        this._profileLocationReturnPending = false
+        this._applyLatestProfileLocationToForm()
+      }
+      return
+    }
+  
+    if (this._locationTouched) return
     this._applyProfileLocation()
   },
 
@@ -730,33 +731,63 @@ Page({
         return false
       }
 
-      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
-        ...(user?.location || {}),
-        buildingName: regionMeta.buildingName,
-        cityKey: regionMeta.cityKey,
-        cityLabel: regionMeta.cityLabel,
-        region: regionMeta.fullDisplay,
-        regionState: regionMeta.stateKey,
-        regionArea: regionMeta.areaLabel,
-        areaLabel: regionMeta.areaLabel,
-        regionKey: regionMeta.areaKey,
-        source: user?.location ? (user.location.source || "profile") : "profile"
-      }) : {}
+      const location = locationDisplay
+      ? buildLocationMeta(locationDisplay, user?.location || {})
+      : {}
+    
       this._setPostData({
         profileWechatID,
-        region: regionMeta.fullDisplay,
-        cityKey: regionMeta.cityKey,
-        cityLabel: regionMeta.cityLabel,
-        regionState: regionMeta.stateKey,
-        regionArea: regionMeta.areaLabel,
-        regionKey: regionMeta.areaKey,
-        buildingName: regionMeta.buildingName,
-        locationInput: locationDisplay,
+        regionState: regionMeta.regionState || '',
+        regionCounty: regionMeta.regionCounty || '',
+        regionArea: regionMeta.regionArea || '',
+        Apartment: regionMeta.Apartment || '',
+        locationInput: locationDisplay || '',
         location
       })
       return true
     } catch (e) {
       showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
+      return false
+    }
+  },
+
+  async _applyLatestProfileLocationToForm() {
+    try {
+      const user = await this._getMyUserInfo()
+      if (!user) return false
+  
+      const profileWechatID = normalizeLocationText(user.wechatID)
+      const regionMeta = buildProfileRegionMeta(user || {})
+      const locationDisplay = buildProfileMapLocationDisplay(user || {})
+  
+      const patch = {
+        profileWechatID
+      }
+  
+      if (regionMeta.regionState && regionMeta.regionCounty && regionMeta.regionArea) {
+        patch.regionState = regionMeta.regionState
+        patch.regionCounty = regionMeta.regionCounty
+        patch.regionArea = regionMeta.regionArea
+        patch.Apartment = regionMeta.Apartment || ''
+        patch.region = regionMeta.baseDisplay
+      }
+  
+      if (locationDisplay && hasLatLng(user.location || {})) {
+        patch.locationInput = locationDisplay
+        patch.location = buildLocationMeta(locationDisplay, {
+          ...(user.location || {}),
+          source: "profile"
+        })
+      } else if (regionMeta.regionState && regionMeta.regionCounty && regionMeta.regionArea) {
+        patch.locationInput = ''
+        patch.location = {}
+      }
+  
+      this._setPostData(patch)
+      return true
+    } catch (e) {
+      console.error("[marketPost] apply latest profile location failed:", e)
+      showDataError("地址同步失败", e, "最新地址同步失败，请稍后重试。")
       return false
     }
   },
@@ -798,7 +829,11 @@ Page({
       const category = config.categoryOptions.includes(rawCategory) ? rawCategory : config.defaultCategory
       const finalCategory = config.categoryOptions.includes(normalizedCategory) ? normalizedCategory : category
       const categoryIndex = config.categoryOptions.indexOf(finalCategory)
+      const itemLocationSource = x.location && typeof x.location === "object" ? x.location : {}
       const locationDisplayName = buildItemMapLocationDisplay(x)
+      const itemLocation = hasLatLng(itemLocationSource)
+        ? buildLocationMeta(locationDisplayName, itemLocationSource)
+        : buildLocationMeta(locationDisplayName || x.region || "", itemLocationSource)
 
       // 图片：回填 fileIDs + 预览 temp urls
       const fileIds = Array.isArray(x.imageFileIDs) && x.imageFileIDs.length
@@ -830,15 +865,13 @@ Page({
         genderPreference: x.genderPreference || '不限',
         genderPreferenceIndex: optionIndexOf(SUBLET_GENDER_OPTIONS, x.genderPreference || '不限', 0),
         roommateCount: (x.roommateCount === 0 || x.roommateCount) ? String(x.roommateCount) : '',
-        cityKey: x.cityKey || x.location?.cityKey || '',
-        cityLabel: x.cityLabel || x.location?.cityLabel || '',
-        region: x.region || '',
-        regionState: x.regionState || x.location?.regionState || '',
-        regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || '',
-        regionKey: x.regionKey || x.location?.regionKey || '',
-        buildingName: x.buildingName || x.location?.buildingName || '',
+        regionState: x.regionState || '',
+        regionCounty: x.regionCounty || '',
+        regionArea: x.regionArea || '',
+        Apartment: x.Apartment || '',
+        region: [x.regionState, x.regionCounty, x.regionArea].filter(Boolean).join(' / '),
         locationInput: locationDisplayName,
-        location: x.location || buildLocationMeta(locationDisplayName || x.region || '', { region: x.region || '' }),
+        location: itemLocation,
 
         // 单图预览仍用 image
         image: tempUrls[0] || '',
@@ -873,6 +906,7 @@ Page({
   noop() {},
 
   onTapProfileLocation() {
+    this._profileLocationReturnPending = true
     wx.navigateTo({ url: "/pages/profile/editInfo/editInfo?from=marketPost" })
   },
 
@@ -929,29 +963,22 @@ Page({
     const updates = { profileWechatID }
 
     if (!this._locationTouched && (regionMeta.fullDisplay || locationDisplay)) {
-      const location = locationDisplay ? buildLocationMeta(locationDisplay, {
+      const location = locationDisplay && hasLatLng(user.location || {}) ? buildLocationMeta(locationDisplay, {
         ...(user.location || {}),
-        buildingName: regionMeta.buildingName,
-        cityKey: regionMeta.cityKey,
-        cityLabel: regionMeta.cityLabel,
-        region: regionMeta.fullDisplay,
-        regionState: regionMeta.stateKey,
-        regionArea: regionMeta.areaLabel,
-        areaLabel: regionMeta.areaLabel,
-        regionKey: regionMeta.areaKey,
         source: user.location ? (user.location.source || "profile") : "profile"
       }) : {}
       Object.assign(updates, {
-        region: regionMeta.fullDisplay,
-        cityKey: regionMeta.cityKey,
-        cityLabel: regionMeta.cityLabel,
-        regionState: regionMeta.stateKey,
-        regionArea: regionMeta.areaLabel,
-        regionKey: regionMeta.areaKey,
-        buildingName: regionMeta.buildingName,
-        locationInput: locationDisplay,
-        location
+        region: regionMeta.baseDisplay,
+        regionState: regionMeta.regionState,
+        regionCounty: regionMeta.regionCounty,
+        regionArea: regionMeta.regionArea,
+        Apartment: regionMeta.Apartment,
+        locationInput: locationDisplay || this.data.locationInput
       })
+      
+      if (location) {
+        updates.location = location
+      }
     }
 
     this._setPostData(updates)
@@ -1270,23 +1297,30 @@ onChooseCondition() {
       const profile = await this._getMyUserInfo()
       if (!profile) return
       const profileUpdates = this.data.isEdit
-        ? { profileWechatID: normalizeLocationText(profile.wechatID) }
+        ? {
+            profileWechatID: normalizeLocationText(profile.wechatID),
+            regionState: this.data.regionState,
+            regionCounty: this.data.regionCounty,
+            regionArea: this.data.regionArea,
+            Apartment: this.data.Apartment,
+            locationInput: this.data.locationInput,
+            location: this.data.location
+          }
         : this._applyProfileToForm(profile)
-      if (this.data.isEdit) this._setPostData(profileUpdates)
+    
+      if (this.data.isEdit) this._setPostData({ profileWechatID: profileUpdates.profileWechatID })
       if (!normalizeLocationText(profile.wechatID)) {
         this._promptEditProfile("请先填写微信号", `${config.submitCreate}前需要在个人资料里填写微信号，方便联系。`)
         return
       }
 
-      const region = normalizeLocationText(profileUpdates.region || this.data.region)
-      const formCityKey = normalizeLocationText(profileUpdates.cityKey || this.data.cityKey)
-      const formCityLabel = normalizeLocationText(profileUpdates.cityLabel || this.data.cityLabel)
-      const formCitySnapshot = getCitySnapshot(null, formCityKey || DEFAULT_CITY_KEY)
       const regionState = normalizeLocationText(profileUpdates.regionState || this.data.regionState)
+      const regionCounty = normalizeLocationText(profileUpdates.regionCounty || this.data.regionCounty)
       const regionArea = normalizeLocationText(profileUpdates.regionArea || this.data.regionArea)
-      const regionKey = normalizeLocationText(profileUpdates.regionKey || this.data.regionKey)
-      const buildingName = normalizeLocationText(profileUpdates.buildingName || this.data.buildingName)
-      const locationSource = profileUpdates.location || this.data.location || {}
+      const Apartment = normalizeLocationText(profileUpdates.Apartment || this.data.Apartment)
+      const profileLocation = profileUpdates.location || {}
+      const dataLocation = this.data.location || {}
+      const locationSource = hasLatLng(profileLocation) ? profileLocation : dataLocation
       const locationName = normalizeLocationText(
         profileUpdates.locationInput ||
         this.data.locationInput ||
@@ -1294,19 +1328,11 @@ onChooseCondition() {
         locationSource.name ||
         locationSource.address
       )
-      const location = buildLocationMeta(locationName, {
-        ...locationSource,
-        cityKey: formCitySnapshot.key,
-        cityLabel: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label),
-        region,
-        buildingName,
-        regionState,
-        regionArea,
-        areaLabel: regionArea,
-        regionKey
-      })
-      if (!region || !regionState || !regionArea || !regionKey) {
-        this._promptEditProfile("请先选择城市", `${config.submitCreate}前需要在个人资料里选择城市。`)
+      
+      const location = buildLocationMeta(locationName, locationSource)
+
+      if (!regionState || !regionCounty || !regionArea) {
+        this._promptEditProfile("请先选择地区", `${config.submitCreate}前需要在个人资料里选择地区。`)
         return
       }
       if (!hasLatLng(location)) {
@@ -1317,24 +1343,24 @@ onChooseCondition() {
 
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
-      const postCity = formCitySnapshot
-        ? { ...formCitySnapshot, label: formCitySnapshot.key === DEFAULT_CITY_KEY ? formCitySnapshot.label : (formCityLabel || formCitySnapshot.label) }
-        : getPostCitySnapshot(regionState, regionKey, regionArea)
+
+      const regionDisplay = [regionState, regionCounty, regionArea].filter(Boolean).join(" / ")
 
       const payload = {
         listingType: activeListingType,
-        title: String(title).trim(),
-        price: Number(price || 0),
+        title: title.trim(),
+        price: Number(price) || 0,
         category: normalizedCategory,
-        cityKey: postCity.key,
-        cityLabel: postCity.label,
-        region,
+      
+        region: regionDisplay,
         regionState,
+        regionCounty,
         regionArea,
-        regionKey,
-        buildingName,
-        regionDisplay: region,
+        Apartment,
+        buildingName: Apartment,
+        regionDisplay,
         location,
+      
         condition: condition || config.defaultCondition,
         desc: desc || "",
         imageFileID: imageFileIDs[0] || "",

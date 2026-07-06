@@ -1,80 +1,68 @@
 <view class="market-my-page">
-  <view class="my-top ride-top" style="padding-top: {{statusBarHeight}}px;">
-    <view class="ride-topbar ride-topbar--center">
-      <view class="ride-back ride-back-text" bindtap="onBack" hover-class="ride-pressed" hover-stay-time="80">
-        <text>‹</text>
+  <view class="my-top" style="padding-top: {{statusBarHeight}}px;">
+    <view class="my-nav">
+      <view
+        class="nav-back pressable"
+        bindtap="onBack"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+      >‹</view>
+
+      <view class="nav-copy">
+        <text class="nav-title">{{navTitle}}</text>
+        <text class="nav-subtitle">{{navSubtitle}}</text>
       </view>
-      <text class="ride-nav-title">{{navTitle}}</text>
+
+      <view class="nav-spacer"></view>
     </view>
   </view>
 
-  <scroll-view class="my-scroll" scroll-y="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
-    <view class="profile-card">
-      <image class="avatar" src="{{avatarUrl}}" mode="aspectFill" />
-      <view class="profile-info">
-        <text class="profile-name">{{nameDisplay}}</text>
-        <view class="profile-meta">
-          <text>{{wechatStatusText}}</text>
-          <text>{{regionDisplay}}</text>
-        </view>
-        <text wx:if="{{apartmentDisplay}}" class="profile-apartment">{{apartmentDisplay}}</text>
-      </view>
-    </view>
-
-    <view class="bio-card">
-      <view class="section-head">
-        <text class="section-title">个人介绍</text>
-        <text class="save-state">{{saveStateText}}</text>
-      </view>
-      <textarea
-        class="bio-textarea"
-        value="{{bio}}"
-        placeholder="写一句给买家的介绍"
-        placeholder-class="input-placeholder"
-        auto-height
-        maxlength="120"
-        bindinput="onBioInput"
-        bindblur="onBioBlur"
-      />
-    </view>
-
-    <view class="goods-head">
-      <view>
-        <text class="section-kicker">Listings</text>
-        <text class="goods-title-main">{{goodsTitleMain}}</text>
-      </view>
-    </view>
-
+  <view class="listing-segment-bar">
     <view class="listing-segment">
       <view
-        class="listing-segment-item {{item.selectedClass}} pressable"
         wx:for="{{listingTypeTabs}}"
         wx:key="type"
+        class="listing-segment-item {{item.selectedClass}} pressable"
         data-type="{{item.type}}"
+        bindtap="onSelectListingType"
         hover-class="is-pressed"
         hover-stay-time="80"
-        bindtap="onSelectListingType"
       >
         {{item.label}}
       </view>
     </view>
+  </view>
 
+  <scroll-view
+    class="my-scroll"
+    scroll-y="{{true}}"
+    enhanced="{{true}}"
+    show-scrollbar="{{false}}"
+    enable-flex="{{true}}"
+  >
     <view wx:if="{{goodsEmpty}}" class="empty-state">
-      <view class="empty-mark pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">＋</view>
-      <view class="empty-title">{{goodsEmptyTitle}}</view>
-      <view class="empty-subtitle">{{goodsEmptySubtitle}}</view>
-      <view class="empty-action pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onAddGood">去发布</view>
+      <view class="empty-mark">+</view>
+      <text class="empty-title">{{goodsEmptyTitle}}</text>
+      <text class="empty-subtitle">{{goodsEmptySubtitle}}</text>
+      <view
+        class="empty-action pressable"
+        bindtap="onAddGood"
+        hover-class="is-pressed"
+        hover-stay-time="80"
+      >
+        {{addButtonText}}
+      </view>
     </view>
 
-    <view class="goods-grid" wx:if="{{hasGoods}}">
+    <view wx:else class="goods-grid">
       <view
-        class="goods-card pressable"
         wx:for="{{goods}}"
         wx:key="id"
+        class="goods-card pressable"
+        data-id="{{item.id}}"
+        bindtap="onOpenGood"
         hover-class="card-pressed"
         hover-stay-time="80"
-        bindtap="onOpenGood"
-        data-id="{{item.id}}"
       >
         <view class="photo-wrap">
           <image
@@ -82,8 +70,8 @@
             class="thumb"
             src="{{item.imageSrc}}"
             mode="aspectFill"
-            lazy-load="true"
           />
+
           <view wx:else class="thumb text-thumb">
             <text>{{item.title}}</text>
           </view>
@@ -91,8 +79,8 @@
           <view
             wx:if="{{manageMode}}"
             class="select-box {{item.selectedClass}}"
-            catchtap="onToggleSelect"
             data-id="{{item.id}}"
+            catchtap="onToggleSelect"
           >
             <text wx:if="{{item.selected}}" class="check">✓</text>
           </view>
@@ -100,33 +88,61 @@
 
         <view class="goods-body">
           <text class="goods-title">{{item.title}}</text>
+          <text class="goods-price">${{item.priceDisplay}}</text>
           <text class="goods-meta">{{item.metaText}}</text>
-          <text class="goods-price">$ {{item.priceDisplay}}</text>
         </view>
       </view>
     </view>
+  </scroll-view>
 
-    <view class="manage-dock {{dockVisibleClass}}">
-      <view wx:if="{{manageMode}}" class="manage-actions">
-        <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleManage">退出</view>
-        <view class="dock-btn secondary pressable" hover-class="is-pressed" hover-stay-time="80" bindtap="onToggleSelectAll">
-          {{allSelectedText}}
-        </view>
-        <view
-          class="dock-btn danger {{deleteDisabledClass}} pressable"
-          hover-class="is-pressed"
-          hover-stay-time="80"
-          bindtap="onDeleteSelected"
-        >
-          删除 {{selectedCount}}
-        </view>
-      </view>
-
-      <view wx:else class="dock-btn primary pressable" hover-class="dock-pressed" hover-stay-time="80" bindtap="onToggleManage">
+  <view class="manage-dock {{dockVisibleClass}}">
+    <view wx:if="{{!manageMode}}" class="dock-card dock-card-two">
+      <view
+        class="dock-btn secondary pressable"
+        bindtap="onToggleManage"
+        hover-class="dock-pressed"
+        hover-stay-time="80"
+      >
         {{manageButtonText}}
       </view>
+
+      <view
+        class="dock-btn primary pressable"
+        bindtap="onAddGood"
+        hover-class="dock-pressed"
+        hover-stay-time="80"
+      >
+        {{addButtonText}}
+      </view>
     </view>
 
-    <view class="bottom-space"></view>
-  </scroll-view>
+    <view wx:else class="dock-card manage-actions">
+      <view
+        class="dock-btn secondary pressable"
+        bindtap="onToggleSelectAll"
+        hover-class="dock-pressed"
+        hover-stay-time="80"
+      >
+        {{allSelectedText}}
+      </view>
+
+      <view
+        class="dock-btn danger {{deleteDisabledClass}} pressable"
+        bindtap="onDeleteSelected"
+        hover-class="dock-pressed"
+        hover-stay-time="80"
+      >
+        删除 {{selectedCount}}
+      </view>
+
+      <view
+        class="dock-btn primary pressable"
+        bindtap="onToggleManage"
+        hover-class="dock-pressed"
+        hover-stay-time="80"
+      >
+        完成
+      </view>
+    </view>
+  </view>
 </view>

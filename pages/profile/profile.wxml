@@ -137,7 +137,7 @@
 
     <view class="profile-score ride-card ride-card-pad">
       <view class="profile-section-head">
-        <text class="ride-section-title">拼车信用</text>
+        <text class="ride-section-title">出行信用</text>
       </view>
       <view class="profile-score-grid">
         <view class="profile-score-item">

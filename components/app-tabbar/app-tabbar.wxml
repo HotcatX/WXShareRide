@@ -9,7 +9,7 @@
       hover-stay-time="80"
     >
       <image class="tab-icon" src="{{displayActive === 'home' ? '/images/home_press.png' : '/images/home.png'}}" mode="aspectFit" />
-      <text class="tab-text">拼车</text>
+      <text class="tab-text">主页</text>
     </view>
 
     <view

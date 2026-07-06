@@ -110,7 +110,7 @@
       <checkbox-group bindchange="onZelleCheckboxChange">
         <label class="edit-template-check">
           <checkbox value="showZelle" checked="{{showZelle}}" />
-          <text class="edit-template-check-text">公开 Zelle 信息给拼车成功的乘客</text>
+          <text class="edit-template-check-text">公开 Zelle 信息给加入的乘客</text>
         </label>
       </checkbox-group>
     </view>

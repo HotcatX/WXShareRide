@@ -86,7 +86,7 @@ function askCustomReason(options = {}) {
   return new Promise(resolve => {
     wx.showModal({
       title: options.title || "填写理由",
-      content: options.content || "该理由会通过消息发送给相关成员。",
+      content: options.content || "该理由会发送给相关成员",
       editable: true,
       placeholderText: options.placeholder || "请填写原因",
       confirmText: options.confirmText || "确认",
@@ -264,7 +264,7 @@ async function blockRideUser(options = {}) {
   return new Promise(resolve => {
     wx.showModal({
       title: "拉黑用户",
-      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      content: `拉黑后，你们将无法加入彼此的路线。确认拉黑${targetName}？`,
       confirmText: "拉黑",
       cancelText: "取消",
       success: async (res) => {

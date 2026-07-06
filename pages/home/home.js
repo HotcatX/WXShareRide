@@ -7,10 +7,7 @@ const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
   RIDE_CITY_STORAGE_KEY,
-<<<<<<< HEAD
-=======
   loadCityTreeConfig,
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -22,7 +19,7 @@ const {
   setStoredCitySnapshot
 } = require("../../utils/cityTree")
 
-const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
+const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前优先服务纽约/新泽西。"
 const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
 
 // =========================
@@ -234,7 +231,6 @@ Page({
     passengerCreateTrips: [],
     passengerTrips: [],
 
-    // ✅ 合并后的两块：创建路线 / 加入路线
     createTrips: [],
     joinTrips: [],
 
@@ -251,7 +247,7 @@ Page({
 
     statusBarHeight: 80,
     homeTopbarStyle: '',
-    pageTitle: '共享出行',
+    pageTitle: '共享生活',
     activeCityKey: RIDE_DEFAULT_CITY_SNAPSHOT.key,
     activeCityLabel: RIDE_DEFAULT_CITY_SNAPSHOT.label,
     activeCityAliases: RIDE_DEFAULT_CITY_SNAPSHOT.aliases,
@@ -434,34 +430,30 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
-<<<<<<< HEAD
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("cityTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("cityTree").limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeCityTree(docData)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
-    } catch (e) {
-      console.error("cityTree 加载失败：", e)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
-=======
       const tree = await loadCityTreeConfig()
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+  
+      if (!tree.length) {
+        throw new Error("cityTree 数据为空")
+      }
+  
+      this._applyCityUi(
+        this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+        { cityTree: tree }
+      )
+  
       return tree
+  
     } catch (e) {
       console.error("cityTree 加载失败：", e)
+  
       const tree = normalizeCityTree(DEFAULT_CITY_TREE)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+  
+      this._applyCityUi(
+        this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+        { cityTree: tree }
+      )
+  
       return tree
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     }
   },
 
@@ -557,7 +549,7 @@ Page({
   // =========================
   goNewTrip() {
     if (!this.data.isRideServiceAvailable) {
-      wx.showToast({ title: "该地区暂未开通拼车", icon: "none" })
+      wx.showToast({ title: "该地区暂未开通", icon: "none" })
       return
     }
     wx.navigateTo({ url: '/pages/home/newTrip/newTrip' })

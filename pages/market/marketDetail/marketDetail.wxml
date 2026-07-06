@@ -70,7 +70,6 @@
                 <view class="seller-name-row">
                   <text class="seller-name">{{seller.nameDisplay}}</text>
                 </view>
-                <text class="seller-region">{{seller.regionDisplay}}</text>
               </view>
             </view>
             <text class="detail-price">$ {{item.priceDisplay}}</text>

@@ -127,7 +127,7 @@ exports.main = async (event, context) => {
         await carpoolRef.update({ data: updateData })
       }
 
-      // ✅ 通知拼车路线司机（仅在确实移除时）
+      // ✅ 通知路线司机（仅在确实移除时）
       if (removed) {
         try {
           const driverOpenid = carpool._openid
@@ -138,9 +138,9 @@ exports.main = async (event, context) => {
             const timeStr = dep.time || ''
             const routeStr = (dep.address && des.address)
               ? `${dep.address} -> ${des.address}`
-              : '该拼车行程'
+              : '该行程'
 
-            const title = '有乘客退出拼车行程'
+            const title = '有乘客退出行程'
             const content = `有乘客退出：${dateStr} ${timeStr} ${routeStr}。`
 
             await sendNotification(driverOpenid, 'PASSENGER_QUIT_CARPOOL', title, content, tripId, {

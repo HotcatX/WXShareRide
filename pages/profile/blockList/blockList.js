@@ -92,7 +92,7 @@ Page({
 
     wx.showModal({
       title: "解除拉黑",
-      content: `解除后，你们可以再次加入彼此的拼车路线。确认解除${targetName}？`,
+      content: `解除后，你们可以再次加入彼此的路线。确认解除${targetName}？`,
       confirmText: "解除",
       cancelText: "取消",
       success: async (res) => {

@@ -1,10 +1,6 @@
 const defaultAvatarUrl =
   '/images/profile.png'
 const { formatRideStats } = require("../../utils/tripManage")
-const {
-  buildProfileDisplayLocation,
-  buildProfileApartmentDisplay
-} = require("../../utils/profileDisplay")
 
 function countBlockedUsers(user = {}) {
   const ids = new Set()
@@ -233,8 +229,13 @@ Page({
           customPriceNonCore: priceObj.fortLeeNonCore || '',
           customPriceCore: priceObj.fortLeeCore || '',
 
-          region: buildProfileDisplayLocation(user),
-          apartment: buildProfileApartmentDisplay(user) || buildProfileDisplayLocation(user),
+          region: [
+            user.regionState,
+            user.regionCounty,
+            user.regionArea
+          ].filter(Boolean).join(' / '),
+          
+          apartment: user.Apartment || '',
 
           driverRatingText: driverStats.ratingCount > 0 ? `${driverStats.ratingAvg} 分` : '暂无评分',
           driverCompletedText: driverStats.completeText,

@@ -9,7 +9,7 @@
       >
         <text>‹</text>
       </view>
-      <view
+      <!-- <view
         class="list-city-entry"
         bindtap="onTapCity"
         hover-class="ride-pressed"
@@ -17,19 +17,11 @@
       >
         <text class="list-city-text">{{activeCityLabel}}</text>
         <text class="list-city-caret">⌄</text>
-      </view>
+      </view> -->
       <text class="ride-nav-title">{{pageTitle}}</text>
     </view>
 
-    <view wx:if="{{isRideServiceAvailable}}" class="list-filter ride-card ride-card-pad">
-      <view class="list-filter-title-row">
-        <view>
-          <text class="ride-section-title">路线筛选</text>
-          <text class="ride-section-subtitle">按地点和时间筛选可加入行程</text>
-        </view>
-        <view class="ride-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">重置</view>
-      </view>
-
+    <view wx:if="{{isRideServiceAvailable}}" class="list-filter">
       <view class="list-filter-grid">
         <picker
           mode="selector"
@@ -38,7 +30,6 @@
           bindchange="onFromFilterChange"
         >
           <view class="ride-field">
-            <text class="ride-field-label">出发地</text>
             <text class="ride-field-value {{fromFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ fromFilterIndex < 0 ? '全部出发地' : fromFilterOptions[fromFilterIndex] }}</text>
           </view>
         </picker>
@@ -50,7 +41,6 @@
           bindchange="onToFilterChange"
         >
           <view class="ride-field">
-            <text class="ride-field-label">目的地</text>
             <text class="ride-field-value {{toFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ toFilterIndex < 0 ? '全部目的地' : toFilterOptions[toFilterIndex] }}</text>
           </view>
         </picker>
@@ -62,10 +52,13 @@
           bindchange="onTimeFilterChange"
         >
           <view class="ride-field">
-            <text class="ride-field-label">时间</text>
             <text class="ride-field-value {{timeFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ timeFilterIndex < 0 ? '全部时间' : timeFilterOptions[timeFilterIndex] }}</text>
           </view>
         </picker>
+
+        <view class="ride-chip list-reset-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">
+          重置
+        </view>
       </view>
     </view>
   </view>
@@ -80,8 +73,8 @@
     bindrefresherrefresh="onPullDownRefresh"
   >
     <view wx:if="{{!isRideServiceAvailable}}" class="ride-card ride-card-pad ride-unavailable-card list-unavailable-card">
-      <text class="ride-unavailable-title">{{activeCityLabel}} 暂无拼车服务</text>
-      <text class="ride-unavailable-desc">目前拼车只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
+      <text class="ride-unavailable-title">{{activeCityLabel}} 暂无出行服务</text>
+      <text class="ride-unavailable-desc">目前只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
       <view
         class="ride-unavailable-button {{rideDemandRequested ? 'is-done' : ''}}"
         bindtap="onRequestRideCityService"
@@ -160,7 +153,7 @@
 
     <view class="city-panel" catchtouchmove="stopTouchMove">
       <view class="city-header">
-        <text class="city-title">选择城市</text>
+        <text class="city-title">选择地区</text>
         <text class="city-close" bindtap="onCityPickerCancel" hover-class="ride-pressed" hover-stay-time="80">关闭</text>
       </view>
 

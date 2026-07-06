@@ -56,7 +56,6 @@
 
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
-        <text class="ride-chip">行李 {{largeLuggageCount || 0}}</text>
         <text wx:if="{{trip.referencePriceText}}" class="ride-chip ride-chip--warn">价格：{{trip.referencePriceText}}</text>
       </view>
     </view>
@@ -80,7 +79,7 @@
           <image class="ride-avatar" src="{{p.avatarUrl || '/images/profile.png'}}" mode="aspectFill" />
           <view class="ride-person-main">
             <text class="ride-person-name">{{p.name || '未设置昵称'}}</text>
-            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
                 <text class="ride-info-label">地址</text>

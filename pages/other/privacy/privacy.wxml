@@ -6,7 +6,7 @@
         <text class="ride-chip ride-chip--accent privacy-updated">最近更新：{{updatedAt}}</text>
       </view>
       <text class="privacy-intro">
-        本政策说明“纽约生活”小程序在拼车、二手交易、个人资料和服务运营中如何收集、使用、存储和保护你的信息。
+        本政策说明“纽约生活”小程序在共享出行、二手交易、个人资料和服务运营中如何收集、使用、存储和保护你的信息。
       </text>
       <button class="ride-btn ride-primary ride-btn--primary privacy-contract" bindtap="openWechatPrivacyContract" hover-class="ride-pressed" hover-stay-time="80">查看微信隐私保护指引</button>
     </view>

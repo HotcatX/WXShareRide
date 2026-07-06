@@ -188,10 +188,7 @@ Page({
       const myOpenid = (rawResult && rawResult.openid) ? rawResult.openid : ''
       const driverOpenid = trip.driverOpenid || ''
       const isMyRequest = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
-<<<<<<< HEAD
-      
-=======
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past'
       const displayTrip = {
@@ -358,7 +355,7 @@ Page({
 
     wx.showModal({
       title: '拉黑用户',
-      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      content: `拉黑后，你们将无法加入彼此的路线。确认拉黑${targetName}？`,
       confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
@@ -403,7 +400,7 @@ Page({
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
-      path: `/pages/home/carpoolRequestDetail/carpoolRequestDetail?id=${requestId}`
+      path: `/pages/home/requestDetail/requestDetail?id=${requestId}`
     })
   },
 

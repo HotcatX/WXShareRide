@@ -424,7 +424,7 @@ Page({
 
     const reason = await askReason({
       title: '退出路线',
-      content: '理由会作为消息发送给相关成员。',
+      content: '理由会发送给相关成员',
       reasons: [
         '误加行程',
         '本人出行计划有变',
@@ -470,7 +470,7 @@ Page({
 
     wx.showModal({
       title: '拉黑用户',
-      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      content: `拉黑后，你们将无法加入彼此的路线。确认拉黑${targetName}？`,
       confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {

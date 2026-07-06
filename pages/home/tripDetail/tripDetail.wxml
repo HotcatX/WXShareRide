@@ -85,7 +85,7 @@
         <text class="ride-section-title">车辆信息</text>
         <text class="ride-chip">{{carBrandModel || '未填写车型'}}</text>
       </view>
-      <text class="detail-paragraph">{{carBrandModel ? '车辆信息将在拼车成功后配合司机联系方式展示。' : '司机暂未填写车辆详细信息。'}}</text>
+      <text class="detail-paragraph">{{carBrandModel ? '车辆信息将在成功配合司机后展示。' : '司机暂未填写车辆详细信息。'}}</text>
     </view>
 
     <view wx:if="{{hasJoined && driverInfo}}" class="ride-card ride-card-pad">

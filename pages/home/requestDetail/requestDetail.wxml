@@ -75,14 +75,9 @@
     </view>
 
     <view class="ride-card ride-notice">
-      <text class="ride-notice-title">拼车费用</text>
-      <text class="ride-notice-text">拼车成功后同行人共同平摊费用。</text>
+      <text class="ride-notice-title">费用说明</text>
+      <text class="ride-notice-text">同行人共同平摊费用。</text>
     </view>
-
-    <!-- <view class="ride-card ride-notice request-notice-muted">
-      <text class="ride-notice-title">发布建议</text>
-      <text class="ride-notice-text">优先查看拼车列表是否有合适路线。短距离可自行打车，长距离求车等待司机接单。</text>
-    </view> -->
 
     <text class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
@@ -92,27 +87,23 @@
     <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
       自己发布的求车
     </button>
+
     <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
       你已接单
     </button>
+
     <button wx:elif="{{joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
       你已加入该路线
     </button>
-    <button wx:elif="{{isAccepted && !acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      已被其他司机接单
-    </button>
+
     <button wx:elif="{{isClosed}}" disabled="true" class="ride-btn ride-btn--disabled">
       该路线已结束
     </button>
-    <button
-      wx:elif="{{isFull}}"
-      class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
-      bindtap="acceptRequest"
-      disabled="{{submittingDriver}}"
-      loading="{{submittingDriver}}"
-    >
-      {{ submittingDriver ? '接单中' : '司机接单' }}
+
+    <button wx:elif="{{isFull}}" disabled="true" class="ride-btn ride-btn--disabled">
+      该路线已满员
     </button>
+
     <block wx:else>
       <button
         class="ride-btn ride-btn--accent {{submittingPassenger ? 'ride-btn--disabled' : ''}}"
@@ -122,7 +113,17 @@
       >
         {{ submittingPassenger ? '加入中' : '乘客加入' }}
       </button>
+
       <button
+        wx:if="{{isAccepted && !acceptedByMe}}"
+        disabled="true"
+        class="ride-btn ride-btn--disabled"
+      >
+        已被其他司机接单
+      </button>
+
+      <button
+        wx:else
         class="ride-btn ride-btn--primary {{submittingDriver ? 'ride-btn--disabled' : ''}}"
         bindtap="acceptRequest"
         disabled="{{submittingDriver || submittingPassenger}}"

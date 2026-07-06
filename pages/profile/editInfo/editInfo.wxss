@@ -183,7 +183,7 @@ page{
 }
 
 .edit-bottom-space{
-  height: calc(28rpx + env(safe-area-inset-bottom));
+  height: calc(128rpx + env(safe-area-inset-bottom));
 }
 
 .rp-mask{
@@ -531,4 +531,62 @@ page{
   line-height: 40rpx;
   font-weight: 800;
   color: #111418;
+}
+
+.edit-save-footer{
+  flex-shrink: 0;
+  padding: 18rpx 24rpx calc(18rpx + env(safe-area-inset-bottom));
+  background: #f4f6f8;
+  border-top: 1rpx solid rgba(20,23,26,0.06);
+}
+
+.edit-save-footer .ride-btn{
+  width: 100%;
+}
+
+.city-group-scroll--single{
+  height: 620rpx;
+  padding: 0 24rpx 24rpx;
+  box-sizing: border-box;
+}
+
+.area-two-col{
+  display: grid;
+  grid-template-columns: 190rpx minmax(0, 1fr);
+  height: 620rpx;
+  border-top: 1rpx solid #eef1f4;
+}
+
+.area-left-scroll{
+  height: 620rpx;
+  background: #f6f7f9;
+  border-right: 1rpx solid #eef1f4;
+}
+
+.area-left-option{
+  min-height: 88rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  font-size: 26rpx;
+  color: #606975;
+  border-left: 6rpx solid transparent;
+  box-sizing: border-box;
+}
+
+.area-left-option.active{
+  background: #ffffff;
+  color: #111827;
+  font-weight: 700;
+  border-left-color: #111827;
+}
+
+.area-right-scroll{
+  height: 620rpx;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.area-grid{
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }

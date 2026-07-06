@@ -16,11 +16,10 @@ const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
 const ADMIN_SETTINGS_COLLECTION = "MarketAdminSettings"
 const ADMIN_SESSION_COLLECTION = "MarketAdminSessions"
 const ADMIN_BULK_PASSWORD_DOC_ID = "bulk_publish_password"
-<<<<<<< HEAD
-=======
+
 const PUBLIC_CONFIG_DOC_ID = "default"
 const PUBLIC_CONFIG_COLLECTIONS = new Set(["cityTree", "regionTree"])
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
@@ -45,14 +44,11 @@ const LIST_FIELDS = {
   title: true,
   price: true,
   category: true,
-  cityKey: true,
-  cityLabel: true,
   region: true,
   regionState: true,
   regionArea: true,
-  regionKey: true,
-  regionDisplay: true,
-  buildingName: true,
+  regionCounty: true,
+  Apartment: true,
   location: true,
   condition: true,
   desc: true,
@@ -195,13 +191,6 @@ function normalizeListingCategory(value, listingType) {
   return normalizeText(value) || "其他"
 }
 
-function normalizeCityKey(value) {
-  const raw = normalizeText(value).toLowerCase()
-  if (["纽约", "新泽西", "纽约/新泽西"].includes(raw)) return "ny_nj"
-  const key = raw.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_/-]/g, "").toLowerCase()
-  if (["ny", "nj", "nyc", "ny/nj", "new_york", "new_jersey", "new-jersey", "jersey"].includes(key)) return "ny_nj"
-  return key.replace(/\//g, "_")
-}
 
 function normalizeRegionKeys(value) {
   const source = Array.isArray(value) ? value : [value]
@@ -330,38 +319,19 @@ function getDistanceSortOrigin(event = {}) {
   return normalizeLatLng(sort.origin || event.origin || event.myLocation || {})
 }
 
-function buildLocationForSave(regionStr, location = {}, meta = {}) {
-  const displayName = normalizeText(location.displayName || location.name || location.address || regionStr)
-  if (!displayName) return {}
+function buildLocationForSave(location = {}) {
+  const displayName = normalizeText(location.displayName || location.name || location.address)
+  const lat = toFiniteNumber(location.lat ?? location.latitude)
+  const lng = toFiniteNumber(location.lng ?? location.longitude)
 
-  const regionState = normalizeText(meta.regionState || location.regionState)
-  const regionArea = normalizeText(meta.regionArea || meta.areaLabel || location.regionArea || location.areaLabel)
-  const regionKey = normalizeText(meta.regionKey || location.regionKey)
-  const buildingName = normalizeText(meta.buildingName || location.buildingName)
-  const cityKey = normalizeText(meta.cityKey || location.cityKey)
-  const cityLabel = normalizeText(meta.cityLabel || location.cityLabel)
+  if (!displayName && lat === null && lng === null) return {}
+
   return {
     displayName,
     name: normalizeText(location.name || displayName),
-    buildingName,
-    cityKey,
-    cityLabel,
-    regionState,
-    regionArea,
-    areaLabel: regionArea,
-    regionKey,
-    city: normalizeText(location.city),
-    state: normalizeText(location.state || regionState),
-    zip: normalizeText(location.zip),
-    country: normalizeText(location.country || "US"),
-    lat: toFiniteNumber(location.lat ?? location.latitude),
-    lng: toFiniteNumber(location.lng ?? location.longitude),
     address: normalizeText(location.address),
-    source: normalizeText(location.source || "manual"),
-    region: normalizeText(location.region || location.bigregion || regionStr),
-    coordinateAccuracy: normalizeText(location.coordinateAccuracy),
-    provider: normalizeText(location.provider),
-    updatedAtMs: Date.now()
+    lat,
+    lng
   }
 }
 
@@ -687,14 +657,15 @@ function normalizeMarketItem(item = {}) {
     priceUnitText: listingType === "sublet" ? "月租" : "价格",
     category,
     categoryDisplay: category || (listingType === "sublet" ? "转租" : "二手"),
-    cityKey: normalizeCityKey(item.cityKey),
-    cityLabel: normalizeText(item.cityLabel),
-    region: normalizeText(item.region),
-    regionState: normalizeText(item.regionState || item.location?.regionState),
-    regionArea: normalizeText(item.regionArea || item.location?.regionArea || item.location?.areaLabel),
-    regionKey: normalizeText(item.regionKey || item.location?.regionKey),
-    regionDisplay: normalizeText(item.regionDisplay || item.region),
-    buildingName: normalizeText(item.buildingName || item.location?.buildingName),
+    regionState: normalizeText(item.regionState),
+    regionCounty: normalizeText(item.regionCounty),
+    regionArea: normalizeText(item.regionArea),
+    Apartment: normalizeText(item.Apartment),
+    regionDisplay: normalizeText(
+      item.regionDisplay ||
+      item.region ||
+      [item.regionState, item.regionCounty, item.regionArea].filter(Boolean).join(" / ")
+    ),
     location: item.location || {},
     condition: normalizeText(item.condition) || defaultCondition,
     conditionText: normalizeText(item.condition) || defaultCondition,
@@ -898,15 +869,17 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
   }
 
   if (payload.category !== undefined) data.category = normalizeListingCategory(payload.category, listingType)
-  if (payload.cityKey !== undefined) data.cityKey = normalizeCityKey(payload.cityKey)
-  if (payload.cityLabel !== undefined) data.cityLabel = normalizeText(payload.cityLabel)
-  if (data.cityKey === "ny_nj") data.cityLabel = "纽约/新泽西"
   if (payload.region !== undefined) data.region = normalizeText(payload.region)
   if (payload.regionState !== undefined) data.regionState = normalizeText(payload.regionState)
+  if (payload.regionCounty !== undefined) data.regionCounty = normalizeText(payload.regionCounty)
   if (payload.regionArea !== undefined) data.regionArea = normalizeText(payload.regionArea)
-  if (payload.regionKey !== undefined) data.regionKey = normalizeText(payload.regionKey)
+  if (payload.Apartment !== undefined) data.Apartment = normalizeText(payload.Apartment)
   if (payload.regionDisplay !== undefined) data.regionDisplay = normalizeText(payload.regionDisplay)
   if (payload.buildingName !== undefined) data.buildingName = normalizeText(payload.buildingName)
+  
+  if (payload.location !== undefined) {
+    data.location = buildLocationForSave(payload.location || {})
+  }
   if (
     payload.location !== undefined ||
     payload.region !== undefined ||
@@ -923,7 +896,20 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
       regionKey: data.regionKey || oldItem.regionKey || payload.location?.regionKey,
       buildingName: data.buildingName || oldItem.buildingName || payload.location?.buildingName
     }
-    data.location = buildLocationForSave(data.region || oldItem.region || "", payload.location || oldItem.location || {}, meta)
+    const rawLocation = payload.location || oldItem.location || {}
+    const displayName = normalizeText(
+      rawLocation.displayName ||
+      rawLocation.name ||
+      rawLocation.address ||
+      data.region ||
+      oldItem.region ||
+      ""
+    )
+    
+    data.location = buildLocationForSave({
+      ...rawLocation,
+      displayName
+    })
   }
   if (payload.condition !== undefined) data.condition = normalizeText(payload.condition) || "99新"
   if (payload.desc !== undefined) data.desc = String(payload.desc || "")
@@ -992,11 +978,14 @@ function buildCreateItemForSave(payload = {}, openid = "", options = {}) {
   const title = normalizeText(payload.title)
   const listingType = normalizeListingType(payload.listingType)
   const category = normalizeListingCategory(payload.category, listingType)
-  const region = normalizeText(payload.region)
   const regionState = normalizeText(payload.regionState)
+  const regionCounty = normalizeText(payload.regionCounty)
   const regionArea = normalizeText(payload.regionArea)
-  const regionKey = normalizeText(payload.regionKey)
-  if (!title || !category || !region || !regionState || !regionArea || !regionKey) return fail("missing_required_fields")
+  const region = normalizeText(payload.region || [regionState, regionCounty, regionArea].filter(Boolean).join(" / "))
+  
+  if (!title || !category || !regionState || !regionCounty || !regionArea) {
+    return fail("missing_required_fields")
+  }
 
   const normalized = normalizePayloadForSave(payload)
   if (!normalized.ok) return normalized
@@ -1035,7 +1024,7 @@ async function createItem(event, openid) {
   if (!built.ok) return built
   const { data, files, idempotentGoodsId } = built
 
-  await upsertUserRegion(openid, data)
+  // await upsertUserRegion(openid, data)
   let itemId = ""
 
   if (idempotentGoodsId) {
@@ -1347,34 +1336,28 @@ async function adminBulkCreate(event, openid) {
 
 function sanitizeAdminTemplateData(input = {}) {
   const listingType = normalizeListingType(input.listingType)
+
   const data = {
     listingType,
     title: normalizeText(input.title),
     price: toFiniteNumber(input.price) || 0,
     category: normalizeListingCategory(input.category || input.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
     condition: normalizeText(input.condition) || (listingType === "sublet" ? "转租" : "99新"),
+
     sellerName: normalizeText(input.sellerName || input.displayName || input.contactName),
     sellerWechat: normalizeText(input.sellerWechat || input.wechatID || input.wechatId || input.wechat),
     sellerPhone: normalizeText(input.sellerPhone || input.phone),
-    cityKey: normalizeCityKey(input.cityKey),
-    cityLabel: normalizeText(input.cityLabel),
+
     regionState: normalizeText(input.regionState),
+    regionCounty: normalizeText(input.regionCounty),
     regionArea: normalizeText(input.regionArea),
-    regionKey: normalizeText(input.regionKey),
-    buildingName: normalizeText(input.buildingName),
+    Apartment: normalizeText(input.Apartment || input.apartment),
+
     detailAddress: normalizeText(input.detailAddress),
-    location: input.location && typeof input.location === "object" ? buildLocationForSave(
-      normalizeText(input.regionDisplay || input.region || input.detailAddress),
-      input.location,
-      {
-        cityKey: input.cityKey,
-        cityLabel: input.cityLabel,
-        regionState: input.regionState,
-        regionArea: input.regionArea,
-        regionKey: input.regionKey,
-        buildingName: input.buildingName
-      }
-    ) : {},
+    location: input.location && typeof input.location === "object"
+      ? buildLocationForSave(input.location)
+      : {},
+
     pickupStartDate: normalizeText(input.pickupStartDate),
     pickupEndDate: normalizeText(input.pickupEndDate),
     deposit: normalizeText(input.deposit),
@@ -1386,6 +1369,9 @@ function sanitizeAdminTemplateData(input = {}) {
     roommateCount: normalizeText(input.roommateCount),
     externalId: normalizeClientRequestId(input.externalId)
   }
+
+  data.region = [data.regionState, data.regionCounty, data.regionArea].filter(Boolean).join(" / ")
+
   return data
 }
 
@@ -1465,15 +1451,16 @@ async function updateItem(event, openid) {
     "listingType",
     "price",
     "category",
-    "cityKey",
-    "cityLabel",
+  
     "region",
     "regionState",
+    "regionCounty",
     "regionArea",
-    "regionKey",
+    "Apartment",
+    "location",
     "regionDisplay",
     "buildingName",
-    "location",
+  
     "condition",
     "desc",
     "imageFileID",
@@ -1481,14 +1468,20 @@ async function updateItem(event, openid) {
     "imageFileIDs",
     "thumbFileIDs",
     "hasImage",
+  
     "pickupStartDate",
     "pickupEndDate",
+    "pickupRangeText",
+    "expireTime",
+    "expiresAtText",
+  
     "status",
     "sellerName",
     "sellerWechat",
     "sellerPhone",
     "sellerAvatar",
     "sellerNote",
+  
     "availableStartDate",
     "leaseEndDate",
     "deposit",
@@ -1497,8 +1490,11 @@ async function updateItem(event, openid) {
     "furnished",
     "utilitiesIncluded",
     "genderPreference",
-    "roommateCount"
+    "roommateCount",
+  
+    "clientRequestId"
   ])
+
   const safePatch = {}
   Object.keys(patch).forEach(key => {
     if (allowed.has(key)) safePatch[key] = patch[key]
@@ -1519,9 +1515,9 @@ async function updateItem(event, openid) {
     }
   })
 
-  if (normalized.data.regionState && normalized.data.regionArea && normalized.data.regionKey) {
-    await upsertUserRegion(openid, { ...oldItem, ...normalized.data })
-  }
+  // if (normalized.data.regionState && normalized.data.regionArea && normalized.data.regionKey) {
+  //   await upsertUserRegion(openid, { ...oldItem, ...normalized.data })
+  // }
   await attachMarketFiles(collectMarketFiles({ ...oldItem, ...normalized.data }), id, openid)
   const deleteResult = await deleteFiles(removedFileIDs)
   await markFilesDeleted(removedFileIDs, openid, id)
@@ -1560,31 +1556,55 @@ async function deleteItem(event, openid) {
 function buildVisibleConditions(filters = {}) {
   const conditions = [{ status: "online" }]
   const listingType = normalizeListingType(filters.listingType)
+
   conditions.push(buildListingTypeCondition(listingType))
+
   const category = normalizeText(filters.category)
   if (category && category !== "全部") {
     conditions.push({ category: normalizeListingCategory(category, listingType) })
   }
-  const cityKey = normalizeCityKey(filters.cityKey || filters.city)
-  if (cityKey && cityKey !== "all") {
-    conditions.push({ cityKey })
+
+  const regionState = normalizeText(
+    filters.regionState || filters.cityKey
+  ).toUpperCase()
+  
+  if (
+    regionState &&
+    regionState !== "ALL" &&
+    regionState !== "全部"
+  ) {
+    conditions.push({ regionState })
   }
-  const regionKeys = normalizeRegionKeys(filters.regionKeys || filters.areaKeys)
-  const regionKey = normalizeText(filters.regionKey || filters.areaKey)
-  if (regionKeys.length) {
-    conditions.push({ regionKey: _.in(regionKeys) })
-  } else if (regionKey && regionKey !== "all") {
-    conditions.push({ regionKey })
+
+  const regionCounty = normalizeText(filters.regionCounty)
+  if (
+    regionCounty &&
+    regionCounty !== "全部" &&
+    regionCounty.toLowerCase() !== "all"
+  ) {
+    conditions.push({ regionCounty })
   }
+  
+  const regionArea = normalizeText(filters.regionArea)
+  if (
+    regionArea &&
+    regionArea !== "全部" &&
+    regionArea.toLowerCase() !== "all"
+  ) {
+    conditions.push({ regionArea })
+  }
+
   if (filters.region && filters.region !== "全部") {
     conditions.push({ region: normalizeText(filters.region) })
   }
+
   const keyword = normalizeText(filters.keyword)
   if (keyword) {
     const safe = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     const reg = db.RegExp({ regexp: safe, options: "i" })
     conditions.push(_.or([{ title: reg }, { desc: reg }]))
   }
+
   return conditions.length === 1 ? conditions[0] : _.and(conditions)
 }
 
@@ -1855,8 +1875,7 @@ async function trackAdClick(event = {}, openid = "") {
   }
 }
 
-<<<<<<< HEAD
-=======
+
 function getRequestedConfigCollections(event = {}) {
   const source = Array.isArray(event.collections)
     ? event.collections
@@ -1884,7 +1903,7 @@ async function publicConfig(event = {}) {
   return ok({ docs, data: docs })
 }
 
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
 async function getWechatMap(openids) {
   const uniq = Array.from(new Set((openids || []).filter(Boolean)))
   const map = {}
@@ -1953,10 +1972,9 @@ exports.main = async (event = {}) => {
     if (action === "adminDeleteTemplate") return adminDeleteTemplate(event, OPENID)
     if (action === "listAds") return listAds(event)
     if (action === "trackAdClick") return trackAdClick(event, OPENID)
-<<<<<<< HEAD
-=======
+
     if (action === "publicConfig") return publicConfig(event)
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
     if (action === "create") return createItem(event, OPENID)
     if (action === "update") return updateItem(event, OPENID)
     if (action === "delete") return deleteItem(event, OPENID)

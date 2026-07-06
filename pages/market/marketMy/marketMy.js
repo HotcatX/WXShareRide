@@ -6,46 +6,43 @@ const {
 } = require("../../../utils/profileDisplay")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const LISTING_TYPE_STORAGE_KEY = "market_active_listing_type_v1"
+
 const defaultAvatarUrl =
   'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
-const LISTING_TYPE_CONFIG = {
-  goods: {
-    label: "二手",
-<<<<<<< HEAD
-    navTitle: "我的发布",
-=======
-    navTitle: "我的市场",
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-    sectionTitle: "我发布的商品",
-    emptyTitle: "还没有发布商品",
-    emptySubtitle: "发布第一件闲置，让附近同学看到",
-    manageText: "管理我的商品",
-    deleteConfirmName: "商品",
-    shareTitle: "二手商品",
-    shareRole: "卖家",
-    fallbackTitle: "未命名商品",
-    fallbackImage: "/images/market.png",
-    metaFallback: "闲置"
-  },
-  sublet: {
-    label: "转租",
-<<<<<<< HEAD
-    navTitle: "我的发布",
-=======
-    navTitle: "我的市场",
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-    sectionTitle: "我发布的转租",
-    emptyTitle: "还没有发布转租",
-    emptySubtitle: "发布第一套房源，让附近同学看到",
-    manageText: "管理我的转租",
-    deleteConfirmName: "房源",
-    shareTitle: "转租房源",
-    shareRole: "发布者",
-    fallbackTitle: "未命名房源",
-    fallbackImage: "/images/sublease.png",
-    metaFallback: "转租"
+  const LISTING_TYPE_CONFIG = {
+    goods: {
+      label: "二手",
+      navTitle: "我发布的商品",
+      navSubtitle: "MY LISTINGS",
+      sectionTitle: "我发布的商品",
+      emptyTitle: "还没有发布商品",
+      emptySubtitle: "发布第一件闲置，让附近同学看到",
+      manageText: "管理我的商品",
+      addText: "发布商品",
+      deleteConfirmName: "商品",
+      shareTitle: "二手商品",
+      shareRole: "卖家",
+      fallbackTitle: "未命名商品",
+      fallbackImage: "/images/market.png",
+      metaFallback: "闲置"
+    },
+    sublet: {
+      label: "转租",
+      navTitle: "我发布的转租",
+      navSubtitle: "MY SUBLETS",
+      sectionTitle: "我发布的转租",
+      emptyTitle: "还没有发布转租",
+      emptySubtitle: "发布第一套房源，让附近同学看到",
+      manageText: "管理我的转租",
+      addText: "发布转租",
+      deleteConfirmName: "房源",
+      shareTitle: "转租房源",
+      shareRole: "发布者",
+      fallbackTitle: "未命名房源",
+      fallbackImage: "/images/sublease.png",
+      metaFallback: "转租"
+    }
   }
-}
 
 function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
@@ -160,8 +157,10 @@ function buildMyDisplayPatch(state = {}) {
   const selectedCount = Number(state.selectedCount) || 0
   const activeListingType = normalizeListingType(state.activeListingType)
   const config = getListingTypeConfig(activeListingType)
+
   return {
     navTitle: config.navTitle,
+    navSubtitle: config.navSubtitle,
     nameDisplay: state.name || '未设置昵称',
     wechatStatusText: state.wechatID ? '微信已填写' : '未填写微信',
     regionDisplay: state.region || '区域未填',
@@ -173,6 +172,7 @@ function buildMyDisplayPatch(state = {}) {
     goodsEmptyTitle: config.emptyTitle,
     goodsEmptySubtitle: config.emptySubtitle,
     manageButtonText: config.manageText,
+    addButtonText: config.addText,
     listingTypeTabs: buildListingTypeTabs(activeListingType),
     allSelectedText: state.allSelected ? '取消全选' : '全选',
     deleteDisabledClass: selectedCount > 0 ? '' : 'disabled'
@@ -193,7 +193,7 @@ Page({
     bioOriginal: '',
     isSavingBio: false,
 
-	    openid: '',
+	  openid: '',
     activeListingType: 'goods',
     listingTypeTabs: buildListingTypeTabs('goods'),
     goods: [],
@@ -213,15 +213,15 @@ Page({
     hasGoods: false,
     goodsEmpty: true,
     allSelectedText: '全选',
-<<<<<<< HEAD
+
     navTitle: '我的发布',
-=======
-    navTitle: '我的市场',
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
+    navSubtitle: 'MY LISTINGS',
     goodsTitleMain: '我发布的商品',
     goodsEmptyTitle: '还没有发布商品',
     goodsEmptySubtitle: '发布第一件闲置，让附近同学看到',
     manageButtonText: '管理我的商品',
+    addButtonText: '发布商品',
     deleteDisabledClass: 'disabled',
     dockVisibleClass: 'dock-hidden'
   },
@@ -306,7 +306,7 @@ Page({
 
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.reLaunch({
-      url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
+      url: '/pages/market/market'
     })
   },
 

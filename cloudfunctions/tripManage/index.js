@@ -277,7 +277,7 @@ async function kickPassengerFromCarpool(event, actorOpenid) {
     removeIdFromUserArray(targetOpenid, 'tripPassengerCreate', tripId)
   ])
 
-  const route = buildRouteInfo(trip, '该拼车行程')
+  const route = buildRouteInfo(trip, '该行程')
   await sendNotification(
     targetOpenid,
     'DRIVER_KICK',
@@ -303,7 +303,7 @@ async function deleteCarpool(event, actorOpenid) {
   if (driverOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '你不是该路线司机，无法删除' }
 
   const passengerOpenids = getCarpoolPassengerOpenids(trip)
-  const route = buildRouteInfo(trip, '该拼车行程')
+  const route = buildRouteInfo(trip, '该行程')
 
   await db.collection('Carpool').doc(tripId).remove()
 
@@ -351,11 +351,11 @@ async function quitCarpoolPassenger(event, actorOpenid) {
   await removeIdFromUserArray(actorOpenid, 'tripPassenger', tripId)
 
   const driverOpenid = getCarpoolDriverOpenid(trip)
-  const route = buildRouteInfo(trip, '该拼车行程')
+  const route = buildRouteInfo(trip, '该行程')
   await sendNotification(
     driverOpenid,
     'PASSENGER_QUIT_CARPOOL',
-    '有乘客退出拼车行程',
+    '有乘客退出行程',
     withReason(`有乘客退出：${route.dateStr} ${route.timeStr} ${route.routeStr}`, reason),
     tripId,
     { tripId, passengerOpenid: actorOpenid, action: 'passenger_quit', reason }

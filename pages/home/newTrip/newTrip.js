@@ -120,7 +120,7 @@ Page({
   goBack() { wx.navigateBack() },
 
   // -------------------------
-  // 登录态判定（两者一致：只看 openid）
+  // 登录态判定（只看 openid）
   // -------------------------
   isLoggedIn() {
     const openid = wx.getStorageSync("openid") || ""

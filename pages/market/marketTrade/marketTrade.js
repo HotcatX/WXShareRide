@@ -1,12 +1,15 @@
 // pages/market/marketTrade/marketTrade.js
 const { showDataError } = require("../../../utils/error")
 const {
-  ALL_AREA_LABEL,
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
-  findState,
-  findArea
-} = require("../../../utils/regionTree")
+  loadRegionTreeConfig,
+  readCachedRegionTree,
+  writeCachedRegionTree,
+  getCityOptions,
+  getCitySnapshot,
+  findState
+} = require("../../../utils/Region")
 
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_MAIN_IMAGE_QUALITY = 52
@@ -19,11 +22,6 @@ const LISTING_TYPE_OPTIONS = [
   { key: "goods", label: "二手" },
   { key: "sublet", label: "转租" }
 ]
-const CITY_OPTIONS = [
-  { key: "ny_nj", label: "纽约/新泽西", stateKey: "NY_NJ" },
-  { key: "other_city", label: "其他城市", stateKey: "OTHER" }
-]
-const REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
 
 function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
@@ -46,48 +44,6 @@ function getCategoryOptions(listingType) {
 
 function getDefaultCategory(listingType) {
   return normalizeListingType(listingType) === "sublet" ? "Studio" : "其他"
-}
-
-function getCityOption(cityKey = "ny_nj") {
-  const key = normalizeText(cityKey).toLowerCase()
-  if (["ny", "nj", "new york", "nyc", "纽约", "new jersey", "jersey", "新泽西", "ny/nj", "纽约/新泽西"].includes(key)) return CITY_OPTIONS[0]
-  return CITY_OPTIONS.find(item => item.key === key) || CITY_OPTIONS[0]
-}
-
-function normalizeAreaLabel(area = {}, stateKey = "") {
-  const key = normalizeText(area.key).toLowerCase()
-  if (stateKey && key === `${normalizeText(stateKey).toLowerCase()}_all`) return ALL_AREA_LABEL
-  return normalizeText(area.label)
-}
-
-function getAreaOptions(cityKey = "ny_nj") {
-  const city = getCityOption(cityKey)
-  const state = findState(REGION_TREE, city.stateKey)
-  if (!state) {
-    return [{ key: `${city.stateKey.toLowerCase()}_all`, label: ALL_AREA_LABEL, stateKey: city.stateKey }]
-  }
-  return (state.areas || []).map(area => ({
-    key: normalizeText(area.key),
-    label: normalizeAreaLabel(area, state.key),
-    stateKey: state.key
-  })).filter(item => item.key && item.label)
-}
-
-function getAreaOption(cityKey = "ny_nj", areaKeyOrLabel = "") {
-  const city = getCityOption(cityKey)
-  const state = findState(REGION_TREE, city.stateKey)
-  const raw = normalizeText(areaKeyOrLabel)
-  if (state && raw) {
-    const matched = findArea(state, raw)
-    if (matched) {
-      return {
-        key: normalizeText(matched.key),
-        label: normalizeAreaLabel(matched, state.key),
-        stateKey: state.key
-      }
-    }
-  }
-  return getAreaOptions(city.key)[0]
 }
 
 function formatDateOnly(date) {
@@ -181,6 +137,74 @@ function uploadOne(localPath, folder = "market", onProgress) {
   })
 }
 
+const INITIAL_REGION_TREE = normalizeRegionTree(DEFAULT_REGION_TREE)
+
+function normalizeAdminCityKey(key = "") {
+  return normalizeText(key).toUpperCase()
+}
+
+function buildRegionDisplayParts(stateLabel, groupLabel, areaLabel) {
+  return [stateLabel, groupLabel, areaLabel]
+    .map(normalizeText)
+    .filter(Boolean)
+    .join(" / ")
+}
+
+function buildCityPickerGroups(tree, activeCityKey = "", keyword = "") {
+  const kw = normalizeText(keyword).toLowerCase()
+  const activeKey = normalizeAdminCityKey(activeCityKey)
+
+  const cities = getCityOptions(tree)
+    .filter(city => {
+      if (!kw) return true
+      return [city.key, city.label]
+        .map(v => normalizeText(v).toLowerCase())
+        .some(v => v.includes(kw))
+    })
+    .map(city => ({
+      ...city,
+      className: normalizeAdminCityKey(city.key) === activeKey ? "active" : ""
+    }))
+
+  return [{ title: "", badge: "", cities }].filter(group => group.cities.length)
+}
+
+function cityGroupsHaveResults(groups = []) {
+  return groups.some(group => Array.isArray(group.cities) && group.cities.length)
+}
+
+function buildAreaUiPatch(tree, stateKey = "", activeGroupKey = "", activeAreaKey = "") {
+  const state = findState(tree, stateKey)
+  const rawGroups = state && Array.isArray(state.groups) ? state.groups : []
+  const selectedGroupKey = activeGroupKey || (rawGroups[0] && rawGroups[0].key) || ""
+
+  const groups = rawGroups.map(group => ({
+    key: group.key,
+    label: group.label || group.key,
+    className: group.key === selectedGroupKey ? "active" : ""
+  }))
+
+  const selectedGroup = rawGroups.find(group => group.key === selectedGroupKey)
+  const areas = selectedGroup && Array.isArray(selectedGroup.areas)
+    ? selectedGroup.areas.map(area => {
+        const key = typeof area === "object" ? normalizeText(area.key || area.label) : normalizeText(area)
+        const label = typeof area === "object" ? normalizeText(area.label || area.key) : normalizeText(area)
+        return {
+          key,
+          label,
+          className: key === activeAreaKey ? "active" : ""
+        }
+      }).filter(item => item.key && item.label)
+    : []
+
+  return {
+    adminAreaGroupOptions: groups,
+    adminActiveAreaGroupKey: selectedGroupKey,
+    adminActiveAreaGroupLabel: selectedGroup ? (selectedGroup.label || selectedGroup.key) : "",
+    adminAreaOptions: areas
+  }
+}
+
 function buildRegionDisplay(cityLabel, areaLabel, buildingName = "") {
   return [cityLabel, areaLabel, buildingName].map(normalizeText).filter(Boolean).join(" / ")
 }
@@ -188,8 +212,6 @@ function buildRegionDisplay(cityLabel, areaLabel, buildingName = "") {
 function defaultAdminDraft(overrides = {}) {
   const today = new Date()
   const listingType = normalizeListingType(overrides.listingType)
-  const city = getCityOption(overrides.cityKey || overrides.city || "ny_nj")
-  const area = getAreaOption(city.key, overrides.regionKey || overrides.regionArea || overrides.area)
   return {
     listingType,
     title: "",
@@ -200,12 +222,16 @@ function defaultAdminDraft(overrides = {}) {
     sellerName: "",
     sellerWechat: "",
     sellerPhone: "",
-    cityKey: city.key,
-    cityLabel: city.label,
-    regionState: city.stateKey,
-    regionKey: area.key,
-    regionArea: area.label,
+    cityKey: "",
+    cityLabel: "",
+    regionState: "",
+    regionCounty: "",
+    regionArea: "",
+    regionKey: "",
+    regionGroupKey: "",
+    regionCityLabel: "",
     buildingName: "",
+    Apartment: "",
     detailAddress: "",
     pickupStartDate: formatDateOnly(today),
     pickupEndDate: formatDateOnly(addDays(today, 14)),
@@ -269,9 +295,6 @@ function pick(row = {}, keys = []) {
 
 function normalizeImportedDraft(row = {}) {
   const listingType = normalizeListingType(pick(row, ["listingType", "type", "类型", "发布类型"]))
-  const cityRaw = pick(row, ["cityKey", "city", "城市"])
-  const city = getCityOption(cityRaw || "ny_nj")
-  const area = getAreaOption(city.key, pick(row, ["regionKey", "regionArea", "area", "区域", "小区域"]))
   const imageFileIDs = Array.isArray(row.imageFileIDs)
     ? row.imageFileIDs.map(normalizeFileID).filter(Boolean)
     : parseFileIDs(pick(row, ["imageFileIDs", "images", "图片"]))
@@ -288,12 +311,22 @@ function normalizeImportedDraft(row = {}) {
     sellerName: normalizeText(pick(row, ["sellerName", "displayName", "contactName", "显示名字", "联系人", "名字"])),
     sellerWechat: normalizeText(pick(row, ["sellerWechat", "wechat", "wechatID", "微信", "微信号"])),
     sellerPhone: normalizeText(pick(row, ["sellerPhone", "phone", "电话", "手机号"])),
-    cityKey: city.key,
-    cityLabel: city.label,
-    regionState: city.stateKey,
-    regionKey: area.key,
-    regionArea: area.label,
-    buildingName: normalizeText(pick(row, ["buildingName", "building", "大楼", "公寓", "大楼名称"])),
+    cityKey: normalizeText(row.cityKey),
+    cityLabel: normalizeText(row.cityLabel),
+    regionState: normalizeText(pick(row, ["regionState", "城市", ""])),
+    regionCounty: normalizeText(
+        pick(row, [
+            "regionCounty",
+            "regionGroupLabel",
+            "regionGroupKey",
+            "county",
+            "区域组"
+        ])
+    ),
+    regionKey: normalizeText(pick(row, ["regionKey", "areaKey"])),
+    regionArea: normalizeText(pick(row, ["regionArea", "area", "区域", "小区域"])),
+    buildingName: normalizeText(pick(row, ["Apartment", "buildingName", "building", "大楼", "公寓", "大楼名称"])),
+    Apartment: normalizeText(pick(row, ["Apartment", "buildingName", "building", "大楼", "公寓", "大楼名称"])),
     detailAddress: normalizeText(pick(row, ["detailAddress", "address", "详细地址", "精确地址"])),
     pickupStartDate: normalizeText(pick(row, ["pickupStartDate", "availableStartDate", "开始日期", "入住时间"])) || defaultAdminDraft({ listingType }).pickupStartDate,
     pickupEndDate: normalizeText(pick(row, ["pickupEndDate", "leaseEndDate", "结束日期", "租期结束"])) || defaultAdminDraft({ listingType }).pickupEndDate,
@@ -322,7 +355,7 @@ function validateDraft(draft = {}) {
   if (!normalizeText(draft.category)) return "请选择分类"
   if (!normalizeText(draft.sellerName)) return "请填写显示名字"
   if (!normalizeText(draft.sellerWechat)) return "请填写微信号"
-  if (!normalizeText(draft.cityKey) || !normalizeText(draft.regionKey) || !normalizeText(draft.regionArea)) return "请选择城市和小区域"
+  if (!normalizeText(draft.regionState) || !normalizeText(draft.regionCounty) || !normalizeText(draft.regionArea)) return "请选择地区和城市"
   return ""
 }
 
@@ -346,11 +379,12 @@ function attachDraftKeys(list = []) {
 }
 
 function draftToPayload(draft = {}) {
-  const city = getCityOption(draft.cityKey)
-  const area = getAreaOption(city.key, draft.regionKey || draft.regionArea)
   const listingType = normalizeListingType(draft.listingType)
-  const buildingName = normalizeText(draft.buildingName)
-  const regionDisplay = buildRegionDisplay(city.label, area.label, buildingName)
+  const regionState = normalizeText(draft.regionState)
+  const regionCounty = normalizeText(draft.regionCounty || draft.regionGroupLabel)
+  const regionArea = normalizeText(draft.regionArea)
+  const Apartment = normalizeText(draft.Apartment || draft.buildingName)
+  const regionDisplay = buildRegionDisplayParts(regionState, regionCounty, regionArea)
   const detailAddress = normalizeText(draft.detailAddress)
   const imageFileIDs = orderedImageFileIDsFromDraft(draft)
   const thumbFileIDs = orderedThumbFileIDsFromDraft(draft)
@@ -360,27 +394,25 @@ function draftToPayload(draft = {}) {
     title: normalizeText(draft.title),
     price: Number(draft.price) || 0,
     category: normalizeText(draft.category) || getDefaultCategory(listingType),
-    cityKey: city.key,
-    cityLabel: city.label,
+  
     region: regionDisplay,
-    regionState: city.stateKey,
-    regionArea: area.label,
-    regionKey: area.key,
-    buildingName,
+    regionState,
+    regionCounty,
+    regionArea,
+    Apartment,
+    buildingName: Apartment,
     regionDisplay,
     location: {
       ...draftLocation,
       displayName: normalizeText(draftLocation.displayName || draftLocation.name || detailAddress || regionDisplay),
       name: normalizeText(draftLocation.name || detailAddress),
       address: normalizeText(draftLocation.address || detailAddress),
-      cityKey: city.key,
-      cityLabel: city.label,
       region: regionDisplay,
-      regionState: city.stateKey,
-      regionArea: area.label,
-      areaLabel: area.label,
-      regionKey: area.key,
-      buildingName,
+      regionState,
+      regionCounty,
+      regionArea,
+      Apartment,
+      buildingName: Apartment,
       source: normalizeText(draftLocation.source || "adminBulkManual"),
       provider: normalizeText(draftLocation.provider || "adminBulkManual"),
       updatedAtMs: Date.now()
@@ -498,11 +530,20 @@ Page({
     adminFailures: [],
 
     listingTypeOptions: LISTING_TYPE_OPTIONS,
+    adminRegionTree: INITIAL_REGION_TREE,
+    adminCityPickerVisible: false,
+    adminCityPickerGroups: buildCityPickerGroups(INITIAL_REGION_TREE, ""),
+    adminCitySearchKeyword: "",
+    adminCityPickerHasResults: true,
+    adminCityPickerEmptyText: "没有找到相关地区",
+
+    adminAreaPickerVisible: false,
+    adminAreaPickerTitle: "选择区域",
+    adminAreaGroupOptions: [],
+    adminActiveAreaGroupKey: "",
+    adminActiveAreaGroupLabel: "",
+    adminAreaOptions: [],
     adminListingTypeIndex: 0,
-    cityOptions: CITY_OPTIONS,
-    adminCityIndex: 0,
-    adminAreaOptions: getAreaOptions("ny_nj"),
-    adminAreaIndex: 0,
     adminCategoryOptions: GOODS_CATEGORY_OPTIONS,
     adminCategoryIndex: GOODS_CATEGORY_OPTIONS.indexOf("其他"),
     adminImageCountText: "0/6",
@@ -539,7 +580,8 @@ Page({
   async init() {
     await Promise.all([
       this.fetchList(),
-      this.restoreAdminSession()
+      this.restoreAdminSession(),
+      this.loadAdminRegionTreeFromCloud({ silent: true })
     ])
   },
 
@@ -804,27 +846,33 @@ Page({
   _buildAdminFormPatch(form = {}) {
     const listingType = normalizeListingType(form.listingType)
     const categoryOptions = getCategoryOptions(listingType)
-    const city = getCityOption(form.cityKey)
-    const areaOptions = getAreaOptions(city.key)
-    const area = getAreaOption(city.key, form.regionKey || form.regionArea)
+    const regionState = normalizeText(form.regionState)
+    const regionCounty = normalizeText(form.regionCounty || form.regionGroupLabel)
+    const regionArea = normalizeText(form.regionArea)
+    const Apartment = normalizeText(form.buildingName || form.Apartment)
+    const regionDisplay = buildRegionDisplayParts(regionState, regionCounty, regionArea)
+
+    const areaPatch = regionState
+      ? buildAreaUiPatch(this.data.adminRegionTree || INITIAL_REGION_TREE, regionState, form.regionGroupKey || regionCounty, form.regionKey || regionArea)
+      : {}
     const images = previewImagesFromDraft(form)
     const imageFileIDs = orderedImageFileIDsFromDraft(form)
     const thumbFileIDs = orderedThumbFileIDsFromDraft(form)
-    const buildingName = normalizeText(form.buildingName)
-    const regionDisplay = buildRegionDisplay(city.label, area.label, buildingName)
     const detailAddress = normalizeText(form.detailAddress || form.location?.address || form.location?.name || form.location?.displayName)
     return {
       adminForm: {
-        ...defaultAdminDraft({ listingType, cityKey: city.key, regionKey: area.key }),
+        ...defaultAdminDraft({ listingType }),
         ...form,
         listingType,
-        cityKey: city.key,
-        cityLabel: city.label,
-        regionState: city.stateKey,
-        regionKey: area.key,
-        regionArea: area.label,
-        buildingName,
-        detailAddress,
+        cityKey: form.cityKey || "",
+        cityLabel: form.cityLabel || "",
+        regionState,
+        regionCounty,
+        regionArea,
+        regionGroupKey: form.regionGroupKey || areaPatch.adminActiveAreaGroupKey || "",
+        regionKey: form.regionKey || "",
+        Apartment,
+        buildingName: Apartment,
         category: categoryOptions.includes(form.category) ? form.category : getDefaultCategory(listingType),
         image: images[0] || "",
         images,
@@ -836,9 +884,6 @@ Page({
         thumbFileIDsText: thumbFileIDs.join("\n")
       },
       adminListingTypeIndex: Math.max(0, LISTING_TYPE_OPTIONS.findIndex(item => item.key === listingType)),
-      adminCityIndex: Math.max(0, CITY_OPTIONS.findIndex(item => item.key === city.key)),
-      adminAreaOptions: areaOptions,
-      adminAreaIndex: Math.max(0, areaOptions.findIndex(item => item.key === area.key)),
       adminCategoryOptions: categoryOptions,
       adminCategoryIndex: Math.max(0, categoryOptions.indexOf(categoryOptions.includes(form.category) ? form.category : getDefaultCategory(listingType))),
       adminImageCountText: `${Math.max(images.length, imageFileIDs.length)}/${MARKET_MAX_IMAGE_COUNT}`,
@@ -878,7 +923,19 @@ Page({
   onAdminFormInput(e) {
     const field = e.currentTarget.dataset.field
     if (!field) return
-    this._setAdminForm({ ...this.data.adminForm, [field]: e.detail.value })
+  
+    const value = e.detail.value
+  
+    if (field === "buildingName" || field === "Apartment") {
+      this._setAdminForm({
+        ...this.data.adminForm,
+        buildingName: value,
+        Apartment: value
+      })
+      return
+    }
+  
+    this._setAdminForm({ ...this.data.adminForm, [field]: value })
   },
 
   onAdminSwitchChange(e) {
@@ -926,26 +983,174 @@ Page({
     this._setAdminForm({ ...this.data.adminForm, category })
   },
 
-  onAdminCityChange(e) {
-    const city = CITY_OPTIONS[Number(e.detail.value)] || CITY_OPTIONS[0]
-    const area = getAreaOptions(city.key)[0]
-    this._setAdminForm({
-      ...this.data.adminForm,
-      cityKey: city.key,
-      cityLabel: city.label,
-      regionState: city.stateKey,
-      regionKey: area.key,
-      regionArea: area.label
+  _applyAdminRegionTree(tree) {
+    const adminRegionTree = normalizeRegionTree(tree)
+    const adminCityPickerGroups = buildCityPickerGroups(
+      adminRegionTree,
+      this.data.adminForm?.regionState || "",
+      this.data.adminCitySearchKeyword || ""
+    )
+  
+    const areaPatch = this.data.adminForm?.regionState
+      ? buildAreaUiPatch(
+          adminRegionTree,
+          this.data.adminForm.regionState,
+          this.data.adminForm.regionGroupKey || this.data.adminForm.regionCounty,
+          this.data.adminForm.regionKey || this.data.adminForm.regionArea
+        )
+      : {}
+  
+    this.setData({
+      adminRegionTree,
+      adminCityPickerGroups,
+      adminCityPickerHasResults: cityGroupsHaveResults(adminCityPickerGroups),
+      ...areaPatch
     })
   },
-
-  onAdminAreaChange(e) {
-    const area = (this.data.adminAreaOptions || [])[Number(e.detail.value)] || this.data.adminAreaOptions[0]
-    if (!area) return
+  
+  async loadAdminRegionTreeFromCloud(options = {}) {
+    if (!options.force) {
+      const cached = readCachedRegionTree()
+      if (cached) {
+        const tree = normalizeRegionTree(cached)
+        this._applyAdminRegionTree(tree)
+        return tree
+      }
+    }
+  
+    try {
+      const { tree, fromCloud } = await loadRegionTreeConfig({ useCache: false })
+      const normalized = normalizeRegionTree(tree)
+      if (fromCloud) writeCachedRegionTree(normalized)
+      this._applyAdminRegionTree(normalized)
+      return normalized
+    } catch (e) {
+      console.error("ADMIN_REGION_TREE 加载失败：", e)
+      const fallback = normalizeRegionTree(DEFAULT_REGION_TREE)
+      this._applyAdminRegionTree(fallback)
+      return fallback
+    }
+  },
+  
+  async onAdminTapRegionPicker() {
+    if (!this.data.adminRegionTree.length) {
+      await this.loadAdminRegionTreeFromCloud()
+    }
+  
+    const adminCityPickerGroups = buildCityPickerGroups(
+      this.data.adminRegionTree || DEFAULT_REGION_TREE,
+      this.data.adminForm?.regionState || "",
+      ""
+    )
+  
+    this.setData({
+      adminCityPickerVisible: true,
+      adminCitySearchKeyword: "",
+      adminCityPickerGroups,
+      adminCityPickerHasResults: cityGroupsHaveResults(adminCityPickerGroups)
+    })
+  },
+  
+  onAdminCityPickerCancel() {
+    this.setData({ adminCityPickerVisible: false, adminCitySearchKeyword: "" })
+  },
+  
+  onAdminCitySearchInput(e) {
+    const keyword = e.detail?.value || ""
+    const adminCityPickerGroups = buildCityPickerGroups(
+      this.data.adminRegionTree || DEFAULT_REGION_TREE,
+      this.data.adminForm?.regionState || "",
+      keyword
+    )
+  
+    this.setData({
+      adminCitySearchKeyword: keyword,
+      adminCityPickerGroups,
+      adminCityPickerHasResults: cityGroupsHaveResults(adminCityPickerGroups)
+    })
+  },
+  
+  onAdminSelectCity(e) {
+    const key = normalizeAdminCityKey(e.currentTarget.dataset.key || "")
+    if (!key) return
+  
+    const city = getCitySnapshot(this.data.adminRegionTree || DEFAULT_REGION_TREE, key)
+    if (!city) return
+  
+    const cityKey = city.key
+    const cityLabel = city.label || city.key
+    const areaPatch = buildAreaUiPatch(this.data.adminRegionTree || DEFAULT_REGION_TREE, cityKey, "", "")
+  
     this._setAdminForm({
       ...this.data.adminForm,
-      regionKey: area.key,
-      regionArea: area.label
+      regionState: cityKey,
+      regionCityLabel: cityLabel,
+      regionCounty: areaPatch.adminActiveAreaGroupLabel || "",
+      regionGroupKey: areaPatch.adminActiveAreaGroupKey || "",
+      regionArea: "",
+      regionKey: ""
+    })
+  
+    this.setData({
+      adminCityPickerVisible: false,
+      adminCitySearchKeyword: "",
+      adminAreaPickerTitle: `选择${cityLabel}区域`,
+      adminAreaPickerVisible: true,
+      ...areaPatch
+    })
+  },
+  
+  onAdminSelectAreaGroup(e) {
+    const key = normalizeText(e.currentTarget.dataset.key)
+    if (!key) return
+  
+    const areaPatch = buildAreaUiPatch(
+      this.data.adminRegionTree || DEFAULT_REGION_TREE,
+      this.data.adminForm.regionState,
+      key,
+      ""
+    )
+  
+    this._setAdminForm({
+      ...this.data.adminForm,
+      regionGroupKey: key,
+      regionCounty: areaPatch.adminActiveAreaGroupLabel || key,
+      regionArea: "",
+      regionKey: ""
+    })
+  
+    this.setData(areaPatch)
+  },
+  
+  onAdminAreaPickerCancel() {
+    this.setData({ adminAreaPickerVisible: false })
+  },
+  
+  onAdminSelectArea(e) {
+    const key = normalizeText(e.currentTarget.dataset.key)
+    if (!key) return
+  
+    const area = (this.data.adminAreaOptions || []).find(item => item.key === key)
+    if (!area) return
+  
+    const areaKey = normalizeText(area.key)
+    const areaLabel = normalizeText(area.label)
+    const areaOptions = (this.data.adminAreaOptions || []).map(item => ({
+      ...item,
+      className: item.key === areaKey ? "active" : ""
+    }))
+  
+    this._setAdminForm({
+      ...this.data.adminForm,
+      regionGroupKey: this.data.adminActiveAreaGroupKey || this.data.adminForm.regionGroupKey,
+      regionCounty: this.data.adminActiveAreaGroupLabel || this.data.adminForm.regionCounty,
+      regionKey: areaKey,
+      regionArea: areaLabel
+    })
+  
+    this.setData({
+      adminAreaPickerVisible: false,
+      adminAreaOptions: areaOptions
     })
   },
 
@@ -1158,7 +1363,7 @@ Page({
       wx.showToast({ title: "图片上传中", icon: "none" })
       return
     }
-    const draft = normalizeImportedDraft(current)
+    const draft = cloneAdminDraft(current)
     const error = validateDraft(draft)
     if (error) {
       wx.showToast({ title: error, icon: "none" })
@@ -1249,6 +1454,7 @@ Page({
     this.setData({ adminLoading: true, adminResults: [], adminFailures: [], adminSummaryText: "发布中..." })
     try {
       const items = drafts.map(draftToPayload)
+
       const res = await wx.cloud.callFunction({
         name: "marketApi",
         data: this.withAdminToken({

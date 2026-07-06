@@ -477,3 +477,210 @@
   transform: scale(0.985);
   box-shadow: 0 10rpx 24rpx rgba(17,20,24,0.22);
 }
+
+.market-my-page{
+  height: 100vh;
+  overflow: hidden;
+  background: #f4f6f8;
+  color: #111418;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.my-top{
+  flex: none;
+  background: #f4f6f8;
+  border-bottom: 1rpx solid rgba(20,23,26,0.06);
+  z-index: 3;
+}
+
+.my-nav{
+  min-height: 88rpx;
+  padding: 12rpx 24rpx;
+  display: grid;
+  grid-template-columns: 72rpx minmax(0, 1fr) 72rpx;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.nav-back{
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111418;
+  font-size: 52rpx;
+  line-height: 58rpx;
+  font-weight: 500;
+}
+
+.nav-copy{
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rpx;
+}
+
+.nav-title{
+  color: #111418;
+  font-size: 32rpx;
+  line-height: 40rpx;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nav-subtitle{
+  color: #8b949e;
+  font-size: 18rpx;
+  line-height: 24rpx;
+  font-weight: 900;
+  letter-spacing: 1.2rpx;
+  text-align: center;
+}
+
+.nav-spacer{
+  width: 72rpx;
+  height: 1rpx;
+}
+
+/* 删除旧个人资料和旧标题区的视觉占位 */
+.profile-card,
+.bio-card,
+.goods-head{
+  display: none;
+}
+
+/* 二手 / 转租切换栏固定在导航栏下面 */
+.listing-segment-bar{
+  flex: none;
+  padding: 16rpx 24rpx 14rpx;
+  background: #f4f6f8;
+  box-sizing: border-box;
+  z-index: 2;
+}
+
+.listing-segment{
+  width: 100%;
+  height: 66rpx;
+  margin: 0;
+  padding: 5rpx;
+  border-radius: 18rpx;
+  background: #ffffff;
+  border: 1rpx solid rgba(20,23,26,0.08);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  box-sizing: border-box;
+  box-shadow: 0 6rpx 18rpx rgba(20,23,26,0.06);
+}
+
+.listing-segment-item{
+  min-width: 0;
+  border-radius: 14rpx;
+  color: #69727d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 25rpx;
+  line-height: 32rpx;
+  font-weight: 900;
+  transition-property: color, background-color, transform, opacity;
+  transition-duration: 140ms;
+}
+
+.listing-segment-item.selected{
+  background: #111418;
+  color: #ffffff;
+}
+
+/* 中间商品区域独立滚动 */
+.my-scroll{
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  padding: 0 24rpx 20rpx;
+  box-sizing: border-box;
+}
+
+.goods-grid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
+  padding-top: 4rpx;
+  padding-bottom: 18rpx;
+}
+
+/* 底部白框固定锁住管理区 */
+.manage-dock{
+  flex: none;
+  margin: 0;
+  padding: 18rpx 24rpx calc(18rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid rgba(20,23,26,0.08);
+  border-radius: 26rpx 26rpx 0 0;
+  box-shadow: 0 -12rpx 32rpx rgba(20,23,26,0.08);
+  box-sizing: border-box;
+  z-index: 4;
+  transition-property: opacity, transform;
+  transition-duration: 120ms;
+}
+
+.dock-hidden{
+  opacity: 0;
+  transform: translateY(18rpx);
+  pointer-events: none;
+}
+
+.dock-card{
+  width: 100%;
+}
+
+.dock-card-two{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+}
+
+.manage-actions{
+  display: grid;
+  grid-template-columns: 0.9fr 1fr 1fr;
+  gap: 14rpx;
+}
+
+.dock-btn{
+  height: 88rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  line-height: 36rpx;
+  font-weight: 900;
+  box-sizing: border-box;
+}
+
+.dock-btn.primary{
+  background: #111418;
+  color: #ffffff;
+  font-size: 30rpx;
+  box-shadow: 0 14rpx 30rpx rgba(17,20,24,0.24);
+}
+
+.dock-btn.secondary{
+  background: #f4f6f8;
+  color: #111418;
+}
+
+.dock-btn.danger{
+  background: #f05d4f;
+  color: #ffffff;
+  box-shadow: 0 12rpx 26rpx rgba(240,93,79,0.20);
+}
+
+.dock-btn.disabled{
+  opacity: 0.48;
+}

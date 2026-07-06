@@ -124,7 +124,11 @@ function buildDetailItem(x = {}) {
   const pickupText = listingType === "sublet"
     ? (x.leaseText || subletLeaseText || x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系发布者确认")
     : (x.pickupRangeText || x.pickupEndDate || x.expiresAtText || "联系卖家确认")
-  const regionDisplay = normalizeText(x.regionDisplay || x.region)
+    const regionDisplay = normalizeText(
+      x.regionDisplay ||
+      x.region ||
+      [x.regionState, x.regionCounty, x.regionArea].filter(Boolean).join(" / ")
+    )
   const preciseLocationText = buildPreciseLocationText(x)
   const locationText = regionDisplay || (listingType === "sublet" ? "发布者未填写区域" : "卖家未填写区域")
   const locationDetailText = preciseLocationText || "暂未设置精确定位"
@@ -149,9 +153,7 @@ function buildDetailItem(x = {}) {
     region: x.region || '',
     regionState: x.regionState || x.location?.regionState || '',
     regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || '',
-    regionKey: x.regionKey || x.location?.regionKey || '',
-    regionDisplay,
-    buildingName: x.buildingName || x.location?.buildingName || '',
+
     condition: conditionDisplay,
     conditionDisplay,
     desc: x.desc || copy.defaultDesc,
@@ -324,6 +326,22 @@ function buildSellerFromManagedItem(item = {}) {
   }
 }
 
+function getMarketLoginState() {
+  const openid = wx.getStorageSync('openid') || ''
+  const isGuest = !!wx.getStorageSync('isGuest')
+
+  // 按你项目实际登录缓存再补充判断
+  const userInfo = wx.getStorageSync('userInfo') || null
+  const hasUserInfo = !!(userInfo && typeof userInfo === 'object' && Object.keys(userInfo).length)
+
+  const isLoggedIn = !!(openid && !isGuest && hasUserInfo)
+
+  return {
+    openid: isLoggedIn ? openid : '',
+    isLoggedIn
+  }
+}
+
 Page({
   data: {
     statusBarHeight: 0,
@@ -491,6 +509,7 @@ Page({
       })
       return
     }
+    this._lastSeenGoodsChangedAt = getMarketGoodsChangedAt()
     this.fetchDetail(id)
   },
 
@@ -500,11 +519,27 @@ Page({
       wx.removeStorageSync('needLoginToast')
       wx.showToast({ title: tip, icon: 'none', duration: 2000 })
     }
-
-    // 重新计算一次 owner（避免登录/退出后状态不一致）
-    const myOpenid = wx.getStorageSync('openid') || ''
-    const isOwner = !!(myOpenid && this.data.item?._openid && myOpenid === this.data.item._openid)
+  
+    const loginState = getMarketLoginState()
+    const myOpenid = loginState.openid
+    const isOwner = !!(
+      loginState.isLoggedIn &&
+      myOpenid &&
+      this.data.item?._openid &&
+      myOpenid === this.data.item._openid
+    )
+    
     this.setData({ myOpenid, isOwner })
+  
+    const changedAt = getMarketGoodsChangedAt()
+    const lastSeen = Number(this._lastSeenGoodsChangedAt) || 0
+    const detailId = this._lastDetailId || this.data.item?.id || ''
+  
+    if (detailId && changedAt && changedAt !== lastSeen) {
+      this._lastSeenGoodsChangedAt = changedAt
+      removeMarketDetailCache(detailId)
+      this.fetchDetail(detailId)
+    }
   },
 
   _setDetailState(title, desc, options = {}) {
@@ -535,9 +570,14 @@ Page({
     if (!normalized) return false
 
     const detailItem = buildDetailItem(normalized.item)
-    const myOpenid = wx.getStorageSync('openid') || ''
-    const isOwner = !!(myOpenid && detailItem._openid && myOpenid === detailItem._openid) ||
-      (!options.fromCache && !!normalized.isOwner)
+    const loginState = getMarketLoginState()
+    const myOpenid = loginState.openid
+    const isOwner = !!(
+      loginState.isLoggedIn &&
+      myOpenid &&
+      detailItem._openid &&
+      myOpenid === detailItem._openid
+    )
     const imgUrls = normalized.imgUrls
 
     this.setData({
@@ -652,14 +692,24 @@ Page({
   // 本人发布：编辑 / 删除
   // =========================
   onEditItem() {
+    const loginState = getMarketLoginState()
+  
+    if (!loginState.isLoggedIn) {
+      wx.setStorageSync('pendingPage', {
+        url: `/pages/market/marketDetail/marketDetail?id=${this.data.item?.id || ''}`
+      })
+      wx.navigateTo({ url: LOGIN_PAGE })
+      return
+    }
+  
     if (!this.data.isOwner) {
       wx.showToast({ title: '只能编辑自己发布的内容', icon: 'none' })
       return
     }
-
+  
     const id = this.data.item?.id
     if (!id) return
-
+  
     wx.navigateTo({
       url: `/pages/market/marketPost/marketPost?id=${id}&mode=edit&type=${this.data.item?.listingType || "goods"}`
     })
@@ -712,17 +762,17 @@ Page({
 
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.reLaunch({
-      url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
+      url: '/pages/market/market'
     })
   },
 
   onViewSellerProfile() {
     if (this.data.item?.managedByAdmin) {
-<<<<<<< HEAD
+
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
-=======
+
       wx.showToast({ title: "无信息", icon: "none" })
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
       return
     }
     const openid = this.data.item?._openid

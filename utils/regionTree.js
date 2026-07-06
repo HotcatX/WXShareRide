@@ -1,8 +1,7 @@
-<<<<<<< HEAD
-=======
+
 const { loadPublicConfigDoc } = require("./cloudConfig")
 
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部区域"
 const REGION_TREE_STORAGE_KEY = "market_region_tree_v8"
@@ -562,8 +561,7 @@ function writeCachedRegionTree(tree) {
   } catch (e) {}
 }
 
-<<<<<<< HEAD
-=======
+
 async function loadRegionTreeConfig(options = {}) {
   const doc = await loadPublicConfigDoc("regionTree", options)
   return {
@@ -572,7 +570,7 @@ async function loadRegionTreeConfig(options = {}) {
   }
 }
 
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
 module.exports = {
   ALL_AREA_KEY,
   ALL_AREA_LABEL,
@@ -592,10 +590,8 @@ module.exports = {
   resolveRegionSelection,
   normalizeUserRegion,
   buildItemRegionAreaText,
-<<<<<<< HEAD
-=======
+
   loadRegionTreeConfig,
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   readCachedRegionTree,
   writeCachedRegionTree
 }

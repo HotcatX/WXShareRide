@@ -32,7 +32,7 @@
   >
     <view class="ride-card ride-card-pad">
       <view class="ride-row-between my-hero-head">
-        <text class="ride-list-kind">{{sourceType === 'request' ? '已加入求车' : '已加入拼车'}}</text>
+        <text class="ride-list-kind">{{sourceType === 'request' ? '已加入行程' : '已加入行程'}}</text>
         <text wx:if="{{sourceType === 'carpool'}}" class="ride-chip {{isTripCompleted ? 'ride-chip--warn' : 'ride-chip--accent'}}">{{isTripCompleted ? '已结束' : ('余位 ' + (trip.availSeatNum || 0))}}</text>
         <text wx:else class="ride-chip {{isTripCompleted ? 'ride-chip--warn' : 'ride-chip--accent'}}">{{isTripCompleted ? '已结束' : ('已加入 ' + (trip.passengerCount || 0) + ' 人')}}</text>
       </view>
@@ -68,7 +68,7 @@
         <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
         <view class="ride-person-main">
           <text class="ride-person-name">{{driverInfo.name || '未设置昵称'}}</text>
-          <text class="ride-social-line">{{driverInfo.rideStatsText || '暂无拼车记录'}}</text>
+          <text class="ride-social-line">{{driverInfo.rideStatsText || '暂无记录'}}</text>
           <view class="ride-info-grid">
             <view wx:if="{{driverInfo.carNumber}}" class="ride-info-row">
               <text class="ride-info-label">车牌</text>
@@ -122,7 +122,7 @@
           <image class="ride-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
           <view class="ride-person-main">
             <text class="ride-person-name">{{p.name || p.nickName || '未设置昵称'}}</text>
-            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
                 <text class="ride-info-label">地址</text>

@@ -5,12 +5,10 @@ const { showDataError } = require('../../../utils/error')
 Page({
   data: {
     from: '',
-    // 原来 wechat1 / wechat2 合并为一个字段
     wechat: '',
-    address: '',
     phone: '',               // ⭐ 手机号改成选填
     regionIndex: 0,
-    regions: ['美国', '中国大陆'],
+    regionPhone: ['美国', '中国大陆'],
     statusBarHeight: 80,
     pageTitle: "请完成以下信息",
 
@@ -69,9 +67,8 @@ Page({
         const user = res.result.data[0]
         this.setData({
           wechat: user.wechatID || '',
-          address: user.address || '',            // 读取已有住址
           phone: user.phone || '',               // ⭐ 若无则为空（选填）
-          regionIndex: (user.region === 'CN') ? 1 : 0,
+          regionIndex: (user.regionPhone === 'CN') ? 1 : 0,
           name: user.name || '',
           avatarUrl: user.avatarUrl || this.data.avatarUrl,
           zelleName: user.zelleName || '',

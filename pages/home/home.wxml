@@ -1,7 +1,7 @@
 <view class="ride-shell home-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar" style="{{homeTopbarStyle}}">
-      <view
+      <!-- <view
         class="home-city-entry"
         bindtap="onTapCity"
         hover-class="ride-pressed"
@@ -9,7 +9,7 @@
       >
         <text class="home-city-text">{{activeCityLabel}}</text>
         <text class="home-city-caret">⌄</text>
-      </view>
+      </view> -->
       <view class="ride-brand">
         <text class="ride-kicker">Campus rides</text>
         <text class="ride-title">{{pageTitle}}</text>
@@ -45,9 +45,9 @@
         <view class="home-service-title-slot">
           <text class="home-service-title">发起路线</text>
         </view>
-        <view class="home-service-desc-slot">
+        <!-- <view class="home-service-desc-slot">
           <text class="home-service-desc">司机发车/乘客求车</text>
-        </view>
+        </view> -->
       </view>
 
       <view class="home-service ride-card" bindtap="goCarpoolList" hover-class="ride-card-pressed" hover-stay-time="80">
@@ -59,11 +59,11 @@
           />
         </view>
         <view class="home-service-title-slot">
-          <text class="home-service-title">加入拼车</text>
+          <text class="home-service-title">加入路线</text>
         </view>
-        <view class="home-service-desc-slot">
-          <text class="home-service-desc">加入已有拼车路线</text>
-        </view>
+        <!-- <view class="home-service-desc-slot">
+          <text class="home-service-desc">加入已有路线</text>
+        </view> -->
       </view>
     </view>
 
@@ -84,7 +84,7 @@
 
       <view class="home-trip-list {{expandedSection === 'create' ? 'home-trip-list--open' : ''}}">
         <view wx:if="{{createTrips.length === 0}}" class="ride-state home-inline-state">
-          {{loading ? '正在同步路线' : '暂无创建的路线'}}
+          {{loading ? '正在同步' : '暂无创建的路线'}}
         </view>
 
         <block wx:else>
@@ -101,8 +101,7 @@
           >
             <view class="ride-list-head">
               <view class="home-kind-row">
-                <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车请求' : '发车路线'}}</text>
-                <!-- <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text> -->
+                <text class="ride-list-kind">{{item.from === 'request' ? '求车请求' : '发车路线'}}</text>
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
               </view>
               <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
@@ -145,7 +144,7 @@
 
       <view class="home-trip-list {{expandedSection === 'join' ? 'home-trip-list--open' : ''}}">
         <view wx:if="{{joinTrips.length === 0}}" class="ride-state home-inline-state">
-          {{loading ? '正在同步路线' : '暂无加入的路线'}}
+          {{loading ? '正在同步' : '暂无加入行程计划'}}
         </view>
 
         <block wx:else>
@@ -162,8 +161,7 @@
           >
             <view class="ride-list-head">
               <view class="home-kind-row">
-                <text class="ride-list-kind">{{item.from === 'CarpoolRequest' ? '求车路线' : '拼车路线'}}</text>
-                <!-- <text class="ride-chip {{item.from === 'CarpoolRequest' ? 'ride-chip--accent' : 'ride-chip--dark'}}">{{item.from === 'CarpoolRequest' ? '求车' : '拼车'}}</text> -->
+                <text class="ride-list-kind">{{item.from === 'request' ? '乘客路线' : '司机路线'}}</text>
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
               </view>
               <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
@@ -201,7 +199,7 @@
             <text class="home-stat-number">{{publicStats.servedTripsText}}</text>
             <text wx:if="{{publicStats.hasServedTrips}}" class="home-stat-unit">人次</text>
           </view>
-          <text class="home-stat-subtitle">成功拼车</text>
+          <text class="home-stat-subtitle">成功加入</text>
         </view>
         <view class="home-stat-side">
           <view class="ride-chip ride-chip--accent">{{publicStats.coverageText}}</view>
@@ -214,8 +212,8 @@
     </block>
 
     <view wx:else class="ride-card ride-card-pad ride-unavailable-card">
-      <text class="ride-unavailable-title">{{activeCityLabel}} 暂无拼车服务</text>
-      <text class="ride-unavailable-desc">目前拼车只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
+      <text class="ride-unavailable-title">{{activeCityLabel}} 暂无服务</text>
+      <text class="ride-unavailable-desc">目前只服务纽约/新泽西区域。你可以提交区域需求，我们会按请求量优先评估开通。</text>
       <view
         class="ride-unavailable-button {{rideDemandRequested ? 'is-done' : ''}}"
         bindtap="onRequestRideCityService"

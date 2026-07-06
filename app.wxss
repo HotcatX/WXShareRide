@@ -179,6 +179,15 @@ button {
   text-align: center;
 }
 
+.ride-refresh-hint{
+  display: block;
+  margin-top: 22rpx;
+}
+
+.ride-state + .ride-refresh-hint{
+  margin-top: 22rpx;
+}
+
 .ride-content{
   padding: 16rpx 20rpx calc(env(safe-area-inset-bottom) + 140rpx);
   box-sizing: border-box;

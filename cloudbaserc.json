@@ -76,8 +76,6 @@
       "timeout": 30
     },
     {
-<<<<<<< HEAD
-=======
       "name": "cleanupMarketImages",
       "runtime": "Nodejs16.13",
       "handler": "index.main",
@@ -91,7 +89,7 @@
       ]
     },
     {
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
       "name": "referralApi",
       "runtime": "Nodejs16.13",
       "handler": "index.main",

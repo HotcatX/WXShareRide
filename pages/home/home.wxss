@@ -469,7 +469,6 @@ page{
   height: 92rpx;
 }
 
-/* 加入拼车（放大一点） */
 .home-service-icon-share{
   width: 110rpx;
   height: 110rpx;

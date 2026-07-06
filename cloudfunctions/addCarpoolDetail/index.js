@@ -111,7 +111,7 @@ exports.main = async (event, context) => {
       }
     })
 
-    // 🆕 成功拼车后：给司机发送一条通知
+    // 🆕 成功后：给司机发送一条通知
     // 假设 Carpool 创建者就是司机：tripData._openid
     const driverOpenid = tripData._openid
 

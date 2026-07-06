@@ -103,7 +103,7 @@ Page({
     showPickupOptions: false,
     showDropoffOptions: false,
     refresherTriggered: false,
-    refreshHintText: "下拉刷新最新路线信息"
+    refreshHintText: ""
   },
 
   async loadUserSpots() {
@@ -577,12 +577,29 @@ Page({
       const userInfo = list[0]
       userInfo._openid = openid
 
-      // ✅ 微信号校验（只拦截，不跳转）
+      // 微信号校验
       if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {
-        wx.showToast({
-          title: '请先在个人中心填写微信号',
-          icon: 'none'
+        const id = tripId || (trip && trip._id) || ''
+
+        // 保存返回页面
+        wx.setStorageSync('pendingPage', {
+          url: `/pages/home/tripDetail/tripDetail?id=${id}`
         })
+
+        wx.showModal({
+          title: '请完善个人信息',
+          content: '加入路线前需要填写微信号，现在前往填写？',
+          confirmText: '去填写',
+          cancelText: '取消',
+          success: (res) => {
+            if (res.confirm) {
+              wx.navigateTo({
+                url: '/pages/profile/editInfo/editInfo'
+              })
+            }
+          }
+        })
+
         this.setData({ submitting: false })
         return
       }

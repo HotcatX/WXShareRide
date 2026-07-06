@@ -80,7 +80,6 @@ function buildSellerDisplay(seller = {}) {
     avatarInitialDisplay: seller.avatarInitial || "卖",
     nameDisplay: seller.name || "未设置昵称",
     apartmentDisplay: seller.apartment || "",
-    regionDisplay: seller.region || "区域未填",
     bioDisplay: seller.bio || "发布者暂未填写个人简介。"
   }
 }
@@ -202,7 +201,6 @@ Page({
       avatarInitialDisplay: "卖",
       nameDisplay: "未设置昵称",
       apartmentDisplay: "公寓未填",
-      regionDisplay: "区域未填",
       bioDisplay: "发布者暂未填写个人简介。"
     },
     goods: [],
@@ -278,7 +276,7 @@ Page({
 
     // 栈里只有当前页：说明是分享/收藏/redirect 进来的，必须回 tab
     wx.reLaunch({
-      url: '/pages/market/market'   // ← 改成你的“主页面/拼车所在 tab 页”
+      url: '/pages/market/market'
     })
   },
 

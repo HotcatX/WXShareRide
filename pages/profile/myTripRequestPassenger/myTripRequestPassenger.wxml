@@ -74,7 +74,7 @@
         <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
         <view class="ride-person-main">
           <text class="ride-person-name">{{driverInfo.name || '未设置昵称'}}</text>
-          <text class="ride-social-line">{{driverInfo.rideStatsText || '暂无拼车记录'}}</text>
+          <text class="ride-social-line">{{driverInfo.rideStatsText || '暂无记录'}}</text>
           <view class="ride-info-grid">
             <view class="ride-info-row">
               <text class="ride-info-label">微信</text>
@@ -134,7 +134,7 @@
                 bindtap="onKickPassenger"
               >剔除</view>
             </view>
-            <text class="ride-social-line">{{p.rideStatsText || '暂无拼车记录'}}</text>
+            <text class="ride-social-line">{{p.rideStatsText || '暂无记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
                 <text class="ride-info-label">地址</text>

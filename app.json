@@ -8,8 +8,6 @@
     "pages/profile/profile",
     "pages/home/newTrip/newTrip",
     "pages/home/requestDetail/requestDetail",
-    "pages/home/driverPickupDetail/driverPickupDetail",
-    "pages/home/carpoolRequestDetail/carpoolRequestDetail",
     "pages/home/carpoolList/carpoolList",
     "pages/home/CarpoolTemplateList/CarpoolTemplateList",
     "pages/home/driverCarpoolTemplate/driverCarpoolTemplate",
@@ -40,7 +38,7 @@
     "list": [
       {
         "pagePath": "pages/home/home",
-        "text": "拼车"
+        "text": "主页"
       },
       {
         "pagePath": "pages/market/market",

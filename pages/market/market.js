@@ -1,40 +1,23 @@
 // 与 marketPost 保持一致：分类顺序固定
 const { showDataError } = require("../../utils/error")
 const {
-  DEFAULT_CITY_TREE,
-  MARKET_CITY_STORAGE_KEY,
-<<<<<<< HEAD
-=======
-  loadCityTreeConfig,
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-  normalizeCityTree,
+  DEFAULT_REGION_TREE,
+  normalizeRegionTree,
+  loadRegionTreeConfig,
+  readCachedRegionTree,
+  writeCachedRegionTree,
+  getCityOptions,
   getCitySnapshot,
-  getCountryTabs,
-  getCountryGroups,
-  cityGroupsHaveResults,
-  getStoredCitySnapshot,
-  setStoredCitySnapshot
-} = require("../../utils/cityTree")
+  findState
+} = require("../../utils/Region")
+
+const ALL_AREA_KEY = "all"
+const ALL_AREA_LABEL = "全部"
+const MARKET_CITY_STORAGE_KEY = "market_city_snapshot_v2"
 const {
   readMarketSellerProfiles,
   fetchAndCacheMarketSellerProfiles
 } = require("../../utils/marketSellerProfileCache")
-const {
-  ALL_AREA_KEY,
-  ALL_AREA_LABEL,
-  DEFAULT_REGION_TREE,
-  normalizeRegionTree,
-  buildItemRegionAreaText,
-  buildAreaSectionTabs,
-  buildAreaSections,
-  resolveAreaPanelSectionKey,
-<<<<<<< HEAD
-=======
-  loadRegionTreeConfig,
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-  readCachedRegionTree,
-  writeCachedRegionTree
-} = require("../../utils/regionTree")
 
 const GOODS_CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
 const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
@@ -81,31 +64,9 @@ const MARKET_DETAIL_PRELOAD_LIMIT = 3
 const MARKET_AD_MIN_GOODS = 3
 const MARKET_AD_INSERT_MIN_INDEX = 2
 const MARKET_AD_INSERT_MAX_INDEX = 5
-const MARKET_DEFAULT_CITY_KEY = "ny_nj"
-const MARKET_DEFAULT_CITY_LABEL = "纽约/新泽西"
-const MARKET_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求加入，或先选择“其他城市”，系统会按你填写的位置和距离排序。"
-const CITY_REGION_STATE_KEYS = {
-  ny_nj: ["NY_NJ"],
-  ny: ["NY_NJ"],
-  nj: ["NY_NJ"],
-  boston: ["MA"],
-  philadelphia: ["PA"],
-  dc: ["DC"],
-  la: ["CA"],
-  bay_area: ["CA"],
-  seattle: ["WA"],
-  san_diego: ["CA"],
-  chicago: ["IL"],
-  ann_arbor: ["MI"],
-  champaign: ["IL"],
-  columbus: ["OH"],
-  dallas: ["TX"],
-  houston: ["TX"],
-  atlanta: ["GA"],
-  miami: ["FL"],
-  orlando: ["FL"],
-  austin: ["TX"]
-}
+const MARKET_DEFAULT_CITY_KEY = "ALL"
+const MARKET_DEFAULT_CITY_LABEL = "全部"
+
 const MARKET_LIST_MEMORY_CACHE = {}
 
 function normalizeListingType(value) {
@@ -374,6 +335,140 @@ function buildCategoryTabs(categories = [], activeCategory = "全部") {
   }))
 }
 
+function normalizeMarketCityKey(key = "") {
+  return String(key || "").trim().toUpperCase()
+}
+
+function buildCityPickerGroups(tree, activeCityKey = "", keyword = "", options = {}) {
+  const kw = String(keyword || "").trim().toLowerCase()
+  const activeKey = normalizeMarketCityKey(activeCityKey)
+  const includeAll = options.includeAll !== false
+
+  const cities = getCityOptions(tree)
+    .filter(city => {
+      if (!kw) return true
+      return [city.key, city.label]
+        .map(v => String(v || "").trim().toLowerCase())
+        .some(v => v.includes(kw))
+    })
+    .map(city => ({
+      ...city,
+      className: normalizeMarketCityKey(city.key) === activeKey ? "active" : ""
+    }))
+
+  const finalCities = includeAll
+    ? [{ key: "ALL", label: "全部", className: activeKey === "ALL" ? "active" : "" }, ...cities]
+    : cities
+
+  return [
+    {
+      title: "",
+      badge: "",
+      cities: finalCities
+    }
+  ].filter(group => group.cities.length)
+}
+
+function cityGroupsHaveResults(groups = []) {
+  return groups.some(group => Array.isArray(group.cities) && group.cities.length)
+}
+
+function buildAreaUiPatch(tree, cityKey = "", activeGroupKey = "", activeAreaKey = "") {
+  const normalized = normalizeRegionTree(tree)
+  const state = findState(normalized, cityKey)
+  const rawGroups = state && Array.isArray(state.groups) ? state.groups : []
+
+  const selectedGroupKey = activeGroupKey || (rawGroups[0] && rawGroups[0].key) || ""
+  const selectedGroup = rawGroups.find(group => group.key === selectedGroupKey)
+
+  const groups = rawGroups.map(group => ({
+    key: group.key,
+    label: group.label || group.key,
+    className: group.key === selectedGroupKey ? "active" : ""
+  }))
+
+  const areas = selectedGroup && Array.isArray(selectedGroup.areas)
+    ? selectedGroup.areas.map(area => {
+        const key = typeof area === "object"
+          ? String(area.key || area.label || "").trim()
+          : String(area || "").trim()
+        const label = typeof area === "object"
+          ? String(area.label || area.key || "").trim()
+          : String(area || "").trim()
+        return {
+          key,
+          label,
+          className: key === activeAreaKey ? "active" : ""
+        }
+      }).filter(item => item.key && item.label)
+    : []
+
+  return {
+    areaGroupOptions: groups,
+    activeAreaGroupKey: selectedGroupKey,
+    activeAreaGroupLabel: selectedGroup ? (selectedGroup.label || selectedGroup.key) : "",
+    areaOptions: areas
+  }
+}
+
+function getAreaSelectionMeta(tree, cityKey = "", groupKey = "", areaKey = "") {
+  if (!cityKey || cityKey === "ALL") {
+    return {
+      cityKey: "ALL",
+      cityLabel: "全部",
+      groupKey: "",
+      groupLabel: "",
+      areaKey: ALL_AREA_KEY,
+      areaLabel: ALL_AREA_LABEL,
+      filterRegionKeys: []
+    }
+  }
+
+  const city = getCitySnapshot(tree, cityKey)
+  const cityLabel = city?.label || cityKey
+  const patch = buildAreaUiPatch(tree, cityKey, groupKey, areaKey)
+  const groupLabel = patch.activeAreaGroupLabel || groupKey || ""
+  const area = (patch.areaOptions || []).find(item => item.key === areaKey)
+  const areaLabel = area?.label || ""
+
+  return {
+    cityKey,
+    cityLabel,
+    groupKey: patch.activeAreaGroupKey || groupKey || "",
+    groupLabel,
+    areaKey: areaKey || ALL_AREA_KEY,
+    areaLabel: areaLabel || ALL_AREA_LABEL,
+    filterRegionKeys: areaKey ? [areaKey] : []
+  }
+}
+
+function getStoredMarketCitySnapshot(tree) {
+  const fallback = { key: "ALL", label: "全部", aliases: [] }
+
+  try {
+    const stored = wx.getStorageSync(MARKET_CITY_STORAGE_KEY)
+    if (!stored || !stored.key) return fallback
+
+    const key = normalizeMarketCityKey(stored.key)
+    if (!key || key === "ALL") return fallback
+
+    // 优先用云端缓存树校验，避免旧缓存里的 ny_nj / 无效 key 继续生效
+    const cachedTree = readCachedRegionTree()
+    const regionTree = normalizeRegionTree(cachedTree || tree || DEFAULT_REGION_TREE)
+    const snapshot = getCitySnapshot(regionTree, key)
+
+    return snapshot && snapshot.key ? snapshot : fallback
+  } catch (e) {
+    return fallback
+  }
+}
+
+function setStoredMarketCitySnapshot(snapshot = {}) {
+  try {
+    wx.setStorageSync(MARKET_CITY_STORAGE_KEY, snapshot)
+  } catch (e) {}
+}
+
 function formatShortDateText(value) {
   const text = String(value || "").trim()
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
@@ -408,6 +503,17 @@ function compactMarketText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
 }
 
+function buildItemRegionAreaText(item = {}) {
+  return compactMarketText(
+    item.regionDisplay ||
+    item.regionArea ||
+    item.location?.regionArea ||
+    item.location?.areaLabel ||
+    item.region ||
+    ""
+  )
+}
+
 function buildSubletDescText(item = {}) {
   const desc = compactMarketText(item.desc || item.description)
   if (desc) return desc
@@ -423,102 +529,6 @@ function buildSubletMetaText(item = {}) {
   return type || area || "转租房源"
 }
 
-function getAreaStatesForCity(tree, cityKey = MARKET_DEFAULT_CITY_KEY) {
-  const normalized = normalizeRegionTree(tree)
-  const stateKeys = CITY_REGION_STATE_KEYS[cityKey] || []
-  if (!stateKeys.length) return []
-
-  const byKey = new Map(normalized.map(state => [state.key, state]))
-  return stateKeys.map(key => byKey.get(key)).filter(Boolean)
-}
-
-function isImplicitAllStateArea(area = {}, state = {}) {
-  const stateKey = String(state.key || "").toLowerCase()
-  const areaKey = String(area.key || "").toLowerCase()
-  return !!stateKey && areaKey === `${stateKey}_all`
-}
-
-function findAreaInTree(tree, areaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY) {
-  if (!areaKey || areaKey === ALL_AREA_KEY) return null
-  const normalized = getAreaStatesForCity(tree, cityKey)
-  for (const state of normalized) {
-    const area = (state.areas || []).find(item => item.key === areaKey)
-    if (area && isImplicitAllStateArea(area, state)) return null
-    if (area) return { state, area }
-  }
-  return null
-}
-
-function getAreaSelectionMeta(tree, areaKeys = [], cityKey = MARKET_DEFAULT_CITY_KEY) {
-  const validKeys = []
-  const labels = []
-  normalizeAreaKeys(areaKeys).forEach(key => {
-    const match = findAreaInTree(tree, key, cityKey)
-    if (!match || validKeys.includes(match.area.key)) return
-    validKeys.push(match.area.key)
-    labels.push(match.area.label)
-  })
-  return {
-    keys: validKeys,
-    activeKey: validKeys[0] || ALL_AREA_KEY,
-    label: labels.length === 0
-      ? ALL_AREA_LABEL
-      : (labels.length === 1 ? labels[0] : `已选${labels.length}个`),
-    labels
-  }
-}
-
-function getAreaStateKey(tree, activeStateKey = "NY", cityKey = MARKET_DEFAULT_CITY_KEY) {
-  const states = getAreaStatesForCity(tree, cityKey)
-  return states.some(state => state.key === activeStateKey)
-    ? activeStateKey
-    : (states[0]?.key || "NY")
-}
-
-function buildAreaStateTabs(tree, activeStateKey = "NY", cityKey = MARKET_DEFAULT_CITY_KEY) {
-  const states = getAreaStatesForCity(tree, cityKey)
-  const selectedKey = getAreaStateKey(tree, activeStateKey, cityKey)
-  return states.map(state => ({
-    key: state.key,
-    label: state.label,
-    className: state.key === selectedKey ? "active" : ""
-  }))
-}
-
-function buildAreaOptions(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY) {
-  const states = getAreaStatesForCity(tree, cityKey)
-  const selectedKey = getAreaStateKey(tree, activeStateKey, cityKey)
-  const state = states.find(item => item.key === selectedKey) || states[0] || { areas: [] }
-  const explicitAreas = (state.areas || []).filter(area => !isImplicitAllStateArea(area, state))
-  const selectedAreaKeys = normalizeAreaKeys(activeAreaKey)
-  return [
-    { key: ALL_AREA_KEY, label: ALL_AREA_LABEL },
-    ...explicitAreas
-  ].map(area => ({
-    ...area,
-    className: area.key === ALL_AREA_KEY
-      ? (!selectedAreaKeys.length ? "active" : "")
-      : (selectedAreaKeys.includes(area.key) ? "active" : "")
-  }))
-}
-
-function buildAreaUiPatch(tree, activeStateKey = "NY", activeAreaKey = ALL_AREA_KEY, cityKey = MARKET_DEFAULT_CITY_KEY, activeSectionKey = "") {
-  const nextStateKey = getAreaStateKey(tree, activeStateKey, cityKey)
-  const stateTabs = buildAreaStateTabs(tree, nextStateKey, cityKey)
-  const optionAreaKeys = normalizeAreaKeys(activeAreaKey)
-    .filter(key => !!findAreaInTree(tree, key, cityKey))
-  const areaOptions = buildAreaOptions(tree, nextStateKey, optionAreaKeys, cityKey)
-  const areaSectionKey = resolveAreaPanelSectionKey(areaOptions, activeSectionKey, optionAreaKeys)
-  return {
-    activeAreaStateKey: nextStateKey,
-    areaStateTabs: stateTabs,
-    areaOptions,
-    activeAreaSectionKey: areaSectionKey,
-    areaSectionTabs: buildAreaSectionTabs(areaOptions, areaSectionKey, optionAreaKeys),
-    areaSections: buildAreaSections(areaOptions, { visibleSectionKey: areaSectionKey }),
-    areaHasStateTabs: stateTabs.length > 1
-  }
-}
 
 function buildMarketListFlags(state = {}) {
   const displayGoods = Array.isArray(state.displayGoods) ? state.displayGoods : []
@@ -601,11 +611,11 @@ Page({
     // Filters
     keyword: "",
     activeCategory: "全部",
-    activeRegion: MARKET_DEFAULT_CITY_KEY,
-    activeRegionLabel: MARKET_DEFAULT_CITY_LABEL,
-    activeRegionShortLabel: MARKET_DEFAULT_CITY_LABEL,
-    activeCityKey: MARKET_DEFAULT_CITY_KEY,
-    activeCityLabel: MARKET_DEFAULT_CITY_LABEL,
+    activeRegion: "ALL",
+    activeRegionLabel: "全部",
+    activeRegionShortLabel: "全部",
+    activeCityKey: "ALL",
+    activeCityLabel: "全部",
     activeCityAliases: [],
     priceSortLabel: "默认",
     distanceSortLabel: "按时间",
@@ -622,22 +632,20 @@ Page({
     categoryPickerVisible: false,
     skeletonItems: [0, 1, 2, 3],
 
-    cityTree: DEFAULT_CITY_TREE,
-    cityCountryTabs: getCountryTabs(DEFAULT_CITY_TREE, "US"),
-    cityPickerGroups: getCountryGroups(DEFAULT_CITY_TREE, "US", MARKET_DEFAULT_CITY_KEY, { includeAll: false }),
+    regionTree: normalizeRegionTree(DEFAULT_REGION_TREE),
+
+    cityPickerGroups: buildCityPickerGroups(DEFAULT_REGION_TREE, "ALL", "", { includeAll: true }),
     cityPickerVisible: false,
-    activeCityCountryCode: "US",
     citySearchKeyword: "",
     cityPickerHasResults: true,
-    cityPickerEmptyText: "没有找到相关城市",
-    cityPickerHintText: MARKET_CITY_PICKER_HINT,
-    areaTree: DEFAULT_REGION_TREE,
-    areaStateTabs: buildAreaStateTabs(DEFAULT_REGION_TREE, "NY"),
-    areaOptions: buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY),
-    areaSectionTabs: buildAreaSectionTabs(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY), ALL_AREA_KEY),
-    areaSections: buildAreaSections(buildAreaOptions(DEFAULT_REGION_TREE, "NY", ALL_AREA_KEY), { visibleSectionKey: ALL_AREA_KEY }),
-    areaHasStateTabs: true,
+    cityPickerEmptyText: "没有找到相关地区",
+    
     areaPickerVisible: false,
+    areaPickerTitle: "选择区域",
+    areaGroupOptions: [],
+    activeAreaGroupKey: "",
+    activeAreaGroupLabel: "",
+    areaOptions: [],
 
     // Goods
     allGoods: [],
@@ -664,6 +672,37 @@ Page({
     distanceSortClass: "",
     myLocation: null,
     publishFabVisibleClass: ""
+  },
+
+  _buildListFilters() {
+    const cityKey = this.data.activeCityKey || "ALL"
+    const isAllCity = !cityKey || cityKey === "ALL"
+  
+    const areaSelected = Array.isArray(this.data.activeAreaKeys) && this.data.activeAreaKeys.length > 0
+  
+    return {
+      listingType: this.data.activeListingType,
+      category: this.data.activeCategory,
+  
+      // 左上角大区域筛选：商品记录里的 regionState
+      regionState: isAllCity ? "" : cityKey,
+  
+      // 兼容旧 marketApi 可能还在读 cityKey
+      cityKey,
+      cityLabel: this.data.activeCityLabel || "全部",
+      cityAliases: this.data.activeCityAliases || [],
+  
+      // 右下角区域筛选：商品记录里的 regionCounty + regionArea
+      regionCounty: areaSelected ? (this.data.activeAreaGroupLabel || "") : "",
+      regionArea: areaSelected ? (this.data.activeAreaLabel || "") : "",
+  
+      // 兼容旧字段
+      regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
+      regionKeys: this.data.activeAreaKeys || [],
+      regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
+  
+      keyword: this.data.keyword
+    }
   },
 
   _getStatusBarHeight() {
@@ -708,7 +747,7 @@ Page({
     if (this._marketBootstrapStarted) return
     this._marketBootstrapStarted = true
     const initialCategory = args.initialCategory || ""
-    const initialCity = args.initialCity || MARKET_DEFAULT_CITY_KEY
+    const initialCity = args.initialCity || "ALL"
     const initialType = args.initialType || getStoredListingType()
     Promise.resolve()
       .then(() => this._bootstrapMarketData(initialCategory, initialCity, initialType))
@@ -737,49 +776,75 @@ Page({
     })
   },
 
-  _applyCityUi(cityKey = MARKET_DEFAULT_CITY_KEY, options = {}) {
-    const cityTree = normalizeCityTree(options.cityTree || this.data.cityTree || DEFAULT_CITY_TREE)
-    const normalizedCityKey = cityKey === "all" ? MARKET_DEFAULT_CITY_KEY : cityKey
-    const snapshot = getCitySnapshot(cityTree, normalizedCityKey || MARKET_DEFAULT_CITY_KEY)
-    const activeCountryCode = options.countryCode || this.data.activeCityCountryCode || "US"
-    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
-    const cityPickerGroups = getCountryGroups(cityTree, activeCountryCode, snapshot.key, {
-      includeAll: false,
-      keyword: citySearchKeyword
-    })
+  _applyCityUi(cityKey = "ALL", options = {}) {
+    const regionTree = normalizeRegionTree(options.regionTree || this.data.regionTree || DEFAULT_REGION_TREE)
+    const normalizedKey = normalizeMarketCityKey(cityKey || "ALL")
+  
+    if (normalizedKey === "ALL") {
+      const snapshot = { key: "ALL", label: "全部", aliases: [] }
+      this.setData({
+        regionTree,
+        activeCityKey: "ALL",
+        activeCityLabel: "全部",
+        activeCityAliases: [],
+        activeRegion: "ALL",
+        activeRegionLabel: "全部",
+        activeRegionShortLabel: "全部",
+        cityPickerGroups: buildCityPickerGroups(regionTree, "ALL", options.keyword || "", { includeAll: true }),
+        cityPickerHasResults: true,
+        citySearchKeyword: options.keyword || ""
+      })
+      setStoredMarketCitySnapshot(snapshot)
+      return snapshot
+    }
+  
+    const snapshot = getCitySnapshot(regionTree, normalizedKey)
 
+    if (!snapshot || !snapshot.key) {
+      return this._applyCityUi("ALL", {
+        ...options,
+        regionTree
+      })
+    }
+
+    const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
+  
     this.setData({
-      cityTree,
+      regionTree,
       activeCityKey: snapshot.key,
       activeCityLabel: snapshot.label,
-      activeCityAliases: snapshot.aliases,
+      activeCityAliases: snapshot.aliases || [],
       activeRegion: snapshot.key,
       activeRegionLabel: snapshot.label,
       activeRegionShortLabel: snapshot.label,
-      activeCityCountryCode: activeCountryCode,
-      cityCountryTabs: getCountryTabs(cityTree, activeCountryCode),
-      cityPickerGroups,
-      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups),
+      cityPickerGroups: buildCityPickerGroups(regionTree, snapshot.key, citySearchKeyword, { includeAll: true }),
+      cityPickerHasResults: cityGroupsHaveResults(buildCityPickerGroups(regionTree, snapshot.key, citySearchKeyword, { includeAll: true })),
       citySearchKeyword
     })
-    setStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, snapshot)
+  
+    setStoredMarketCitySnapshot(snapshot)
     return snapshot
   },
 
   _applyAreaUi(areaKey = ALL_AREA_KEY, options = {}) {
-    const areaTree = normalizeRegionTree(options.areaTree || this.data.areaTree || DEFAULT_REGION_TREE)
-    const cityKey = options.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const selection = getAreaSelectionMeta(areaTree, areaKey, cityKey)
-    const firstMatch = findAreaInTree(areaTree, selection.activeKey, cityKey)
-    const activeStateKey = getAreaStateKey(areaTree, options.stateKey || firstMatch?.state?.key || this.data.activeAreaStateKey || "NY", cityKey)
-    const activeSectionKey = options.sectionKey || (selection.keys.length ? "" : (this.data.activeAreaSectionKey || ALL_AREA_KEY))
-
+    const regionTree = normalizeRegionTree(options.regionTree || this.data.regionTree || DEFAULT_REGION_TREE)
+    const cityKey = options.cityKey || this.data.activeCityKey || "ALL"
+    const groupKey = options.groupKey || this.data.activeAreaGroupKey || ""
+    const finalAreaKey = areaKey === ALL_AREA_KEY ? "" : areaKey
+  
+    const patch = cityKey && cityKey !== "ALL"
+      ? buildAreaUiPatch(regionTree, cityKey, groupKey, finalAreaKey)
+      : { areaGroupOptions: [], activeAreaGroupKey: "", activeAreaGroupLabel: "", areaOptions: [] }
+  
+    const area = (patch.areaOptions || []).find(item => item.key === finalAreaKey)
+    const activeAreaLabel = area ? area.label : ALL_AREA_LABEL
+  
     this.setData({
-      areaTree,
-      activeAreaKey: selection.activeKey,
-      activeAreaKeys: selection.keys,
-      activeAreaLabel: selection.label,
-      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey, activeSectionKey)
+      regionTree,
+      activeAreaKey: finalAreaKey || ALL_AREA_KEY,
+      activeAreaKeys: finalAreaKey ? [finalAreaKey] : [],
+      activeAreaLabel,
+      ...patch
     })
   },
 
@@ -843,17 +908,24 @@ Page({
 
   _applyPostSuccessFilter(filter = {}) {
     const listingType = normalizeListingType(filter.listingType)
-    const cityKey = String(filter.cityKey || MARKET_DEFAULT_CITY_KEY).trim() || MARKET_DEFAULT_CITY_KEY
-
+  
+    // 发布成功回来以后，不使用新商品自己的 cityKey。
+    // 左上角大地区优先沿用用户之前选择的缓存；没有缓存就默认 ALL。
+    const storedCity = getStoredMarketCitySnapshot(this.data.regionTree || DEFAULT_REGION_TREE)
+    const cityKey = storedCity.key || "ALL"
+  
     setStoredListingType(listingType)
     this._userSortTouched = false
     this._applyListingTypeUi(listingType, { category: "全部" })
+  
     const snapshot = this._applyCityUi(cityKey)
     this._applyAreaUi(ALL_AREA_KEY, { cityKey: snapshot.key })
+  
     this._resetGoodsStateForFetch({
       keyword: "",
       ...this._getDefaultSortPatch()
     })
+  
     this.updateMarketHeaderState(0)
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._fetchFirstPage({ force: true, reason: "postSuccess" })
@@ -996,11 +1068,11 @@ Page({
     const initialCategory = options.cat ? safeDecode(options.cat) : ""
     const initialCity = options.city ? safeDecode(options.city) : ""
     const initialType = options.type || options.listingType || getStoredListingType()
-    const storedCity = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, MARKET_DEFAULT_CITY_KEY)
+    const storedCity = getStoredMarketCitySnapshot(DEFAULT_REGION_TREE)
 
     this.setData(this._getTopMetrics())
     this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
-    this._applyCityUi(initialCity || storedCity.key || MARKET_DEFAULT_CITY_KEY)
+    this._applyCityUi(initialCity || storedCity.key || "ALL")
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
@@ -1018,7 +1090,7 @@ Page({
     this._marketAdSessionSeed = `${Date.now()}_${Math.random().toString(16).slice(2)}`
     this._marketBootstrapArgs = {
       initialCategory,
-      initialCity: initialCity || storedCity.key || MARKET_DEFAULT_CITY_KEY,
+      initialCity: initialCity || storedCity.key || "ALL",
       initialType
     }
 
@@ -1064,13 +1136,12 @@ Page({
     this._fetchFirstPage({ force: true, reason: "showRefresh" })
   },
 
-  async _bootstrapMarketData(initialCategory = "", initialCity = MARKET_DEFAULT_CITY_KEY, initialType = "goods") {
+  async _bootstrapMarketData(initialCategory = "", initialCity = "ALL", initialType = "goods") {
     this._marketBootstrapped = true
 
     this._applyListingTypeUi(initialType, { category: initialCategory || "全部" })
-    this._applyCityUi(initialCity || MARKET_DEFAULT_CITY_KEY)
+    this._applyCityUi(initialCity || "ALL")
 
-    this.loadCityTreeFromCloud()
     this.loadRegionTreeFromCloud()
 
     const cacheState = this._restoreGoodsFromCache()
@@ -1123,22 +1194,21 @@ Page({
 
   onResetMarketFilters() {
     this._userSortTouched = false
-    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
-    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
+  
+    this._applyAreaUi(ALL_AREA_KEY, {
+      cityKey: this.data.activeCityKey || "ALL"
+    })
+  
     this._resetGoodsStateForFetch({
       keyword: "",
       activeCategory: "全部",
       categoryTabs: buildCategoryTabs(this.data.categories, "全部"),
-      activeAreaKey: ALL_AREA_KEY,
-      activeAreaKeys: [],
-      activeAreaLabel: ALL_AREA_LABEL,
-      activeAreaSectionKey: ALL_AREA_KEY,
-      areaPickerVisible: false,
-      ...buildAreaUiPatch(areaTree, activeStateKey, ALL_AREA_KEY, cityKey, ALL_AREA_KEY),
       categoryPickerVisible: false,
+      areaPickerVisible: false,
       ...this._getDefaultSortPatch()
     })
+  
+    this.updateMarketHeaderState(0)
     this._fetchFirstPage({ force: true, reason: "resetFilters" })
   },
 
@@ -1151,87 +1221,80 @@ Page({
   },
 
   onOpenAreaPicker() {
-    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
-    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
-    const activeSectionKey = (this.data.activeAreaKeys || []).length
-      ? (this.data.activeAreaSectionKey === ALL_AREA_KEY ? "" : (this.data.activeAreaSectionKey || ""))
-      : (this.data.activeAreaSectionKey || ALL_AREA_KEY)
-    this.setData({
-      areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey, activeSectionKey)
-    })
-  },
-
-  onAreaPickerCancel() {
-    this.setData({ areaPickerVisible: false })
-  },
-
-  onSelectAreaState(e) {
-    const key = e.currentTarget.dataset.key || "NY"
-    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
-    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    this.setData({
-      activeAreaStateKey: key,
-      ...buildAreaUiPatch(areaTree, key, this.data.activeAreaKeys || [], cityKey, this.data.activeAreaSectionKey || ALL_AREA_KEY)
-    })
-  },
-
-  async onSelectAreaSection(e) {
-    const key = e.currentTarget.dataset.key || ALL_AREA_KEY
-    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
-    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const activeStateKey = getAreaStateKey(areaTree, this.data.activeAreaStateKey || "NY", cityKey)
-    if (key !== ALL_AREA_KEY) {
-      this.setData({
-        ...buildAreaUiPatch(areaTree, activeStateKey, this.data.activeAreaKeys || [], cityKey, key)
+    if (!this.data.activeCityKey || this.data.activeCityKey === "ALL") {
+      wx.showToast({
+        title: "请先选择左上角的地区",
+        icon: "none"
       })
       return
     }
-
-    const selection = getAreaSelectionMeta(areaTree, [], cityKey)
-    this._resetGoodsStateForFetch({
-      activeAreaKey: selection.activeKey,
-      activeAreaKeys: selection.keys,
-      activeAreaLabel: selection.label,
+  
+    const regionTree = this.data.regionTree || DEFAULT_REGION_TREE
+    const patch = buildAreaUiPatch(
+      regionTree,
+      this.data.activeCityKey,
+      this.data.activeAreaGroupKey || "",
+      this.data.activeAreaKey === ALL_AREA_KEY ? "" : this.data.activeAreaKey
+    )
+  
+    this.setData({
       areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeStateKey, selection.keys, cityKey, ALL_AREA_KEY)
+      areaPickerTitle: `选择${this.data.activeCityLabel}区域`,
+      ...patch
     })
-    this.updateMarketHeaderState(0)
-    const cacheState = this._restoreGoodsFromCache()
-    if (cacheState.restored) this.applyFilters(true)
-    await this._fetchFirstPage({ force: true, reason: "area:all" })
   },
-
-  async onSelectArea(e) {
-    const key = e.currentTarget.dataset.key || ALL_AREA_KEY
-    const areaTree = this.data.areaTree || DEFAULT_REGION_TREE
-    const cityKey = this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const match = key === ALL_AREA_KEY ? null : findAreaInTree(areaTree, key, cityKey)
-    const currentKeys = normalizeAreaKeys(this.data.activeAreaKeys || this.data.activeAreaKey)
-    let nextKeys = []
-    if (match) {
-      nextKeys = currentKeys.includes(match.area.key)
-        ? currentKeys.filter(item => item !== match.area.key)
-        : [...currentKeys, match.area.key]
-    }
-    const selection = getAreaSelectionMeta(areaTree, nextKeys, cityKey)
-    const activeAreaStateKey = getAreaStateKey(areaTree, match ? match.state.key : (this.data.activeAreaStateKey || "NY"), cityKey)
-    const activeAreaSectionKey = selection.keys.length
-      ? (match ? (match.area.sectionKey || this.data.activeAreaSectionKey || "") : "")
-      : ALL_AREA_KEY
-
-    this._resetGoodsStateForFetch({
-      activeAreaKey: selection.activeKey,
-      activeAreaKeys: selection.keys,
-      activeAreaLabel: selection.label,
-      areaPickerVisible: true,
-      ...buildAreaUiPatch(areaTree, activeAreaStateKey, selection.keys, cityKey, activeAreaSectionKey)
+  
+  onAreaPickerCancel() {
+    this.setData({ areaPickerVisible: false })
+  },
+  
+  onSelectAreaState(e) {
+    const key = String(e.currentTarget.dataset.key || "").trim()
+    if (!key) return
+  
+    const patch = buildAreaUiPatch(
+      this.data.regionTree || DEFAULT_REGION_TREE,
+      this.data.activeCityKey,
+      key,
+      ""
+    )
+  
+    this.setData({
+      activeAreaGroupKey: key,
+      activeAreaGroupLabel: patch.activeAreaGroupLabel || key,
+      activeAreaKey: ALL_AREA_KEY,
+      activeAreaKeys: [],
+      activeAreaLabel: ALL_AREA_LABEL,
+      ...patch
     })
+  },
+  
+  async onSelectArea(e) {
+    const key = String(e.currentTarget.dataset.key || "").trim()
+    if (!key) return
+  
+    const area = (this.data.areaOptions || []).find(item => item.key === key)
+    if (!area) return
+  
+    const areaOptions = (this.data.areaOptions || []).map(item => ({
+      ...item,
+      className: item.key === key ? "active" : ""
+    }))
+  
+    this._resetGoodsStateForFetch({
+      activeAreaKey: key,
+      activeAreaKeys: [key],
+      activeAreaLabel: area.label,
+      areaPickerVisible: false,
+      areaOptions
+    })
+  
     this.updateMarketHeaderState(0)
+  
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
-    await this._fetchFirstPage({ force: true, reason: `area:${getAreaCacheKey(selection.keys)}` })
+  
+    await this._fetchFirstPage({ force: true, reason: `area:${key}` })
   },
 
   async onSelectCat(e) {
@@ -1268,11 +1331,11 @@ Page({
   onTapSeller(e) {
     const managed = e.currentTarget.dataset.managed
     if (managed === true || managed === "true") {
-<<<<<<< HEAD
+
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
-=======
+
       wx.showToast({ title: "无信息", icon: "none" })
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+
       return
     }
     const openid = e.currentTarget.dataset.openid
@@ -1335,86 +1398,74 @@ Page({
     this.setData({ regions: ["全部", ...Array.from(set)] })
   },
 
-  async loadCityTreeFromCloud() {
-    try {
-<<<<<<< HEAD
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("cityTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("cityTree").limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeCityTree(docData)
-      this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
-=======
-      const tree = await loadCityTreeConfig()
-      this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
-      return tree
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-    } catch (e) {
-      console.error("cityTree 加载失败：", e)
-      const tree = normalizeCityTree(DEFAULT_CITY_TREE)
-      this._applyCityUi(this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, { cityTree: tree })
-<<<<<<< HEAD
-=======
-      return tree
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-    }
-  },
-
   async loadRegionTreeFromCloud(options = {}) {
     if (!options.force) {
       const cached = readCachedRegionTree()
       if (cached) {
-        this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: cached })
-        return cached
+        const tree = normalizeRegionTree(cached)
+  
+        this._applyCityUi(this.data.activeCityKey || "ALL", {
+          regionTree: tree
+        })
+  
+        this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
+          regionTree: tree,
+          cityKey: this.data.activeCityKey || "ALL"
+        })
+  
+        return tree
       }
     }
-
+  
     try {
-<<<<<<< HEAD
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("regionTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("regionTree").limit(1).get()
-        docData = (res.data || [])[0] || null
+      const { tree, fromCloud } = await loadRegionTreeConfig({
+        useCache: false
+      })
+  
+      const normalized = normalizeRegionTree(tree)
+  
+      if (fromCloud) {
+        writeCachedRegionTree(normalized)
       }
-
-      const tree = normalizeRegionTree(docData)
-      writeCachedRegionTree(tree)
-=======
-      const { tree, fromCloud } = await loadRegionTreeConfig(options)
-      if (fromCloud) writeCachedRegionTree(tree)
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
-      this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
-      return tree
+  
+      this._applyCityUi(this.data.activeCityKey || "ALL", {
+        regionTree: normalized
+      })
+  
+      this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
+        regionTree: normalized,
+        cityKey: this.data.activeCityKey || "ALL"
+      })
+  
+      return normalized
+  
     } catch (e) {
-      console.error("regionTree 加载失败：", e)
-      const tree = normalizeRegionTree(DEFAULT_REGION_TREE)
-      this._applyAreaUi(this.data.activeAreaKeys || [], { areaTree: tree })
-      return tree
+      console.error("REGION_TREE 加载失败：", e)
+  
+      const fallback = normalizeRegionTree(DEFAULT_REGION_TREE)
+  
+      this._applyCityUi(this.data.activeCityKey || "ALL", {
+        regionTree: fallback
+      })
+  
+      this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
+        regionTree: fallback,
+        cityKey: this.data.activeCityKey || "ALL"
+      })
+  
+      return fallback
     }
   },
 
   onTapRegion() {
-    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
-    const cityPickerGroups = getCountryGroups(
-      cityTree,
-      this.data.activeCityCountryCode || "US",
-      this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-      { includeAll: false }
+    const regionTree = this.data.regionTree || DEFAULT_REGION_TREE
+    const cityPickerGroups = buildCityPickerGroups(
+      regionTree,
+      this.data.activeCityKey || "ALL",
+      "",
+      { includeAll: true }
     )
+  
     this.setData({
       cityPickerVisible: true,
       citySearchKeyword: "",
@@ -1422,53 +1473,48 @@ Page({
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
-
+  
   onCityPickerCancel() {
     this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
   },
-
+  
   onCitySearchInput(e) {
     const keyword = (e.detail && e.detail.value) || ""
-    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
-    const cityPickerGroups = getCountryGroups(
-      cityTree,
-      this.data.activeCityCountryCode || "US",
-      this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-      { includeAll: false, keyword }
+    const regionTree = this.data.regionTree || DEFAULT_REGION_TREE
+    const cityPickerGroups = buildCityPickerGroups(
+      regionTree,
+      this.data.activeCityKey || "ALL",
+      keyword,
+      { includeAll: true }
     )
+  
     this.setData({
       citySearchKeyword: keyword,
       cityPickerGroups,
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
-
-  onSelectCityCountry(e) {
-    const code = e.currentTarget.dataset.code || "US"
-    const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
-    const citySearchKeyword = this.data.citySearchKeyword || ""
-    const cityPickerGroups = getCountryGroups(cityTree, code, this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY, {
-      includeAll: false,
-      keyword: citySearchKeyword
-    })
-    this.setData({
-      activeCityCountryCode: code,
-      cityCountryTabs: getCountryTabs(cityTree, code),
-      cityPickerGroups,
-      cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
-    })
-  },
-
-  onSelectCity(e) {
-    const key = e.currentTarget.dataset.key || MARKET_DEFAULT_CITY_KEY
+  
+  async onSelectCity(e) {
+    const key = normalizeMarketCityKey(e.currentTarget.dataset.key || "ALL")
     const snapshot = this._applyCityUi(key)
-    this._applyAreaUi(ALL_AREA_KEY, { cityKey: snapshot.key })
-
-    this._resetGoodsStateForFetch({ cityPickerVisible: false, citySearchKeyword: "" })
+  
+    this._applyAreaUi(ALL_AREA_KEY, {
+      cityKey: snapshot.key
+    })
+  
+    this._resetGoodsStateForFetch({
+      cityPickerVisible: false,
+      citySearchKeyword: "",
+      areaPickerVisible: false
+    })
+  
     this.updateMarketHeaderState(0)
+  
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
-    this._fetchFirstPage({ force: true, reason: `city:${snapshot.key}` })
+  
+    await this._fetchFirstPage({ force: true, reason: `city:${snapshot.key}` })
   },
 
   // ====== 核心：映射商品（✅缩略图优先）======
@@ -1522,6 +1568,7 @@ Page({
       roomType: isSublet ? category : x.roomType,
       region: x.region,
       regionState: x.regionState || x.location?.regionState || "",
+      regionCounty: x.regionCounty || x.location?.regionCounty || "",
       regionArea: x.regionArea || x.location?.regionArea || x.location?.areaLabel || "",
       regionKey: x.regionKey || x.location?.regionKey || "",
       regionDisplay: x.regionDisplay || x.region || "",
@@ -1953,17 +2000,7 @@ Page({
   },
 
   async _fetchFirstPage(options = {}) {
-    const filters = {
-      listingType: this.data.activeListingType,
-      category: this.data.activeCategory,
-      cityKey: this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-      cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
-      cityAliases: this.data.activeCityAliases || [],
-      regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
-      regionKeys: this.data.activeAreaKeys || [],
-      regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
-      keyword: this.data.keyword
-    }
+    const filters = this._buildListFilters()
     const sort = this._buildListSort()
     const requestKey = buildListQueryKey(filters, sort)
     const now = Date.now()
@@ -2049,17 +2086,7 @@ Page({
     if (!this.data.cloudHasMore) return false
     if (this.data.isLoadingGoods) return false
     const minDisplayCount = Math.max(0, Number(options.minDisplayCount) || 0)
-    const filters = {
-      listingType: this.data.activeListingType,
-      category: this.data.activeCategory,
-      cityKey: this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-      cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
-      cityAliases: this.data.activeCityAliases || [],
-      regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
-      regionKeys: this.data.activeAreaKeys || [],
-      regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
-      keyword: this.data.keyword
-    }
+    const filters = this._buildListFilters()
     const sort = this._buildListSort()
     const requestKey = buildListQueryKey(filters, sort)
     const requestToken = `${requestKey}|next|${Date.now()}`
@@ -2238,9 +2265,36 @@ Page({
     const minDisplayCount = Math.max(0, Number(options.minDisplayCount) || 0)
     const activeListingType = normalizeListingType(this.data.activeListingType)
 
-    const filtered = [...(allGoods || [])].filter(item =>
-      normalizeListingType(item && item.listingType) === activeListingType
-    )
+    const selectedState = this.data.activeCityKey || "ALL"
+    const selectedCounty = this.data.activeAreaGroupLabel || ""
+    const selectedArea = this.data.activeAreaLabel || ""
+    
+    const filtered = [...(allGoods || [])].filter(item => {
+      if (normalizeListingType(item && item.listingType) !== activeListingType) return false
+    
+      if (selectedState && selectedState !== "ALL") {
+        const itemState = String(item.regionState || item.location?.regionState || "").trim().toUpperCase()
+        if (itemState !== String(selectedState).trim().toUpperCase()) return false
+      }
+    
+      if (this.data.activeAreaKeys && this.data.activeAreaKeys.length) {
+        const itemCounty = String(item.regionCounty || item.location?.regionCounty || "").trim()
+        const itemArea = String(item.regionArea || item.location?.regionArea || item.location?.areaLabel || "").trim()
+        const itemRegionText = String(item.regionDisplay || item.region || "").trim()
+      
+        if (selectedCounty && itemCounty && itemCounty !== selectedCounty) return false
+      
+        if (selectedArea && selectedArea !== ALL_AREA_LABEL) {
+          const matchedArea =
+            itemArea === selectedArea ||
+            itemRegionText.includes(selectedArea)
+      
+          if (!matchedArea) return false
+        }
+      }
+    
+      return true
+    })
 
     // sort（必须在 slice 前做）
     if (this.data.distanceSortActive) {

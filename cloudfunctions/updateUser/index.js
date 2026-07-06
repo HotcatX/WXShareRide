@@ -11,22 +11,6 @@ function normalizeLocationText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
 
-function normalizeCityKey(value) {
-  const key = normalizeLocationText(value).toLowerCase()
-  if (['ny', 'nj', 'nyc', 'new york', 'new jersey', 'jersey', '纽约', '新泽西', '纽约/新泽西'].includes(key)) return 'ny_nj'
-  return normalizeLocationText(value)
-}
-
-function normalizeCityLabel(cityKey, cityLabel) {
-  return normalizeCityKey(cityKey) === 'ny_nj' ? '纽约/新泽西' : normalizeLocationText(cityLabel)
-}
-
-function normalizeRegionState(value) {
-  const key = normalizeLocationText(value).toUpperCase()
-  if (key === 'NY' || key === 'NJ' || key === 'NY_NJ' || key === '纽约' || key === '新泽西') return 'NY_NJ'
-  return normalizeLocationText(value)
-}
-
 function toFiniteNumber(value) {
   if (value === null || value === undefined || value === '') return null
   const n = Number(value)
@@ -38,37 +22,23 @@ function normalizeLocationForSave(location) {
 
   const lat = toFiniteNumber(location.lat ?? location.latitude)
   const lng = toFiniteNumber(location.lng ?? location.longitude)
+
   const displayName = normalizeLocationText(
     location.displayName ||
     location.name ||
     location.address
   )
+
   const address = normalizeLocationText(location.address)
 
-  if (!displayName && !address && (lat === null || lng === null)) return null
+  if (!displayName && !address && lat === null && lng === null) return null
 
   return {
     displayName: displayName || address,
     name: normalizeLocationText(location.name || displayName || address),
-    buildingName: normalizeLocationText(location.buildingName),
-    cityKey: normalizeCityKey(location.cityKey),
-    cityLabel: normalizeCityLabel(location.cityKey, location.cityLabel),
     address,
-    region: normalizeLocationText(location.region || location.bigregion),
-    regionState: normalizeRegionState(location.regionState),
-    regionArea: normalizeLocationText(location.regionArea || location.areaLabel),
-    areaLabel: normalizeLocationText(location.areaLabel || location.regionArea),
-    regionKey: normalizeLocationText(location.regionKey),
-    city: normalizeLocationText(location.city),
-    state: normalizeLocationText(location.state),
-    zip: normalizeLocationText(location.zip),
-    country: normalizeLocationText(location.country || 'US'),
     lat,
-    lng,
-    source: normalizeLocationText(location.source || 'wxChooseLocation'),
-    coordinateAccuracy: normalizeLocationText(location.coordinateAccuracy),
-    provider: normalizeLocationText(location.provider),
-    updatedAtMs: Date.now()
+    lng
   }
 }
 
@@ -81,54 +51,42 @@ exports.main = async (event, context) => {
 
   const { action } = event || {}
 
-  // ============================================================
-  // ============================================================
   if (action === 'addCommonComment') {
     return await handleAddCommonComment(openid, event)
   }
 
-  // ============================================================
-  // B）默认逻辑：editInfo / 登录时补全资料 / addInfo 完善资料
-  // ============================================================
   return await handleNormalUpdate(openid, event)
 }
 
-/**
- * B）普通资料更新（addInfo / editInfo / 登录补全）
- */
 async function handleNormalUpdate(openid, event) {
   const {
     wechatID,
     phone,
-    region,
+    regionPhone,
     name,
     avatarUrl,
     zelleName,
     zelleAccount,
 
-    // 车辆 + 自定义价格（资料页也可能维护这些）
     carNumber,
     carBrand,
     carModel,
-    customPrice,     // { fortLeeNonCore, fortLeeCore }
+    customPrice,
 
     // 住址
-    address,
+    Apartment,
     location,
-
-    cityKey,
-    cityLabel,
-    bigregion,
-    buildingName,
     regionState,
+    regionCounty,
     regionArea,
     regionKey,
     regionDisplay,
     bio
   } = event || {}
-  const normalizedCityKey = normalizeCityKey(cityKey)
-  const normalizedCityLabel = normalizeCityLabel(normalizedCityKey, cityLabel)
-  const normalizedRegionState = normalizeRegionState(regionState)
+
+  const normalizedRegionState = normalizeLocationText(regionState)
+  const normalizedRegionCounty = normalizeLocationText(regionCounty)
+  const normalizedRegionArea = normalizeLocationText(regionArea)
   const normalizedLocation = normalizeLocationForSave(location)
 
   try {
@@ -144,22 +102,17 @@ async function handleNormalUpdate(openid, event) {
 
           wechatID: wechatID || '',
           phone: phone || '',
-          region: region || '',
+          regionPhone: region || '',
           name: name || '',
           avatarUrl: avatarUrl || '',
           zelleName: zelleName || '',
           zelleAccount: zelleAccount || '',
-          address: address || '',
+          Apartment: address || '',
           location: normalizedLocation || {},
 
-          cityKey: normalizedCityKey || '',
-          cityLabel: normalizedCityLabel || '',
-          bigregion: bigregion || '',
-          buildingName: buildingName || '',
           regionState: normalizedRegionState || '',
-          regionArea: regionArea || '',
-          regionKey: regionKey || '',
-          regionDisplay: regionDisplay || '',
+          regionCounty: normalizedRegionCounty || '',
+          regionArea: normalizedRegionArea || '',
 
           carNumber: carNumber || '',
           carBrand: carBrand || '',
@@ -195,29 +148,23 @@ async function handleNormalUpdate(openid, event) {
     }
 
     if (typeof wechatID === 'string')      updateData.wechatID = wechatID
-    if (typeof phone === 'string')         updateData.phone    = phone
-    if (typeof region === 'string')        updateData.region   = region
+    if (typeof phone === 'string') updateData.phone = phone
+    if (typeof regionPhone === 'string') updateData.regionPhone = regionPhone
+    if (typeof Apartment === 'string') updateData.Apartment = Apartment
+    if (typeof regionState === 'string') updateData.regionState = normalizedRegionState
+    if (typeof regionCounty === 'string') updateData.regionCounty = normalizedRegionCounty
+    if (typeof regionArea === 'string') updateData.regionArea = normalizedRegionArea
     if (typeof name === 'string')          updateData.name     = name
     if (typeof avatarUrl === 'string')     updateData.avatarUrl = avatarUrl
     if (typeof zelleName === 'string')     updateData.zelleName = zelleName
     if (typeof zelleAccount === 'string')  updateData.zelleAccount = zelleAccount
-    if (typeof address === 'string')       updateData.address = address
     if (Object.prototype.hasOwnProperty.call(event || {}, 'location')) {
       updateData.location = normalizedLocation || {}
     }
-    if (typeof cityKey === 'string')      updateData.cityKey = normalizedCityKey
-    if (typeof cityLabel === 'string')    updateData.cityLabel = normalizedCityLabel
-    if (typeof bigregion === 'string')    updateData.bigregion = bigregion
-    if (typeof buildingName === 'string') updateData.buildingName = buildingName
-    if (typeof regionState === 'string')  updateData.regionState = normalizedRegionState
-    if (typeof regionArea === 'string')   updateData.regionArea = regionArea
-    if (typeof regionKey === 'string')    updateData.regionKey = regionKey
-    if (typeof regionDisplay === 'string') updateData.regionDisplay = regionDisplay
 
     if (typeof carNumber === 'string') updateData.carNumber = carNumber
     if (typeof carBrand === 'string')  updateData.carBrand  = carBrand
     if (typeof carModel === 'string')  updateData.carModel  = carModel
-    if (typeof bio === 'string') updateData.bio = bio
 
     // 资料页用整对象覆盖 customPrice（与你原逻辑一致）
     if (customPrice && typeof customPrice === 'object') {

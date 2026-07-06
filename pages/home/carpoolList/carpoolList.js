@@ -8,10 +8,7 @@ const {
   RIDE_DEFAULT_CITY_KEY,
   RIDE_SERVICE_CITY_LABEL,
   RIDE_CITY_STORAGE_KEY,
-<<<<<<< HEAD
-=======
   loadCityTreeConfig,
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
   normalizeCityTree,
   getCitySnapshot,
   getCountryTabs,
@@ -37,11 +34,10 @@ const LIST_CACHE_KEY = "carpoolListDataV1"
 const LIST_CACHE_TTL = 10 * 60 * 1000
 const LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
-const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前拼车优先服务纽约/新泽西。"
+const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前优先服务纽约/新泽西。"
 const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
 
-<<<<<<< HEAD
-=======
+
 const DEFAULT_FROM_PLACES = [
   "Manhattan",
   "哥大/Columbia",
@@ -69,8 +65,6 @@ const DEFAULT_TO_PLACES = [
   "Brooklyn",
   "Queens"
 ]
-
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
 Page({
   data: {
     loading: true,
@@ -156,11 +150,8 @@ Page({
     this._initFilterFromShare = { from, to, time }
 
     const cachedOptions = this.getCachedFilterOptions()
-<<<<<<< HEAD
     const defaultOptions = cachedOptions || this.buildFilterOptionData([], [])
-=======
-    const defaultOptions = cachedOptions || this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES)
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+    // const defaultOptions = cachedOptions || this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES)
 
     this.setData({
       statusBarHeight: info.statusBarHeight,
@@ -254,34 +245,26 @@ Page({
 
   async loadCityTreeFromCloud() {
     try {
-<<<<<<< HEAD
-      const db = wx.cloud.database()
-      let docData = null
-      try {
-        const doc = await db.collection("cityTree").doc("default").get()
-        docData = doc?.data || null
-      } catch (e) {}
-
-      if (!docData) {
-        const res = await db.collection("cityTree").limit(1).get()
-        docData = (res.data || [])[0] || null
-      }
-
-      const tree = normalizeCityTree(docData)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
-    } catch (e) {
-      console.error("cityTree 加载失败：", e)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: DEFAULT_CITY_TREE })
-=======
       const tree = await loadCityTreeConfig()
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+  
+      this._applyCityUi(
+        this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+        { cityTree: tree }
+      )
+  
       return tree
+  
     } catch (e) {
       console.error("cityTree 加载失败：", e)
+  
       const tree = normalizeCityTree(DEFAULT_CITY_TREE)
-      this._applyCityUi(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, { cityTree: tree })
+  
+      this._applyCityUi(
+        this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+        { cityTree: tree }
+      )
+  
       return tree
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     }
   },
 
@@ -406,14 +389,7 @@ Page({
       const toList = Array.isArray(cached.toPlaceList) ? cached.toPlaceList : []
       if (!fromList.length && !toList.length) return null
 
-<<<<<<< HEAD
       return this.buildFilterOptionData(fromList, toList)
-=======
-      return this.buildFilterOptionData(
-        [...DEFAULT_FROM_PLACES, ...fromList],
-        [...DEFAULT_TO_PLACES, ...toList]
-      )
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
     } catch (e) {
       return null
     }
@@ -544,7 +520,7 @@ Page({
     const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
     const query = `city=${activeCityKey || RIDE_DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
     return getApp().withReferralShare({
-      title: '拼车/求车线路列表',
+      title: '线路列表',
       path: `/pages/home/carpoolList/carpoolList?${query}`
     })
   },
@@ -552,7 +528,7 @@ Page({
   onShareTimeline() {
     const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
     return getApp().withReferralShare({
-      title: '拼车/求车线路列表',
+      title: '线路列表',
       query: `city=${activeCityKey || RIDE_DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
     })
   },
@@ -584,10 +560,10 @@ Page({
   async loadFromToOptionsFromDBMerged() {
     if (this._optionsLoading) return
     this._optionsLoading = true
-<<<<<<< HEAD
   
     try {
       const db = wx.cloud.database()
+  
       const [depRes, arrRes] = await Promise.all([
         db.collection("Departure").get(),
         db.collection("Arrival").get()
@@ -596,49 +572,31 @@ Page({
       const depDocs = depRes.data || []
       const arrDocs = arrRes.data || []
   
-      const fromRaw = depDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
-      const toRaw = arrDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
+      const fromRaw = depDocs.flatMap(doc => this.extractPlacesFromDoc(doc))
+      const toRaw = arrDocs.flatMap(doc => this.extractPlacesFromDoc(doc))
   
       const fromList = this.uniqNonEmpty(fromRaw)
       const toList = this.uniqNonEmpty(toRaw)
   
-=======
-
-    try {
-      const db = wx.cloud.database()
-      const [dep1, arr1, dep2, arr2] = await Promise.all([
-        db.collection("Departure").get(),
-        db.collection("Arrival").get(),
-        db.collection("Departure_Request").get(),
-        db.collection("Arrival_Request").get()
-      ])
-
-      const depDocs = [...(dep1.data || []), ...(dep2.data || [])]
-      const arrDocs = [...(arr1.data || []), ...(arr2.data || [])]
-
-      const fromRaw = depDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
-      const toRaw = arrDocs.flatMap((doc) => this.extractPlacesFromDoc(doc))
-
-      const fromList = this.uniqNonEmpty([...DEFAULT_FROM_PLACES, ...fromRaw])
-      const toList = this.uniqNonEmpty([...DEFAULT_TO_PLACES, ...toRaw])
-
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
       this.cacheFilterOptions(fromList, toList)
-      this.applyFilterOptionData(this.buildFilterOptionData(fromList, toList))
+      this.applyFilterOptionData(
+        this.buildFilterOptionData(fromList, toList)
+      )
+  
     } catch (e) {
-      console.error("loadFromToOptionsFromDBMerged error", e)
-<<<<<<< HEAD
+  
+      console.error("loadFromToOptionsFromDBMerged", e)
   
       const cachedOptions = this.getCachedFilterOptions()
+  
       if (cachedOptions) {
         this.applyFilterOptionData(cachedOptions)
       } else {
-        this.applyFilterOptionData(this.buildFilterOptionData([], []))
-=======
-      if (!this.data.fromPlaceList.length || !this.data.toPlaceList.length) {
-        this.applyFilterOptionData(this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES))
->>>>>>> 184e3d19a3c40e80a00744bc03f3614508a50b61
+        this.applyFilterOptionData(
+          this.buildFilterOptionData([], [])
+        )
       }
+  
     } finally {
       this._optionsLoading = false
     }
@@ -793,9 +751,9 @@ Page({
           : (typeof trip.requestPassengerCount === "number"
               ? trip.requestPassengerCount
               : 1)
-      trip._rightLabel = "求车线路"
+      trip._rightLabel = "乘客线路"
     } else {
-      trip._rightLabel = "拼车线路"
+      trip._rightLabel = "司机线路"
     }
 
     return trip
@@ -935,7 +893,7 @@ Page({
 
       if (!result.success) {
         if (showLoading) {
-          showDataError("加载失败", result.errorMsg || "load failed", "拼车列表加载失败，请稍后重试。")
+          showDataError("加载失败", result.errorMsg || "load failed", "列表加载失败，请稍后重试。")
         }
         this.setData({
           loading: false,
@@ -987,7 +945,7 @@ Page({
       if ((this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY) !== requestDisplayCityKey || !this.data.isRideServiceAvailable) {
         return
       }
-      if (showLoading) showDataError("加载失败", err, "拼车列表加载失败，请稍后重试。")
+      if (showLoading) showDataError("加载失败", err, "列表加载失败，请稍后重试。")
       this.setData({
         loading: false,
         hasLoadedOnce: true

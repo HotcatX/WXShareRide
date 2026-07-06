@@ -152,7 +152,7 @@
         <checkbox-group bindchange="onZelleCheckboxChange">
           <label class="create-check">
             <checkbox value="showZelle" checked="{{showZelle}}" />
-            <text class="create-check-text">公开 Zelle 信息给拼车成功的乘客</text>
+            <text class="create-check-text">公开 Zelle 信息给加入的乘客</text>
           </label>
         </checkbox-group>
       </view>
@@ -276,7 +276,7 @@
 
       <view class="ride-card ride-notice">
         <text class="ride-notice-title">求车费用</text>
-        <text class="ride-notice-text">请参考 Uber/Lyft 打车费用；拼车成功后费用平摊。</text>
+        <text class="ride-notice-text">请参考 Uber/Lyft 费用；加入乘客的平摊出行费用。</text>
       </view>
 
       <!-- <view class="ride-card ride-notice create-notice-muted">

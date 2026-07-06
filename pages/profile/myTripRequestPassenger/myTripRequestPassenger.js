@@ -357,7 +357,7 @@ Page({
 
     const reason = await askReason({
       title: '剔除司机',
-      content: '理由会作为消息发送给该司机。',
+      content: '理由会发送给该司机',
       reasons: [
         '联系不上司机',
         '司机联系方式有误',
@@ -397,7 +397,7 @@ Page({
 
     const reason = await askReason({
       title: '剔除乘客',
-      content: '理由会作为消息发送给该乘客。',
+      content: '理由会发送给该乘客',
       reasons: [
         '联系不上乘客',
         '乘客联系方式有误',
@@ -435,7 +435,7 @@ Page({
 
     const reason = await askReason({
       title: '退出并删除路线',
-      content: '理由会作为消息发送给司机和已加入乘客。',
+      content: '理由会发送给司机和其他乘客',
       reasons: [
         '误创行程',
         '时间/地点填写错误',
@@ -480,7 +480,7 @@ Page({
 
     wx.showModal({
       title: '拉黑用户',
-      content: `拉黑后，你们将无法加入彼此的拼车路线。确认拉黑${targetName}？`,
+      content: `拉黑后，你们将无法加入彼此的路线。确认拉黑${targetName}？`,
       confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
@@ -524,8 +524,8 @@ Page({
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
     return getApp().withReferralShare({
-      title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
-      path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${requestId}`
+      title: title ? `${title}｜寻找顺路同伴` : '寻找顺路同伴',
+      path: `/pages/home/requestDetail/requestDetail?id=${requestId}`
     })
   },
 
@@ -533,7 +533,7 @@ Page({
     const { requestId, fromText, toText, dateText, weekdayText, timeText } = this.data
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
     return getApp().withReferralShare({
-      title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
+      title: title ? `${title}｜寻找顺路同伴` : '寻找顺路同伴',
       query: `id=${requestId}`
     })
   }

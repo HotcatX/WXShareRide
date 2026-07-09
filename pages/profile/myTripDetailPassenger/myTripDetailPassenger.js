@@ -526,7 +526,7 @@ Page({
     // 乘客求车记录分享指向接单详情
     return getApp().withReferralShare({
       title,
-      path: `/pages/home/driverPickupDetail/driverPickupDetail?id=${tripId}`
+      path: `/pages/home/requestDetail/requestDetail?id=${tripId}`
     })
   },
 
@@ -543,7 +543,7 @@ Page({
 
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路司机` : '寻找顺路司机',
-      query: `id=${tripId}`
+      query: `id=${tripId}&sourceType=request`
     })
   }
 

@@ -1,5 +1,6 @@
 // pages/home/driverCarpoolTemplate/driverCarpoolTemplate.js
 const { showDataError } = require("../../../utils/error")
+const { callUpdateUser } = require("../../../utils/userProfileUpdate")
 
 Page({
   data: {
@@ -485,7 +486,7 @@ Page({
           updatePayload.customPrice = { fortLeeCore: referencePrice }
         }
 
-        await wx.cloud.callFunction({ name: "updateUser", data: updatePayload })
+        await callUpdateUser(updatePayload)
       } catch (e) {
       }
 

@@ -950,6 +950,8 @@ Page({
     this._setAdminForm({ ...this.data.adminForm, [field]: !this.data.adminForm[field] })
   },
 
+  stopTouchMove() {},
+
   setAdminListingType(listingType) {
     if (this.data.adminForm?.imageUploading) {
       wx.showToast({ title: "图片上传中", icon: "none" })

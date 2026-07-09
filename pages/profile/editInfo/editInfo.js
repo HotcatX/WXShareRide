@@ -1,5 +1,6 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
+const { callUpdateUser } = require('../../../utils/userProfileUpdate')
 const {
   DEFAULT_REGION_TREE,
   normalizeRegionTree,
@@ -701,16 +702,18 @@ Page({
     //   return false
     // }
   
-    const phoneValid = region === 'CN'
-      ? /^1\d{10}$/.test(phone)
-      : /^\d{10}$/.test(phone)
-  
-    if (!phoneValid) {
-      wx.showToast({
-        title: region === 'CN' ? '请输入正确的中国手机号' : '请输入10位美国手机号',
-        icon: 'none'
-      })
-      return false
+    if (phone) {
+      const phoneValid = region === 'CN'
+        ? /^1\d{10}$/.test(phone)
+        : /^\d{10}$/.test(phone)
+
+      if (!phoneValid) {
+        wx.showToast({
+          title: region === 'CN' ? '请输入正确的中国手机号' : '请输入10位美国手机号',
+          icon: 'none'
+        })
+        return false
+      }
     }
   
     return true
@@ -824,10 +827,7 @@ Page({
     this._activePayloadKey = payloadKey
 
     try {
-      const savePromise = wx.cloud.callFunction({
-        name: 'updateUser',
-        data: updateData
-      })
+      const savePromise = callUpdateUser(updateData)
       this._activeSavePromise = savePromise
       const res = await savePromise
       const result = res.result || {}

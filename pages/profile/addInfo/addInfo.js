@@ -1,6 +1,7 @@
 // pages/profile/addInfo/addInfo.js
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
+const { callUpdateUser } = require('../../../utils/userProfileUpdate')
 
 Page({
   data: {
@@ -8,7 +9,7 @@ Page({
     wechat: '',
     phone: '',               // ⭐ 手机号改成选填
     regionIndex: 0,
-    regionPhone: ['美国', '中国大陆'],
+    regions: ['美国', '中国大陆'],
     statusBarHeight: 80,
     pageTitle: "请完成以下信息",
 
@@ -68,7 +69,7 @@ Page({
         this.setData({
           wechat: user.wechatID || '',
           phone: user.phone || '',               // ⭐ 若无则为空（选填）
-          regionIndex: (user.regionPhone === 'CN') ? 1 : 0,
+          regionIndex: ((user.regionPhone || user.region) === 'CN') ? 1 : 0,
           name: user.name || '',
           avatarUrl: user.avatarUrl || this.data.avatarUrl,
           zelleName: user.zelleName || '',
@@ -158,7 +159,7 @@ Page({
   },
 
   async saveToCloud() {
-    const { wechat, phone, regionIndex, address } = this.data
+    const { wechat, phone, regionIndex } = this.data
     const region = regionIndex === 0 ? 'US' : 'CN'
     const updateData = {}
 
@@ -174,11 +175,10 @@ Page({
 
       if (cnValid || usValid) {
         updateData.phone = phone
-        updateData.region = region
       }
     }
 
-    updateData.address = address || ''
+    updateData.regionPhone = region
 
     // 写入其他字段
     updateData.name = this.data.name || ''
@@ -192,10 +192,7 @@ Page({
     }
 
     try {
-      const res = await wx.cloud.callFunction({
-        name: 'updateUser',
-        data: updateData
-      })
+      const res = await callUpdateUser(updateData)
       const result = res.result || {}
       if (!result.ok) {
         wx.showToast({ title: result.errorMsg || '保存失败', icon: 'none' })

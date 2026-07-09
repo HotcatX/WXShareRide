@@ -329,12 +329,7 @@ function buildSellerFromManagedItem(item = {}) {
 function getMarketLoginState() {
   const openid = wx.getStorageSync('openid') || ''
   const isGuest = !!wx.getStorageSync('isGuest')
-
-  // 按你项目实际登录缓存再补充判断
-  const userInfo = wx.getStorageSync('userInfo') || null
-  const hasUserInfo = !!(userInfo && typeof userInfo === 'object' && Object.keys(userInfo).length)
-
-  const isLoggedIn = !!(openid && !isGuest && hasUserInfo)
+  const isLoggedIn = !!(openid && !isGuest)
 
   return {
     openid: isLoggedIn ? openid : '',
@@ -572,12 +567,10 @@ Page({
     const detailItem = buildDetailItem(normalized.item)
     const loginState = getMarketLoginState()
     const myOpenid = loginState.openid
-    const isOwner = !!(
-      loginState.isLoggedIn &&
-      myOpenid &&
-      detailItem._openid &&
-      myOpenid === detailItem._openid
-    )
+    const isOwner = !!(loginState.isLoggedIn && (
+      (myOpenid && detailItem._openid && myOpenid === detailItem._openid) ||
+      (!options.fromCache && normalized.isOwner)
+    ))
     const imgUrls = normalized.imgUrls
 
     this.setData({
@@ -768,11 +761,7 @@ Page({
 
   onViewSellerProfile() {
     if (this.data.item?.managedByAdmin) {
-
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
-
-      wx.showToast({ title: "无信息", icon: "none" })
-
       return
     }
     const openid = this.data.item?._openid

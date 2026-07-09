@@ -1,5 +1,6 @@
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
+const { callUpdateUser } = require("../../../utils/userProfileUpdate")
 const {
   buildProfileDisplayLocation,
   buildProfileApartmentDisplay
@@ -486,22 +487,12 @@ Page({
     }
   },
 
-  _updateUserBioByCloudFunction(bio) {
-    return new Promise((resolve, reject) => {
-      wx.cloud.callFunction({
-        name: 'updateUser',
-        data: { bio },
-        success: (res) => {
-          const ok = res?.result?.ok
-          if (ok === false) {
-            reject(new Error(res?.result?.errorMsg || '更新失败'))
-            return
-          }
-          resolve(res)
-        },
-        fail: reject
-      })
-    })
+  async _updateUserBioByCloudFunction(bio) {
+    const res = await callUpdateUser({ bio })
+    if (res?.result?.ok === false) {
+      throw new Error(res?.result?.errorMsg || '更新失败')
+    }
+    return res
   },
 
   loadUserInfo() {

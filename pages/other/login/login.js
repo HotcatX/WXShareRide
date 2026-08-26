@@ -2,7 +2,16 @@
 const referral = require("../../../utils/referral")
 
 Page({
-  data: { logging: false },
+  data: {
+    logging: false,
+    privacyAgreed: false
+  },
+
+  togglePrivacyAgreement() {
+    this.setData({
+      privacyAgreed: !this.data.privacyAgreed
+    })
+  },
 
   backToPending(pendingUrl) {
     // 优先：如果上一页存在，直接返回上一页（通常是从 home navigateTo 进来的）
@@ -53,6 +62,15 @@ Page({
 
   async onLoginTap() {
     if (this.data.logging) return
+  
+    if (!this.data.privacyAgreed) {
+      wx.showToast({
+        title: '请先阅读并同意《隐私政策》',
+        icon: 'none'
+      })
+      return
+    }
+  
     this.setData({ logging: true })
 
     try {
@@ -114,15 +132,23 @@ Page({
   },
 
   onGuestTap() {
+    if (!this.data.privacyAgreed) {
+      wx.showToast({
+        title: '请先阅读并同意《隐私政策》',
+        icon: 'none'
+      })
+      return
+    }
+  
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
-
+  
     wx.removeStorageSync('postLoginAction')
-
+  
     const pending = wx.getStorageSync('pendingPage') || {}
     const pendingUrl = (pending && pending.url) ? String(pending.url) : ''
     wx.removeStorageSync('pendingPage')
-
+  
     this.backToPending(pendingUrl)
   },
 

@@ -9,7 +9,7 @@
 
       <view class="login-actions">
         <button
-          class="login-button ride-btn ride-primary ride-btn--primary {{logging ? 'ride-btn--disabled' : ''}}"
+          class="login-button ride-btn ride-primary ride-btn--primary {{logging ? 'ride-btn--disabled' : ''}} {{!privacyAgreed ? 'login-button--privacy-disabled' : ''}}"
           bindtap="onLoginTap"
           loading="{{logging}}"
           disabled="{{logging}}"
@@ -19,7 +19,7 @@
         </button>
 
         <button
-          class="login-button ride-btn ride-secondary ride-btn--secondary {{logging ? 'ride-btn--disabled' : ''}}"
+          class="login-button ride-btn ride-secondary ride-btn--secondary {{logging ? 'ride-btn--disabled' : ''}} {{!privacyAgreed ? 'login-button--privacy-disabled' : ''}}"
           bindtap="onGuestTap"
           disabled="{{logging}}"
           hover-class="ride-pressed"
@@ -34,8 +34,26 @@
       </view> -->
 
       <view class="privacy-footer">
-        <text>继续前请阅读</text>
-        <text class="privacy-link" bindtap="goPrivacy">《隐私政策》</text>
+        <view class="privacy-row">
+          <view
+            class="privacy-checkbox {{privacyAgreed ? 'privacy-checkbox--checked' : ''}}"
+            bindtap="togglePrivacyAgreement"
+          >
+            <text wx:if="{{privacyAgreed}}" class="privacy-checkmark">✓</text>
+          </view>
+
+          <view class="privacy-agreement-text">
+            <text
+              class="privacy-text"
+              bindtap="togglePrivacyAgreement"
+            >我已阅读并同意</text>
+
+            <text
+              class="privacy-link"
+              catchtap="goPrivacy"
+            >《隐私政策》</text>
+          </view>
+        </view>
       </view>
     </view>
   </view>

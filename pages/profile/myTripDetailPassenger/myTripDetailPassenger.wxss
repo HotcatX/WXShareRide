@@ -162,3 +162,92 @@ page{
   color: #14171a;
   line-height: 40rpx;
 }
+
+.my-vehicle-box {
+  margin-top: 28rpx;
+  padding: 0 24rpx;
+  background: #f7f9fc;
+  border: 2rpx solid #e6ebf2;
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+
+.my-vehicle-title {
+  display: block;
+  padding: 22rpx 0 14rpx;
+  font-size: 28rpx;
+  line-height: 40rpx;
+  font-weight: 700;
+  color: #1d2939;
+}
+
+.my-vehicle-row {
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+  border-top: 1rpx solid #e5eaf0;
+  box-sizing: border-box;
+}
+
+.my-vehicle-label {
+  width: 150rpx;
+  flex-shrink: 0;
+  font-size: 25rpx;
+  color: #7b8494;
+}
+
+.my-vehicle-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 27rpx;
+  line-height: 38rpx;
+  font-weight: 600;
+  color: #202938;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* 独立的车辆信息框 */
+.my-vehicle-box {
+  margin-top: 28rpx;
+  padding: 0 24rpx;
+  background: #f7f9fc;
+  border: 2rpx solid #e6ebf2;
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+
+.my-vehicle-title {
+  display: block;
+  padding: 22rpx 0 14rpx;
+  font-size: 28rpx;
+  line-height: 40rpx;
+  font-weight: 700;
+  color: #1d2939;
+}
+
+.my-vehicle-row {
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+  border-top: 1rpx solid #e5eaf0;
+  box-sizing: border-box;
+}
+
+.my-vehicle-label {
+  width: 150rpx;
+  flex-shrink: 0;
+  font-size: 25rpx;
+  color: #7b8494;
+}
+
+.my-vehicle-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 27rpx;
+  line-height: 38rpx;
+  font-weight: 600;
+  color: #202938;
+  text-align: right;
+  word-break: break-all;
+}

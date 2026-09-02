@@ -48,6 +48,15 @@ function cleanOpenid(value) {
   return String(value || '').trim()
 }
 
+function extractUserInfoDoc(result = {}) {
+  if (!result || typeof result !== 'object') return null
+  if (Array.isArray(result.data)) return result.data[0] || null
+  if (result.data && typeof result.data === 'object') return result.data
+  if (result.userInfo && typeof result.userInfo === 'object') return result.userInfo
+  if (result.user && typeof result.user === 'object') return result.user
+  return null
+}
+
 function getCarpoolDriverOpenid(trip = {}) {
   return cleanOpenid(trip._openid)
 }
@@ -178,13 +187,26 @@ Page({
     // ✅ 允许游客浏览：不再 onLoad 强制登录
     this.setData({ tripId })
     const hasPreview = this.applyCachedPreview(tripId)
-    this.loadTripDetail(tripId, { silent: hasPreview })
+    const loadPromise = this.loadTripDetail(tripId, { silent: hasPreview })
+    this._detailLoadPromise = loadPromise
+    loadPromise.then(
+      () => {
+        if (this._detailLoadPromise === loadPromise) this._detailLoadPromise = null
+      },
+      () => {
+        if (this._detailLoadPromise === loadPromise) this._detailLoadPromise = null
+      }
+    )
 
   },
 
 
-  onShow() {
-    this.loadUserSpots()
+  async onShow() {
+    try {
+      await this.loadUserSpots()
+    } catch (e) {
+      console.warn('loadUserSpots onShow failed:', e)
+    }
 
     // ✅ 从 login 选“游客身份查看”回来的提示
     const tip = wx.getStorageSync('needLoginToast')
@@ -193,11 +215,57 @@ Page({
       wx.showToast({ title: tip, icon: 'none', duration: 2000 })
     }
 
+    // 登录/注册资料完成后，恢复用户刚才的加入操作。
+    const resumedJoin = await this.resumeJoinAfterLogin()
+    if (resumedJoin) return
+
     // ✅ 登录/完善资料回来后，静默刷新一下按钮状态（hasJoined/isOwner）
     const { tripId } = this.data
     if (!tripId || this.data.loading || this.data.loadError) return
     if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
     this.loadTripDetail(tripId, { silent: true })
+  },
+
+  async resumeJoinAfterLogin() {
+    const action = wx.getStorageSync('postLoginAction') || {}
+    if (!action || action.type !== 'joinCarpool') return false
+
+    const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
+    const actionTripId = String(action.tripId || '')
+    if (!currentId || !actionTripId || currentId !== actionTripId) return false
+
+    const openid = wx.getStorageSync('openid') || ''
+    if (!openid || this._resumingPostLoginJoin) return false
+
+    this._resumingPostLoginJoin = true
+    try {
+      // 如果注册资料页通过 redirectTo 回到一个新建的详情页，先等待路线加载完成。
+      if (this._detailLoadPromise) await this._detailLoadPromise
+      if (!this.data.trip) {
+        await this.loadTripDetail(currentId, { silent: false, force: true })
+      }
+      if (!this.data.trip) return false
+
+      // 只有资料确实已经写入，并且微信号存在时才自动继续加入。
+      const userRes = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      const profile = extractUserInfoDoc(userRes.result || {})
+      if (!profile || !String(profile.wechatID || '').trim()) return false
+
+      this.setData({
+        pickupAddress: String(action.pickupAddress || this.data.pickupAddress || ''),
+        dropoffAddress: String(action.dropoffAddress || this.data.dropoffAddress || '')
+      })
+
+      wx.removeStorageSync('postLoginAction')
+      wx.removeStorageSync('pendingPage')
+      await this.joinCarpool()
+      return true
+    } catch (e) {
+      console.error('resumeJoinAfterLogin error:', e)
+      return false
+    } finally {
+      this._resumingPostLoginJoin = false
+    }
   },
 
   onPickupFocus() {
@@ -308,9 +376,12 @@ Page({
 
     wx.setStorageSync('pendingPage', { url: pendingUrl })
     wx.setStorageSync('postLoginAction', {
-      type: 'requireProfile',
+      type: 'joinCarpool',
       from: 'tripDetail',
-      returnUrl: pendingUrl
+      tripId: id,
+      returnUrl: pendingUrl,
+      pickupAddress: String(this.data.pickupAddress || ''),
+      dropoffAddress: String(this.data.dropoffAddress || '')
     })
 
     wx.navigateTo({ url: LOGIN_PAGE })
@@ -562,10 +633,10 @@ Page({
 
       // 从云端读取当前用户资料（用于写 passengers）
       const userRes = await wx.cloud.callFunction({ name: 'getUserInfo' })
-      const list = (userRes.result && userRes.result.data) || []
+      const userDoc = extractUserInfoDoc(userRes.result || {})
 
       // 已登录但资料不存在：引导 addInfo
-      if (!list.length) {
+      if (!userDoc) {
         const id = tripId || (trip && trip._id) || ''
         const pendingUrl = `/pages/home/tripDetail/tripDetail?id=${id}`
         wx.setStorageSync('pendingPage', { url: pendingUrl })
@@ -574,8 +645,7 @@ Page({
         return
       }
 
-      const userInfo = list[0]
-      userInfo._openid = openid
+      const userInfo = { ...userDoc, _openid: openid }
 
       // 微信号校验
       if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {

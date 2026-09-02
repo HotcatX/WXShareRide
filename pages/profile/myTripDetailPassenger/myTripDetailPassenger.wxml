@@ -61,50 +61,141 @@
       </view>
     </view>
 
-    <view class="ride-card ride-card-pad">
-      <text class="ride-section-title">司机信息</text>
+    <view wx:if="{{driverInfo}}" class="ride-card ride-card-pad">
+      <view class="ride-row-between my-section-head">
+        <text class="ride-section-title">司机信息</text>
+        <view
+          wx:if="{{kickMode && !isRequestCompleted}}"
+          class="ride-copy my-kick"
+          bindtap="onKickDriver"
+        >
+          剔除
+        </view>
+      </view>
 
-      <view wx:if="{{driverInfo}}" class="ride-person my-driver">
-        <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
+      <!-- 司机个人资料 -->
+      <view class="ride-person">
+        <image
+          class="ride-avatar"
+          src="{{driverInfo.avatarUrl || defaultAvatarUrl}}"
+          mode="aspectFill"
+        />
+
         <view class="ride-person-main">
-          <text class="ride-person-name">{{driverInfo.name || '未设置昵称'}}</text>
-          <text class="ride-social-line">{{driverInfo.rideStatsText || '暂无记录'}}</text>
+          <text class="ride-person-name">
+            {{driverInfo.name || '未设置昵称'}}
+          </text>
+
+          <text class="ride-social-line">
+            {{driverInfo.rideStatsText || '暂无记录'}}
+          </text>
+
+          <!-- 联系方式 -->
           <view class="ride-info-grid">
-            <view wx:if="{{driverInfo.carNumber}}" class="ride-info-row">
-              <text class="ride-info-label">车牌</text>
-              <text class="ride-info-value">{{driverInfo.carNumber}}</text>
-              <view></view>
-            </view>
             <view class="ride-info-row">
               <text class="ride-info-label">微信</text>
-              <text class="ride-info-value">{{driverInfo.wechatID || '未填写'}}</text>
-              <view wx:if="{{driverInfo.wechatID}}" class="ride-copy" data-text="{{driverInfo.wechatID}}" bindtap="onCopyText">复制</view>
+              <text class="ride-info-value">
+                {{driverInfo.wechatID || '未填写'}}
+              </text>
+              <view
+                wx:if="{{driverInfo.wechatID}}"
+                class="ride-copy"
+                data-text="{{driverInfo.wechatID}}"
+                bindtap="onCopyText"
+              >
+                复制
+              </view>
             </view>
+
             <view class="ride-info-row">
               <text class="ride-info-label">手机</text>
-              <text class="ride-info-value">{{driverInfo.phone || '未填写'}}</text>
-              <view wx:if="{{driverInfo.phone}}" class="ride-copy" data-text="{{driverInfo.phone}}" bindtap="onCopyText">复制</view>
+              <text class="ride-info-value">
+                {{driverInfo.phone || '未填写'}}
+              </text>
+              <view
+                wx:if="{{driverInfo.phone}}"
+                class="ride-copy"
+                data-text="{{driverInfo.phone}}"
+                bindtap="onCopyText"
+              >
+                复制
+              </view>
             </view>
-            <view wx:if="{{driverInfo.zelleName}}" class="ride-info-row">
+
+            <view class="ride-info-row">
               <text class="ride-info-label">Zelle</text>
-              <text class="ride-info-value">{{driverInfo.zelleName}}</text>
-              <view></view>
-            </view>
-            <view wx:if="{{driverInfo.zelleAccount}}" class="ride-info-row">
-              <text class="ride-info-label">账号</text>
-              <text class="ride-info-value">{{driverInfo.zelleAccount}}</text>
-              <view class="ride-copy" data-text="{{driverInfo.zelleAccount}}" bindtap="onCopyText">复制</view>
+              <text class="ride-info-value">
+                {{driverInfo.zelleAccount || '未填写'}}
+              </text>
+              <view
+                wx:if="{{driverInfo.zelleAccount}}"
+                class="ride-copy"
+                data-text="{{driverInfo.zelleAccount}}"
+                bindtap="onCopyText"
+              >
+                复制
+              </view>
             </view>
           </view>
-          <view class="ride-person-actions">
-            <view wx:if="{{isTripCompleted && !driverInfo.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '司机'}}" bindtap="onRateDriver">评价</view>
-            <view wx:if="{{isTripCompleted && driverInfo.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '司机'}}" bindtap="onRateDriver">已评价</view>
-            <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{driverInfo._openid}}" data-name="{{driverInfo.name || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+
+          <view wx:if="{{!kickMode}}" class="ride-person-actions">
+            <view
+              wx:if="{{isRequestCompleted && !driverInfo.hasRated}}"
+              class="ride-mini-btn ride-mini-btn--accent"
+              data-openid="{{driverInfo._openid}}"
+              data-name="{{driverInfo.name || '司机'}}"
+              bindtap="onRateDriver"
+            >
+              评价
+            </view>
+
+            <view
+              wx:if="{{isRequestCompleted && driverInfo.hasRated}}"
+              class="ride-mini-btn ride-mini-btn--disabled"
+              data-openid="{{driverInfo._openid}}"
+              data-name="{{driverInfo.name || '司机'}}"
+              bindtap="onRateDriver"
+            >
+              已评价
+            </view>
+
+            <view
+              class="ride-mini-btn ride-mini-btn--danger"
+              data-openid="{{driverInfo._openid}}"
+              data-name="{{driverInfo.name || '该用户'}}"
+              bindtap="onBlockUser"
+            >
+              拉黑
+            </view>
           </view>
         </view>
       </view>
 
-      <view wx:else class="my-empty">暂未获取到司机信息</view>
+      <!-- 独立车辆信息框 -->
+      <view class="my-vehicle-box">
+        <text class="my-vehicle-title">车辆信息</text>
+
+        <view class="my-vehicle-row">
+          <text class="my-vehicle-label">车辆品牌</text>
+          <text class="my-vehicle-value">
+            {{driverInfo.carBrand || '未填写'}}
+          </text>
+        </view>
+
+        <view class="my-vehicle-row">
+          <text class="my-vehicle-label">车辆型号</text>
+          <text class="my-vehicle-value">
+            {{driverInfo.carModel || '未填写'}}
+          </text>
+        </view>
+
+        <view class="my-vehicle-row">
+          <text class="my-vehicle-label">车牌号码</text>
+          <text class="my-vehicle-value">
+            {{driverInfo.carNumber || '未填写'}}
+          </text>
+        </view>
+      </view>
     </view>
 
     <view wx:if="{{sourceType === 'request'}}" class="ride-card ride-card-pad">

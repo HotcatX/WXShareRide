@@ -101,9 +101,9 @@ Page({
       }
 
       if (!completed) {
-        // 不清 pendingPage：addInfo 保存后需要回跳
-        wx.removeStorageSync('postLoginAction')
-        wx.navigateTo({ url: '/pages/profile/addInfo/addInfo?from=login' })
+        // 保留 pendingPage 和 postLoginAction，资料保存后还要返回原路线并继续加入。
+        // redirectTo 会用资料页替换登录页，资料页 navigateBack 后直接回到 tripDetail。
+        wx.redirectTo({ url: '/pages/profile/addInfo/addInfo?from=login' })
         return
       }
 
@@ -111,7 +111,8 @@ Page({
       // 已完成资料或不要求完善：回跳
 
       const returnUrl = (action && action.returnUrl) ? String(action.returnUrl) : ''
-      wx.removeStorageSync('postLoginAction')
+      const shouldResumeAction = action && action.type === 'joinCarpool'
+      if (!shouldResumeAction) wx.removeStorageSync('postLoginAction')
 
       if (pendingUrl) {
         wx.removeStorageSync('pendingPage')

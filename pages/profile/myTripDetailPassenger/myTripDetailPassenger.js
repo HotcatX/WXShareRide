@@ -424,7 +424,7 @@ Page({
 
     const reason = await askReason({
       title: '退出路线',
-      content: '理由会发送给相关成员',
+      content: '',
       reasons: [
         '误加行程',
         '本人出行计划有变',
@@ -433,7 +433,7 @@ Page({
         '已找到其他出行方式',
         '其他'
       ],
-      placeholder: '例如临时有事、时间不合适',
+      placeholder: '理由会发送给相关成员',
       confirmText: '继续'
     })
     if (!reason) return

@@ -1,9 +1,0 @@
-{
-  "timeout": 30,
-  "permissions": {
-    "openapi": [
-      "security.msgSecCheck",
-      "security.mediaCheckAsync"
-    ]
-  }
-}

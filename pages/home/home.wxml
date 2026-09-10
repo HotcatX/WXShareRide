@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="ride-shell home-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar" style="{{homeTopbarStyle}}">
@@ -290,3 +292,4 @@
   </view>
   <app-tabbar active="home" market-badge="{{customTabMarketBadge}}" profile-badge="{{customTabProfileBadge}}"></app-tabbar>
 </view>
+</block>

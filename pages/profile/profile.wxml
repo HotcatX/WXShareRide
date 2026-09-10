@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="ride-shell profile-ride">
   <view class="ride-top profile-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar profile-topbar" style="padding-right: {{menuRightSpace}}px;">
@@ -162,3 +164,4 @@
 
   <app-tabbar active="profile" market-badge="{{walletUnreadCount}}" profile-badge="{{unreadCount}}"></app-tabbar>
 </view>
+</block>

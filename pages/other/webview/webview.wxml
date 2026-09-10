@@ -1,4 +1,7 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <web-view wx:if="{{url}}" src="{{url}}" />
 <view wx:else class="webview-empty">
   <text>链接不可用</text>
 </view>
+</block>

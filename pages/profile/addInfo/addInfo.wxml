@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="nav-bar" style="padding-top: {{statusBarHeight}}px;">
   <view class="nav-content">
     <text class="nav-title">{{pageTitle}}</text>
@@ -106,3 +108,4 @@
     </button>
   </view>
 </view>
+</block>

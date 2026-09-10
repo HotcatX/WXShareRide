@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="login-container ride-page">
   <view class="login-shell ride-shell">
     <view class="login-card ride-card ride-card-pad">
@@ -58,3 +60,4 @@
     </view>
   </view>
 </view>
+</block>

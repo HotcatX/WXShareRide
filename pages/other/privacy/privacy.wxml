@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="ride-page privacy-page">
   <view class="privacy-container">
     <view class="privacy-header">
@@ -26,3 +28,4 @@
     </view>
   </view>
 </view>
+</block>

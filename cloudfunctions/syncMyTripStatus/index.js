@@ -4,6 +4,23 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const { createRideCompletionCounter } = require('./rideCompletion')
+const ensureRideCompletion = createRideCompletionCounter({ db: cloud.database({ throwOnNotFound: false }) })
+
+const PERSONAL_SUM_FIELDS = ['countedUsers', 'countedDriverTrips', 'countedPassengerTrips', 'alreadyCountedUsers', 'missingUsers', 'duplicateUsers', 'legacyUsers']
+function newPersonalStats() {
+  return Object.fromEntries(['processedTrips', 'eligibleTrips', 'skippedTrips'].concat(PERSONAL_SUM_FIELDS).map(key => [key, 0]))
+}
+function collectPersonalStats(target, result) {
+  target.processedTrips += 1
+  target[result.eligible ? 'eligibleTrips' : 'skippedTrips'] += 1
+  PERSONAL_SUM_FIELDS.forEach(key => { target[key] += Number(result[key] || 0) })
+}
+function isCancelledOrUnsupported(doc) {
+  const status = String(doc.status || 'open').toLowerCase()
+  if (!['open', 'full', 'past', 'close'].includes(status)) return true
+  return ['isDeleted', 'deleted', 'isCancelled', 'isCanceled', 'cancelled', 'canceled', 'deletedAt', 'cancelledAt', 'canceledAt'].some(key => !!doc[key])
+}
 
 const PUBLIC_STATS_COLLECTION = 'PublicStats'
 const PUBLIC_STATS_DOC_ID = 'home'
@@ -245,33 +262,41 @@ async function updatePastAndCount(type, id, doc, updateData, source) {
   return { updated: false, counted: false, delta: 0 }
 }
 
-async function updateDocs(type, docs, now) {
+async function updateDocs(type, docs, now, personalStats) {
   const collection = type === 'request' ? 'CarpoolRequest' : 'Carpool'
   const source = type === 'request' ? 'syncMyTripStatus:request' : 'syncMyTripStatus:carpool'
-  const tasks = []
-
-  ;(docs || []).forEach(doc => {
-    if (!doc || !doc._id) return
-    const meta = buildDepartureMeta(doc.departures || [])
-    const result = computeStatus(type, doc, now)
-    if (!result.ok) return
-
-    const shouldUpdateMeta = Object.keys(meta).some(key => doc[key] !== meta[key])
-    const shouldUpdateStatus = doc.status !== result.newStatus
-    if (!shouldUpdateMeta && !shouldUpdateStatus) return
-
-    const updateData = Object.assign({}, meta, { updatedAt: now })
-    if (shouldUpdateStatus) updateData.status = result.newStatus
-    const shouldCountPast = result.oldStatus !== 'past' && result.newStatus === 'past'
-    tasks.push(
-      shouldCountPast
-        ? updatePastAndCount(type, doc._id, doc, updateData, source)
-        : db.collection(collection).doc(doc._id).update({ data: updateData }).then(() => ({ updated: true }))
-    )
-  })
-
-  const res = await Promise.all(tasks)
-  return res.filter(item => item && item.updated !== false).length
+  let updated = 0
+  const list = (docs || []).filter(doc => doc && doc._id && !isCancelledOrUnsupported(doc))
+  // Bound concurrent transactions: several trips can belong to the same driver.
+  for (let offset = 0; offset < list.length; offset += 2) {
+    const results = await Promise.all(list.slice(offset, offset + 2).map(async doc => {
+      const oldStatus = normalizeTripStatus(doc.status)
+      let changed = false
+      if (!['past', 'close'].includes(oldStatus)) {
+        const meta = buildDepartureMeta(doc.departures || [])
+        const result = computeStatus(type, doc, now)
+        if (!result.ok) return false
+        const shouldUpdateMeta = Object.keys(meta).some(key => doc[key] !== meta[key])
+        const shouldUpdateStatus = doc.status !== result.newStatus
+        if (shouldUpdateMeta || shouldUpdateStatus) {
+          const updateData = Object.assign({}, meta, { updatedAt: now })
+          if (shouldUpdateStatus) updateData.status = result.newStatus
+          const outcome = result.newStatus === 'past'
+            ? await updatePastAndCount(type, doc._id, doc, updateData, source)
+            : await db.collection(collection).doc(doc._id).update({ data: updateData }).then(() => ({ updated: true }))
+          changed = outcome.updated !== false
+        }
+        if (result.newStatus !== 'past') return changed
+      }
+      // Personal completion is independent of PublicStats and status transitions.
+      // Re-reading inside the transaction makes existing past records retryable.
+      const counted = await ensureRideCompletion({ type, id: doc._id })
+      collectPersonalStats(personalStats, counted)
+      return changed
+    }))
+    updated += results.filter(Boolean).length
+  }
+  return updated
 }
 
 async function fetchMap(collection, ids) {
@@ -350,6 +375,7 @@ exports.main = async () => {
       }
     }
 
+    const personalStats = newPersonalStats()
     const user = userRes.data[0]
     const tripDriver = Array.isArray(user.tripDriver) ? user.tripDriver : []
     const tripDriverJoin = Array.isArray(user.tripDriverJoin) ? user.tripDriverJoin : []
@@ -373,6 +399,17 @@ exports.main = async () => {
       passenger.moved.length +
       passengerCreate.moved.length
 
+
+    const expiredCarpoolIds = uniq(driver.expiredCarpoolIds.concat(passenger.expiredCarpoolIds))
+    const expiredRequestIds = uniq(driverJoin.expiredRequestIds.concat(passenger.expiredRequestIds).concat(passengerCreate.expiredRequestIds))
+
+    const carpoolDocs = expiredCarpoolIds.map(id => carpoolMap.get(id)).filter(Boolean)
+    const requestDocs = expiredRequestIds.map(id => requestMap.get(id)).filter(Boolean)
+
+    const carpoolUpdated = await updateDocs('carpool', carpoolDocs, now, personalStats)
+    const requestUpdated = await updateDocs('request', requestDocs, now, personalStats)
+
+    // Keep active IDs retryable if status or personal counting fails.
     if (movedTotal > 0) {
       await db.collection('userInfo').doc(user._id).update({
         data: {
@@ -389,14 +426,6 @@ exports.main = async () => {
       })
     }
 
-    const expiredCarpoolIds = uniq(driver.expiredCarpoolIds.concat(passenger.expiredCarpoolIds))
-    const expiredRequestIds = uniq(driverJoin.expiredRequestIds.concat(passenger.expiredRequestIds).concat(passengerCreate.expiredRequestIds))
-
-    const carpoolDocs = expiredCarpoolIds.map(id => carpoolMap.get(id)).filter(Boolean)
-    const requestDocs = expiredRequestIds.map(id => requestMap.get(id)).filter(Boolean)
-
-    const carpoolUpdated = await updateDocs('carpool', carpoolDocs, now)
-    const requestUpdated = await updateDocs('request', requestDocs, now)
 
     return {
       ok: true,
@@ -410,7 +439,8 @@ exports.main = async () => {
       requestUpdated,
       carpoolUpdated,
       totalUpdatedCarpool: carpoolUpdated,
-      totalUpdatedCarpoolRequest: requestUpdated
+      totalUpdatedCarpoolRequest: requestUpdated,
+      personalStats
     }
   } catch (e) {
     console.error('syncMyTripStatus error:', e)

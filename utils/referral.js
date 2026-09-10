@@ -1,3 +1,5 @@
+const { isTimelinePreview } = require("./timeline")
+
 const REFERRAL_CODE_KEY = "my_referral_code"
 const PENDING_REFERRAL_KEY = "pending_referral"
 
@@ -44,6 +46,7 @@ function getReferralFromOptions(options = {}) {
 }
 
 function fireReferralCall(data = {}) {
+  if (isTimelinePreview()) return Promise.resolve(null)
   if (!wx.cloud || typeof wx.cloud.callFunction !== "function") return Promise.resolve(null)
   return wx.cloud.callFunction({
     name: "referralApi",
@@ -52,6 +55,7 @@ function fireReferralCall(data = {}) {
 }
 
 function captureReferral(options = {}, source = "") {
+  if (isTimelinePreview()) return ""
   const referralCode = getReferralFromOptions(options)
   if (!referralCode) return ""
 
@@ -74,6 +78,7 @@ function captureReferral(options = {}, source = "") {
 }
 
 function ensureReferralCode() {
+  if (isTimelinePreview()) return Promise.resolve("")
   const cached = getMyReferralCodeSync()
   if (cached) return Promise.resolve(cached)
 
@@ -95,6 +100,7 @@ function ensureReferralCode() {
 }
 
 function bindPendingReferral() {
+  if (isTimelinePreview()) return Promise.resolve(null)
   const pending = wx.getStorageSync(PENDING_REFERRAL_KEY) || null
   const referralCode = pending && sanitizeReferralCode(pending.referralCode)
   if (!referralCode) return Promise.resolve(null)
@@ -143,6 +149,7 @@ function appendParamToQuery(query, key, value) {
 }
 
 function withReferralShare(config = {}) {
+  if (isTimelinePreview()) return config
   const code = getMyReferralCodeSync()
   if (!code) return config
 

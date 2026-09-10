@@ -1,0 +1,163 @@
+<scroll-view
+  class="preview-scroll"
+  scroll-y="{{true}}"
+  enhanced="{{true}}"
+  show-scrollbar="{{false}}"
+  scroll-top="{{scrollTop}}"
+  bindscroll="onScroll"
+>
+  <view class="preview-shell" style="padding-top: calc({{topInset}}px + 36rpx);">
+    <view class="preview-header">
+      <text class="preview-kicker">朋友圈 · 公开浏览</text>
+      <text class="preview-title">{{mode === 'detail' && detail ? detail.kindLabel : title}}</text>
+      <text class="preview-intro">可在此浏览公开信息；联系、报名等操作需在小程序内完成。</text>
+    </view>
+
+    <block wx:if="{{mode === 'info'}}">
+      <view class="info-hero">
+        <text class="info-title">让附近的生活更方便</text>
+        <text class="info-description">发现同城好物、转租房源，也可以找到一起出行的伙伴。</text>
+      </view>
+      <view class="info-card" wx:for="{{infoCards}}" wx:key="title">
+        <view class="info-mark"></view>
+        <view class="info-copy">
+          <text class="info-card-title">{{item.title}}</text>
+          <text class="info-description">{{item.description}}</text>
+        </view>
+      </view>
+      <view class="preview-note">个人资料、发布记录和消息等内容可在小程序内查看。</view>
+    </block>
+
+    <block wx:elif="{{ready}}">
+      <view wx:if="{{mode === 'list'}}" class="preview-tabs">
+        <button
+          wx:for="{{tabs}}"
+          wx:key="type"
+          class="preview-tab {{type === item.type ? 'preview-tab-active' : ''}}"
+          data-type="{{item.type}}"
+          bindtap="onSelectType"
+          hover-class="preview-pressed"
+          aria-label="{{item.label}}{{type === item.type ? '，已选中' : ''}}"
+        >{{item.label}}</button>
+      </view>
+
+      <button
+        wx:if="{{mode === 'detail'}}"
+        class="preview-back"
+        bindtap="onBackToList"
+        hover-class="preview-pressed"
+      ><text class="preview-back-arrow">‹</text>{{fromList ? '返回列表' : '浏览同类信息'}}</button>
+
+      <view wx:if="{{loading}}" class="preview-state">
+        <view class="state-dot"></view>
+        <text class="state-title">正在加载{{mode === 'detail' ? '详情' : '公开信息'}}</text>
+        <text class="state-description">稍等一下，好内容马上就到。</text>
+      </view>
+
+      <view wx:elif="{{error}}" class="preview-state">
+        <text class="state-symbol">—</text>
+        <text class="state-title">{{error.title}}</text>
+        <text class="state-description">{{error.message}}</text>
+        <button wx:if="{{error.retryable}}" class="preview-button" bindtap="onRetry" hover-class="preview-pressed">重新加载</button>
+      </view>
+
+      <block wx:elif="{{mode === 'list'}}">
+        <view wx:if="{{!items.length}}" class="preview-state">
+          <text class="state-symbol">○</text>
+          <text class="state-title">暂时没有公开的{{kind === 'market' ? (type === 'sublet' ? '转租房源' : '闲置物品') : (type === 'request' ? '求拼车信息' : '出行信息')}}</text>
+          <text class="state-description">可以切换分类看看，或稍后再来。</text>
+          <button class="preview-button preview-button-light" bindtap="onRetry" hover-class="preview-pressed">刷新列表</button>
+        </view>
+
+        <view
+          wx:for="{{items}}"
+          wx:key="key"
+          class="listing-card {{kind === 'market' ? 'listing-card-market' : 'listing-card-trip'}}"
+          data-key="{{item.key}}"
+          bindtap="onOpenDetail"
+          hover-class="preview-card-pressed"
+          hover-stay-time="80"
+          aria-role="button"
+          aria-label="{{item.title}}，查看公开详情"
+        >
+          <view wx:if="{{kind === 'market'}}" class="listing-cover">
+            <image wx:if="{{item.cover && !item.coverFailed}}" class="listing-cover-image" src="{{item.cover}}" mode="aspectFill" lazy-load="{{true}}" data-key="{{item.key}}" binderror="onListImageError" />
+            <view wx:else class="listing-cover-placeholder"><text>{{item.kindLabel}}</text></view>
+          </view>
+          <view class="listing-copy">
+            <view class="listing-meta-row">
+              <text class="listing-kind">{{item.kindLabel}}</text>
+              <text wx:if="{{item.availabilityText}}" class="availability-tag">{{item.availabilityText}}</text>
+            </view>
+            <text class="listing-title">{{item.title}}</text>
+            <text wx:if="{{item.description}}" class="listing-description">{{item.description}}</text>
+            <text wx:if="{{item.timeText}}" class="listing-meta">{{item.timeText}}</text>
+            <text wx:if="{{item.regionText}}" class="listing-meta listing-region">{{item.regionText}}</text>
+            <view wx:if="{{item.tags.length}}" class="listing-tags">
+              <text class="listing-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
+            </view>
+            <view class="listing-bottom">
+              <text class="listing-price">{{item.priceText}}</text>
+              <text class="listing-detail-link">查看详情 <text class="listing-arrow">›</text></text>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{items.length || hasMore}}" class="list-footer">
+          <text wx:if="{{moreError}}" class="more-error">暂时没能加载更多，已有内容仍可浏览。</text>
+          <button
+            wx:if="{{hasMore}}"
+            class="preview-button preview-button-light load-more"
+            bindtap="onLoadMore"
+            loading="{{loadingMore}}"
+            disabled="{{loadingMore}}"
+            hover-class="preview-pressed"
+          >{{loadingMore ? '正在加载' : moreError ? '重试加载更多' : '加载更多'}}</button>
+          <text wx:else class="list-end">已经看完当前公开信息</text>
+        </view>
+      </block>
+
+      <block wx:elif="{{mode === 'detail' && detail}}">
+        <view class="detail-card">
+          <view class="detail-head">
+            <text class="listing-kind">{{detail.kindLabel}}</text>
+            <text wx:if="{{detail.availabilityText}}" class="availability-tag">{{detail.availabilityText}}</text>
+          </view>
+          <text class="detail-title">{{detail.title}}</text>
+          <text wx:if="{{detail.priceText}}" class="detail-price">{{detail.priceText}}</text>
+          <view wx:if="{{detail.timeText || detail.regionText}}" class="detail-facts">
+            <view wx:if="{{detail.timeText}}" class="detail-fact">
+              <text class="detail-label">{{kind === 'trip' ? '出行时间' : '时间信息'}}</text>
+              <text class="detail-value">{{detail.timeText}}</text>
+            </view>
+            <view wx:if="{{detail.regionText}}" class="detail-fact">
+              <text class="detail-label">{{kind === 'trip' ? '路线区域' : '所在地区'}}</text>
+              <text class="detail-value">{{detail.regionText}}</text>
+            </view>
+          </view>
+          <view wx:if="{{detail.tags.length}}" class="detail-tags">
+            <text class="listing-tag" wx:for="{{detail.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
+          </view>
+          <view class="detail-description-section">
+            <text class="detail-section-title">{{kind === 'trip' ? '出行说明' : '详细介绍'}}</text>
+            <text class="detail-description">{{detail.description || '发布者暂未添加更多说明。'}}</text>
+          </view>
+        </view>
+
+        <view wx:if="{{detailImages.length}}" class="detail-photos">
+          <text class="detail-section-title detail-photo-title">图片</text>
+          <view class="detail-photo" wx:for="{{detailImages}}" wx:key="key">
+            <image wx:if="{{!item.failed}}" class="detail-image" src="{{item.src}}" mode="widthFix" lazy-load="{{true}}" data-src="{{item.src}}" binderror="onDetailImageError" />
+            <view wx:else class="detail-image-failed">这张图片暂时无法显示</view>
+          </view>
+        </view>
+        <view class="preview-note">联系方式、精确地点和参与操作可在小程序内查看。</view>
+      </block>
+    </block>
+
+    <view wx:else class="preview-state">
+      <text class="state-title">正在准备公开信息</text>
+    </view>
+    <view class="preview-bottom-space"></view>
+  </view>
+</scroll-view>

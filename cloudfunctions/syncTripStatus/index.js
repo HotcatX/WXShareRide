@@ -4,6 +4,23 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const { createRideCompletionCounter } = require('./rideCompletion')
+const ensureRideCompletion = createRideCompletionCounter({ db: cloud.database({ throwOnNotFound: false }) })
+
+const PERSONAL_SUM_FIELDS = ['countedUsers', 'countedDriverTrips', 'countedPassengerTrips', 'alreadyCountedUsers', 'missingUsers', 'duplicateUsers', 'legacyUsers']
+function newPersonalStats() {
+  return Object.fromEntries(['processedTrips', 'eligibleTrips', 'skippedTrips'].concat(PERSONAL_SUM_FIELDS).map(key => [key, 0]))
+}
+function collectPersonalStats(target, result) {
+  target.processedTrips += 1
+  target[result.eligible ? 'eligibleTrips' : 'skippedTrips'] += 1
+  PERSONAL_SUM_FIELDS.forEach(key => { target[key] += Number(result[key] || 0) })
+}
+function isCancelledOrUnsupported(doc) {
+  const status = String(doc.status || 'open').toLowerCase()
+  if (!['open', 'full', 'past', 'close'].includes(status)) return true
+  return ['isDeleted', 'deleted', 'isCancelled', 'isCanceled', 'cancelled', 'canceled', 'deletedAt', 'cancelledAt', 'canceledAt'].some(key => !!doc[key])
+}
 
 const PUBLIC_STATS_COLLECTION = 'PublicStats'
 const PUBLIC_STATS_DOC_ID = 'home'
@@ -289,33 +306,40 @@ function computeStatus(type, doc, now) {
   return { ok: true, oldStatus, newStatus }
 }
 
-async function updateDocs(type, list, now) {
-  const config = TYPE_CONFIG[type]
-  const tasks = []
-
-  ;(list || []).forEach(doc => {
-    if (!doc || !doc._id) return
-    const departureMeta = buildDepartureMeta(doc.departures || [])
-    const result = computeStatus(type, doc, now)
-    if (!result.ok) return
-
-    const shouldUpdateMeta = Object.keys(departureMeta).some(key => doc[key] !== departureMeta[key])
-    const shouldUpdateStatus = doc.status !== result.newStatus
-    if (!shouldUpdateStatus && !shouldUpdateMeta) return
-
-    const updateData = Object.assign({}, departureMeta, { updatedAt: now })
-    if (shouldUpdateStatus) updateData.status = result.newStatus
-    const shouldCountPast = result.oldStatus !== 'past' && result.newStatus === 'past'
-
-    tasks.push(
-      shouldCountPast
-        ? updatePastAndCount(type, doc._id, doc, updateData)
-        : db.collection(config.collection).doc(doc._id).update({ data: updateData }).then(() => ({ updated: true }))
-    )
-  })
-
-  const results = await Promise.all(tasks)
-  return results.filter(item => item && item.updated !== false).length
+async function updateDocs(type, docs, now, personalStats) {
+  const collection = TYPE_CONFIG[type].collection
+  let updated = 0
+  const list = (docs || []).filter(doc => doc && doc._id && !isCancelledOrUnsupported(doc))
+  // Bound concurrent transactions: several trips can belong to the same driver.
+  for (let offset = 0; offset < list.length; offset += 2) {
+    const results = await Promise.all(list.slice(offset, offset + 2).map(async doc => {
+      const oldStatus = normalizeTripStatus(doc.status)
+      let changed = false
+      if (!['past', 'close'].includes(oldStatus)) {
+        const meta = buildDepartureMeta(doc.departures || [])
+        const result = computeStatus(type, doc, now)
+        if (!result.ok) return false
+        const shouldUpdateMeta = Object.keys(meta).some(key => doc[key] !== meta[key])
+        const shouldUpdateStatus = doc.status !== result.newStatus
+        if (shouldUpdateMeta || shouldUpdateStatus) {
+          const updateData = Object.assign({}, meta, { updatedAt: now })
+          if (shouldUpdateStatus) updateData.status = result.newStatus
+          const outcome = result.newStatus === 'past'
+            ? await updatePastAndCount(type, doc._id, doc, updateData)
+            : await db.collection(collection).doc(doc._id).update({ data: updateData }).then(() => ({ updated: true }))
+          changed = outcome.updated !== false
+        }
+        if (result.newStatus !== 'past') return changed
+      }
+      // Personal completion is independent of PublicStats and status transitions.
+      // Re-reading inside the transaction makes existing past records retryable.
+      const counted = await ensureRideCompletion({ type, id: doc._id })
+      collectPersonalStats(personalStats, counted)
+      return changed
+    }))
+    updated += results.filter(Boolean).length
+  }
+  return updated
 }
 
 async function fetchByIds(collection, ids) {
@@ -329,11 +353,11 @@ async function fetchByIds(collection, ids) {
   return rows
 }
 
-async function scanAndUpdate(type, ids, allowFullScan, now) {
+async function scanAndUpdate(type, ids, allowFullScan, now, personalStats) {
   const config = TYPE_CONFIG[type]
   if (ids.length) {
     const rows = await fetchByIds(config.collection, ids)
-    return updateDocs(type, rows, now)
+    return updateDocs(type, rows, now, personalStats)
   }
 
   if (!allowFullScan) return 0
@@ -344,13 +368,17 @@ async function scanAndUpdate(type, ids, allowFullScan, now) {
     const res = await db.collection(config.collection).skip(skip).limit(PAGE_SIZE).get()
     const list = res.data || []
     if (!list.length) break
-    updated += await updateDocs(type, list, now)
+    updated += await updateDocs(type, list, now, personalStats)
     skip += PAGE_SIZE
   }
   return updated
 }
 
+
 exports.main = async (event = {}) => {
+  // Maintenance actions are retired; reject old scripts before normal sync.
+  if (event && event.action != null) return { ok: false, success: false, errorMsg: '不支持的操作' }
+
   const now = new Date()
   const selectedType = getType(event)
   const allowFullScan = !!(event && event.fullScan === true)
@@ -363,12 +391,13 @@ exports.main = async (event = {}) => {
       now: now.toISOString(),
       totalUpdated: 0,
       totalUpdatedCarpool: 0,
-      totalUpdatedCarpoolRequest: 0
+      totalUpdatedCarpoolRequest: 0,
+      personalStats: newPersonalStats()
     }
 
     for (const type of types) {
       const ids = getIdsForType(event, type)
-      const total = await scanAndUpdate(type, ids, allowFullScan, now)
+      const total = await scanAndUpdate(type, ids, allowFullScan, now, output.personalStats)
       output[TYPE_CONFIG[type].totalKey] = total
       output.totalUpdated += total
     }

@@ -1,3 +1,5 @@
+const { isTimelinePreview } = require("./timeline")
+
 const PUBLIC_CONFIG_FUNCTION = "marketApi"
 const PUBLIC_CONFIG_ACTION = "publicConfig"
 const PUBLIC_CONFIG_CACHE_MS = 30 * 60 * 1000
@@ -10,7 +12,7 @@ function cleanText(value) {
 }
 
 function canCallCloudFunction() {
-  return typeof wx !== "undefined" &&
+  return !isTimelinePreview() && typeof wx !== "undefined" &&
     wx.cloud &&
     typeof wx.cloud.callFunction === "function"
 }

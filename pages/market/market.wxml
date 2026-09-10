@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="market-page">
   <view class="market-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="market-search-row" style="{{marketSearchRowStyle}}">
@@ -328,3 +330,4 @@
 
   <app-tabbar active="market" market-type="{{activeListingType}}" bindmarketchange="onMarketTabTypeChange"></app-tabbar>
 </view>
+</block>

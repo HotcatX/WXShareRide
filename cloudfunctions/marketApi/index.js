@@ -4,6 +4,7 @@ const crypto = require("crypto")
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
+const publicPreview = require('./publicPreview').createPublicPreviewHandler({ db, cloud })
 
 const GOODS_COLLECTION = "market_goods"
 const FILES_COLLECTION = "MarketFiles"
@@ -1958,6 +1959,8 @@ exports.main = async (event = {}) => {
   const action = normalizeText(event.action)
 
   try {
+    if (action === "publicPreview") return publicPreview(event)
+    if (typeof OPENID !== "string" || !OPENID.trim()) return fail("not_logged_in")
     if (action === "list") return listItems(event)
     if (action === "detail") return detail(event, OPENID)
     if (action === "myList") return myList(event, OPENID)

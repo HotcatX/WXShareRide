@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="market-detail-page {{item.detailPageClass}}">
   <view class="detail-top ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
@@ -124,3 +126,4 @@
     </block>
   </scroll-view>
 </view>
+</block>

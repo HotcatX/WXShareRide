@@ -1,3 +1,5 @@
+<timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
+<block wx:elif="{{timelinePageReady}}">
 <view class="page">
 
 <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
@@ -68,3 +70,4 @@
 </scroll-view>
 
 </view>
+</block>

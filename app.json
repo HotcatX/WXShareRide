@@ -26,7 +26,6 @@
     "pages/market/marketSeller/marketSeller",
     "pages/market/marketMy/marketMy",
     "pages/market/marketTrade/marketTrade"
-
   ],
   "window": {
     "navigationBarBackgroundColor": "#fff",
@@ -59,5 +58,8 @@
   "requiredPrivateInfos": [
     "chooseLocation"
   ],
-  "cloud": true
+  "cloud": true,
+  "usingComponents": {
+    "timeline-preview": "/components/timeline-preview/timeline-preview"
+  }
 }

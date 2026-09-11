@@ -1,9 +1,11 @@
 const HOME_REFRESH_INTERVAL = 30 * 1000
+const PUBLIC_STATS_CACHE_KEY = 'homePublicStatsCacheV1'
+const PUBLIC_STATS_CACHE_TTL = 24 * 60 * 60 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
 const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
+const RIDE_LIST_REFRESH_KEY = 'rideListShouldRefreshAt'
 const MAX_TIMEOUT_MS = 2147483647
-const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
-const { prefetchTripDetails } = require("../../utils/tripDetailCache")
+const { formatRidePriceTag: formatRidePriceTagShared, markRideListStale } = require("../../utils/tripManage")
 const community = require("../../utils/community")
 const {
   DEFAULT_CITY_TREE,
@@ -23,6 +25,42 @@ const {
 
 const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前优先服务纽约/新泽西。"
 const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
+
+function homeIdentity() {
+  return wx.getStorageSync('isGuest') ? '' : String(wx.getStorageSync('openid') || '')
+}
+
+function readPublicStatsCache() {
+  try {
+    const entry = wx.getStorageSync(PUBLIC_STATS_CACHE_KEY)
+    if (!entry || entry.version !== 1 || !Number.isSafeInteger(entry.syncedAt) || entry.syncedAt <= 0) return null
+    const age = Date.now() - entry.syncedAt
+    const data = entry.data
+    if (age < 0 || age >= PUBLIC_STATS_CACHE_TTL || !data ||
+      !Number.isSafeInteger(data.servedTrips) || data.servedTrips < 0 || typeof data.coverageText !== 'string') return null
+    return entry
+  } catch (_) { return null }
+}
+
+// Cache only completed reads. A changed identity or mutation revision starts a
+// separate request, so an old in-flight response cannot satisfy a fresh return.
+function readHomeResource(page, resource, key, force, read) {
+  const reads = page._homeReads || (page._homeReads = {})
+  const previous = reads[resource]
+  if (previous && previous.key === key) {
+    if (previous.promise) return previous.promise
+    const age = Date.now() - previous.at
+    if (!force && previous.at && age >= 0 && age < HOME_REFRESH_INTERVAL) return Promise.resolve()
+  }
+  const entry = { key, at: 0, promise: null }
+  reads[resource] = entry
+  const isCurrent = () => page._homeReads === reads && reads[resource] === entry
+  entry.promise = Promise.resolve().then(() => isCurrent() ? read(isCurrent) : false).then(result => {
+    if (result !== false && isCurrent()) entry.at = Date.now()
+    return result
+  }).finally(() => { entry.promise = null })
+  return entry.promise
+}
 
 // =========================
 // 按发车时间排序（date + time）
@@ -279,10 +317,8 @@ Page({
     expandedSection: '',
   },
 
-  // ✅ 防重复请求：并发锁 + 简单节流（不要放到 data 里）
-  _refreshPromise: null,
+  // 请求状态不参与页面渲染。
   _statusRefreshPromise: null,
-  _lastRefreshAt: 0,
   _publicStatsTimer: null,
   _homeShowTimer: null,
   _communityActive: false,
@@ -346,11 +382,14 @@ Page({
   },
 
   async refreshHomeByUser() {
-    this.refreshCommunityConfig()
+    this.syncLoginState()
     try {
-      await this.loadPublicStats()
-      await this.refreshHomeData(true)
-      await this.loadUnreadCount()
+      await Promise.all([
+        this.refreshCommunityConfig({ force: true }),
+        this.loadPublicStats({ force: true }),
+        this.refreshHomeData(true),
+        this.loadUnreadCount({ force: true })
+      ])
     } catch (e) {
       console.error('refreshHomeByUser error', e)
     }
@@ -401,7 +440,7 @@ Page({
       this._homeShowTimer = null
       if (this.data.isRideServiceAvailable) {
         this.loadPublicStats()
-        this.refreshHomeData(true, { forceStatus: false })
+        this.refreshHomeData(false, { forceStatus: false })
       }
       this.loadUnreadCount()
     }, 300)
@@ -444,10 +483,10 @@ Page({
     checkExpiry()
   },
 
-  async refreshCommunityConfig() {
+  async refreshCommunityConfig({ force = false } = {}) {
     const version = ++this._communityRequestVersion
     try {
-      const config = await community.loadCommunityConfig({ force: true })
+      const config = await community.loadCommunityConfig({ force, maxAgeMs: HOME_REFRESH_INTERVAL })
       if (!this._communityActive || version !== this._communityRequestVersion) return
       const notice = community.getAvailableAnnouncement(config)
       // An updated or disabled notice must not leave an old modal on screen.
@@ -515,9 +554,24 @@ Page({
   },
 
   syncLoginState() {
-    const openid = wx.getStorageSync('openid')
-    const isGuest = wx.getStorageSync('isGuest')
-    this.setData({ isLoggedIn: !!openid && !isGuest })
+    const identity = homeIdentity()
+    if (this._homeIdentity !== identity) {
+      this._homeIdentity = identity
+      this._homeReads = this._homeReads || {}
+      delete this._homeReads.trips
+      delete this._homeReads.unread
+      this._statusRefreshPromise = null
+      this._statusRefreshIdentity = ''
+      this.setData({
+        driverCreateTrips: [], driverJoinTrips: [], passengerCreateTrips: [], passengerTrips: [],
+        createTrips: [], joinTrips: [], createShow: [], joinShow: [], customTabProfileBadge: 0, loading: false
+      })
+    }
+    this.setData({ isLoggedIn: !!identity })
+  },
+
+  homeReadKey() {
+    return JSON.stringify([homeIdentity(), this.data.activeCityKey, wx.getStorageSync(RIDE_LIST_REFRESH_KEY) || 0])
   },
 
   onTapLoginBtn() {
@@ -720,27 +774,36 @@ Page({
     wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}&sourceType=${sourceType}` })
   },
 
-  prefetchHomeTripDetails(lists = []) {
-    const entries = []
-    ;(Array.isArray(lists) ? lists : []).forEach(list => {
-      ;(Array.isArray(list) ? list : []).forEach(trip => {
-        const id = trip && (trip.tripId || trip._id)
-        if (!id) return
-        entries.push({
-          id,
-          type: String(trip.from || "").toLowerCase() === "request" ? "request" : "carpool"
-        })
-      })
-    })
-    prefetchTripDetails(entries, { limit: 8 }).catch(() => {})
-  },
-
-  async loadPublicStats() {
+  async loadPublicStats({ force = false } = {}) {
     try {
-      const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
-      const data = res && res.result && res.result.data ? res.result.data : {}
-      this.setData({ publicStats: normalizePublicStats(data) })
-      this.startPublicStatsTicker()
+      const pending = this._homeReads && this._homeReads.stats && this._homeReads.stats.promise
+      if (!force && !pending) {
+        const cached = readPublicStatsCache()
+        if (cached) {
+          this.setData({ publicStats: normalizePublicStats(cached.data, cached.syncedAt) })
+          if (this._communityActive) this.startPublicStatsTicker()
+          return
+        }
+      }
+      // Public totals have a separate persistent TTL and do not change when a
+      // local ride mutation or login invalidates the personal lists.
+      await readHomeResource(this, 'stats', 'public', true, async isCurrent => {
+        const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
+        if (!res || !res.result || res.result.success !== true) throw new Error('获取社区统计失败')
+        if (!isCurrent()) return false
+        const syncedAt = Date.now()
+        const stats = normalizePublicStats(res.result.data || {}, syncedAt)
+        if (stats.hasServedTrips) {
+          try {
+            wx.setStorageSync(PUBLIC_STATS_CACHE_KEY, {
+              version: 1, syncedAt,
+              data: { servedTrips: Math.floor(stats.servedTrips), coverageText: String(stats.coverageText || '') }
+            })
+          } catch (_) {}
+        }
+        this.setData({ publicStats: stats })
+        if (this._communityActive) this.startPublicStatsTicker()
+      })
     } catch (e) {
     }
   },
@@ -770,40 +833,31 @@ Page({
   // ✅ 首页首屏只拉卡片数据；状态更新放后台，避免全屏 loading 卡住操作。
   // =========================
   async refreshHomeData(force = false, options = {}) {
-    if (!this.data.isRideServiceAvailable) {
+    if (!this.data.isRideServiceAvailable || !homeIdentity()) {
       this.setData({ loading: false })
       return Promise.resolve()
     }
-
-    if (this._refreshPromise) return this._refreshPromise
-
-    const now = Date.now()
-    if (!force && this._lastRefreshAt && now - this._lastRefreshAt < HOME_REFRESH_INTERVAL) {
-      return Promise.resolve()
-    }
-
+    const key = this.homeReadKey()
     const forceStatus = options.forceStatus === undefined ? force : !!options.forceStatus
-
-    this.setData({ loading: true })
-
-    this._refreshPromise = this.loadHomeTripLists()
-      .then(() => {
-        this.refreshHomeStatusInBackground(forceStatus)
+    try {
+      await readHomeResource(this, 'trips', key, force, async isCurrent => {
+        this.setData({ loading: true })
+        try {
+          const loaded = await this.loadHomeTripLists(key, isCurrent)
+          if (loaded !== false) this.refreshHomeStatusInBackground(forceStatus)
+          return loaded
+        } finally {
+          if (isCurrent() && key === this.homeReadKey()) this.setData({ loading: false })
+        }
       })
-      .catch((e) => {
-        console.error('[home] refreshHomeData error:', e)
-      })
-      .finally(() => {
-        this._lastRefreshAt = Date.now()
-        this._refreshPromise = null
-        this.setData({ loading: false })
-      })
-
-    return this._refreshPromise
+    } catch (e) {
+      console.error('[home] refreshHomeData error:', e)
+    }
   },
 
-  async loadHomeTripLists() {
+  async loadHomeTripLists(key = this.homeReadKey(), isCurrent = () => true) {
     const res = await wx.cloud.callFunction({ name: 'getHomeTripList' })
+    if (!isCurrent() || key !== this.homeReadKey()) return false
     const ok = !!(res && res.result && res.result.ok)
     if (!ok) {
       const result = res && res.result ? res.result : {}
@@ -878,28 +932,25 @@ Page({
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
     })
-
-    this.prefetchHomeTripDetails([
-      driverCreateTrips,
-      driverJoinTrips,
-      passengerCreateTrips,
-      passengerTrips
-    ])
   },
 
   refreshHomeStatusInBackground(force = false) {
-    if (this._statusRefreshPromise) return this._statusRefreshPromise
+    const identity = homeIdentity()
+    if (!identity) return Promise.resolve()
+    if (this._statusRefreshPromise && this._statusRefreshIdentity === identity) return this._statusRefreshPromise
 
     const now = Date.now()
-    const last = Number(wx.getStorageSync(HOME_STATUS_REFRESH_KEY) || 0)
-    if (!force && last && now - last < HOME_STATUS_REFRESH_INTERVAL) {
+    const statusKey = `${HOME_STATUS_REFRESH_KEY}:${identity}`
+    const last = Number(wx.getStorageSync(statusKey) || 0)
+    if (!force && last && now - last >= 0 && now - last < HOME_STATUS_REFRESH_INTERVAL) {
       return Promise.resolve()
     }
 
-    wx.setStorageSync(HOME_STATUS_REFRESH_KEY, now)
-
-    this._statusRefreshPromise = wx.cloud.callFunction({ name: 'syncMyTripStatus' }).then((res) => {
+    this._statusRefreshIdentity = identity
+    const request = wx.cloud.callFunction({ name: 'syncMyTripStatus' }).then((res) => {
       const result = res && res.result ? res.result : {}
+      if (!(result.ok || result.success) || identity !== homeIdentity() || this._statusRefreshPromise !== request) return null
+      wx.setStorageSync(statusKey, Date.now())
       const changedCount =
         Number(result.moved || 0) +
         Number(result.movedTotal || 0) +
@@ -907,15 +958,16 @@ Page({
         Number(result.carpoolUpdated || 0)
 
       if (changedCount > 0) {
-        return this.loadHomeTripLists()
+        markRideListStale()
+        return this.loadHomeTripLists(this.homeReadKey(), () => this._statusRefreshPromise === request)
       }
       return null
     }).catch((e) => {
     }).finally(() => {
-      this._statusRefreshPromise = null
+      if (this._statusRefreshPromise === request) this._statusRefreshPromise = null
     })
-
-    return this._statusRefreshPromise
+    this._statusRefreshPromise = request
+    return request
   },
 
   // =========================
@@ -938,7 +990,7 @@ Page({
   // =========================
   // 未读数
   // =========================
-  loadUnreadCount() {
+  loadUnreadCount({ force = false } = {}) {
     const openid = wx.getStorageSync('openid')
     const isGuest = wx.getStorageSync('isGuest')
 
@@ -951,14 +1003,13 @@ Page({
       return Promise.resolve()
     }
 
-    const db = wx.cloud.database()
-    return db.collection('Notifications')
-      .where({
-        _openid: openid,
-        read: false
-      })
-      .count()
-      .then(res => {
+    // Notification pages already keep the local badge in sync after marking read.
+    this.setData({ customTabProfileBadge: Number(wx.getStorageSync('customTabProfileBadge') || 0) })
+    const key = this.homeReadKey()
+    return readHomeResource(this, 'unread', key, force, async isCurrent => {
+        const res = await wx.cloud.database().collection('Notifications')
+          .where({ _openid: openid, read: false }).count()
+        if (!isCurrent() || key !== this.homeReadKey()) return false
         const count = res.total || 0
         wx.setStorageSync('customTabProfileBadge', count)
         this.setData({ customTabProfileBadge: count })

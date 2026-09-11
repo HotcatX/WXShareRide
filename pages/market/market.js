@@ -50,17 +50,14 @@ const LISTING_TYPE_CONFIG = {
 // ====== Performance / Cache ======
 const GOODS_CACHE_KEY_PREFIX = "market_goods_list_cache_v13"
 const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
-const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v3"
 const MARKET_AD_CACHE_KEY_PREFIX = "market_ads_cache_v1"
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内视为新缓存；仍会后台刷新保证进入/切换有新数据
-const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
 const MARKET_AD_CACHE_FRESH_MS = 10 * 60 * 1000
 const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
-const FIRST_PAGE_FETCH_COOLDOWN_MS = 8 * 1000      // 同一筛选条件短时间防重复请求
-const MARKET_DETAIL_PRELOAD_LIMIT = 3
+const FIRST_PAGE_FETCH_COOLDOWN_MS = 30 * 1000     // 普通返回页面最多沿用 30 秒内成功读取的数据
 const MARKET_AD_MIN_GOODS = 3
 const MARKET_AD_INSERT_MIN_INDEX = 2
 const MARKET_AD_INSERT_MAX_INDEX = 5
@@ -273,50 +270,13 @@ function getMarketGoodsChangedAt() {
   }
 }
 
-function getMarketDetailCacheStore() {
-  try {
-    return wx.getStorageSync(MARKET_DETAIL_CACHE_KEY) || {}
-  } catch (e) {
-    return {}
-  }
+function getMarketViewerKey() {
+  const openid = wx.getStorageSync("openid") || ""
+  return openid && !wx.getStorageSync("isGuest") ? String(openid) : "guest"
 }
 
-function setMarketDetailCacheStore(store = {}) {
-  try {
-    wx.setStorageSync(MARKET_DETAIL_CACHE_KEY, store)
-  } catch (e) {}
-}
-
-function readMarketDetailCache(id) {
-  const key = String(id || "").trim()
-  if (!key) return null
-  const entry = getMarketDetailCacheStore()[key]
-  if (!entry || !entry.ts || !entry.result) return null
-  if (Date.now() - entry.ts > MARKET_DETAIL_CACHE_FRESH_MS) return null
-  if ((Number(entry.changedAt) || 0) !== getMarketGoodsChangedAt()) return null
-  const item = entry.result.item || entry.result.data || null
-  if (!item || item._id !== key) return null
-  return entry.result
-}
-
-function writeMarketDetailCache(id, result) {
-  const key = String(id || "").trim()
-  const item = result && (result.item || result.data)
-  if (!key || !item || item._id !== key) return
-  const store = getMarketDetailCacheStore()
-  store[key] = {
-    ts: Date.now(),
-    changedAt: getMarketGoodsChangedAt(),
-    result
-  }
-  const keys = Object.keys(store)
-  if (keys.length > 60) {
-    keys
-      .sort((a, b) => (Number(store[a]?.ts) || 0) - (Number(store[b]?.ts) || 0))
-      .slice(0, keys.length - 60)
-      .forEach(oldKey => delete store[oldKey])
-  }
-  setMarketDetailCacheStore(store)
+function getMarketRequestContext() {
+  return `${getMarketViewerKey()}|${getMarketGoodsChangedAt()}`
 }
 
 function safeDecode(value) {
@@ -849,6 +809,7 @@ Page({
   },
 
   _resetGoodsStateForFetch(extra = {}) {
+    this._lastCompletedFirstPage = null
     const next = {
       allGoods: [],
       filteredGoods: [],
@@ -878,7 +839,8 @@ Page({
 
   _isActiveGoodsRequest(requestToken, requestKey) {
     return this._activeGoodsRequestToken === requestToken &&
-      this._getCurrentListQueryKey() === requestKey
+      this._getCurrentListQueryKey() === requestKey &&
+      this._activeGoodsRequestContext === getMarketRequestContext()
   },
 
   _isCurrentListQuery(requestKey) {
@@ -977,7 +939,6 @@ Page({
       force: true,
       reason: cacheState.restored ? "switchRefresh" : "switchType"
     })
-    this._prefetchSiblingListingType()
     this._loadMarketAds()
   },
 
@@ -1083,6 +1044,7 @@ Page({
     }
     this._lastRefreshAt = 0
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
+    this._marketViewerKey = getMarketViewerKey()
     this._marketBootstrapped = false
     this._marketBootstrapStarted = false
     this._userSortTouched = false
@@ -1098,6 +1060,9 @@ Page({
   },
 
   async onShow() {
+    const viewerKey = getMarketViewerKey()
+    const viewerChanged = this._marketViewerKey !== viewerKey
+    this._marketViewerKey = viewerKey
     if (!this._marketBootstrapped) {
       this._startMarketBootstrap()
       return
@@ -1116,8 +1081,9 @@ Page({
     }
 
     let locationState = null
-    if (this.data.distanceSortActive) {
+    if (this.data.distanceSortActive || viewerChanged) {
       locationState = await this._loadMyLocationFromProfile({
+        force: viewerChanged,
         applyDefaultSort: false
       })
     }
@@ -1133,7 +1099,7 @@ Page({
       this._fetchFirstPage({ force: true, reason: "locationChanged" })
       return
     }
-    this._fetchFirstPage({ force: true, reason: "showRefresh" })
+    return this._fetchFirstPage({ force: viewerChanged, reason: viewerChanged ? "viewerChanged" : "showRefresh" })
   },
 
   async _bootstrapMarketData(initialCategory = "", initialCity = "ALL", initialType = "goods") {
@@ -1147,7 +1113,6 @@ Page({
     const cacheState = this._restoreGoodsFromCache()
     if (cacheState.restored) this.applyFilters(true)
     this._loadMarketAds()
-    this._prefetchSiblingListingType()
 
     this._fetchFirstPage({
       force: true,
@@ -1952,9 +1917,30 @@ Page({
       }
     }
 
+    const locationCacheKey = `${openid}|${JSON.stringify((wx.getStorageSync("userInfo") || {}).location || null)}`
+    const cachedLocation = this._locationProfileCache
+    const useCache = !options.force && cachedLocation && cachedLocation.key === locationCacheKey &&
+      Date.now() - cachedLocation.at >= 0 && Date.now() - cachedLocation.at < FIRST_PAGE_FETCH_COOLDOWN_MS
     try {
-      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
-      const user = (res?.result?.data || [])[0] || {}
+      let user
+      if (useCache) {
+        user = cachedLocation.user
+      } else {
+        this._locationProfileRequests = this._locationProfileRequests || {}
+        let request = this._locationProfileRequests[locationCacheKey]
+        if (!request) {
+          request = Promise.resolve().then(() => wx.cloud.callFunction({ name: "getUserInfo" }))
+            .finally(() => {
+              if (this._locationProfileRequests[locationCacheKey] === request) delete this._locationProfileRequests[locationCacheKey]
+            })
+          this._locationProfileRequests[locationCacheKey] = request
+        }
+        const res = await request
+        user = (res?.result?.data || [])[0] || {}
+        const currentLocationKey = `${getMarketViewerKey()}|${JSON.stringify((wx.getStorageSync("userInfo") || {}).location || null)}`
+        if (currentLocationKey !== locationCacheKey) return { locationChanged: false, sortChanged: false }
+        this._locationProfileCache = { key: locationCacheKey, at: Date.now(), user }
+      }
       const location = user.location || {}
       const myLocation = hasLatLng(location) ? location : null
       const patch = { myLocation }
@@ -1999,25 +1985,43 @@ Page({
     return true
   },
 
-  async _fetchFirstPage(options = {}) {
+  _requestMarketList(data, requestKey) {
+    this._marketListRequests = this._marketListRequests || {}
+    if (this._marketListRequests[requestKey]) return this._marketListRequests[requestKey]
+    const task = Promise.resolve().then(() => wx.cloud.callFunction({ name: "marketApi", data }))
+      .finally(() => {
+        if (this._marketListRequests[requestKey] === task) delete this._marketListRequests[requestKey]
+      })
+    this._marketListRequests[requestKey] = task
+    return task
+  },
+
+  _fetchFirstPage(options = {}) {
     const filters = this._buildListFilters()
     const sort = this._buildListSort()
     const requestKey = buildListQueryKey(filters, sort)
-    const now = Date.now()
-    const force = !!options.force
-
-    if (!force) {
-      if (this._firstPageInFlightKey === requestKey) return false
-      const lastAt = this._firstPageFetchAtByKey && this._firstPageFetchAtByKey[requestKey]
-      if (lastAt && now - lastAt < FIRST_PAGE_FETCH_COOLDOWN_MS) return false
+    const context = getMarketRequestContext()
+    const scopedKey = `${context}|${requestKey}|first`
+    const pending = this._firstPageActiveRequest
+    // A forced refresh bypasses freshness, never an identical request in progress.
+    if (pending && pending.key === scopedKey && this._isActiveGoodsRequest(pending.token, requestKey)) {
+      return pending.promise
+    }
+    const recent = this._lastCompletedFirstPage
+    if (!options.force && recent && recent.key === scopedKey &&
+      Date.now() - recent.at >= 0 && Date.now() - recent.at < FIRST_PAGE_FETCH_COOLDOWN_MS) {
+      return Promise.resolve(false)
     }
 
-    this._firstPageInFlightKey = requestKey
-    this._firstPageFetchAtByKey = this._firstPageFetchAtByKey || {}
-    this._firstPageFetchAtByKey[requestKey] = now
-    const requestToken = `${requestKey}|first|${now}`
+    const requestToken = this._goodsRequestSequence = (this._goodsRequestSequence || 0) + 1
     this._activeGoodsRequestToken = requestToken
+    this._activeGoodsRequestContext = context
+    const promise = this._loadFirstPageResult(filters, sort, requestKey, requestToken, scopedKey)
+    this._firstPageActiveRequest = { key: scopedKey, token: requestToken, promise }
+    return promise
+  },
 
+  async _loadFirstPageResult(filters, sort, requestKey, requestToken, scopedKey) {
     try {
       this.setData({
         isLoadingGoods: true,
@@ -2025,17 +2029,9 @@ Page({
         ...buildMarketListFlags({ ...this.data, isLoadingGoods: true, isLoadingMore: false })
       })
 
-      const res = await wx.cloud.callFunction({
-        name: "marketApi",
-        data: {
-          action: "list",
-          filters,
-          sort,
-          skip: 0,
-          limit: INITIAL_LOAD_SIZE,
-          fastList: true
-        }
-      })
+      const res = await this._requestMarketList({
+        action: "list", filters, sort, skip: 0, limit: INITIAL_LOAD_SIZE, fastList: true
+      }, scopedKey)
       const result = getMarketApiResult(res)
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
 
@@ -2062,15 +2058,16 @@ Page({
 
       this.initRegionsFromGoods()
       this.applyFilters(true)
-      this._prefetchSiblingListingType(filters)
+      this._lastCompletedFirstPage = { key: scopedKey, at: Date.now() }
       return true
     } catch (e) {
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
+      this._lastCompletedFirstPage = null
       console.error(e)
       showDataError("市场加载失败", e, "市场列表从数据库加载失败，请稍后重试。")
       return false
     } finally {
-      if (this._firstPageInFlightKey === requestKey) this._firstPageInFlightKey = ""
+      if (this._firstPageActiveRequest?.token === requestToken) this._firstPageActiveRequest = null
       if (this._activeGoodsRequestToken === requestToken) {
         this._activeGoodsRequestToken = ""
         this.setData({
@@ -2089,8 +2086,9 @@ Page({
     const filters = this._buildListFilters()
     const sort = this._buildListSort()
     const requestKey = buildListQueryKey(filters, sort)
-    const requestToken = `${requestKey}|next|${Date.now()}`
+    const requestToken = this._goodsRequestSequence = (this._goodsRequestSequence || 0) + 1
     this._activeGoodsRequestToken = requestToken
+    this._activeGoodsRequestContext = getMarketRequestContext()
 
     try {
       this.setData({
@@ -2157,64 +2155,6 @@ Page({
       }
     }
   },
-
-  _prefetchSiblingListingType(baseFilters = {}) {
-    const activeType = normalizeListingType(baseFilters.listingType || this.data.activeListingType)
-    const siblingType = activeType === "goods" ? "sublet" : "goods"
-    const cityKey = baseFilters.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-    const regionKeys = normalizeAreaKeys(baseFilters.regionKeys || this.data.activeAreaKeys || [])
-    const regionKey = getAreaCacheKey(regionKeys)
-    const cached = readGoodsCacheEntry(siblingType, cityKey, regionKey)
-    if (isGoodsCacheFresh(cached)) return
-
-    const filters = {
-      listingType: siblingType,
-      category: "全部",
-      cityKey,
-      cityLabel: this.data.activeCityLabel || MARKET_DEFAULT_CITY_LABEL,
-      cityAliases: this.data.activeCityAliases || [],
-      regionKey: regionKeys[0] || ALL_AREA_KEY,
-      regionKeys,
-      regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
-      keyword: ""
-    }
-    const requestKey = buildListQueryKey(filters, {})
-    this._marketPrefetchInFlight = this._marketPrefetchInFlight || {}
-    if (this._marketPrefetchInFlight[requestKey]) return
-
-    this._marketPrefetchInFlight[requestKey] = true
-    setTimeout(() => {
-      wx.cloud.callFunction({
-        name: "marketApi",
-        data: {
-          action: "list",
-          filters,
-          sort: {},
-          skip: 0,
-          limit: INITIAL_LOAD_SIZE,
-          fastList: true
-        }
-      }).then(res => {
-        const result = getMarketApiResult(res)
-        const rawRows = result.items || result.data || []
-        if (!rawRows.length) return
-        this._saveGoodsToCache(rawRows, {
-          type: siblingType,
-          cityKey,
-          regionKey,
-          nextSkip: result.nextSkip || rawRows.length,
-          hasMore: !!result.hasMore
-        })
-        const sellerOpenids = Array.from(new Set(rawRows.map(item => item && item._openid).filter(Boolean)))
-        if (sellerOpenids.length) fetchAndCacheMarketSellerProfiles(sellerOpenids).catch(() => {})
-      }).catch(e => {
-        console.warn("[market] sibling prefetch failed:", e)
-      }).finally(() => {
-        delete this._marketPrefetchInFlight[requestKey]
-      })
-    }, 600)
-  },
-
 
   // 右侧商品列表滚动到底：自动触发“查看更多”的同一套逻辑（不改原有分页/筛选）
   onGoodsScrollToLower() {
@@ -2358,55 +2298,6 @@ Page({
     this.updateMarketHeaderState(filtered.length)
 
     this._fillThumbUrlsFor(display, this._getCurrentListQueryKey()).catch(() => {})
-    this._preloadMarketDetails(display)
-  },
-
-  _preloadMarketDetail(id) {
-    const key = String(id || "").trim()
-    if (!key || readMarketDetailCache(key)) return Promise.resolve(false)
-
-    this._detailPreloadInFlight = this._detailPreloadInFlight || {}
-    if (this._detailPreloadInFlight[key]) return this._detailPreloadInFlight[key]
-
-    const task = wx.cloud.callFunction({
-      name: "marketApi",
-      data: { action: "detail", id: key }
-    }).then(res => {
-      const result = getMarketApiResult(res)
-      const item = result.item || result.data || null
-      if (item && item._id === key) {
-        writeMarketDetailCache(key, result)
-        if (item._openid) fetchAndCacheMarketSellerProfiles([item._openid]).catch(() => {})
-        return true
-      }
-      return false
-    }).catch(e => {
-      console.warn("market detail preload failed:", e)
-      return false
-    }).finally(() => {
-      delete this._detailPreloadInFlight[key]
-    })
-
-    this._detailPreloadInFlight[key] = task
-    return task
-  },
-
-  _preloadMarketDetails(goods = [], limit = MARKET_DETAIL_PRELOAD_LIMIT) {
-    this._detailPreloadScheduled = this._detailPreloadScheduled || {}
-    const ids = Array.from(new Set((Array.isArray(goods) ? goods : [])
-      .filter(item => item && !item.isAd)
-      .map(item => String(item.id || item._id || "").trim())
-      .filter(Boolean)))
-      .slice(0, limit)
-
-    ids.forEach((id, index) => {
-      if (this._detailPreloadScheduled[id] || readMarketDetailCache(id)) return
-      this._detailPreloadScheduled[id] = true
-      setTimeout(() => {
-        delete this._detailPreloadScheduled[id]
-        this._preloadMarketDetail(id)
-      }, 1600 + index * 260)
-    })
   },
 
   updateMarketHeaderState(count) {
@@ -2441,18 +2332,24 @@ Page({
     ))
 
     if (missing.length) {
-      const chunkSize = 50
-      for (let i = 0; i < missing.length; i += chunkSize) {
-        const chunk = missing.slice(i, i + chunkSize)
-        try {
-          const r = await wx.cloud.getTempFileURL({ fileList: chunk })
-          ;(r.fileList || []).forEach(x => {
-            if (x.fileID && x.tempFileURL) this._thumbUrlCache[x.fileID] = x.tempFileURL
+      this._thumbUrlRequests = this._thumbUrlRequests || new Map()
+      const targets = missing.filter(fileID => !this._thumbUrlRequests.has(fileID))
+      for (let i = 0; i < targets.length; i += 50) {
+        const chunk = targets.slice(i, i + 50)
+        const request = Promise.resolve().then(() => wx.cloud.getTempFileURL({ fileList: chunk }))
+          .then(result => {
+            ;(result.fileList || []).forEach(file => {
+              if (file.fileID && file.tempFileURL) this._thumbUrlCache[file.fileID] = file.tempFileURL
+            })
+          }).catch(error => console.error("getTempFileURL failed:", error))
+        chunk.forEach(fileID => {
+          const task = request.finally(() => {
+            if (this._thumbUrlRequests.get(fileID) === task) this._thumbUrlRequests.delete(fileID)
           })
-        } catch (e) {
-          console.error("getTempFileURL failed:", e)
-        }
+          this._thumbUrlRequests.set(fileID, task)
+        })
       }
+      await Promise.all(missing.map(fileID => this._thumbUrlRequests.get(fileID)))
       try { wx.setStorageSync(THUMB_CACHE_KEY, this._thumbUrlCache) } catch (e) {}
     }
 
@@ -2502,7 +2399,6 @@ Page({
       const rows = this._hydrateSellerProfilesFromCache(
         this._mapDocsToGoods(cached.list || [], "cacheRestore")
       )
-      if (!rows.length) return { restored: false, isFresh: false }
       this.setData({
         allGoods: rows,
         cloudSkip: Number(cached.nextSkip) || cached.list.length || rows.length,

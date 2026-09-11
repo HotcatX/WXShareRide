@@ -4,6 +4,7 @@ const HISTORY_KEY = 'community_announcement_history_v1'
 const MAX_HISTORY = 100
 const REQUEST_TIMEOUT_MS = 15000
 let pendingRequest = null
+let cachedConfig = null
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 const validTime = value => Number.isSafeInteger(value) && value >= 0 && value <= 8640000000000000
@@ -88,12 +89,15 @@ function friendlyError(timeout = false) {
   return error
 }
 
-// There is deliberately no settled-value cache: each visit and manual tap can
-// observe a server-side switch-off or a replaced/expired QR code immediately.
-function loadCommunityConfig({ force = false } = {}) {
-  void force
+// Only ordinary page returns opt into a short cache. Manual taps keep the
+// default fresh read so replaced QR codes and server-side switches are immediate.
+function loadCommunityConfig({ force = false, maxAgeMs = 0 } = {}) {
   if (!canRequest()) return Promise.resolve(null)
   if (pendingRequest) return pendingRequest
+  const maxAge = Math.min(30000, Math.max(0, Number(maxAgeMs) || 0))
+  if (!force && cachedConfig && getCommunityNow(cachedConfig) - cachedConfig.serverTime < maxAge) {
+    return Promise.resolve(cachedConfig)
+  }
   const request = new Promise((resolve, reject) => {
     let settled = false
     const finish = (error, value) => {
@@ -114,9 +118,11 @@ function loadCommunityConfig({ force = false } = {}) {
   })
   pendingRequest = request.then(value => {
     pendingRequest = null
+    cachedConfig = value
     return value
   }, error => {
     pendingRequest = null
+    cachedConfig = null
     throw error
   })
   return pendingRequest

@@ -60,7 +60,8 @@ async function callTripManage(data = {}) {
 function markRideListStale() {
   try {
     wx.removeStorageSync(RIDE_LIST_CACHE_KEY)
-    wx.setStorageSync(RIDE_LIST_REFRESH_KEY, Date.now())
+    const previous = Number(wx.getStorageSync(RIDE_LIST_REFRESH_KEY)) || 0
+    wx.setStorageSync(RIDE_LIST_REFRESH_KEY, Math.max(Date.now(), previous + 1))
   } catch (e) {
   }
 }

@@ -192,7 +192,7 @@
     <view class="home-section">
       <view class="ride-row-between home-section-head">
         <text class="ride-section-title">社区数据</text>
-        <text class="ride-section-subtitle">实时同步</text>
+        <text class="ride-section-subtitle">每日更新</text>
       </view>
       <view class="home-stats ride-card ride-card-pad">
         <view class="home-stat-main">

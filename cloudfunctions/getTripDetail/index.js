@@ -3,6 +3,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
+const BLOCK_QUERY_CHUNK_SIZE = 20
 
 const TYPE_CONFIG = {
   carpool: {
@@ -59,30 +60,6 @@ async function getUser(openid) {
   if (!openid) return null
   const res = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
   return res.data && res.data[0] ? res.data[0] : null
-}
-
-async function hasActiveBlock(blockerOpenid, targetOpenid) {
-  if (!blockerOpenid || !targetOpenid || blockerOpenid === targetOpenid) return false
-  const res = await db.collection('UserBlocks')
-    .where({
-      _openid: blockerOpenid,
-      targetOpenid,
-      active: true
-    })
-    .limit(1)
-    .get()
-  return !!(res.data && res.data.length)
-}
-
-async function checkBlockBetween(openidA, openidB) {
-  if (!openidA || !openidB || openidA === openidB) return { blocked: false }
-  const [aActiveBlock, bActiveBlock] = await Promise.all([
-    hasActiveBlock(openidA, openidB),
-    hasActiveBlock(openidB, openidA)
-  ])
-  if (aActiveBlock) return { blocked: true, blocker: openidA, target: openidB }
-  if (bActiveBlock) return { blocked: true, blocker: openidB, target: openidA }
-  return { blocked: false }
 }
 
 function getCarpoolPassengerOpenids(doc = {}) {
@@ -179,9 +156,17 @@ async function shouldBlockDetail(actorOpenid, type, doc) {
   if (!actor) return false
   const participants = getTripParticipantOpenids(type, doc)
   if (participants.includes(actor)) return false
-  for (const target of participants) {
-    const result = await checkBlockBetween(actor, target)
-    if (result.blocked) return true
+  // Only existence matters. Keep the same two ownership directions while
+  // checking every participant, including unusually large legacy routes.
+  for (let offset = 0; offset < participants.length; offset += BLOCK_QUERY_CHUNK_SIZE) {
+    const targets = participants.slice(offset, offset + BLOCK_QUERY_CHUNK_SIZE)
+    const conditions = [
+      { _openid: actor, targetOpenid: db.command.in(targets), active: true },
+      { _openid: db.command.in(targets), targetOpenid: actor, active: true }
+    ]
+    const results = await Promise.all(conditions.map(condition => db.collection('UserBlocks')
+      .where(condition).field({ _id: true }).limit(1).get()))
+    if (results.some(result => result.data && result.data.length)) return true
   }
   return false
 }

@@ -7,6 +7,8 @@ const MARKET_SELLER_PROFILE_CACHE_KEY = "market_seller_profile_cache_v2"
 const SELLER_PROFILE_FRESH_MS = 10 * 60 * 1000
 const SELLER_PROFILE_MAX_STALE_MS = 24 * 60 * 60 * 1000
 const MAX_PROFILE_CACHE_SIZE = 120
+const PROFILE_BATCH_SIZE = 20
+const pendingProfiles = new Map()
 
 function cleanText(value) {
   return String(value || "").trim()
@@ -161,20 +163,18 @@ async function resolveAvatarProfiles(profiles = {}) {
   return profiles
 }
 
-async function fetchAndCacheMarketSellerProfiles(openids = []) {
-  const targets = Array.from(new Set((Array.isArray(openids) ? openids : [])
-    .map(cleanText)
-    .filter(Boolean)))
-
-  if (!targets.length) return {}
-
+async function fetchProfileBatch(targets) {
   const res = await wx.cloud.callFunction({
     name: "getUserInfoByOpenids",
     data: { openids: targets }
   })
 
+  const result = res && res.result
+  if (!result || result.ok !== true || !Array.isArray(result.data)) {
+    throw new Error((result && result.errorMsg) || "无法获取卖家资料")
+  }
   const profiles = {}
-  ;((res && res.result && res.result.data) || []).forEach(user => {
+  result.data.forEach(user => {
     const profile = normalizeMarketSellerProfile(user)
     if (profile._openid) profiles[profile._openid] = profile
   })
@@ -188,6 +188,29 @@ async function fetchAndCacheMarketSellerProfiles(openids = []) {
   await resolveAvatarProfiles(profiles)
   writeMarketSellerProfiles(profiles)
   return profiles
+}
+
+async function fetchAndCacheMarketSellerProfiles(openids = [], options = {}) {
+  const targets = Array.from(new Set((Array.isArray(openids) ? openids : []).map(cleanText).filter(Boolean)))
+  const cached = options.force ? {} : readMarketSellerProfiles(targets, { allowStale: false })
+  const missing = targets.filter(openid => !cached[openid] && !pendingProfiles.has(openid))
+  // Match the cloud function's 20-user limit; overlapping requests share each user.
+  for (let i = 0; i < missing.length; i += PROFILE_BATCH_SIZE) {
+    const batch = missing.slice(i, i + PROFILE_BATCH_SIZE)
+    const request = Promise.resolve().then(() => fetchProfileBatch(batch))
+    batch.forEach(openid => {
+      const task = request.then(profiles => profiles[openid]).finally(() => {
+        if (pendingProfiles.get(openid) === task) pendingProfiles.delete(openid)
+      })
+      pendingProfiles.set(openid, task)
+    })
+  }
+  const out = {}
+  await Promise.all(targets.map(async openid => {
+    const profile = cached[openid] || await pendingProfiles.get(openid)
+    if (profile) out[openid] = profile
+  }))
+  return out
 }
 
 module.exports = {

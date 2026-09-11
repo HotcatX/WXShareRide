@@ -1,5 +1,6 @@
 const referral = require("./utils/referral")
 const timeline = require("./utils/timeline")
+const tabMemory = require("./utils/tabMemory")
 
 function serializeQuery(query = {}) {
   if (!query || typeof query !== "object") return ""
@@ -69,6 +70,13 @@ function installDefaultShare() {
       }
     })
 
+    const originalReady = config.onReady
+    config.onReady = function (...args) {
+      const result = typeof originalReady === "function" ? originalReady.apply(this, args) : undefined
+      tabMemory.restoreOnReady(getCurrentRoute(this))
+      return result
+    }
+
     return originalPage(config)
   }
   Page.__referralDefaultShareInstalled = true
@@ -79,6 +87,7 @@ installDefaultShare()
 App({
   onLaunch(options = {}) {
     timeline.updateLaunchContext(options)
+    tabMemory.prepareLaunch(options)
 
     if (!wx.cloud) {
       console.error('请使用 2.2.3 或以上的基础库以使用云能力')

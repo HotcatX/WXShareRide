@@ -3,6 +3,7 @@ const TRIP_DETAIL_CACHE_TTL = 5 * 60 * 1000
 const TRIP_DETAIL_CACHE_MAX_STALE = 30 * 60 * 1000
 const TRIP_DETAIL_CACHE_MAX_SIZE = 80
 const PREFETCH_LIMIT = 8
+const pendingRequests = new Map()
 
 function cleanText(value) {
   return String(value || "").trim()
@@ -110,23 +111,40 @@ async function fetchTripDetail(type, id, options = {}) {
   if (!detailId) {
     return { ok: false, success: false, notFound: true, errorMsg: "缺少路线ID", type: detailType }
   }
+  const viewerKey = getViewerKey()
+  const key = makeKey(detailType, detailId, viewerKey)
 
   if (!options.force) {
     const cached = readTripDetailCache(detailType, detailId, { allowStale: !!options.allowStale })
     if (cached) return cached
+    const pending = pendingRequests.get(key)
+    if (pending) return pending.promise
   }
 
-  const res = await wx.cloud.callFunction({
+  // A forced read may follow a join/leave mutation, so it must not join an
+  // older request. Its response also takes precedence over older cache writes.
+  const request = {}
+  request.promise = Promise.resolve().then(() => wx.cloud.callFunction({
     name: "getTripDetail",
     data: { type: detailType, id: detailId }
+  })).then(res => {
+    if (getViewerKey() !== viewerKey) {
+      return { ok: false, success: false, identityChanged: true, errorMsg: "登录状态已变化，请重新加载", type: detailType }
+    }
+    const result = (res && res.result) || {}
+    if (pendingRequests.get(key) === request) {
+      if (isSuccessResult(result)) {
+        writeTripDetailCache(detailType, detailId, result)
+      } else if (result.notFound || result.blocked) {
+        removeTripDetailCache(detailType, detailId)
+      }
+    }
+    return result
+  }).finally(() => {
+    if (pendingRequests.get(key) === request) pendingRequests.delete(key)
   })
-  const result = (res && res.result) || {}
-  if (isSuccessResult(result)) {
-    writeTripDetailCache(detailType, detailId, result)
-  } else if (result.notFound) {
-    removeTripDetailCache(detailType, detailId)
-  }
-  return result
+  pendingRequests.set(key, request)
+  return request.promise
 }
 
 function normalizeEntry(entry = {}) {

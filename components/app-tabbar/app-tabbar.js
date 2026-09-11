@@ -1,3 +1,5 @@
+const { rememberTab } = require('../../utils/tabMemory')
+
 function formatBadge(value) {
   const n = Number(value || 0)
   if (!Number.isFinite(n) || n <= 0) return ''
@@ -111,11 +113,22 @@ Component({
       const dataset = (e.currentTarget && e.currentTarget.dataset) || {}
       const key = dataset.key || ''
       const url = dataset.url || ''
-      if (!url || key === this.data.displayActive) return
+      if (!url) return
+      const rememberSelectedTab = () => {
+        if ((key === 'home' && url === '/pages/home/home') ||
+          (key === 'profile' && url === '/pages/profile/profile')) {
+          rememberTab(key)
+        }
+      }
+      if (key === this.data.displayActive) {
+        rememberSelectedTab()
+        return
+      }
 
       if (isSwitchTabUrl(url)) {
         wx.switchTab({
           url,
+          success: rememberSelectedTab,
           fail: () => this.setData({ displayActive: this.data.active || 'home' })
         })
         return
@@ -125,6 +138,7 @@ Component({
 
       wx.reLaunch({
         url,
+        success: rememberSelectedTab,
         fail: () => this.setData({ displayActive: this.data.active || 'home' })
       })
     },
@@ -135,10 +149,14 @@ Component({
       setStoredMarketType(nextType)
       this.triggerEvent('marketchange', { type: nextType })
 
-      if (this.data.displayActive === 'market') return
+      if (this.data.displayActive === 'market') {
+        rememberTab(nextType)
+        return
+      }
 
       wx.switchTab({
         url: '/pages/market/market',
+        success: () => rememberTab(nextType),
         fail: () => this.setData({ displayActive: this.data.active || 'home' })
       })
     },

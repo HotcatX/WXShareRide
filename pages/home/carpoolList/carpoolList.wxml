@@ -24,50 +24,28 @@
     </view>
 
     <view wx:if="{{isRideServiceAvailable}}" class="list-filter">
-      <view class="list-filter-grid">
-        <picker
-          mode="selector"
-          range="{{fromFilterOptions}}"
-          value="{{fromFilterIndex < 0 ? 0 : fromFilterIndex}}"
-          bindchange="onFromFilterChange"
-        >
-          <view class="ride-field">
-            <text class="ride-field-value {{fromFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ fromFilterIndex < 0 ? '全部出发地' : fromFilterOptions[fromFilterIndex] }}</text>
-          </view>
-        </picker>
-
-        <picker
-          mode="selector"
-          range="{{toFilterOptions}}"
-          value="{{toFilterIndex < 0 ? 0 : toFilterIndex}}"
-          bindchange="onToFilterChange"
-        >
-          <view class="ride-field">
-            <text class="ride-field-value {{toFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ toFilterIndex < 0 ? '全部目的地' : toFilterOptions[toFilterIndex] }}</text>
-          </view>
-        </picker>
-
-        <picker
-          mode="selector"
-          range="{{timeFilterOptions}}"
-          value="{{timeFilterIndex < 0 ? 0 : timeFilterIndex}}"
-          bindchange="onTimeFilterChange"
-        >
-          <view class="ride-field">
-            <text class="ride-field-value {{timeFilterIndex < 0 ? 'ride-placeholder' : ''}}">{{ timeFilterIndex < 0 ? '全部时间' : timeFilterOptions[timeFilterIndex] }}</text>
-          </view>
-        </picker>
-
-        <view class="ride-chip list-reset-chip" bindtap="onResetFilter" hover-class="ride-pressed" hover-stay-time="80">
-          重置
+      <view class="list-place-bar">
+        <view class="list-place-field" data-field="from" bindtap="onOpenPlacePicker" hover-class="ride-pressed" role="button" aria-label="选择出发地">
+          <view class="list-place-value-row"><text class="list-place-value {{selectedFromPlace ? 'is-selected' : ''}}">{{fromFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
         </view>
+        <view class="list-swap" bindtap="onSwapFilterPlaces" hover-class="ride-pressed" role="button" aria-label="交换出发地和目的地">⇄</view>
+        <view class="list-place-field" data-field="to" bindtap="onOpenPlacePicker" hover-class="ride-pressed" role="button" aria-label="选择目的地">
+          <view class="list-place-value-row"><text class="list-place-value {{selectedToPlace ? 'is-selected' : ''}}">{{toFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
+        </view>
+        <view class="list-refine-entry {{moreFilterCount ? 'is-active' : ''}}" bindtap="onOpenRefineFilters" hover-class="ride-pressed" role="button" aria-label="筛选日期和路线类型">筛选<text wx:if="{{moreFilterCount}}" class="list-refine-count">{{moreFilterCount}}</text></view>
+      </view>
+
+      <view wx:if="{{moreFilterCount}}" class="list-active-filters">
+        <text wx:if="{{selectedDate || timeFilterIndex >= 0}}">{{selectedDate ? dateFilterLabel : (timeFilterIndex === 0 ? '今天' : (timeFilterIndex === 1 ? '明天' : '其他日期'))}}</text>
+        <text wx:if="{{routeTypeFilter !== 'all'}}" class="{{routeTypeFilter === 'request' ? 'list-active-request' : ''}}">{{routeTypeFilter === 'request' ? '只看求车' : '只看发车'}}</text>
+        <view class="list-active-reset" bindtap="onResetFilter" hover-class="ride-pressed">重置</view>
       </view>
     </view>
   </view>
 
   <scroll-view
     class="ride-scroll list-scroll"
-    scroll-y
+    scroll-y="{{!placePickerVisible && !refineFiltersVisible}}"
     enhanced="true"
     show-scrollbar="{{false}}"
     refresher-enabled="{{true}}"
@@ -92,19 +70,25 @@
     </view>
 
     <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="ride-state">
-      暂无可查看的行程
+      <text>{{fullTripCount ? '暂无有空座的车辆，可展开查看已满车辆' : (hasActiveFilters ? '没有符合条件的路线，试试其他地点或日期' : '暂无可查看的行程')}}</text>
+      <view wx:if="{{hasActiveFilters && !fullTripCount}}" class="list-empty-reset" bindtap="onResetFilter" hover-class="ride-pressed">清除筛选</view>
     </view>
 
     <block wx:else>
-      <block wx:for="{{dayGroups}}" wx:key="date">
+      <block wx:for="{{dayGroups}}" wx:key="key">
         <view class="list-date-row">
           <text class="list-date">{{item.dateLabel}}</text>
+          <view class="list-date-count">
+            <text class="list-date-count--carpool">发车 {{item.carpoolCount || 0}}</text>
+            <text class="list-date-count-separator">·</text>
+            <text class="list-date-count--request">求车 {{item.requestCount || 0}}</text>
+          </view>
         </view>
 
         <block wx:if="{{item.items && item.items.length}}">
           <block wx:for="{{item.items}}" wx:for-item="trip" wx:key="_id">
             <view
-              class="ride-card ride-list-card list-trip-card"
+              class="ride-card ride-list-card list-trip-card {{trip._type === 'request' ? 'list-trip-card--request' : ''}}"
               bindtap="goItemDetail"
               data-id="{{trip._id}}"
               data-type="{{trip._type}}"
@@ -131,7 +115,7 @@
                 </view>
 
                 <view class="list-route-side">
-                  <text wx:if="{{trip._type === 'carpool'}}" class="ride-chip ride-chip--accent list-seat-chip">余位 {{trip.availSeatNum || 0}}</text>
+                  <text wx:if="{{trip._type === 'carpool'}}" class="ride-chip list-seat-chip list-seat-chip--{{trip._seatAvailability || 'unknown'}}">{{trip._seatLabel || '余位 —'}}</text>
                   <text wx:else class="ride-chip ride-chip--accent list-seat-chip">{{trip._requestPassengerCount || 1}}人求车</text>
                 </view>
               </view>
@@ -141,6 +125,18 @@
       </block>
     </block>
 
+    <view
+      wx:if="{{isRideServiceAvailable && fullTripCount > 0}}"
+      class="ride-card ride-list-card list-trip-card list-full-toggle"
+      bindtap="onToggleFullTrips"
+      hover-class="ride-card-pressed"
+      hover-stay-time="80"
+      role="button"
+      aria-label="{{(showFullTrips ? '收起' : '显示') + fullTripCount + '辆已满车辆'}}"
+    >
+      <text>{{showFullTrips ? '收起' : '显示'}}{{fullTripCount}}辆已满车辆</text>
+    </view>
+
     <view class="toast-bar" wx:if="{{showToast}}">
       <text class="toast-icon">!</text>
       <text class="toast-text">{{toastText}}</text>
@@ -149,6 +145,60 @@
     <text wx:if="{{isRideServiceAvailable}}" class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
+
+  <view wx:if="{{refineFiltersVisible}}">
+    <view class="list-place-mask" bindtap="onCloseRefineFilters" catchtouchmove="stopTouchMove"></view>
+    <view class="list-place-panel list-refine-panel">
+      <view class="list-place-panel-handle"></view>
+      <view class="list-place-panel-header">
+        <text class="list-place-panel-title">筛选路线</text>
+        <view class="list-place-close" bindtap="onCloseRefineFilters" hover-class="ride-pressed" role="button" aria-label="关闭筛选">×</view>
+      </view>
+      <text class="list-refine-section-title">出发日期</text>
+      <view class="list-date-filters">
+        <view class="list-date-option {{timeFilterIndex < 0 && !selectedDate ? 'is-active' : ''}}" data-value="all" bindtap="onQuickDateChange" hover-class="ride-pressed">不限日期</view>
+        <view class="list-date-option {{timeFilterIndex === 0 && !selectedDate ? 'is-active' : ''}}" data-value="today" bindtap="onQuickDateChange" hover-class="ride-pressed">今天</view>
+        <view class="list-date-option {{timeFilterIndex === 1 && !selectedDate ? 'is-active' : ''}}" data-value="tomorrow" bindtap="onQuickDateChange" hover-class="ride-pressed">明天</view>
+        <picker class="list-date-picker" mode="date" value="{{selectedDate || todayDateStr}}" start="{{todayDateStr}}" bindchange="onSpecificDateChange">
+          <view class="list-date-option {{selectedDate || timeFilterIndex === 2 ? 'is-active' : ''}}"><text>{{dateFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
+        </picker>
+      </view>
+
+      <text class="list-refine-section-title">路线类型</text>
+      <view class="list-type-tabs">
+        <view class="list-type-tab {{routeTypeFilter === 'all' ? 'is-active' : ''}}" data-type="all" bindtap="onRouteTypeChange" hover-class="ride-pressed">全部路线</view>
+        <view class="list-type-tab {{routeTypeFilter === 'carpool' ? 'is-active' : ''}}" data-type="carpool" bindtap="onRouteTypeChange" hover-class="ride-pressed"><text class="list-type-dot"></text>发车路线</view>
+        <view class="list-type-tab list-type-tab--request {{routeTypeFilter === 'request' ? 'is-active' : ''}}" data-type="request" bindtap="onRouteTypeChange" hover-class="ride-pressed"><text class="list-type-dot"></text>求车路线</view>
+      </view>
+      <view class="list-refine-footer">
+        <view class="list-refine-reset" bindtap="onResetFilter" hover-class="ride-pressed">重置</view>
+        <view class="list-refine-done" bindtap="onCloseRefineFilters" hover-class="ride-pressed">完成</view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{placePickerVisible}}" class="list-place-picker">
+    <view class="list-place-mask" bindtap="onClosePlacePicker" catchtouchmove="stopTouchMove"></view>
+    <view class="list-place-panel">
+      <view class="list-place-panel-handle"></view>
+      <view class="list-place-panel-header">
+        <text class="list-place-panel-title">{{placePickerTitle}}</text>
+        <view class="list-place-close" bindtap="onClosePlacePicker" hover-class="ride-pressed" role="button" aria-label="关闭地点选择">×</view>
+      </view>
+      <view class="list-place-search">
+        <text class="list-place-search-icon">⌕</text>
+        <input class="list-place-search-input" placeholder="搜索地点，如 Fort Lee、哥大" placeholder-class="list-place-search-placeholder" value="{{placeSearchKeyword}}" bindinput="onPlaceSearchInput" confirm-type="search" />
+      </view>
+      <scroll-view class="list-place-options-scroll" scroll-y enhanced="true" show-scrollbar="false">
+        <view class="list-place-options">
+          <view wx:for="{{placePickerOptions}}" wx:key="value" class="list-place-option {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelectFilterPlace" hover-class="ride-pressed">
+            <text>{{item.label}}</text><text wx:if="{{item.selected}}" class="list-place-check">✓</text>
+          </view>
+        </view>
+        <view wx:if="{{!placePickerOptions.length || (placeSearchKeyword && placePickerOptions.length === 1 && !placePickerOptions[0].value)}}" class="list-place-no-results">没有匹配的地点，换个关键词试试</view>
+      </scroll-view>
+    </view>
+  </view>
 
   <view wx:if="{{cityPickerVisible}}">
     <view class="city-mask" bindtap="onCityPickerCancel"></view>

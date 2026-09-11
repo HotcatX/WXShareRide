@@ -1,6 +1,5 @@
 const { showDataError } = require("../../../utils/error")
-const { formatRidePriceTag } = require("../../../utils/tripManage")
-const { prefetchTripDetails } = require("../../../utils/tripDetailCache")
+const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -31,7 +30,7 @@ const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
 const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
-const LIST_CACHE_TTL = 10 * 60 * 1000
+const LIST_CACHE_TTL = LIST_REFRESH_INTERVAL
 const LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请求开通该区域。当前优先服务纽约/新泽西。"
@@ -94,9 +93,23 @@ Page({
     // 筛选
     fromFilterOptions: ["全部", "其他"],
     fromFilterIndex: -1,
+    selectedFromPlace: "",
+    fromFilterLabel: "不限出发地",
     toFilterOptions: ["全部", "其他"],
     toFilterIndex: -1,
-    enableToLinkage: true,
+    selectedToPlace: "",
+    toFilterLabel: "不限目的地",
+    enableToLinkage: false,
+    routeTypeFilter: "all",
+    selectedDate: "",
+    dateFilterLabel: "选日期",
+    hasActiveFilters: false,
+    placePickerVisible: false,
+    placePickerTitle: "选择出发地",
+    placeSearchKeyword: "",
+    placePickerOptions: [],
+    refineFiltersVisible: false,
+    moreFilterCount: 0,
 
     fromPlaceList: [],
     toPlaceList: [],
@@ -112,8 +125,10 @@ Page({
     originalRequestList: [],
 
     // 分组后的渲染数据
-    // 现在每个 group 里会有统一按时间排序的 items
-    dayGroups: []
+    // 有空座/求车路线在前，满员车辆展开后统一放在最后。
+    dayGroups: [],
+    fullTripCount: 0,
+    showFullTrips: false
   },
 
   _listLoadingPromise: null,
@@ -123,6 +138,7 @@ Page({
   _initFilterFromShare: null,
 
   onLoad(options) {
+    this._listDisposed = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
     this._applyCityUi((options && options.city) || storedCity.key || RIDE_DEFAULT_CITY_KEY, { persist: false })
@@ -133,21 +149,8 @@ Page({
       menus: ['shareAppMessage', 'shareTimeline']
     })
 
-    // 今日/明日
-    const today = new Date()
-    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000)
-    const fmt = (d) => {
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, "0")
-      const day = String(d.getDate()).padStart(2, "0")
-      return `${y}-${m}-${day}`
-    }
-
-    // 读取分享带来的筛选参数（先暂存，等 options 列表加载完再 set）
-    const from = options && options.from != null ? Number(options.from) : -1
-    const to = options && options.to != null ? Number(options.to) : -1
-    const time = options && options.time != null ? Number(options.time) : -1
-    this._initFilterFromShare = { from, to, time }
+    // 新分享使用地点文字；旧分享的索引在地点配置加载后继续兼容。
+    this._initFilterFromShare = this.readShareFilters(options || {})
 
     const cachedOptions = this.getCachedFilterOptions()
     const defaultOptions = cachedOptions || this.buildFilterOptionData([], [])
@@ -155,18 +158,19 @@ Page({
 
     this.setData({
       statusBarHeight: info.statusBarHeight,
-      todayDateStr: fmt(today),
-      tomorrowDateStr: fmt(tomorrow),
+      ...this.getFilterDateData(),
       ...defaultOptions
     }, () => {
-      this.applyShareFilters(false, () => {
+      this.applyShareFilters(!!cachedOptions, () => {
         if (!this.data.isRideServiceAvailable) {
           this.setData({
             loading: false,
             hasLoadedOnce: true,
             originalCarpoolList: [],
             originalRequestList: [],
-            dayGroups: []
+            dayGroups: [],
+            fullTripCount: 0,
+            showFullTrips: false
           })
           setTimeout(() => this.loadCityTreeFromCloud(), 120)
           if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
@@ -182,25 +186,30 @@ Page({
   },
 
   onShow() {
-    // onLoad 已经负责首屏；返回页面时只做轻量刷新，避免重复卡首屏。
+    this.setData(this.getFilterDateData())
+    // 首屏由 onLoad 负责；返回时复用短缓存，身份/路线变更会立即失效。
     if (!this.data.hasLoadedOnce) return
-    if (!this.data.isRideServiceAvailable) {
-      this.setData({
-        loading: false,
-        dayGroups: [],
-        originalCarpoolList: [],
-        originalRequestList: []
-      })
-      return
-    }
-    const refreshAt = this.getRideListRefreshAt()
-    if (refreshAt && refreshAt > this._loadedOnceAt) {
-      this.clearListCache()
-      this.loadBothLists({ showLoading: false })
-      return
-    }
-    if (Date.now() - this._loadedOnceAt < LIST_REFRESH_INTERVAL) return
     this.loadBothLists({ showLoading: false })
+  },
+
+  onUnload() {
+    this._listDisposed = true
+  },
+
+  getListViewerKey() {
+    try {
+      return wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+    } catch (e) {
+      return "guest"
+    }
+  },
+
+  getListRequestKey() {
+    return JSON.stringify([
+      this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+      this.getListViewerKey(),
+      this.getRideListRefreshAt()
+    ])
   },
 
   getRideListRefreshAt() {
@@ -277,6 +286,8 @@ Page({
     )
     this.setData({
       cityPickerVisible: true,
+      placePickerVisible: false,
+      refineFiltersVisible: false,
       citySearchKeyword: "",
       cityPickerGroups,
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
@@ -329,6 +340,8 @@ Page({
       cityPickerVisible: false,
       citySearchKeyword: "",
       dayGroups: [],
+      fullTripCount: 0,
+      showFullTrips: false,
       originalCarpoolList: [],
       originalRequestList: [],
       loading: serviceAvailable,
@@ -410,10 +423,11 @@ Page({
     try {
       const cached = wx.getStorageSync(LIST_CACHE_KEY)
       if (!cached || !cached.savedAt) return false
-      const refreshAt = this.getRideListRefreshAt()
-      if (refreshAt && refreshAt >= Number(cached.savedAt)) return false
+      if (cached.viewerKey !== this.getListViewerKey()) return false
+      if (Number(cached.revision || 0) !== this.getRideListRefreshAt()) return false
       if (!rideCityKeysMatch(cached.cityKey || DEFAULT_CITY_KEY, this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY)) return false
-      if (Date.now() - Number(cached.savedAt) > LIST_CACHE_TTL) return false
+      const age = Date.now() - Number(cached.savedAt)
+      if (!Number.isFinite(age) || age < 0 || age >= LIST_CACHE_TTL) return false
 
       const carpoolList = (Array.isArray(cached.carpoolList) ? cached.carpoolList : [])
         .map(item => this.decorateTripCommon(item, "carpool"))
@@ -421,7 +435,6 @@ Page({
       const requestList = (Array.isArray(cached.requestList) ? cached.requestList : [])
         .map(item => this.decorateTripCommon(item, "request"))
         .filter(item => this.shouldShowTrip(item))
-      if (!carpoolList.length && !requestList.length) return false
 
       this.setData({
         originalCarpoolList: carpoolList,
@@ -431,21 +444,24 @@ Page({
       }, () => this.applyAllFiltersAndGroup())
 
       this._loadedOnceAt = Number(cached.savedAt) || Date.now()
+      this._loadedListKey = this.getListRequestKey()
+      this._loadedViewerKey = this.getListViewerKey()
       return true
     } catch (e) {
       return false
     }
   },
 
-  cacheLoadedLists(carpoolList, requestList) {
+  cacheLoadedLists(carpoolList, requestList, request) {
     try {
       wx.setStorageSync(LIST_CACHE_KEY, {
-        savedAt: Date.now(),
+        savedAt: request.startedAt,
+        viewerKey: request.viewerKey,
+        revision: request.revision,
         cityKey: normalizeRideServiceCityKey(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY),
         carpoolList: Array.isArray(carpoolList) ? carpoolList : [],
         requestList: Array.isArray(requestList) ? requestList : []
       })
-      wx.removeStorageSync(LIST_REFRESH_KEY)
     } catch (e) {
     }
   },
@@ -455,17 +471,74 @@ Page({
     return options[index]
   },
 
-  applyFilterOptionData(optionData) {
-    const currentFrom = this.getSelectedOption(this.data.fromFilterOptions, this.data.fromFilterIndex)
-    const currentTo = this.getSelectedOption(this.data.toFilterOptions, this.data.toFilterIndex)
+  getFilterDateData(now = new Date()) {
+    const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    return { todayDateStr: format(now), tomorrowDateStr: format(tomorrow) }
+  },
 
-    const fromIndex = currentFrom ? optionData.fromFilterOptions.indexOf(currentFrom) : -1
-    const toIndex = currentTo ? optionData.toFilterOptions.indexOf(currentTo) : -1
+  normalizeFilterPlace(value) {
+    const place = String(value == null ? "" : value).trim().slice(0, 200)
+    return place === "全部" ? "" : place
+  },
+
+  getSelectedFilterPlace(field) {
+    const prefix = field === "to" ? "to" : "from"
+    const selected = field === "to" ? this.data.selectedToPlace : this.data.selectedFromPlace
+    return this.normalizeFilterPlace(selected || this.getSelectedOption(this.data[`${prefix}FilterOptions`], this.data[`${prefix}FilterIndex`]))
+  },
+
+  getAvailablePlaceOptions(field, optionData = this.data, selectedPlace) {
+    const isTo = field === "to"
+    const configured = optionData[isTo ? "toPlaceList" : "fromPlaceList"] || []
+    const routePlaces = [...(this.data.originalCarpoolList || []), ...(this.data.originalRequestList || [])]
+      .flatMap(trip => (trip && trip[isTo ? "destinations" : "departures"]) || [])
+      .map(place => place && (place.address || place.displayName || place.name))
+    const selected = selectedPlace == null ? this.getSelectedFilterPlace(field) : selectedPlace
+    const places = this.uniqNonEmpty([...configured, ...routePlaces, selected])
+      .filter(place => place !== "全部" && place !== "其他")
+    return ["全部", ...places, "其他"]
+  },
+
+  syncFilterUi() {
+    const selectedFromPlace = this.getSelectedFilterPlace("from")
+    const selectedToPlace = this.getSelectedFilterPlace("to")
+    const fromFilterOptions = this.getAvailablePlaceOptions("from", this.data, selectedFromPlace)
+    const toFilterOptions = this.getAvailablePlaceOptions("to", this.data, selectedToPlace)
+    const selectedDate = this.data.selectedDate
+    const dateFilterLabel = selectedDate
+      ? `${Number(selectedDate.slice(5, 7))}月${Number(selectedDate.slice(8, 10))}日`
+      : (this.data.timeFilterIndex === 2 ? "其他日期" : "选日期")
+    this.setData({
+      selectedFromPlace,
+      selectedToPlace,
+      fromFilterOptions,
+      toFilterOptions,
+      fromFilterIndex: selectedFromPlace ? fromFilterOptions.indexOf(selectedFromPlace) : -1,
+      toFilterIndex: selectedToPlace ? toFilterOptions.indexOf(selectedToPlace) : -1,
+      fromFilterLabel: selectedFromPlace || "不限出发地",
+      toFilterLabel: selectedToPlace || "不限目的地",
+      dateFilterLabel,
+      moreFilterCount: Number(!!(selectedDate || this.data.timeFilterIndex >= 0)) + Number(this.data.routeTypeFilter !== "all"),
+      hasActiveFilters: !!(selectedFromPlace || selectedToPlace || selectedDate || this.data.timeFilterIndex >= 0 || this.data.routeTypeFilter !== "all")
+    })
+    if (this.data.placePickerVisible) this.updatePlacePickerOptions()
+  },
+
+  applyFilterOptionData(optionData) {
+    const currentFrom = this.getSelectedFilterPlace("from")
+    const currentTo = this.getSelectedFilterPlace("to")
+    const fromFilterOptions = this.getAvailablePlaceOptions("from", optionData, currentFrom)
+    const toFilterOptions = this.getAvailablePlaceOptions("to", optionData, currentTo)
 
     this.setData({
       ...optionData,
-      fromFilterIndex: fromIndex >= 0 ? fromIndex : -1,
-      toFilterIndex: toIndex >= 0 ? toIndex : -1
+      fromFilterOptions,
+      toFilterOptions,
+      selectedFromPlace: currentFrom,
+      selectedToPlace: currentTo,
+      fromFilterIndex: currentFrom ? fromFilterOptions.indexOf(currentFrom) : -1,
+      toFilterIndex: currentTo ? toFilterOptions.indexOf(currentTo) : -1
     }, () => {
       this.applyShareFilters(true, () => {
         if (this.data.hasLoadedOnce) this.applyAllFiltersAndGroup()
@@ -475,25 +548,38 @@ Page({
 
   applyShareFilters(consume, callback) {
     if (!this._initFilterFromShare) {
+      this.syncFilterUi()
       if (callback) callback()
       return
     }
 
-    const { from, to, time } = this._initFilterFromShare
+    const { from, to, time, fromPlace, toPlace, date, type } = this._initFilterFromShare
     const next = {}
+    const legacyOptions = this.buildFilterOptionData(this.data.fromPlaceList, this.data.toPlaceList)
 
-    if (from >= 0 && from < this.data.fromFilterOptions.length) {
-      next.fromFilterIndex = from
+    if (fromPlace != null) {
+      next.selectedFromPlace = fromPlace
+      next.fromFilterIndex = -1
+    } else if (from >= 0 && from < legacyOptions.fromFilterOptions.length) {
+      next.selectedFromPlace = this.normalizeFilterPlace(legacyOptions.fromFilterOptions[from])
+      next.fromFilterIndex = -1
     }
-    if (to >= 0 && to < this.data.toFilterOptions.length) {
-      next.toFilterIndex = to
+    if (toPlace != null) {
+      next.selectedToPlace = toPlace
+      next.toFilterIndex = -1
+    } else if (to >= 0 && to < legacyOptions.toFilterOptions.length) {
+      next.selectedToPlace = this.normalizeFilterPlace(legacyOptions.toFilterOptions[to])
+      next.toFilterIndex = -1
     }
     if (time >= 0 && time < this.data.timeFilterOptions.length) {
       next.timeFilterIndex = time
     }
+    next.selectedDate = date
+    next.routeTypeFilter = type
 
     const done = () => {
       if (consume) this._initFilterFromShare = null
+      this.syncFilterUi()
       if (callback) callback()
     }
 
@@ -502,6 +588,41 @@ Page({
     } else {
       done()
     }
+  },
+
+  isValidFilterDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false
+    const [year, month, day] = String(value).split("-").map(Number)
+    const date = new Date(year, month - 1, day)
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+  },
+
+  readShareFilters(options) {
+    const decode = value => {
+      try { return decodeURIComponent(String(value)) } catch (e) { return String(value) }
+    }
+    const date = options.date == null ? "" : decode(options.date)
+    return {
+      from: options.from != null ? Number(options.from) : -1,
+      to: options.to != null ? Number(options.to) : -1,
+      time: options.time != null ? Number(options.time) : -1,
+      fromPlace: options.fromPlace == null ? null : this.normalizeFilterPlace(decode(options.fromPlace)),
+      toPlace: options.toPlace == null ? null : this.normalizeFilterPlace(decode(options.toPlace)),
+      date: this.isValidFilterDate(date) ? date : "",
+      type: ["carpool", "request"].includes(options.type) ? options.type : "all"
+    }
+  },
+
+  getFilterShareQuery() {
+    const values = {
+      city: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+      fromPlace: this.getSelectedFilterPlace("from"),
+      toPlace: this.getSelectedFilterPlace("to"),
+      date: this.data.selectedDate || "",
+      time: this.data.timeFilterIndex,
+      type: this.data.routeTypeFilter
+    }
+    return Object.keys(values).map(key => `${key}=${encodeURIComponent(values[key])}`).join("&")
   },
 
   goBack() {
@@ -517,19 +638,16 @@ Page({
   // 分享（带筛选条件）
   // =========================
   onShareAppMessage() {
-    const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
-    const query = `city=${activeCityKey || RIDE_DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
     return getApp().withReferralShare({
       title: '线路列表',
-      path: `/pages/home/carpoolList/carpoolList?${query}`
+      path: `/pages/home/carpoolList/carpoolList?${this.getFilterShareQuery()}`
     })
   },
 
   onShareTimeline() {
-    const { fromFilterIndex, toFilterIndex, timeFilterIndex, activeCityKey } = this.data
     return getApp().withReferralShare({
       title: '线路列表',
-      query: `city=${activeCityKey || RIDE_DEFAULT_CITY_KEY}&from=${fromFilterIndex}&to=${toFilterIndex}&time=${timeFilterIndex}`
+      query: this.getFilterShareQuery()
     })
   },
 
@@ -606,7 +724,7 @@ Page({
   // 状态刷新 + 列表加载
   // =========================
   async refreshStatusAndReload() {
-    await this.loadBothLists({ showLoading: !this.data.hasLoadedOnce })
+    await this.loadBothLists({ showLoading: !this.data.hasLoadedOnce, force: true })
     this.refreshStatusInBackground(true)
   },
 
@@ -647,7 +765,8 @@ Page({
       )
 
       if (updatedCount > 0) {
-        return this.loadBothLists({ showLoading: false })
+        markRideListStale()
+        return this.loadBothLists({ showLoading: false, force: true })
       }
       return null
     }).catch((e) => {
@@ -754,70 +873,16 @@ Page({
       trip._rightLabel = "乘客线路"
     } else {
       trip._rightLabel = "司机线路"
+      const availableSeats = this.getAvailableSeatCount(trip)
+      const isFull = this.isFullCarpool(trip)
+      trip._seatAvailability = isFull ? "full"
+        : availableSeats == null ? "unknown"
+        : availableSeats === 1 ? "last"
+        : availableSeats === 2 ? "limited" : "available"
+      trip._seatLabel = isFull ? "已满" : `余位 ${availableSeats == null ? "—" : availableSeats}`
     }
 
     return trip
-  },
-
-  async hydrateMissingPriceTexts(carpoolList, requestList) {
-    const listPairs = [
-      { type: "carpool", items: carpoolList || [] },
-      { type: "request", items: requestList || [] }
-    ]
-
-    const hasMissingPrice = listPairs.some(pair =>
-      pair.items.some(item => item && item._id && !item._priceText)
-    )
-    if (!hasMissingPrice) return false
-
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "getTripList",
-        data: {
-          type: "all",
-          limit: LIST_FETCH_LIMIT,
-          quick: false,
-          cityKey: normalizeRideServiceCityKey(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY),
-          cityLabel: RIDE_SERVICE_CITY_LABEL,
-          cityAliases: this.data.activeCityAliases || []
-        }
-      })
-      const result = res && res.result ? res.result : {}
-      if (!result.success) return false
-
-      const data = result.data || {}
-      const carpoolFull = Array.isArray(data.carpool) ? data.carpool : (Array.isArray(result.carpoolList) ? result.carpoolList : [])
-      const requestFull = Array.isArray(data.request) ? data.request : (Array.isArray(result.requestList) ? result.requestList : [])
-      const priceMap = {
-        carpool: new Map(),
-        request: new Map()
-      }
-
-      carpoolFull.forEach(item => {
-        const price = this.getTripPriceText(item)
-        if (item && item._id && price) priceMap.carpool.set(item._id, price)
-      })
-      requestFull.forEach(item => {
-        const price = this.getTripPriceText(item)
-        if (item && item._id && price) priceMap.request.set(item._id, price)
-      })
-
-      let changed = false
-      listPairs.forEach(pair => {
-        pair.items.forEach(item => {
-          if (!item || !item._id || item._priceText) return
-          const price = priceMap[pair.type].get(item._id)
-          if (!price) return
-          item._priceText = price
-          changed = true
-        })
-      })
-
-      return changed
-    } catch (err) {
-      console.warn("hydrateMissingPriceTexts failed:", err)
-      return false
-    }
   },
 
   shouldShowTrip(trip) {
@@ -836,24 +901,51 @@ Page({
   // 拉两类列表 + 排序 + 过滤 + 分组
   // =========================
   async loadBothLists(options = {}) {
+    if (this._listDisposed) return
     if (!this.data.isRideServiceAvailable) {
       this.setData({
         loading: false,
         hasLoadedOnce: true,
         originalCarpoolList: [],
         originalRequestList: [],
-        dayGroups: []
+        dayGroups: [],
+        fullTripCount: 0,
+        showFullTrips: false
       })
       return Promise.resolve()
     }
 
-    if (this._listLoadingPromise) return this._listLoadingPromise
-
-    let showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
-    if (showLoading && this.restoreCachedLists()) {
-      showLoading = false
+    const key = this.getListRequestKey()
+    if (this._listLoadingPromise && this._listLoadingKey === key) return this._listLoadingPromise
+    if (this._loadedViewerKey && this._loadedViewerKey !== this.getListViewerKey()) {
+      this._loadedListKey = null
+      this._loadedViewerKey = null
+      this.setData({
+        hasLoadedOnce: false,
+        originalCarpoolList: [],
+        originalRequestList: [],
+        dayGroups: [],
+        fullTripCount: 0,
+        showFullTrips: false
+      })
+    }
+    if (!options.force) {
+      const age = Date.now() - this._loadedOnceAt
+      if (this.data.hasLoadedOnce && this._loadedListKey === key && age >= 0 && age < LIST_REFRESH_INTERVAL) {
+        this.applyAllFiltersAndGroup()
+        return
+      }
+      if (this.restoreCachedLists()) return
     }
 
+    const request = {
+      key,
+      cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+      viewerKey: this.getListViewerKey(),
+      revision: this.getRideListRefreshAt(),
+      startedAt: Date.now()
+    }
+    const showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
     if (showLoading) {
       this.setData({
         loading: true,
@@ -863,17 +955,24 @@ Page({
       wx.showNavigationBarLoading()
     }
 
-    this._listLoadingPromise = this._loadBothListsImpl(showLoading)
+    this._listLoadingKey = key
+    this._listActiveRequest = request
+    this._listLoadingPromise = this._loadBothListsImpl(showLoading, request)
       .finally(() => {
+        if (this._listActiveRequest !== request) return
         this._listLoadingPromise = null
-        if (!showLoading) wx.hideNavigationBarLoading()
+        wx.hideNavigationBarLoading()
+        // 请求期间发生加入/退出或切换身份时，不能把旧结果当作最新结果。
+        if (!this._listDisposed && this.data.isRideServiceAvailable && key !== this.getListRequestKey()) {
+          return this.loadBothLists({ showLoading: false, force: true })
+        }
       })
 
     return this._listLoadingPromise
   },
 
-  async _loadBothListsImpl(showLoading) {
-    const requestDisplayCityKey = this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY
+  async _loadBothListsImpl(showLoading, request) {
+    const requestDisplayCityKey = request.cityKey
     const requestCityKey = normalizeRideServiceCityKey(requestDisplayCityKey)
     try {
       const cityFilters = {
@@ -887,11 +986,13 @@ Page({
       })
       const result = res && res.result ? res.result : {}
 
-      if ((this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY) !== requestDisplayCityKey || !this.data.isRideServiceAvailable) {
+      if (this._listDisposed || request.key !== this.getListRequestKey() || this._listActiveRequest !== request || !this.data.isRideServiceAvailable) {
         return
       }
 
       if (!result.success) {
+        this._loadedListKey = null
+        this.clearListCache()
         if (showLoading) {
           showDataError("加载失败", result.errorMsg || "load failed", "列表加载失败，请稍后重试。")
         }
@@ -900,7 +1001,9 @@ Page({
           hasLoadedOnce: true,
           originalCarpoolList: [],
           originalRequestList: [],
-          dayGroups: []
+          dayGroups: [],
+          fullTripCount: 0,
+          showFullTrips: false
         })
         return
       }
@@ -927,24 +1030,18 @@ Page({
         hasLoadedOnce: true
       })
 
-      this._loadedOnceAt = Date.now()
-      this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
+      this._loadedOnceAt = request.startedAt
+      this._loadedListKey = request.key
+      this._loadedViewerKey = request.viewerKey
+      this.cacheLoadedLists(decoratedCarpool, decoratedRequest, request)
       this.applyAllFiltersAndGroup()
-      this.hydrateMissingPriceTexts(decoratedCarpool, decoratedRequest).then((changed) => {
-        if (!changed) return
-        if ((this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY) !== requestDisplayCityKey || !this.data.isRideServiceAvailable) return
-        this.setData({
-          originalCarpoolList: decoratedCarpool,
-          originalRequestList: decoratedRequest
-        })
-        this.cacheLoadedLists(decoratedCarpool, decoratedRequest)
-        this.applyAllFiltersAndGroup()
-      })
     } catch (err) {
       console.error("loadBothLists error:", err)
-      if ((this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY) !== requestDisplayCityKey || !this.data.isRideServiceAvailable) {
+      if (this._listDisposed || request.key !== this.getListRequestKey() || this._listActiveRequest !== request || !this.data.isRideServiceAvailable) {
         return
       }
+      this._loadedListKey = null
+      this.clearListCache()
       if (showLoading) showDataError("加载失败", err, "列表加载失败，请稍后重试。")
       this.setData({
         loading: false,
@@ -976,21 +1073,15 @@ Page({
   // 地址匹配（Fort Lee / Columbia / 普通包含匹配）
   // =========================
   isFortLee(address) {
-    if (!address) return false
-    const s = String(address)
-    return (
-      s.indexOf("Fort Lee") >= 0 ||
-      s.indexOf("Fort Lee 核心区") >= 0 ||
-      s.indexOf("Fort Lee 全区域") >= 0
-    )
+    return /fort\s*lee/i.test(String(address || ""))
   },
 
   isColumbia(address) {
     if (!address) return false
-    const s = String(address)
+    const s = String(address).toLowerCase()
     return (
       s.indexOf("哥大") >= 0 ||
-      s.indexOf("Columbia") >= 0
+      s.indexOf("columbia") >= 0
     )
   },
 
@@ -1001,11 +1092,11 @@ Page({
   makePlaceMatcher(place) {
     const p = String(place || "").trim()
     if (!p) return () => false
-    if (p.indexOf("Fort Lee") >= 0) return (addr) => this.isFortLee(addr)
-    if (p.indexOf("哥大") >= 0 || p.indexOf("Columbia") >= 0) {
+    if (this.isFortLee(p)) return (addr) => this.isFortLee(addr)
+    if (this.isColumbia(p)) {
       return (addr) => this.isColumbia(addr)
     }
-    return (addr) => !!addr && String(addr).indexOf(p) >= 0
+    return (addr) => !!addr && String(addr).toLowerCase().indexOf(p.toLowerCase()) >= 0
   },
 
   tripMatchesCity(trip, city) {
@@ -1078,19 +1169,20 @@ Page({
 
   // =========================
   // 统一筛选 + 分组
-  // 改成：同一天内 carpool / request 合并成一个 items，并严格按时间排序
+  // 同一区块按时间分组；满员车辆统一折叠到列表末尾。
   // =========================
   applyAllFiltersAndGroup() {
+    this.syncFilterUi()
     const {
       originalCarpoolList,
       originalRequestList,
       timeFilterIndex,
       todayDateStr,
       tomorrowDateStr,
-      fromFilterOptions,
-      fromFilterIndex,
-      toFilterOptions,
-      toFilterIndex
+      selectedDate,
+      routeTypeFilter,
+      selectedFromPlace,
+      selectedToPlace
     } = this.data
     const activeCity = {
       key: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
@@ -1099,25 +1191,24 @@ Page({
     }
 
     const filterOneList = (list) => {
-      let filtered = (list || []).filter(trip => this.tripMatchesCity(trip, activeCity))
+      let filtered = (list || []).filter(trip => this.shouldShowTrip(trip) && this.tripMatchesCity(trip, activeCity))
 
       // 时间筛选
-      if (timeFilterIndex >= 0) {
+      if (selectedDate || timeFilterIndex >= 0) {
         filtered = filtered.filter((trip) => {
           const dep = this.getFirstDeparture(trip)
           const d = dep && dep.date ? dep.date : ""
           if (!d) return false
+          if (selectedDate) return d === selectedDate
           if (timeFilterIndex === 0) return d === todayDateStr
           if (timeFilterIndex === 1) return d === tomorrowDateStr
           return d !== todayDateStr && d !== tomorrowDateStr
         })
       }
 
-      const addressFilteringActive = fromFilterIndex >= 0 || toFilterIndex >= 0
-      const fromSelected = fromFilterIndex >= 0 ? fromFilterOptions[fromFilterIndex] : null
-      const toSelected = toFilterIndex >= 0 ? toFilterOptions[toFilterIndex] : null
-      const fromLastIndex = fromFilterOptions.length - 1
-      const toLastIndex = toFilterOptions.length - 1
+      const addressFilteringActive = !!(selectedFromPlace || selectedToPlace)
+      const fromSelected = selectedFromPlace || null
+      const toSelected = selectedToPlace || null
       const anyFromMatchers = this.buildAnyFromMatchers()
       const anyToMatchers = this.buildAnyToMatchers()
 
@@ -1137,7 +1228,7 @@ Page({
 
         let passFrom = true
         if (fromSelected !== null && fromSelected !== "全部") {
-          if (fromFilterIndex === fromLastIndex) {
+          if (fromSelected === "其他") {
             passFrom = departures.some((d) => {
               const addr = d && d.address ? String(d.address).trim() : ""
               if (!addr) return false
@@ -1155,7 +1246,7 @@ Page({
 
         let passTo = true
         if (toSelected !== null && toSelected !== "全部") {
-          if (toFilterIndex === toLastIndex) {
+          if (toSelected === "其他") {
             passTo = destinations.some((d) => {
               const addr = d && d.address ? String(d.address).trim() : ""
               if (!addr) return false
@@ -1178,114 +1269,202 @@ Page({
       return filtered
     }
 
-    const carpoolFiltered = filterOneList(originalCarpoolList)
-    const requestFiltered = filterOneList(originalRequestList)
+    const carpoolFiltered = routeTypeFilter === "request" ? [] : filterOneList(originalCarpoolList)
+    const requestFiltered = routeTypeFilter === "carpool" ? [] : filterOneList(originalRequestList)
+    const dateCounts = new Map()
+    ;[...carpoolFiltered, ...requestFiltered].forEach(trip => {
+      if (!trip._date) return
+      if (!dateCounts.has(trip._date)) dateCounts.set(trip._date, { carpoolCount: 0, requestCount: 0 })
+      const counts = dateCounts.get(trip._date)
+      if (trip._type === "request") counts.requestCount += 1
+      else counts.carpoolCount += 1
+    })
 
-    // 合并两类数据，统一按时间排序
-    const merged = [...carpoolFiltered, ...requestFiltered].sort((a, b) =>
-      this.sortByDateTime(a, b)
-    )
+    const fullTrips = carpoolFiltered.filter(trip => this.isFullCarpool(trip))
+    const availableTrips = [
+      ...carpoolFiltered.filter(trip => !this.isFullCarpool(trip)),
+      ...requestFiltered
+    ]
+    const groups = this.groupTripsByDate(availableTrips, "available", dateCounts)
+    const showFullTrips = this.data.showFullTrips && fullTrips.length > 0
+    if (showFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
+    this.setData({ dayGroups: groups, fullTripCount: fullTrips.length, showFullTrips })
+  },
 
+  getAvailableSeatCount(trip) {
+    const value = trip && trip.availSeatNum
+    if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") return null
+    const count = Number(value)
+    return Number.isInteger(count) ? count : null
+  },
+
+  isFullCarpool(trip) {
+    if (!trip || trip._type !== "carpool") return false
+    if (this.normalizeTripStatus(trip.status) === "full") return true
+    const count = this.getAvailableSeatCount(trip)
+    return count != null && count <= 0
+  },
+
+  groupTripsByDate(trips, section, dateCounts) {
     const map = new Map()
-
-    merged.forEach((trip) => {
+    ;[...trips].sort((a, b) => this.sortByDateTime(a, b)).forEach(trip => {
       const date = trip._date || ""
       if (!date) return
-
       if (!map.has(date)) {
         map.set(date, {
+          key: `${section}:${date}`,
           date,
           dateLabel: this.formatMonthDayWeek(date),
+          ...(dateCounts && dateCounts.get(date)),
           items: []
         })
       }
-
-      const group = map.get(date)
-      group.items.push(trip)
+      map.get(date).items.push(trip)
     })
-
-    const groups = Array.from(map.values())
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
-
-    this.setData({ dayGroups: groups })
-    this.prefetchVisibleTripDetails(groups)
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date))
   },
 
-  prefetchVisibleTripDetails(groups = this.data.dayGroups) {
-    const entries = []
-    ;(Array.isArray(groups) ? groups : []).forEach(group => {
-      ;(Array.isArray(group.items) ? group.items : []).forEach(trip => {
-        const id = trip && (trip._id || trip.tripId)
-        if (!id) return
-        entries.push({
-          id,
-          type: trip._type === "request" ? "request" : "carpool"
-        })
-      })
-    })
-    prefetchTripDetails(entries, { limit: 10 }).catch(() => {})
+  onToggleFullTrips() {
+    this.setData({ showFullTrips: !this.data.showFullTrips }, () => this.applyAllFiltersAndGroup())
   },
 
   // =========================
   // 筛选事件
   // =========================
+  changeFilters(patch) {
+    // 配置异步返回时，不能再用分享初始值覆盖用户已经做出的选择。
+    this._initFilterFromShare = null
+    this.setData({ ...patch, showFullTrips: false }, () => this.applyAllFiltersAndGroup())
+  },
+
+  onOpenPlacePicker(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset.field
+    this._placePickerField = field === "to" ? "to" : "from"
+    this.syncFilterUi()
+    this.setData({
+      placePickerVisible: true,
+      cityPickerVisible: false,
+      refineFiltersVisible: false,
+      placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地",
+      placeSearchKeyword: ""
+    }, () => this.updatePlacePickerOptions())
+  },
+
+  updatePlacePickerOptions() {
+    const field = this._placePickerField === "to" ? "to" : "from"
+    const selected = this.getSelectedFilterPlace(field)
+    const keyword = String(this.data.placeSearchKeyword || "").trim().toLowerCase()
+    const options = this.getAvailablePlaceOptions(field).map(place => ({
+      value: this.normalizeFilterPlace(place),
+      label: place === "全部" ? (field === "to" ? "不限目的地" : "不限出发地") : place,
+      selected: this.normalizeFilterPlace(place) === selected
+    })).filter(option => {
+      if (!keyword || option.value === "") return true
+      if (option.label.toLowerCase().includes(keyword)) return true
+      if (this.isFortLee(option.value) && "fort lee fortlee".includes(keyword)) return true
+      return this.isColumbia(option.value) && "哥大 哥伦比亚 columbia".includes(keyword)
+    })
+    this.setData({ placePickerOptions: options })
+  },
+
+  onPlaceSearchInput(e) {
+    this.setData({ placeSearchKeyword: String((e.detail && e.detail.value) || "") }, () => this.updatePlacePickerOptions())
+  },
+
+  onSelectFilterPlace(e) {
+    const value = this.normalizeFilterPlace(e.currentTarget.dataset.value)
+    const field = this._placePickerField === "to" ? "to" : "from"
+    if (!this.getAvailablePlaceOptions(field).some(place => this.normalizeFilterPlace(place) === value)) return
+    this.changeFilters({
+      [field === "to" ? "selectedToPlace" : "selectedFromPlace"]: value,
+      [`${field}FilterIndex`]: -1,
+      placePickerVisible: false,
+      placeSearchKeyword: ""
+    })
+  },
+
+  onClosePlacePicker() {
+    this.setData({ placePickerVisible: false, placeSearchKeyword: "" })
+  },
+
+  onOpenRefineFilters() {
+    this.setData({ refineFiltersVisible: true, placePickerVisible: false, cityPickerVisible: false })
+  },
+
+  onCloseRefineFilters() {
+    this.setData({ refineFiltersVisible: false })
+  },
+
+  onSwapFilterPlaces() {
+    this.changeFilters({
+      selectedFromPlace: this.getSelectedFilterPlace("to"),
+      selectedToPlace: this.getSelectedFilterPlace("from"),
+      fromFilterIndex: -1,
+      toFilterIndex: -1
+    })
+  },
+
+  onQuickDateChange(e) {
+    const value = e.currentTarget.dataset.value
+    const index = { all: -1, today: 0, tomorrow: 1 }[value]
+    if (index == null) return
+    this.changeFilters({ ...this.getFilterDateData(), timeFilterIndex: index, selectedDate: "" })
+  },
+
+  onSpecificDateChange(e) {
+    const value = e.detail && e.detail.value
+    if (!this.isValidFilterDate(value)) return
+    this.changeFilters({ selectedDate: value, timeFilterIndex: -1 })
+  },
+
+  onRouteTypeChange(e) {
+    const type = e.currentTarget.dataset.type
+    if (!["all", "carpool", "request"].includes(type)) return
+    this.changeFilters({ routeTypeFilter: type })
+  },
+
   onFromFilterChange(e) {
     const index = Number(e.detail.value)
-    const fromSelected = this.data.fromFilterOptions[index] || "全部"
-    const nextToOptions = this.rebuildToOptionsByFrom(fromSelected)
-
-    let nextToIndex = this.data.toFilterIndex
-    if (nextToIndex >= 0 && nextToIndex > nextToOptions.length - 1) {
-      nextToIndex = 0
-    }
-
-    this.setData(
-      {
-        fromFilterIndex: index,
-        toFilterOptions: nextToOptions,
-        toFilterIndex: nextToIndex
-      },
-      () => this.applyAllFiltersAndGroup()
-    )
+    this.changeFilters({ selectedFromPlace: this.normalizeFilterPlace(this.data.fromFilterOptions[index]), fromFilterIndex: -1 })
   },
 
   onToFilterChange(e) {
     const index = Number(e.detail.value)
-    this.setData({ toFilterIndex: index }, () => this.applyAllFiltersAndGroup())
+    this.changeFilters({ selectedToPlace: this.normalizeFilterPlace(this.data.toFilterOptions[index]), toFilterIndex: -1 })
   },
 
   onTimeFilterChange(e) {
     const index = Number(e.detail.value)
-    this.setData({ timeFilterIndex: index }, () => this.applyAllFiltersAndGroup())
+    this.changeFilters({ timeFilterIndex: index >= 0 && index <= 2 ? index : -1, selectedDate: "" })
   },
 
   onResetFilter() {
-    const fromOptions = ["全部", ...(this.data.fromPlaceList || []), "其他"]
-    const toOptions = ["全部", ...(this.data.toPlaceList || []), "其他"]
-
-    this.setData(
-      {
-        fromFilterOptions: fromOptions,
-        fromFilterIndex: -1,
-        toFilterOptions: toOptions,
-        toFilterIndex: -1,
-        timeFilterIndex: -1
-      },
-      () => this.applyAllFiltersAndGroup()
-    )
+    this.changeFilters({
+      selectedFromPlace: "",
+      selectedToPlace: "",
+      fromFilterIndex: -1,
+      toFilterIndex: -1,
+      timeFilterIndex: -1,
+      selectedDate: "",
+      routeTypeFilter: "all",
+      placePickerVisible: false,
+      placeSearchKeyword: ""
+    })
   },
 
   async onPullDownRefresh() {
     this.setData({ refresherTriggered: true })
     try {
       if (this.data.isRideServiceAvailable) {
-        await this.loadBothLists({ showLoading: false })
+        await this.loadBothLists({ showLoading: false, force: true })
         this.refreshStatusInBackground(true)
       } else {
         this.setData({
           loading: false,
           hasLoadedOnce: true,
           dayGroups: [],
+          fullTripCount: 0,
+          showFullTrips: false,
           originalCarpoolList: [],
           originalRequestList: []
         })

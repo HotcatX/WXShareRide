@@ -1,5 +1,6 @@
 const { showDataError } = require("../../../utils/error")
 const {
+  markRideListStale,
   normalizeRidePriceInput,
   extractRidePriceNumber,
   formatRidePricePerPerson
@@ -657,6 +658,7 @@ Page({
         return
       }
 
+      markRideListStale()
       wx.showToast({ title: "路线创建成功", icon: "success", duration: 2000 })
       setTimeout(() => wx.reLaunch({ url: "/pages/home/home" }), 1500)
 
@@ -763,6 +765,7 @@ Page({
         return
       }
 
+      markRideListStale()
       wx.showToast({ title: "已发布求车", icon: "success", duration: 1800 })
       setTimeout(() => wx.reLaunch({ url: "/pages/home/home" }), 1200)
 

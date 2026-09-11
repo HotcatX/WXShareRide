@@ -2,7 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { callTripManage, blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { callTripManage, blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
@@ -484,6 +484,7 @@ Page({
       })
 
       if (ret.result && ret.result.success) {
+        markRideListStale()
         this.showToast('加入成功', 'success', 1200)
         setTimeout(() => {
           wx.reLaunch({ url: '/pages/home/home' })
@@ -547,6 +548,7 @@ Page({
       const result = await callTripManage({ type: 'request', requestId: tripId, action: 'acceptRequest' })
 
       if (result && (result.success || result.ok)) {
+        markRideListStale()
         this.showToast('接单成功', 'success', 1200)
         setTimeout(() => {
           wx.reLaunch({ url: '/pages/home/home' })

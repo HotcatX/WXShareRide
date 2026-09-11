@@ -1,6 +1,29 @@
 const defaultAvatarUrl =
   '/images/profile.png'
 const { formatRideStats } = require("../../utils/tripManage")
+const PROFILE_REFRESH_INTERVAL = 30 * 1000
+
+function profileIdentity() {
+  return wx.getStorageSync('isGuest') ? '' : String(wx.getStorageSync('openid') || '')
+}
+
+function readProfileResource(page, resource, key, force, read) {
+  const reads = page._profileReads || (page._profileReads = {})
+  const previous = reads[resource]
+  if (previous && previous.key === key) {
+    if (previous.promise) return previous.promise
+    const age = Date.now() - previous.at
+    if (!force && previous.at && age >= 0 && age < PROFILE_REFRESH_INTERVAL) return Promise.resolve()
+  }
+  const entry = { key, at: 0, promise: null }
+  reads[resource] = entry
+  const isCurrent = () => page._profileReads === reads && reads[resource] === entry
+  entry.promise = Promise.resolve().then(() => isCurrent() ? read(isCurrent) : false).then(result => {
+    if (result !== false && isCurrent()) entry.at = Date.now()
+    return result
+  }).finally(() => { entry.promise = null })
+  return entry.promise
+}
 
 function countBlockedUsers(user = {}) {
   const ids = new Set()
@@ -65,7 +88,7 @@ Page({
 
   onPullDownRefresh() {
     Promise.resolve()
-      .then(() => this.refreshAuthAndData())
+      .then(() => this.refreshAuthAndData({ force: true }))
       .finally(() => wx.stopPullDownRefresh())
   },
 
@@ -114,7 +137,7 @@ Page({
   // =========================
   // ✅ 登录态判定 + 数据拉取
   // =========================
-  refreshAuthAndData() {
+  refreshAuthAndData({ force = false } = {}) {
     const openid = wx.getStorageSync('openid') || ''
     const isGuest = wx.getStorageSync('isGuest')
 
@@ -124,12 +147,23 @@ Page({
       return Promise.resolve()
     }
 
+    if (this._profileIdentity !== openid) {
+      this.applyLoggedOutState()
+      this._profileIdentity = openid
+    }
     this.setData({ isLoggedIn: true })
-    this.loadUserInfo()
-    return this.loadUnreadCount()
+    return Promise.all([this.loadUserInfo({ force }), this.loadUnreadCount({ force })])
+  },
+
+  profileReadKey() {
+    return JSON.stringify([
+      profileIdentity(), wx.getStorageSync('rideListShouldRefreshAt') || 0, this._profileEditRevision || 0
+    ])
   },
 
   applyLoggedOutState() {
+    this._profileIdentity = ''
+    this._profileReads = {}
     this.setData({
       isLoggedIn: false,
 
@@ -200,16 +234,17 @@ Page({
   // =========================
   // ✅ 读取用户信息（getUserInfo + UI 字段）
   // =========================
-  loadUserInfo() {
-    wx.cloud.callFunction({
-      name: 'getUserInfo',
-      data: {},
-      success: (res) => {
+  loadUserInfo({ force = true } = {}) {
+    if (!profileIdentity()) return Promise.resolve()
+    const key = this.profileReadKey()
+    return readProfileResource(this, 'user', key, force, async isCurrent => {
+        const res = await wx.cloud.callFunction({ name: 'getUserInfo', data: {} })
+        if (!isCurrent() || key !== this.profileReadKey()) return false
         const list = (res && res.result && res.result.data) || []
 
         if (!Array.isArray(list) || list.length === 0) {
           this.applyLoggedOutState()
-          return
+          return false
         }
 
         const user = list[0] || {}
@@ -245,23 +280,19 @@ Page({
         })
 
         wx.setStorageSync('userInfo', user)
-      },
-      fail: (err) => {
+      }).catch(err => {
+        if (key !== this.profileReadKey()) return
         console.error('getUserInfo 调用失败：', err)
-        this.applyLoggedOutState()
         wx.showToast({ icon: 'none', title: '加载失败' })
-      }
-    })
+      })
   },
 
   // =========================
   // ✅ 未读消息
   // =========================
-  loadUnreadCount() {
+  loadUnreadCount({ force = true } = {}) {
     const openid = wx.getStorageSync('openid') || ''
     const isGuest = wx.getStorageSync('isGuest')
-    const TAB_MARKET = 1
-    const TAB_PROFILE = 2
 
     if (!openid || isGuest) {
       this.setData({ unreadCount: 0 })
@@ -270,15 +301,12 @@ Page({
       return Promise.resolve()
     }
 
-    const db = wx.cloud.database()
-    return db
-      .collection('Notifications')
-      .where({
-        _openid: openid,
-        read: false
-      })
-      .count()
-      .then((r) => {
+    this.setData({ unreadCount: Number(wx.getStorageSync('customTabProfileBadge') || 0) })
+    const key = this.profileReadKey()
+    return readProfileResource(this, 'unread', key, force, async isCurrent => {
+        const r = await wx.cloud.database().collection('Notifications')
+          .where({ _openid: openid, read: false }).count()
+        if (!isCurrent() || key !== this.profileReadKey()) return false
         const count = (r && r.total) || 0
         this.setData({ unreadCount: count })
         wx.setStorageSync('customTabMarketBadge', 0)
@@ -294,6 +322,7 @@ Page({
   // =========================
   goEditProfile() {
     if (!this.ensureLoggedIn()) return
+    this._profileEditRevision = (this._profileEditRevision || 0) + 1
     wx.navigateTo({ url: '/pages/profile/editInfo/editInfo?from=profile' })
   },
 

@@ -2,7 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { blockRideUser, formatRidePricePerPerson } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
@@ -696,6 +696,7 @@ Page({
         return
       }
 
+      markRideListStale()
       wx.showToast({ title: '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
 

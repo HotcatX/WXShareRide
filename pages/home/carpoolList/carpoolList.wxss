@@ -307,6 +307,28 @@ page{
   font-weight: 800;
 }
 
+.list-load-more{
+  min-height: 76rpx;
+  padding: 12rpx 18rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #0f746f;
+  font-size: 23rpx;
+  line-height: 32rpx;
+}
+
+.list-load-more.is-loading,
+.list-load-more--complete{
+  color: #89939c;
+}
+
+.list-load-more.is-error{
+  color: #b45316;
+}
+
 .list-trip-card .ride-list-head{
   margin-bottom: 10rpx;
   align-items: center;

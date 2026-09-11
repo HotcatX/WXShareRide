@@ -10,6 +10,8 @@ const LIST_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_FAST_MODE_DEFAULT = true
 const RIDE_SERVICE_CITY_KEY = 'ny_nj'
 const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, 'ny', 'nj']
+const DATE_PAGE_SIZE = 100
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const TYPE_CONFIG = {
   carpool: {
@@ -66,6 +68,24 @@ function getLimit(event) {
   const n = Number(event && event.limit)
   if (!Number.isFinite(n) || n <= 0) return 80
   return Math.max(20, Math.min(100, Math.floor(n)))
+}
+
+function parseDatePage(event) {
+  if (!Object.prototype.hasOwnProperty.call(event, 'startDate') &&
+      !Object.prototype.hasOwnProperty.call(event, 'endDateExclusive')) return null
+
+  const parse = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN
+    const ms = Date.parse(`${value}T00:00:00.000Z`)
+    return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? ms : NaN
+  }
+  const start = parse(event.startDate)
+  const end = parse(event.endDateExclusive)
+  const days = (end - start) / DAY_MS
+  if (!Number.isFinite(start) || !Number.isFinite(end) || (days !== 1 && days !== 2)) {
+    throw new Error('invalid_date_range: 日期范围必须为有效的 1 至 2 天')
+  }
+  return { startDate: event.startDate, endDateExclusive: event.endDateExclusive }
 }
 
 function normalizeType(value) {
@@ -298,11 +318,92 @@ async function readType(type, event) {
   return normalizeRows(mergeById(results.map(res => res.data || [])))
 }
 
+async function readDatePageType(type, event, page, minDepartureAtMs) {
+  const config = TYPE_CONFIG[type]
+  const cityCondition = buildCityKeyCondition(event)
+  const baseConditions = [
+    { status: _.in(VISIBLE_STATUSES) },
+    { latestDepartureAtMs: _.gte(minDepartureAtMs) }
+  ]
+  if (cityCondition) baseConditions.push(cityCondition)
+
+  const buildQuery = (conditions, limit, fields) => {
+    let query = db.collection(config.collection)
+      .where(_.and([...baseConditions, ...conditions]))
+      .orderBy('firstDepartureDate', 'asc')
+      .orderBy('_id', 'asc')
+      .limit(limit)
+    if (fields) query = query.field(fields)
+    return query
+  }
+
+  // A date is one logical page: do not truncate a busy day at the old 80-row limit.
+  // The compound cursor also avoids offset shifts when an earlier row is removed.
+  const rows = []
+  let cursor = null
+  while (true) {
+    const conditions = [
+      { firstDepartureDate: _.gte(page.startDate) },
+      { firstDepartureDate: _.lt(page.endDateExclusive) }
+    ]
+    if (cursor) {
+      conditions.push(_.or([
+        { firstDepartureDate: _.gt(cursor.date) },
+        _.and([{ firstDepartureDate: cursor.date }, { _id: _.gt(cursor.id) }])
+      ]))
+    }
+    const result = await buildQuery(conditions, DATE_PAGE_SIZE, event.quick !== false ? config.fields : null).get()
+    const batch = result.data || []
+    rows.push(...batch)
+    if (batch.length < DATE_PAGE_SIZE) break
+    const last = batch[batch.length - 1]
+    if (!last || !last._id || !last.firstDepartureDate ||
+        (cursor && last._id === cursor.id && last.firstDepartureDate === cursor.date)) {
+      throw new Error('invalid_date_cursor: 无法继续读取完整日期的路线')
+    }
+    cursor = { date: last.firstDepartureDate, id: last._id }
+  }
+
+  const nextResult = await buildQuery(
+    [{ firstDepartureDate: _.gte(page.endDateExclusive) }],
+    1,
+    { firstDepartureDate: true }
+  ).get()
+  const nextDate = nextResult.data && nextResult.data[0] && nextResult.data[0].firstDepartureDate || ''
+  return {
+    data: mergeById([rows]).sort((a, b) => getTripSortMs(a) - getTripSortMs(b)),
+    nextDate
+  }
+}
+
+async function readDatePage(event, page, type, openid) {
+  const types = type === 'all' ? ['carpool', 'request'] : [type]
+  const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
+  const results = await Promise.all(types.map(item => readDatePageType(item, event, page, minDepartureAtMs)))
+  const blockContext = await buildBlockContext(openid, types.map((item, index) => ({ type: item, items: results[index].data })))
+  const filtered = types.map((item, index) => applyBlockFilter(item, results[index].data, blockContext))
+  const nextDate = results.map(result => result.nextDate).filter(Boolean).sort()[0] || ''
+  const pageInfo = { ...page, nextDate, hasMore: !!nextDate }
+  if (type !== 'all') {
+    return { ok: true, success: true, type, data: filtered[0], page: pageInfo }
+  }
+  return {
+    ok: true,
+    success: true,
+    data: { carpool: filtered[0], request: filtered[1] },
+    carpoolList: filtered[0],
+    requestList: filtered[1],
+    page: pageInfo
+  }
+}
+
 exports.main = async (event = {}) => {
   const type = normalizeType(event.type)
   const { OPENID: openid } = cloud.getWXContext()
 
   try {
+    const datePage = parseDatePage(event)
+    if (datePage) return await readDatePage(event, datePage, type, openid)
     if (type === 'all') {
       const results = await Promise.all([
         readType('carpool', event),

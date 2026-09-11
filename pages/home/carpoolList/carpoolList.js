@@ -22,7 +22,6 @@ const {
   textMatchesCity
 } = require("../../../utils/cityTree")
 
-const LIST_FETCH_LIMIT = 80
 const LIST_REFRESH_INTERVAL = 30 * 1000
 const OPTION_CACHE_KEY = "carpoolListFilterOptionsV1"
 const OPTION_CACHE_TTL = 24 * 60 * 60 * 1000
@@ -128,7 +127,11 @@ Page({
     // 有空座/求车路线在前，满员车辆展开后统一放在最后。
     dayGroups: [],
     fullTripCount: 0,
-    showFullTrips: false
+    showFullTrips: false,
+    hasMoreDays: false,
+    nextPageDate: "",
+    loadingMoreDays: false,
+    loadMoreError: ""
   },
 
   _listLoadingPromise: null,
@@ -208,8 +211,26 @@ Page({
     return JSON.stringify([
       this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
       this.getListViewerKey(),
-      this.getRideListRefreshAt()
+      this.getRideListRefreshAt(),
+      this.getDateRangeKey()
     ])
+  },
+
+  shiftDate(date, days) {
+    const [year, month, day] = date.split("-").map(Number)
+    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+  },
+
+  getInitialDatePage() {
+    const today = this.data.todayDateStr || this.getFilterDateData().todayDateStr
+    const exactDate = !!this.data.selectedDate || this.data.timeFilterIndex === 0 || this.data.timeFilterIndex === 1
+    const startDate = this.data.selectedDate || (this.data.timeFilterIndex === 1
+      ? this.shiftDate(today, 1) : this.data.timeFilterIndex === 2 ? this.shiftDate(today, 2) : today)
+    return { startDate, endDateExclusive: this.shiftDate(startDate, exactDate ? 1 : 2), exactDate }
+  },
+
+  getDateRangeKey() {
+    return JSON.stringify(this.getInitialDatePage())
   },
 
   getRideListRefreshAt() {
@@ -339,6 +360,9 @@ Page({
     this.setData({
       cityPickerVisible: false,
       citySearchKeyword: "",
+      hasMoreDays: false,
+      nextPageDate: "",
+      loadMoreError: "",
       dayGroups: [],
       fullTripCount: 0,
       showFullTrips: false,
@@ -422,7 +446,8 @@ Page({
   restoreCachedLists() {
     try {
       const cached = wx.getStorageSync(LIST_CACHE_KEY)
-      if (!cached || !cached.savedAt) return false
+      if (!cached || cached.version !== 2 || !cached.savedAt || cached.rangeKey !== this.getDateRangeKey()) return false
+      if (cached.hasMoreDays && !this.isValidFilterDate(cached.nextPageDate)) return false
       if (cached.viewerKey !== this.getListViewerKey()) return false
       if (Number(cached.revision || 0) !== this.getRideListRefreshAt()) return false
       if (!rideCityKeysMatch(cached.cityKey || DEFAULT_CITY_KEY, this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY)) return false
@@ -440,7 +465,11 @@ Page({
         originalCarpoolList: carpoolList,
         originalRequestList: requestList,
         loading: false,
-        hasLoadedOnce: true
+        hasLoadedOnce: true,
+        hasMoreDays: cached.hasMoreDays === true,
+        nextPageDate: cached.nextPageDate || "",
+        loadingMoreDays: false,
+        loadMoreError: ""
       }, () => this.applyAllFiltersAndGroup())
 
       this._loadedOnceAt = Number(cached.savedAt) || Date.now()
@@ -455,10 +484,14 @@ Page({
   cacheLoadedLists(carpoolList, requestList, request) {
     try {
       wx.setStorageSync(LIST_CACHE_KEY, {
+        version: 2,
+        rangeKey: request.rangeKey,
         savedAt: request.startedAt,
         viewerKey: request.viewerKey,
         revision: request.revision,
         cityKey: normalizeRideServiceCityKey(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY),
+        hasMoreDays: this.data.hasMoreDays,
+        nextPageDate: this.data.nextPageDate,
         carpoolList: Array.isArray(carpoolList) ? carpoolList : [],
         requestList: Array.isArray(requestList) ? requestList : []
       })
@@ -910,13 +943,18 @@ Page({
         originalRequestList: [],
         dayGroups: [],
         fullTripCount: 0,
-        showFullTrips: false
+        showFullTrips: false,
+        hasMoreDays: false,
+        nextPageDate: "",
+        loadingMoreDays: false,
+        loadMoreError: ""
       })
       return Promise.resolve()
     }
 
     const key = this.getListRequestKey()
     if (this._listLoadingPromise && this._listLoadingKey === key) return this._listLoadingPromise
+    if (!options.force && this._listMoreRequest && this._listMoreRequest.key === key) return this._moreLoadingPromise
     if (this._loadedViewerKey && this._loadedViewerKey !== this.getListViewerKey()) {
       this._loadedListKey = null
       this._loadedViewerKey = null
@@ -926,7 +964,9 @@ Page({
         originalRequestList: [],
         dayGroups: [],
         fullTripCount: 0,
-        showFullTrips: false
+        showFullTrips: false,
+        hasMoreDays: false,
+        nextPageDate: ""
       })
     }
     if (!options.force) {
@@ -940,11 +980,16 @@ Page({
 
     const request = {
       key,
+      ...this.getInitialDatePage(),
+      rangeKey: this.getDateRangeKey(),
       cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
       viewerKey: this.getListViewerKey(),
       revision: this.getRideListRefreshAt(),
       startedAt: Date.now()
     }
+    this._listMoreRequest = null
+    this._moreLoadingPromise = null
+    this.setData({ loadingMoreDays: false, loadMoreError: "" })
     const showLoading = options.showLoading !== false && !this.data.hasLoadedOnce
     if (showLoading) {
       this.setData({
@@ -971,20 +1016,33 @@ Page({
     return this._listLoadingPromise
   },
 
-  async _loadBothListsImpl(showLoading, request) {
-    const requestDisplayCityKey = request.cityKey
-    const requestCityKey = normalizeRideServiceCityKey(requestDisplayCityKey)
-    try {
-      const cityFilters = {
-        cityKey: requestCityKey,
+  async readDatePage(request) {
+    const res = await wx.cloud.callFunction({
+      name: "getTripList",
+      data: {
+        type: "all", quick: true, fastOnly: true,
+        startDate: request.startDate,
+        endDateExclusive: request.endDateExclusive,
+        cityKey: normalizeRideServiceCityKey(request.cityKey),
         cityLabel: RIDE_SERVICE_CITY_LABEL,
         cityAliases: this.data.activeCityAliases || []
       }
-      const res = await wx.cloud.callFunction({
-        name: "getTripList",
-        data: { type: "all", limit: LIST_FETCH_LIMIT, quick: true, fastOnly: true, ...cityFilters }
-      })
-      const result = res && res.result ? res.result : {}
+    })
+    const result = res && res.result ? res.result : {}
+    if (result.success) {
+      const page = result.page
+      if (!page || page.startDate !== request.startDate || page.endDateExclusive !== request.endDateExclusive ||
+        typeof page.hasMore !== "boolean" ||
+        (page.hasMore && (!this.isValidFilterDate(page.nextDate) || page.nextDate < page.endDateExclusive))) {
+        throw new Error("路线分页信息无效，请稍后重试")
+      }
+    }
+    return result
+  },
+
+  async _loadBothListsImpl(showLoading, request) {
+    try {
+      const result = await this.readDatePage(request)
 
       if (this._listDisposed || request.key !== this.getListRequestKey() || this._listActiveRequest !== request || !this.data.isRideServiceAvailable) {
         return
@@ -1003,7 +1061,9 @@ Page({
           originalRequestList: [],
           dayGroups: [],
           fullTripCount: 0,
-          showFullTrips: false
+          showFullTrips: false,
+          hasMoreDays: false,
+          nextPageDate: ""
         })
         return
       }
@@ -1027,7 +1087,11 @@ Page({
         originalCarpoolList: decoratedCarpool,
         originalRequestList: decoratedRequest,
         loading: false,
-        hasLoadedOnce: true
+        hasLoadedOnce: true,
+        showFullTrips: false,
+        hasMoreDays: !request.exactDate && result.page.hasMore,
+        nextPageDate: !request.exactDate && result.page.hasMore ? result.page.nextDate : "",
+        loadMoreError: ""
       })
 
       this._loadedOnceAt = request.startedAt
@@ -1048,6 +1112,55 @@ Page({
         hasLoadedOnce: true
       })
     }
+  },
+
+  async onLoadMoreDays() {
+    if (this._listDisposed || !this.data.isRideServiceAvailable || this.data.refresherTriggered ||
+      this.data.loading || this.data.placePickerVisible || this.data.refineFiltersVisible || this.data.cityPickerVisible) return
+    if (this._listLoadingPromise) return this._listLoadingPromise
+    if (this._moreLoadingPromise) return this._moreLoadingPromise
+    if (!this.data.hasMoreDays || !this.isValidFilterDate(this.data.nextPageDate)) return
+    const key = this.getListRequestKey()
+    if (this._loadedListKey !== key) return this.loadBothLists({ force: true, showLoading: false })
+    const request = {
+      key, cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+      viewerKey: this.getListViewerKey(), revision: this.getRideListRefreshAt(),
+      rangeKey: this.getDateRangeKey(), startedAt: this._loadedOnceAt,
+      startDate: this.data.nextPageDate,
+      endDateExclusive: this.shiftDate(this.data.nextPageDate, 2)
+    }
+    this._listMoreRequest = request
+    this.setData({ loadingMoreDays: true, loadMoreError: "" })
+    const isCurrent = () => !this._listDisposed && this._listMoreRequest === request &&
+      request.key === this.getListRequestKey() && this.data.isRideServiceAvailable
+    this._moreLoadingPromise = this.readDatePage(request).then(result => {
+      if (!isCurrent()) return
+      if (!result.success) throw new Error(result.errorMsg || "加载更多路线失败")
+      const merge = (existing, incoming, type) => {
+        const byId = new Map()
+        ;[...existing, ...(incoming || [])].forEach(item => { if (item && item._id) byId.set(item._id, item) })
+        return Array.from(byId.values()).map(item => this.decorateTripCommon(item, type))
+          .filter(item => this.shouldShowTrip(item)).sort((a, b) => this.sortByDateTime(a, b))
+      }
+      const data = result.data || {}
+      const carpool = merge(this.data.originalCarpoolList, data.carpool, "carpool")
+      const requests = merge(this.data.originalRequestList, data.request, "request")
+      this.setData({
+        originalCarpoolList: carpool, originalRequestList: requests,
+        hasMoreDays: result.page.hasMore,
+        nextPageDate: result.page.hasMore ? result.page.nextDate : ""
+      }, () => this.applyAllFiltersAndGroup())
+      this.cacheLoadedLists(carpool, requests, request)
+    }).catch(error => {
+      if (isCurrent()) this.setData({ loadMoreError: "加载失败，点击重试" })
+      console.error("load more route days failed", error)
+    }).finally(() => {
+      if (this._listMoreRequest !== request) return
+      this._listMoreRequest = null
+      this._moreLoadingPromise = null
+      if (!this._listDisposed) this.setData({ loadingMoreDays: false })
+    })
+    return this._moreLoadingPromise
   },
 
   async fetchListFast(meta) {
@@ -1334,7 +1447,20 @@ Page({
   changeFilters(patch) {
     // 配置异步返回时，不能再用分享初始值覆盖用户已经做出的选择。
     this._initFilterFromShare = null
-    this.setData({ ...patch, showFullTrips: false }, () => this.applyAllFiltersAndGroup())
+    const previousRange = this.getDateRangeKey()
+    this.setData({ ...patch, showFullTrips: false }, () => {
+      if ((this.data.hasLoadedOnce || this._listLoadingPromise) && previousRange !== this.getDateRangeKey()) {
+        this.setData({
+          hasLoadedOnce: false, loading: true,
+          originalCarpoolList: [], originalRequestList: [], dayGroups: [],
+          fullTripCount: 0, hasMoreDays: false, nextPageDate: "", loadMoreError: ""
+        })
+        this.syncFilterUi()
+        this.loadBothLists({ showLoading: true })
+        return
+      }
+      this.applyAllFiltersAndGroup()
+    })
   },
 
   onOpenPlacePicker(e) {

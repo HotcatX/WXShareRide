@@ -19,7 +19,10 @@ function route(id, options = {}) {
     departures: [{ date: '2030-01-01', time: '12:00', address: 'Fort Lee' }],
     destinations: [{ address: 'Columbia' }], ...options }
 }
-const response = (carpool = [], request = []) => ({ result: { success: true, data: { carpool, request } } })
+const response = (carpool = [], request = []) => ({ result: {
+  success: true, data: { carpool, request },
+  page: { startDate: '2030-01-01', endDateExclusive: '2030-01-03', nextDate: '', hasMore: false }
+} })
 function harness() {
   let definition
   const state = { now: NOW, calls: [], store: { openid: 'viewer-a' }, next: null }

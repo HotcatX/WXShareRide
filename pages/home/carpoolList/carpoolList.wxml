@@ -51,6 +51,8 @@
     refresher-enabled="{{true}}"
     refresher-triggered="{{refresherTriggered}}"
     bindrefresherrefresh="onPullDownRefresh"
+    bindscrolltolower="onLoadMoreDays"
+    lower-threshold="120"
   >
     <view wx:if="{{!isRideServiceAvailable}}" class="ride-card ride-card-pad ride-unavailable-card list-unavailable-card">
       <text class="ride-unavailable-title">{{activeCityLabel}} 暂无出行服务</text>
@@ -70,7 +72,7 @@
     </view>
 
     <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="ride-state">
-      <text>{{fullTripCount ? '暂无有空座的车辆，可展开查看已满车辆' : (hasActiveFilters ? '没有符合条件的路线，试试其他地点或日期' : '暂无可查看的行程')}}</text>
+      <text>{{fullTripCount ? '暂无有空座的车辆，可展开查看已满车辆' : (hasMoreDays ? '这两天暂无符合条件的路线，可继续查看后续日期' : (hasActiveFilters ? '没有符合条件的路线，试试其他地点或日期' : '暂无可查看的行程'))}}</text>
       <view wx:if="{{hasActiveFilters && !fullTripCount}}" class="list-empty-reset" bindtap="onResetFilter" hover-class="ride-pressed">清除筛选</view>
     </view>
 
@@ -136,6 +138,17 @@
     >
       <text>{{showFullTrips ? '收起' : '显示'}}{{fullTripCount}}辆已满车辆</text>
     </view>
+
+    <view
+      wx:if="{{isRideServiceAvailable && hasLoadedOnce && (hasMoreDays || loadingMoreDays || loadMoreError)}}"
+      class="list-load-more {{loadingMoreDays || loading ? 'is-loading' : ''}} {{loadMoreError ? 'is-error' : ''}}"
+      bindtap="onLoadMoreDays"
+      hover-class="ride-pressed"
+      role="button"
+      aria-label="{{loadingMoreDays ? '正在加载更多路线' : (loadMoreError ? '加载失败，点击重试' : '加载后两天的路线')}}"
+      aria-disabled="{{loadingMoreDays || loading}}"
+    >{{loadingMoreDays ? '正在加载更多路线…' : (loadMoreError ? '加载失败，点击重试' : '继续向下滑，查看后两天')}}</view>
+    <view wx:elif="{{isRideServiceAvailable && hasLoadedOnce && !loading && (dayGroups.length || fullTripCount)}}" class="list-load-more list-load-more--complete">已显示全部路线</view>
 
     <view class="toast-bar" wx:if="{{showToast}}">
       <text class="toast-icon">!</text>

@@ -24,7 +24,7 @@ function harness() {
     constructor(...args) { super(...(args.length ? args : [state.now])) }
     static now() { return state.now }
   }
-  vm.runInNewContext(source, {
+  const context = {
     Page: page => { definition = page }, Date: Clock, setTimeout, clearTimeout,
     wx: { cloud: {
       callFunction(args) { state.calls.push(args); throw new Error('Filters must not call the cloud') },
@@ -35,10 +35,18 @@ function harness() {
     require(name) {
       if (name.includes('cityTree')) return city
       if (name.includes('tripManage')) return pricing
+      if (name.includes('rideCalendarPicker')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideCalendarPicker.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/rideCalendar')
+        })
+        return module.exports
+      }
       if (name.includes('error')) return { showDataError() {} }
       throw new Error(`Unexpected dependency: ${name}`)
     }
-  })
+  }
+  vm.runInNewContext(source, context)
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   Object.assign(page.data, page.getFilterDateData(), page.buildFilterOptionData(['Fort Lee', 'JFK'], ['哥大/Columbia', 'EWR']))

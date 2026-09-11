@@ -1,5 +1,6 @@
 <timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
 <block wx:elif="{{timelinePageReady}}">
+<import src="../../../templates/ride-calendar.wxml" />
 <view class="ride-shell list-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
@@ -45,7 +46,7 @@
 
   <scroll-view
     class="ride-scroll list-scroll"
-    scroll-y="{{!placePickerVisible && !refineFiltersVisible}}"
+    scroll-y="{{!placePickerVisible && !refineFiltersVisible && !calendarVisible}}"
     enhanced="true"
     show-scrollbar="{{false}}"
     refresher-enabled="{{true}}"
@@ -172,9 +173,7 @@
         <view class="list-date-option {{timeFilterIndex < 0 && !selectedDate ? 'is-active' : ''}}" data-value="all" bindtap="onQuickDateChange" hover-class="ride-pressed">不限日期</view>
         <view class="list-date-option {{timeFilterIndex === 0 && !selectedDate ? 'is-active' : ''}}" data-value="today" bindtap="onQuickDateChange" hover-class="ride-pressed">今天</view>
         <view class="list-date-option {{timeFilterIndex === 1 && !selectedDate ? 'is-active' : ''}}" data-value="tomorrow" bindtap="onQuickDateChange" hover-class="ride-pressed">明天</view>
-        <picker class="list-date-picker" mode="date" value="{{selectedDate || todayDateStr}}" start="{{todayDateStr}}" bindchange="onSpecificDateChange">
-          <view class="list-date-option {{selectedDate || timeFilterIndex === 2 ? 'is-active' : ''}}"><text>{{dateFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
-        </picker>
+        <view class="list-date-option list-date-picker {{selectedDate || timeFilterIndex === 2 ? 'is-active' : ''}}" bindtap="onOpenCalendar" hover-class="ride-pressed" role="button" aria-label="打开日期日历"><text>{{dateFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
       </view>
 
       <text class="list-refine-section-title">路线类型</text>
@@ -189,6 +188,8 @@
       </view>
     </view>
   </view>
+
+  <template is="ride-calendar" data="{{calendarVisible, calendarMonthTitle, calendarDays, calendarCanPrev, calendarCanConfirm, calendarSelectionLabel, calendarLoading, calendarError, calendarConfirmText}}" />
 
   <view wx:if="{{placePickerVisible}}" class="list-place-picker">
     <view class="list-place-mask" bindtap="onClosePlacePicker" catchtouchmove="stopTouchMove"></view>

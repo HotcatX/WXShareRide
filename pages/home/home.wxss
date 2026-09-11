@@ -375,6 +375,15 @@ page{
   line-height: 32rpx;
 }
 
+.home-request-entry{
+  min-height: 48rpx;
+  padding: 6rpx 10rpx;
+  box-sizing: border-box;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  color: #69727d;
+}
+
 .home-refresh-tip{
   margin-top: 26rpx;
   display: block;

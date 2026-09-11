@@ -1,4 +1,6 @@
 const { showDataError } = require("../../../utils/error")
+const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
+const { loadRidePlaceOptions } = require("../../../utils/ridePlaceOptions")
 const {
   markRideListStale,
   normalizeRidePriceInput,
@@ -20,7 +22,18 @@ function getRideCitySnapshot() {
 }
 
 Page({
+  ...rideCalendarPicker.methods,
   data: {
+    ...rideCalendarPicker.data,
+    calendarConfirmText: "确定日期",
+    timePickerVisible: false,
+    placePickerVisible: false,
+    placePickerTitle: "选择出发地",
+    placePickerValue: "",
+    placePickerOptions: [],
+    placePickerFixedOptions: [],
+    placePickerLoading: false,
+    placePickerError: "",
     // ====== 顶部/通用 ======
     statusBarHeight: 80,
     pageTitle: "新建路线",
@@ -66,9 +79,14 @@ Page({
   // -------------------------
   // 生命周期
   // -------------------------
-  onLoad() {
+  onLoad(options = {}) {
+    this._calendarDisposed = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({ statusBarHeight: info.statusBarHeight })
+    const mode = options.mode === "passenger" ? "passenger" : "driver"
+    this.setData({ statusBarHeight: info.statusBarHeight, mode,
+      ...this.getFilterDateData(),
+      ...(mode === "passenger" ? { referencePrice: "", referencePriceHasNumber: false } : {})
+    })
 
     // 地址可对游客开放加载
     this.loadAllAddresses()
@@ -81,6 +99,12 @@ Page({
   },
 
   onShow() {
+    if (this.data.calendarVisible) {
+      this.setData(this.getFilterDateData())
+      this.renderCalendar()
+      this.loadCalendarCounts()
+    }
+    if (this.data.placePickerVisible) this.loadPlaceSuggestions()
     const tip = wx.getStorageSync("needLoginToast")
     if (tip) {
       wx.removeStorageSync("needLoginToast")
@@ -91,15 +115,23 @@ Page({
     this.loadTemplatesIfNeeded()
   },
 
+  onUnload() {
+    this._calendarDisposed = true
+    this._placeReadRevision = (this._placeReadRevision || 0) + 1
+  },
+
   // -------------------------
   // 顶部切换
   // -------------------------
   setMode(e) {
     const mode = e.currentTarget.dataset.mode
-    if (!mode || mode === this.data.mode) return
+    if (!["driver", "passenger"].includes(mode) || mode === this.data.mode) return
 
     this.setData({
       mode,
+      calendarVisible: false,
+      timePickerVisible: false,
+      placePickerVisible: false,
       departureAddress: "",
       destinationAddress: "",
       referencePrice: "",
@@ -108,6 +140,7 @@ Page({
     }, async () => {
       // ✅ 用“新 mode”去加载对应地址集合
       await this.loadAllAddresses()
+      if (this._calendarDisposed || this.data.mode !== mode) return
 
       if (mode === "passenger") {
         await this.updateReferencePriceFromRequestPrice()
@@ -146,7 +179,7 @@ Page({
   ensureLoginBeforeCreate_passenger() {
     if (this.isLoggedIn()) return true
 
-    const pendingUrl = "/pages/home/newTrip/newTrip"
+    const pendingUrl = "/pages/home/newTrip/newTrip?mode=passenger"
     wx.setStorageSync("pendingPage", { url: pendingUrl })
     wx.setStorageSync("postLoginAction", {
       type: "requireProfile",
@@ -208,6 +241,9 @@ Page({
   // 地址列表（根据 mode 调用不同 type）
   // -------------------------
   async loadAllAddresses() {
+    const mode = this.data.mode
+    const revision = this._addressReadRevision = (this._addressReadRevision || 0) + 1
+    const isCurrent = () => !this._calendarDisposed && revision === this._addressReadRevision && mode === this.data.mode
     this.setData({ loadingDepartureAddrs: true, loadingArrivalAddrs: true })
 
     try {
@@ -218,14 +254,16 @@ Page({
         this.loadAddressList(depType),
         this.loadAddressList(arrType)
       ])
+      if (!isCurrent()) return
 
       this.setData({
         departureAddresses: [...(dep || []), "其他"],
         arrivalAddresses: [...(arr || []), "其他"],
         loadingDepartureAddrs: false,
         loadingArrivalAddrs: false
-      })
+      }, () => { if (this.data.placePickerVisible) this.updatePlacePickerData() })
     } catch (e) {
+      if (!isCurrent()) return
       console.error("loadAllAddresses error:", e)
       this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
       showDataError("地址加载失败", e, "地址配置从数据库加载失败，请稍后重试。")
@@ -246,36 +284,6 @@ Page({
     }
   },
 
-  // 地址选择：司机/乘客都有“其他”弹窗，但后续价格逻辑不同
-  async onAddressSelect(e) {
-    const { type } = e.currentTarget.dataset
-    const index = Number(e.detail.value)
-
-    const list = (type === "departure") ? this.data.departureAddresses : this.data.arrivalAddresses
-    const selected = list[index]
-    const key = (type === "departure") ? "departureAddress" : "destinationAddress"
-
-    if (selected === "其他") {
-      const res = await wx.showModal({
-        title: "",
-        editable: true,
-        placeholderText: (type === "departure") ? "请输入出发地点" : "请输入目的地"
-      })
-      if (res.confirm && res.content) {
-        const v = res.content.trim()
-        if (!v) return
-        this.setData({ [key]: v }, async () => {
-          await this.afterAddressChanged()
-        })
-      }
-      return
-    }
-
-    this.setData({ [key]: selected }, async () => {
-      await this.afterAddressChanged()
-    })
-  },
-
   // 地址变化后的分流：司机更新默认参考价；乘客查 Request_Price
   async afterAddressChanged() {
     if (this.data.mode === "driver") {
@@ -288,8 +296,135 @@ Page({
   // -------------------------
   // 通用：日期时间
   // -------------------------
-  onDateChange(e) { this.setData({ departureDate: e.detail.value }) },
-  onTimeChange(e) { this.setData({ departureTime: e.detail.value }) },
+  getFilterDateData(now = new Date()) {
+    const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    return { todayDateStr: format(now), tomorrowDateStr: format(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) }
+  },
+
+  isValidFilterDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false
+    const [year, month, day] = value.split("-").map(Number)
+    const date = new Date(year, month - 1, day)
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+  },
+
+  getListViewerKey() {
+    return wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+  },
+
+  getRideListRefreshAt() {
+    return Number(wx.getStorageSync("rideListShouldRefreshAt") || 0)
+  },
+
+  getCalendarInitialDate() {
+    return this.data.departureDate || this.getFilterDateData().todayDateStr
+  },
+
+  getCalendarRequest() {
+    return {
+      action: "calendar", month: this.data.calendarMonth, type: "all",
+      cityKey: getRideCitySnapshot().key || DEFAULT_CITY_KEY,
+      fromPlace: this.data.departureAddress || "",
+      toPlace: this.data.destinationAddress || ""
+    }
+  },
+
+  onOpenDatePicker() {
+    wx.hideKeyboard()
+    this.setData({ timePickerVisible: false, placePickerVisible: false })
+    return this.onOpenCalendar()
+  },
+
+  applyCalendarSelection(date) {
+    this.setData({ departureDate: date, calendarVisible: false })
+  },
+
+  onOpenTimePicker() {
+    wx.hideKeyboard()
+    this.setData({ timePickerVisible: true, calendarVisible: false, placePickerVisible: false })
+  },
+
+  onCloseTimePicker() {
+    this.setData({ timePickerVisible: false })
+  },
+
+  onTimeChange(e) {
+    const value = e.detail.value
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value || "")) return
+    this.setData({ departureTime: value, timePickerVisible: false })
+  },
+
+  onOpenPlacePicker(e) {
+    this._placePickerField = e.currentTarget.dataset.type === "destination" ? "destination" : "departure"
+    wx.hideKeyboard()
+    this.setData({
+      placePickerVisible: true, calendarVisible: false, timePickerVisible: false,
+      placePickerTitle: this._placePickerField === "departure" ? "选择出发地" : "选择目的地",
+      placePickerError: "", placePickerOptions: [], placePickerLoading: false
+    })
+    this.updatePlacePickerData()
+    return this.loadPlaceSuggestions()
+  },
+
+  updatePlacePickerData() {
+    const isDeparture = this._placePickerField !== "destination"
+    const configured = (isDeparture ? this.data.departureAddresses : this.data.arrivalAddresses) || []
+    const fixed = configured.filter(value => /fort\s*lee|哥大|columbia/i.test(value))
+    if (!fixed.some(value => /fort\s*lee/i.test(value))) fixed.unshift("Fort Lee")
+    if (!fixed.some(value => /哥大|columbia/i.test(value))) fixed.push("哥大")
+    const suggestions = this._placeSuggestions || {}
+    this.setData({
+      placePickerFixedOptions: fixed,
+      placePickerValue: isDeparture ? this.data.departureAddress : this.data.destinationAddress,
+      placePickerOptions: isDeparture ? (suggestions.fromPlaces || []) : (suggestions.toPlaces || [])
+    })
+  },
+
+  async loadPlaceSuggestions(options = {}) {
+    if (!this.data.placePickerVisible || this._calendarDisposed) return
+    const revision = this._placeReadRevision = (this._placeReadRevision || 0) + 1
+    const context = {
+      cityKey: getRideCitySnapshot().key || DEFAULT_CITY_KEY,
+      viewerKey: this.getListViewerKey(), revision: this.getRideListRefreshAt(), force: !!options.force
+    }
+    const contextKey = JSON.stringify([context.cityKey, context.viewerKey, context.revision])
+    if (contextKey !== this._placeSuggestionsKey) {
+      this._placeSuggestions = null
+      this._placeSuggestionsKey = contextKey
+      this.updatePlacePickerData()
+    }
+    this.setData({ placePickerLoading: true, placePickerError: "" })
+    const isCurrent = () => !this._calendarDisposed && this.data.placePickerVisible && revision === this._placeReadRevision &&
+      context.viewerKey === this.getListViewerKey() && context.revision === this.getRideListRefreshAt() &&
+      context.cityKey === (getRideCitySnapshot().key || DEFAULT_CITY_KEY)
+    try {
+      const result = await loadRidePlaceOptions(context)
+      if (!isCurrent()) return
+      this._placeSuggestions = result
+      this.updatePlacePickerData()
+      this.setData({ placePickerLoading: false })
+    } catch (error) {
+      if (!isCurrent()) return
+      this.setData({ placePickerLoading: false, placePickerError: "地点加载失败，点击重试" })
+    }
+  },
+
+  onRetryPlaceSuggestions() { return this.loadPlaceSuggestions({ force: true }) },
+
+  onClosePlacePicker() {
+    this._placeReadRevision = (this._placeReadRevision || 0) + 1
+    this.setData({ placePickerVisible: false })
+  },
+
+  async onConfirmPlace(e) {
+    if (!this.data.placePickerVisible) return
+    const value = typeof e.detail.value === "string" ? e.detail.value.trim() : ""
+    if (!value || value.length > 200) return
+    const field = this._placePickerField === "destination" ? "destinationAddress" : "departureAddress"
+    this.onClosePlacePicker()
+    this.setData({ [field]: value })
+    await this.afterAddressChanged()
+  },
 
   // -------------------------
   // 司机：人数输入（允许先输入，提交时校验 1-7）
@@ -345,6 +480,8 @@ Page({
     const dep = (this.data.departureAddress || "").trim()
     const dest = (this.data.destinationAddress || "").trim()
     if (!dep || !dest) return
+    const isCurrent = () => !this._calendarDisposed && this.data.mode === "passenger" &&
+      dep === String(this.data.departureAddress || "").trim() && dest === String(this.data.destinationAddress || "").trim()
 
     try {
       const db = wx.cloud.database()
@@ -354,6 +491,7 @@ Page({
         .get()
 
       const row = (res?.data?.length) ? res.data[0] : null
+      if (!isCurrent()) return
       if (row && row.Price !== undefined && row.Price !== null && String(row.Price).trim() !== "") {
         const priceNumber = extractRidePriceNumber(row.Price)
         this.setData({
@@ -369,6 +507,7 @@ Page({
         })
       }
     } catch (err) {
+      if (!isCurrent()) return
       console.error("updateReferencePriceFromRequestPrice error:", err)
       showDataError("价格加载失败", err, "参考价格从数据库加载失败，请稍后重试。")
     }
@@ -684,7 +823,7 @@ Page({
 
     if (!userInfo) {
       wx.showToast({ title: "请先完善个人信息", icon: "none" })
-      wx.setStorageSync("pendingPage", { url: "/pages/home/newTrip/newTrip" })
+      wx.setStorageSync("pendingPage", { url: "/pages/home/newTrip/newTrip?mode=passenger" })
       wx.navigateTo({ url: "/pages/profile/addInfo/addInfo?from=login" })
       return
     }

@@ -1,5 +1,9 @@
 {
   "navigationStyle": "custom",
   "enablePullDownRefresh": true,
-  "backgroundTextStyle": "dark"
+  "backgroundTextStyle": "dark",
+  "usingComponents": {
+    "ride-time-picker": "/components/ride-time-picker/index",
+    "ride-place-picker": "/components/ride-place-picker/index"
+  }
 }

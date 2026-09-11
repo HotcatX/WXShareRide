@@ -212,7 +212,14 @@
             aria-role="button"
             aria-label="点击加入拼车群"
           >{{communityGroupLoading ? '正在加载…' : '点击加入拼车群'}}</view>
-          <view class="ride-chip">{{publicStats.lastSyncText}}</view>
+          <view
+            class="ride-chip home-request-entry"
+            bindtap="goRequestTrip"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+            aria-role="button"
+            aria-label="我要求车"
+          >我要求车</view>
         </view>
       </view>
     </view>

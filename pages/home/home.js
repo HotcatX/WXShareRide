@@ -145,22 +145,14 @@ function formatRidePriceTag(value) {
   return formatRidePriceTagShared(value)
 }
 
-function formatSyncAgo(syncedAt) {
-  const ts = Number(syncedAt || 0)
-  const diffSeconds = ts ? Math.max(0, Math.floor((Date.now() - ts) / 1000)) : 0
-  return `${diffSeconds} 秒前`
-}
-
-function normalizePublicStats(raw = {}, syncedAt = Date.now()) {
+function normalizePublicStats(raw = {}) {
   const hasServedTrips = raw.servedTrips !== undefined && raw.servedTrips !== null && raw.servedTrips !== ''
   const servedTrips = hasServedTrips ? Number(raw.servedTrips) : null
   return {
     servedTrips,
     servedTripsText: formatStatNumber(servedTrips),
     hasServedTrips: servedTrips !== null && Number.isFinite(servedTrips),
-    coverageText: raw.coverageText || 'NY / NJ',
-    lastSyncAt: syncedAt,
-    lastSyncText: formatSyncAgo(syncedAt)
+    coverageText: raw.coverageText || 'NY / NJ'
   }
 }
 
@@ -319,7 +311,6 @@ Page({
 
   // 请求状态不参与页面渲染。
   _statusRefreshPromise: null,
-  _publicStatsTimer: null,
   _homeShowTimer: null,
   _communityActive: false,
   _communityRequestVersion: 0,
@@ -413,7 +404,6 @@ Page({
     this._skipNextAnnouncementShow = false
     this.setData({ communityGroupLoading: false })
     this.syncLoginState()
-    this.startPublicStatsTicker()
     this.scheduleHomeShowRefresh()
     this.refreshCommunityConfig()
   },
@@ -423,7 +413,6 @@ Page({
     this._communityRequestVersion += 1
     this.onCommunityNoticeClose()
     this.clearHomeShowRefresh()
-    this.stopPublicStatsTicker()
   },
 
   onUnload() {
@@ -431,7 +420,6 @@ Page({
     this._communityRequestVersion += 1
     this.clearCommunityNoticeExpiry()
     this.clearHomeShowRefresh()
-    this.stopPublicStatsTicker()
   },
 
   scheduleHomeShowRefresh() {
@@ -727,11 +715,22 @@ Page({
   // 顶部按钮导航（统一）
   // =========================
   goNewTrip() {
+    this.navigateToNewTrip('driver')
+  },
+
+  goRequestTrip() {
+    this.navigateToNewTrip('passenger')
+  },
+
+  navigateToNewTrip(mode) {
     if (!this.data.isRideServiceAvailable) {
       wx.showToast({ title: "该地区暂未开通", icon: "none" })
       return
     }
-    wx.navigateTo({ url: '/pages/home/newTrip/newTrip' })
+    const url = mode === 'passenger'
+      ? '/pages/home/newTrip/newTrip?mode=passenger'
+      : '/pages/home/newTrip/newTrip'
+    wx.navigateTo({ url })
   },
 
   goCarpoolList() {
@@ -780,8 +779,7 @@ Page({
       if (!force && !pending) {
         const cached = readPublicStatsCache()
         if (cached) {
-          this.setData({ publicStats: normalizePublicStats(cached.data, cached.syncedAt) })
-          if (this._communityActive) this.startPublicStatsTicker()
+          this.setData({ publicStats: normalizePublicStats(cached.data) })
           return
         }
       }
@@ -792,7 +790,7 @@ Page({
         if (!res || !res.result || res.result.success !== true) throw new Error('获取社区统计失败')
         if (!isCurrent()) return false
         const syncedAt = Date.now()
-        const stats = normalizePublicStats(res.result.data || {}, syncedAt)
+        const stats = normalizePublicStats(res.result.data || {})
         if (stats.hasServedTrips) {
           try {
             wx.setStorageSync(PUBLIC_STATS_CACHE_KEY, {
@@ -802,31 +800,9 @@ Page({
           } catch (_) {}
         }
         this.setData({ publicStats: stats })
-        if (this._communityActive) this.startPublicStatsTicker()
       })
     } catch (e) {
     }
-  },
-
-  startPublicStatsTicker() {
-    this.stopPublicStatsTicker()
-    this.updatePublicStatsSyncText()
-    this._publicStatsTimer = setInterval(() => {
-      this.updatePublicStatsSyncText()
-    }, 1000)
-  },
-
-  stopPublicStatsTicker() {
-    if (!this._publicStatsTimer) return
-    clearInterval(this._publicStatsTimer)
-    this._publicStatsTimer = null
-  },
-
-  updatePublicStatsSyncText() {
-    const stats = this.data.publicStats || {}
-    const lastSyncText = formatSyncAgo(stats.lastSyncAt)
-    if (stats.lastSyncText === lastSyncText) return
-    this.setData({ 'publicStats.lastSyncText': lastSyncText })
   },
 
   // =========================

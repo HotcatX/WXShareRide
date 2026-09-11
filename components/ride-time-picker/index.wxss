@@ -1,0 +1,131 @@
+.ride-time-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.ride-time-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10001;
+  box-sizing: border-box;
+  padding: 14rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
+  border-radius: 30rpx 30rpx 0 0;
+  background: #ffffff;
+  color: #17252e;
+}
+
+.ride-time-handle {
+  width: 56rpx;
+  height: 7rpx;
+  margin: 0 auto 10rpx;
+  border-radius: 7rpx;
+  background: #dce2e6;
+}
+
+.ride-time-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 60rpx;
+  padding: 0 4rpx;
+}
+
+.ride-time-title {
+  font-size: 30rpx;
+  line-height: 42rpx;
+  font-weight: 800;
+}
+
+.ride-time-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60rpx;
+  height: 60rpx;
+  color: #6c7882;
+  font-size: 44rpx;
+  line-height: 60rpx;
+}
+
+.ride-time-labels {
+  display: flex;
+  margin: 14rpx 0 8rpx;
+  color: #697580;
+  font-size: 24rpx;
+  line-height: 34rpx;
+  text-align: center;
+}
+
+.ride-time-labels text {
+  flex: 1;
+}
+
+.ride-time-wheel {
+  width: 100%;
+  height: 400rpx;
+}
+
+.ride-time-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #697580;
+  font-size: 32rpx;
+  line-height: 80rpx;
+}
+
+.ride-time-option.is-selected {
+  background: #e4f4f1;
+  color: #086d67;
+  font-weight: 800;
+}
+
+.ride-time-footer {
+  padding: 12rpx 0 0;
+}
+
+.ride-time-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  min-height: 42rpx;
+  margin-bottom: 10rpx;
+  color: #61717c;
+  font-size: 24rpx;
+  line-height: 32rpx;
+}
+
+.ride-time-format {
+  color: #8b969f;
+}
+
+.ride-time-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 80rpx;
+  padding: 16rpx;
+  margin: 0;
+  border-radius: 15rpx;
+  box-sizing: border-box;
+  background: #0f9b95;
+  color: #ffffff;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  font-weight: 700;
+}
+
+.ride-time-confirm::after {
+  border: none;
+}
+
+.ride-time-confirm.is-disabled {
+  background: #e7ecee;
+  color: #a0aab0;
+}

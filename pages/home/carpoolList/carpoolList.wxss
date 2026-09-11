@@ -1,3 +1,5 @@
+@import "../../../styles/ride-calendar.wxss";
+
 page{
   background: #f4f6f8;
 }

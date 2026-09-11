@@ -1,0 +1,37 @@
+<view wx:if="{{visible}}" class="ride-time-picker">
+  <view class="ride-time-mask" catchtap="onCancel" catchtouchmove="stopBubble"></view>
+  <view class="ride-time-panel" catchtap="stopBubble" role="dialog" aria-label="选择出发时间">
+    <view class="ride-time-handle"></view>
+    <view class="ride-time-header">
+      <text class="ride-time-title">选择出发时间</text>
+      <view class="ride-time-close" catchtap="onCancel" role="button" aria-label="关闭时间选择">×</view>
+    </view>
+    <view class="ride-time-labels">
+      <text>小时</text>
+      <text>分钟</text>
+    </view>
+    <picker-view
+      class="ride-time-wheel"
+      value="{{pickerValue}}"
+      indicator-style="height: 80rpx; border-top: 1rpx solid #b9ded8; border-bottom: 1rpx solid #b9ded8;"
+      bindchange="onChange"
+      bindpickstart="onPickStart"
+      bindpickend="onPickEnd"
+      aria-label="24小时制时间"
+    >
+      <picker-view-column>
+        <view wx:for="{{hours}}" wx:key="*this" class="ride-time-option {{index === pickerValue[0] ? 'is-selected' : ''}}">{{item}}</view>
+      </picker-view-column>
+      <picker-view-column>
+        <view wx:for="{{minutes}}" wx:key="*this" class="ride-time-option {{index === pickerValue[1] ? 'is-selected' : ''}}">{{item}}</view>
+      </picker-view-column>
+    </picker-view>
+    <view class="ride-time-footer">
+      <view class="ride-time-summary">
+        <text>已选 {{selectedTime}}</text>
+        <text class="ride-time-format">24 小时制</text>
+      </view>
+      <button class="ride-time-confirm {{isPicking ? 'is-disabled' : ''}}" disabled="{{isPicking}}" bindtap="onConfirm">确定时间</button>
+    </view>
+  </view>
+</view>

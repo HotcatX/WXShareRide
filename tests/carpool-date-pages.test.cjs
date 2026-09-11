@@ -53,16 +53,24 @@ function harness({ carpool = [], request = [], store } = {}) {
       return Promise.resolve(pageResponse(args, state.carpool.filter(inRange).map(plain), state.request.filter(inRange).map(plain), { hasMore }))
     } }
   }
-  vm.runInNewContext(source, {
+  const context = {
     Page: value => { definition = value }, wx, Date: Clock, setTimeout, clearTimeout,
     console: { error() {}, warn() {} },
     require(name) {
       if (name.includes('cityTree')) return city
       if (name.includes('tripManage')) return pricing
+      if (name.includes('rideCalendarPicker')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideCalendarPicker.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/rideCalendar')
+        })
+        return module.exports
+      }
       if (name.includes('error')) return { showDataError() {} }
       throw new Error(`Unexpected dependency: ${name}`)
     }
-  })
+  }
+  vm.runInNewContext(source, context)
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   Object.assign(page.data, page.getFilterDateData(), page.buildFilterOptionData(['Fort Lee', 'JFK'], ['哥大/Columbia', 'EWR']))

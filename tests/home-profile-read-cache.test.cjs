@@ -13,12 +13,12 @@ function deferred() {
 
 function harness(kind, existingStorage) {
   const storage = existingStorage || { openid: 'user-a', isGuest: false }
-  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [] }
+  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [] }
   class Clock extends Date { static now() { return state.now } }
   const wx = {
     getStorageSync: key => storage[key],
     setStorageSync: (key, value) => { storage[key] = value },
-    navigateTo() {}, showToast: value => state.toasts.push(value),
+    navigateTo: value => state.navigations.push(value.url), showToast: value => state.toasts.push(value),
     cloud: {
       callFunction({ name }) {
         state.calls.push(name)
@@ -144,26 +144,48 @@ test('home A-to-B-to-A returns cannot reuse an obsolete request or refresh its c
 test('public statistics persist for 24 hours and keep their original sync time across login and ride changes', async () => {
   const { page, state, storage } = harness('home')
   await page.loadPublicStats()
-  const syncedAt = page.data.publicStats.lastSyncAt
+  const syncedAt = storage.homePublicStatsCacheV1.syncedAt
   state.now += 60000
   storage.openid = 'user-b'
   storage.rideListShouldRefreshAt = 123
   page.syncLoginState()
   await page.loadPublicStats()
   assert.equal(state.calls.filter(name => name === 'getPublicStats').length, 1)
-  assert.equal(page.data.publicStats.lastSyncAt, syncedAt)
-  assert.equal(page.data.publicStats.lastSyncText, '60 秒前')
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
+  assert.equal(page.data.publicStats.servedTripsText, '42')
 
   const reopened = harness('home', storage)
   reopened.state.now = syncedAt + 24 * 3600000 - 1
   await reopened.page.loadPublicStats()
   assert.equal(reopened.state.calls.length, 0)
-  assert.equal(reopened.page.data.publicStats.lastSyncAt, syncedAt)
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
   reopened.state.now++
   await reopened.page.loadPublicStats()
   assert.deepEqual(reopened.state.calls, ['getPublicStats'])
   await reopened.page.loadPublicStats({ force: true })
   assert.equal(reopened.state.calls.length, 2)
+})
+
+test('home request entry opens passenger mode for members and guests without changing the default driver entry', () => {
+  for (const storage of [{ openid: 'member', isGuest: false }, { openid: '', isGuest: true }]) {
+    const { page, state } = harness('home', storage)
+    page.goRequestTrip()
+    page.goNewTrip()
+    assert.deepEqual(state.navigations, [
+      '/pages/home/newTrip/newTrip?mode=passenger',
+      '/pages/home/newTrip/newTrip'
+    ])
+    assert.equal(state.calls.length, 0)
+  }
+})
+
+test('both home create entries block navigation in an unsupported ride city', () => {
+  const { page, state } = harness('home')
+  page.data.isRideServiceAvailable = false
+  page.goRequestTrip()
+  page.goNewTrip()
+  assert.equal(state.navigations.length, 0)
+  assert.deepEqual(state.toasts.map(toast => toast.title), ['该地区暂未开通', '该地区暂未开通'])
 })
 
 test('public statistics reject malformed, expired and future-dated cache entries and retry failures', async () => {

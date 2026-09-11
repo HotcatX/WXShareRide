@@ -88,6 +88,85 @@ function parseDatePage(event) {
   return { startDate: event.startDate, endDateExclusive: event.endDateExclusive }
 }
 
+function parseCalendarOptions(event) {
+  const month = event.month
+  if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    throw new Error('invalid_calendar_month: 月份必须为 YYYY-MM')
+  }
+  const start = new Date(`${month}-01T00:00:00.000Z`)
+  if (!Number.isFinite(start.getTime()) || start.toISOString().slice(0, 7) !== month) {
+    throw new Error('invalid_calendar_month: 无效的月份')
+  }
+  const end = new Date(start.getTime())
+  end.setUTCMonth(end.getUTCMonth() + 1)
+  if (!/^\d{4}-/.test(end.toISOString())) {
+    throw new Error('invalid_calendar_month: 月份超出支持范围')
+  }
+
+  const readPlace = (value, key) => {
+    if (value === undefined || value === null) return ''
+    if (typeof value !== 'string' || value.length > 200) {
+      throw new Error(`invalid_calendar_filter: ${key} 必须为不超过 200 字符的地点`)
+    }
+    const place = value.trim()
+    return place === '全部' ? '' : place
+  }
+  const readPresets = (value, key) => {
+    if (value === undefined || value === null) return []
+    if (!Array.isArray(value) || value.length > 100) {
+      throw new Error(`invalid_calendar_filter: ${key} 最多包含 100 个地点`)
+    }
+    return Array.from(new Set(value.map(item => readPlace(item, key)).filter(item => item && item !== '其他')))
+  }
+  if (event.type !== undefined && !['all', 'carpool', 'request'].includes(event.type)) {
+    throw new Error('invalid_calendar_filter: 无效的路线类型')
+  }
+  if (event.cityKey !== undefined && (typeof event.cityKey !== 'string' || event.cityKey.length > 80)) {
+    throw new Error('invalid_calendar_filter: 无效的城市')
+  }
+  return {
+    month,
+    page: { startDate: `${month}-01`, endDateExclusive: end.toISOString().slice(0, 10) },
+    fromPlace: readPlace(event.fromPlace, 'fromPlace'),
+    toPlace: readPlace(event.toPlace, 'toPlace'),
+    fromPresets: readPresets(event.fromPresets, 'fromPresets'),
+    toPresets: readPresets(event.toPresets, 'toPresets')
+  }
+}
+
+function makeCalendarPlaceMatcher(place) {
+  const value = String(place || '').trim()
+  if (/fort\s*lee/i.test(value)) return address => /fort\s*lee/i.test(String(address || ''))
+  if (/哥大|columbia/i.test(value)) return address => /哥大|columbia/i.test(String(address || ''))
+  return address => !!address && String(address).toLowerCase().includes(value.toLowerCase())
+}
+
+function makeCalendarRouteMatcher(options) {
+  if (!options.fromPlace && !options.toPlace) return () => true
+  const matchSide = (selected, presets) => {
+    if (!selected) return () => true
+    if (selected !== '其他') {
+      const matches = makeCalendarPlaceMatcher(selected)
+      return stops => stops.some(stop => matches(stop && stop.address))
+    }
+    const matchers = (presets.length ? presets : ['Fort Lee', 'Columbia']).map(makeCalendarPlaceMatcher)
+    return stops => stops.some(stop => {
+      const address = stop && String(stop.address || '').trim()
+      return !!address && !matchers.some(matches => matches(address))
+    })
+  }
+  const matchFrom = matchSide(options.fromPlace, options.fromPresets)
+  const matchTo = matchSide(options.toPlace, options.toPresets)
+  return trip => {
+    const departures = Array.isArray(trip.departures) ? trip.departures : []
+    const destinations = Array.isArray(trip.destinations) ? trip.destinations : []
+    // Match the list's address-filter eligibility, including complete departure details.
+    if (!departures.some(stop => stop && stop.date && stop.time && String(stop.address || '').trim()) ||
+        !destinations.some(stop => stop && String(stop.address || '').trim())) return false
+    return matchFrom(departures) && matchTo(destinations)
+  }
+}
+
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
   if (type === 'carpool') return 'carpool'
@@ -318,7 +397,7 @@ async function readType(type, event) {
   return normalizeRows(mergeById(results.map(res => res.data || [])))
 }
 
-async function readDatePageType(type, event, page, minDepartureAtMs) {
+async function readDatePageType(type, event, page, minDepartureAtMs, options = {}) {
   const config = TYPE_CONFIG[type]
   const cityCondition = buildCityKeyCondition(event)
   const baseConditions = [
@@ -352,7 +431,8 @@ async function readDatePageType(type, event, page, minDepartureAtMs) {
         _.and([{ firstDepartureDate: cursor.date }, { _id: _.gt(cursor.id) }])
       ]))
     }
-    const result = await buildQuery(conditions, DATE_PAGE_SIZE, event.quick !== false ? config.fields : null).get()
+    const fields = options.fields || (event.quick !== false ? config.fields : null)
+    const result = await buildQuery(conditions, DATE_PAGE_SIZE, fields).get()
     const batch = result.data || []
     rows.push(...batch)
     if (batch.length < DATE_PAGE_SIZE) break
@@ -364,16 +444,123 @@ async function readDatePageType(type, event, page, minDepartureAtMs) {
     cursor = { date: last.firstDepartureDate, id: last._id }
   }
 
-  const nextResult = await buildQuery(
-    [{ firstDepartureDate: _.gte(page.endDateExclusive) }],
-    1,
-    { firstDepartureDate: true }
-  ).get()
-  const nextDate = nextResult.data && nextResult.data[0] && nextResult.data[0].firstDepartureDate || ''
+  let nextDate = ''
+  if (options.probeNextDate !== false) {
+    const nextResult = await buildQuery(
+      [{ firstDepartureDate: _.gte(page.endDateExclusive) }],
+      1,
+      { firstDepartureDate: true }
+    ).get()
+    nextDate = nextResult.data && nextResult.data[0] && nextResult.data[0].firstDepartureDate || ''
+  }
+  const data = mergeById([rows])
   return {
-    data: mergeById([rows]).sort((a, b) => getTripSortMs(a) - getTripSortMs(b)),
+    data: options.skipSort ? data : data.sort((a, b) => getTripSortMs(a) - getTripSortMs(b)),
     nextDate
   }
+}
+
+async function readCalendar(event, type, openid) {
+  const options = parseCalendarOptions(event)
+  const types = type === 'all' ? ['carpool', 'request'] : [type]
+  const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
+  const matchesRoute = makeCalendarRouteMatcher(options)
+  const results = await Promise.all(types.map(item => {
+    const fields = { _id: true, firstDepartureDate: true, _openid: true }
+    if (item === 'carpool') fields.passengers = true
+    else Object.assign(fields, { driverOpenid: true, passengerID: true })
+    if (options.fromPlace || options.toPlace) Object.assign(fields, { departures: true, destinations: true })
+    return readDatePageType(item, event, options.page, minDepartureAtMs, { fields, probeNextDate: false, skipSort: true })
+  }))
+  const typedLists = types.map((item, index) => ({ type: item, items: results[index].data.filter(matchesRoute) }))
+  const blockContext = await buildBlockContext(openid, typedLists)
+  const counts = new Map()
+  typedLists.forEach(pair => {
+    applyBlockFilter(pair.type, pair.items, blockContext).forEach(trip => {
+      const date = trip.firstDepartureDate
+      // Invalid legacy dates must not create calendar cells or leak stored values.
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !date.startsWith(`${options.month}-`)) return
+      const parsed = Date.parse(`${date}T00:00:00.000Z`)
+      if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== date) return
+      if (!counts.has(date)) counts.set(date, { date, carpoolCount: 0, requestCount: 0 })
+      counts.get(date)[pair.type === 'carpool' ? 'carpoolCount' : 'requestCount'] += 1
+    })
+  })
+  return {
+    ok: true,
+    success: true,
+    month: options.month,
+    data: { days: Array.from(counts.values()).sort((a, b) => a.date.localeCompare(b.date)) }
+  }
+}
+
+const FIXED_PLACE_NAMES = new Set([
+  'fortlee', 'fortlee核心区', 'fortlee全区域',
+  '哥大', 'columbia', '哥大columbia', '哥大/columbia', '哥伦比亚大学', 'columbiauniversity',
+  '其他', '自选', '全部'
+])
+
+function readPlaceSuggestionCity(event) {
+  if (typeof event.cityKey !== 'string' || event.cityKey.length > 80 || event.cityKey.trim() !== event.cityKey ||
+      event.cityKey.toLowerCase() === 'all' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(event.cityKey)) {
+    throw new Error('invalid_places_city: 城市必须为 1 至 80 字符的城市标识')
+  }
+  return event.cityKey
+}
+
+function normalizeSuggestedPlace(address) {
+  if (typeof address !== 'string' || address.length > 200) return ''
+  const label = normalizeText(address)
+  if (!label || FIXED_PLACE_NAMES.has(label.toLowerCase().replace(/\s+/g, ''))) return ''
+  return label
+}
+
+async function readPlaceSuggestions(event, openid) {
+  const cityKey = readPlaceSuggestionCity(event)
+  const actor = cleanOpenid(openid)
+  const types = ['carpool', 'request']
+  // The timestamp/status conditions discard expired and closed routes on the server.
+  // An unrestricted date cursor also keeps active multi-date routes that began earlier.
+  const page = { startDate: '0001-01-01', endDateExclusive: '9999-12-31' }
+  const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
+  const results = await Promise.all(types.map(type => {
+    const fields = { _id: true, firstDepartureDate: true, _openid: true, departures: true, destinations: true }
+    if (type === 'carpool') fields.passengers = true
+    else Object.assign(fields, { driverOpenid: true, passengerID: true })
+    return readDatePageType(type, { cityKey }, page, minDepartureAtMs, { fields, probeNextDate: false, skipSort: true })
+  }))
+  const typedLists = types.map((type, index) => ({
+    type,
+    items: results[index].data.filter(trip => !actor || cleanOpenid(trip._openid) !== actor)
+  }))
+  const blockContext = await buildBlockContext(actor, typedLists)
+  const from = new Map()
+  const to = new Map()
+  const addRoutePlaces = (counter, stops) => {
+    const routePlaces = new Map()
+    ;(Array.isArray(stops) ? stops : []).forEach(stop => {
+      const label = normalizeSuggestedPlace(stop && stop.address)
+      if (!label) return
+      const key = label.toLowerCase()
+      if (!routePlaces.has(key)) routePlaces.set(key, label)
+    })
+    // Duplicate stops on one route are one recommendation vote, not several.
+    routePlaces.forEach((label, key) => {
+      if (!counter.has(key)) counter.set(key, { label, key, count: 0 })
+      counter.get(key).count += 1
+    })
+  }
+  typedLists.forEach(pair => {
+    applyBlockFilter(pair.type, pair.items, blockContext).forEach(trip => {
+      addRoutePlaces(from, trip.departures)
+      addRoutePlaces(to, trip.destinations)
+    })
+  })
+  const rank = counter => Array.from(counter.values())
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .slice(0, 100)
+    .map(item => item.label)
+  return { ok: true, success: true, data: { fromPlaces: rank(from), toPlaces: rank(to) } }
 }
 
 async function readDatePage(event, page, type, openid) {
@@ -402,6 +589,8 @@ exports.main = async (event = {}) => {
   const { OPENID: openid } = cloud.getWXContext()
 
   try {
+    if (event.action === 'calendar') return await readCalendar(event, type, openid)
+    if (event.action === 'places') return await readPlaceSuggestions(event, openid)
     const datePage = parseDatePage(event)
     if (datePage) return await readDatePage(event, datePage, type, openid)
     if (type === 'all') {

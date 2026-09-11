@@ -1,0 +1,50 @@
+<view wx:if="{{visible}}" class="place-picker">
+  <view class="place-mask" bindtap="onCancel" catchtouchmove="stopBubble"></view>
+  <view class="place-panel" catchtap="stopBubble">
+    <view class="place-handle"></view>
+    <view class="place-header">
+      <text class="place-title">{{title}}</text>
+      <view class="place-close" bindtap="onCancel" aria-role="button" aria-label="关闭地点选择">×</view>
+    </view>
+    <scroll-view class="place-body" scroll-y enhanced show-scrollbar="{{false}}">
+      <text class="place-section-title">常用地点</text>
+      <view class="place-fixed">
+        <view wx:for="{{fixedEntries}}" wx:key="key" class="place-chip {{item.selected && !customVisible ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelect" aria-role="button">{{item.label}}</view>
+        <view class="place-chip {{customVisible ? 'is-selected' : ''}}" bindtap="onOpenCustom" aria-role="button">自选</view>
+      </view>
+
+      <view wx:if="{{customVisible}}" class="place-custom">
+        <view class="place-custom-header">
+          <text class="place-section-title">填写地点</text>
+          <view class="place-custom-back" bindtap="onCloseCustom">收起</view>
+        </view>
+        <input class="place-input place-custom-input" value="{{customValue}}" maxlength="200" placeholder="输入地址、学校或地标" placeholder-class="place-placeholder" bindinput="onCustomInput" bindconfirm="onConfirmCustom" confirm-type="done" aria-label="自选地点" />
+        <text wx:if="{{customError}}" class="place-error">{{customError}}</text>
+        <view class="place-custom-bottom">
+          <text class="place-character-count">{{customValue.length}} / 200</text>
+          <button class="place-confirm" disabled="{{!canConfirmCustom}}" bindtap="onConfirmCustom">使用这个地点</button>
+        </view>
+      </view>
+
+      <text class="place-section-title place-suggestions-title">大家正在用的自选地点</text>
+      <view class="place-search">
+        <text class="place-search-icon">⌕</text>
+        <input class="place-input" value="{{keyword}}" maxlength="200" placeholder="搜索地点" placeholder-class="place-placeholder" bindinput="onSearch" confirm-type="search" aria-label="搜索当前自选地点" />
+      </view>
+      <view wx:if="{{loading}}" class="place-message">正在加载地点…</view>
+      <view wx:elif="{{error}}" class="place-error place-retry" bindtap="onRetry" aria-role="button">地点加载失败，点击重试</view>
+      <view class="place-suggestions">
+        <view wx:for="{{suggestions}}" wx:key="value" class="place-option {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelect" aria-role="button">
+          <text class="place-option-label">{{item.value}}</text>
+          <text wx:if="{{item.selected}}" class="place-check">✓</text>
+        </view>
+      </view>
+      <view wx:if="{{canUseSearch}}" class="place-use-search" bindtap="onUseSearch" aria-role="button">
+        <text class="place-use-label">使用“{{keyword}}”</text>
+        <text class="place-use-arrow">→</text>
+      </view>
+      <view wx:elif="{{!suggestions.length && !loading && !error}}" class="place-message">暂无其他地点，可以点击「自选」填写</view>
+      <view class="place-bottom-space"></view>
+    </scroll-view>
+  </view>
+</view>

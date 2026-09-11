@@ -62,7 +62,7 @@ function harness({ enabled = false, maxShows = 2 } = {}) {
   })
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
-  for (const name of ['syncLoginState', 'startPublicStatsTicker', 'scheduleHomeShowRefresh', 'clearHomeShowRefresh', 'stopPublicStatsTicker']) page[name] = () => {}
+  for (const name of ['syncLoginState', 'scheduleHomeShowRefresh', 'clearHomeShowRefresh']) page[name] = () => {}
   return { page, state, community, clock }
 }
 

@@ -1,5 +1,6 @@
 const { showDataError } = require("../../../utils/error")
 const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
+const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -64,6 +65,8 @@ const DEFAULT_TO_PLACES = [
   "Queens"
 ]
 Page({
+  ...rideCalendarPicker.methods,
+
   data: {
     loading: true,
     hasLoadedOnce: false,
@@ -109,6 +112,7 @@ Page({
     placePickerOptions: [],
     refineFiltersVisible: false,
     moreFilterCount: 0,
+    ...rideCalendarPicker.data,
 
     fromPlaceList: [],
     toPlaceList: [],
@@ -190,6 +194,7 @@ Page({
 
   onShow() {
     this.setData(this.getFilterDateData())
+    if (this.data.calendarVisible) this.loadCalendarCounts()
     // 首屏由 onLoad 负责；返回时复用短缓存，身份/路线变更会立即失效。
     if (!this.data.hasLoadedOnce) return
     this.loadBothLists({ showLoading: false })
@@ -309,6 +314,7 @@ Page({
       cityPickerVisible: true,
       placePickerVisible: false,
       refineFiltersVisible: false,
+      calendarVisible: false,
       citySearchKeyword: "",
       cityPickerGroups,
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
@@ -575,6 +581,7 @@ Page({
     }, () => {
       this.applyShareFilters(true, () => {
         if (this.data.hasLoadedOnce) this.applyAllFiltersAndGroup()
+        if (this.data.calendarVisible) this.loadCalendarCounts()
       })
     })
   },
@@ -799,7 +806,10 @@ Page({
 
       if (updatedCount > 0) {
         markRideListStale()
-        return this.loadBothLists({ showLoading: false, force: true })
+        return Promise.all([
+          this.loadBothLists({ showLoading: false, force: true }),
+          this.data.calendarVisible ? this.loadCalendarCounts() : Promise.resolve()
+        ])
       }
       return null
     }).catch((e) => {
@@ -1116,7 +1126,7 @@ Page({
 
   async onLoadMoreDays() {
     if (this._listDisposed || !this.data.isRideServiceAvailable || this.data.refresherTriggered ||
-      this.data.loading || this.data.placePickerVisible || this.data.refineFiltersVisible || this.data.cityPickerVisible) return
+      this.data.loading || this.data.placePickerVisible || this.data.refineFiltersVisible || this.data.cityPickerVisible || this.data.calendarVisible) return
     if (this._listLoadingPromise) return this._listLoadingPromise
     if (this._moreLoadingPromise) return this._moreLoadingPromise
     if (!this.data.hasMoreDays || !this.isValidFilterDate(this.data.nextPageDate)) return
@@ -1469,6 +1479,7 @@ Page({
     this.syncFilterUi()
     this.setData({
       placePickerVisible: true,
+      calendarVisible: false,
       cityPickerVisible: false,
       refineFiltersVisible: false,
       placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地",
@@ -1514,7 +1525,7 @@ Page({
   },
 
   onOpenRefineFilters() {
-    this.setData({ refineFiltersVisible: true, placePickerVisible: false, cityPickerVisible: false })
+    this.setData({ refineFiltersVisible: true, placePickerVisible: false, cityPickerVisible: false, calendarVisible: false })
   },
 
   onCloseRefineFilters() {
@@ -1541,6 +1552,27 @@ Page({
     const value = e.detail && e.detail.value
     if (!this.isValidFilterDate(value)) return
     this.changeFilters({ selectedDate: value, timeFilterIndex: -1 })
+  },
+
+  getCalendarRequest() {
+    const request = {
+      action: "calendar", month: this.data.calendarMonth,
+      type: this.data.routeTypeFilter || "all",
+      cityKey: normalizeRideServiceCityKey(this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY),
+      fromPlace: this.getSelectedFilterPlace("from"),
+      toPlace: this.getSelectedFilterPlace("to")
+    }
+    if (request.fromPlace === "其他") request.fromPresets = this.data.fromPlaceList || []
+    if (request.toPlace === "其他") request.toPresets = this.data.toPlaceList || []
+    return request
+  },
+
+  applyCalendarSelection(date) {
+    this.changeFilters({ selectedDate: date, timeFilterIndex: -1, calendarVisible: false, refineFiltersVisible: false })
+  },
+
+  onCalendarDismiss() {
+    this.setData({ refineFiltersVisible: true })
   },
 
   onRouteTypeChange(e) {

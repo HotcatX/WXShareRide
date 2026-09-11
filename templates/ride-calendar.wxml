@@ -1,0 +1,57 @@
+<template name="ride-calendar">
+  <view wx:if="{{calendarVisible}}" class="list-calendar">
+    <view class="list-calendar-mask" bindtap="onCloseCalendar" catchtouchmove="stopCalendarTouchMove"></view>
+    <view class="list-calendar-panel">
+      <view class="list-calendar-handle"></view>
+      <view class="list-calendar-header">
+        <text class="list-calendar-title">选择出发日期</text>
+        <view class="list-calendar-close" bindtap="onCloseCalendar" hover-class="list-calendar-pressed" role="button" aria-label="关闭日期日历">×</view>
+      </view>
+      <view class="list-calendar-month-row">
+        <view class="list-calendar-month-arrow {{!calendarCanPrev ? 'is-disabled' : ''}}" bindtap="onCalendarPrevMonth" hover-class="list-calendar-pressed" role="button" aria-label="上个月" aria-disabled="{{!calendarCanPrev}}">‹</view>
+        <text class="list-calendar-month-title">{{calendarMonthTitle}}</text>
+        <view class="list-calendar-month-arrow" bindtap="onCalendarNextMonth" hover-class="list-calendar-pressed" role="button" aria-label="下个月">›</view>
+      </view>
+      <view class="list-calendar-weekdays">
+        <text>周一</text><text>周二</text><text>周三</text><text>周四</text><text>周五</text><text>周六</text><text>周日</text>
+      </view>
+      <scroll-view class="list-calendar-scroll" style="height: {{calendarDays.length / 7 * 120}}rpx;" scroll-y enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view class="list-calendar-grid">
+          <view
+            wx:for="{{calendarDays}}"
+            wx:key="key"
+            class="list-calendar-day {{item.isPlaceholder ? 'is-placeholder' : ''}} {{item.isPast ? 'is-past' : ''}} {{item.isToday ? 'is-today' : ''}} {{item.isSelected ? 'is-selected' : ''}}"
+            data-date="{{item.date}}"
+            bindtap="onCalendarSelectDate"
+            hover-class="{{item.isPlaceholder || item.isPast ? 'none' : 'list-calendar-pressed'}}"
+            role="button"
+            aria-hidden="{{item.isPlaceholder}}"
+            aria-disabled="{{item.isPlaceholder || item.isPast}}"
+            aria-label="{{item.isPlaceholder ? '' : item.date + (item.isPast ? '，已过去' : (item.countsReady ? '，发车' + item.carpoolCount + '条，求车' + item.requestCount + '条' : '，统计加载中'))}}"
+          >
+            <block wx:if="{{!item.isPlaceholder}}">
+              <text class="list-calendar-day-number">{{item.day}}</text>
+              <text wx:if="{{item.isToday}}" class="list-calendar-today-label">今</text>
+              <view wx:if="{{!item.isPast}}" class="list-calendar-day-counts {{!item.countsReady ? 'is-pending' : ''}}">
+                <view class="list-calendar-count list-calendar-count--carpool"><text class="list-calendar-dot"></text><text>{{item.countsReady ? item.carpoolText : '—发'}}</text></view>
+                <view class="list-calendar-count list-calendar-count--request"><text class="list-calendar-dot"></text><text>{{item.countsReady ? item.requestText : '—求'}}</text></view>
+              </view>
+            </block>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="list-calendar-footer">
+        <view wx:if="{{calendarError}}" class="list-calendar-status list-calendar-status--error"><text>统计暂未加载</text><view bindtap="onCalendarRetry" hover-class="list-calendar-pressed" role="button">重试</view></view>
+        <text wx:elif="{{calendarLoading}}" class="list-calendar-status">正在加载当月路线数量…</text>
+        <view class="list-calendar-summary">
+          <text class="list-calendar-selection">{{calendarSelectionLabel || '请选择日期'}}</text>
+          <view class="list-calendar-legend">
+            <view class="list-calendar-count list-calendar-count--carpool"><text class="list-calendar-dot"></text><text>发车</text></view>
+            <view class="list-calendar-count list-calendar-count--request"><text class="list-calendar-dot"></text><text>求车</text></view>
+          </view>
+        </view>
+        <view class="list-calendar-confirm {{!calendarCanConfirm ? 'is-disabled' : ''}}" bindtap="onCalendarConfirm" hover-class="list-calendar-pressed" role="button" aria-disabled="{{!calendarCanConfirm}}">{{calendarConfirmText || '查看这一天'}}</view>
+      </view>
+    </view>
+  </view>
+</template>

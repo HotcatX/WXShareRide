@@ -34,16 +34,24 @@ function harness() {
     showNavigationBarLoading() {}, hideNavigationBarLoading() {}, stopPullDownRefresh() {},
     cloud: { callFunction(args) { state.calls.push(args); return state.next ? state.next.promise : Promise.resolve(response()) } }
   }
-  vm.runInNewContext(source, {
+  const context = {
     Page: page => { definition = page }, Date: Clock, wx,
     console: { error() {}, warn() {} }, setTimeout, clearTimeout,
     require(name) {
       if (name.includes('cityTree')) return city
       if (name.includes('tripManage')) return pricing
+      if (name.includes('rideCalendarPicker')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideCalendarPicker.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/rideCalendar')
+        })
+        return module.exports
+      }
       if (name.includes('error')) return { showDataError() {} }
       throw new Error(`Unexpected dependency: ${name}`)
     }
-  })
+  }
+  vm.runInNewContext(source, context)
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   page.data.todayDateStr = '2030-01-01'

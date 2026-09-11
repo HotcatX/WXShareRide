@@ -1,5 +1,6 @@
 <timeline-preview wx:if="{{isTimelinePreview}}" id="timeline-preview" context="{{timelineContext}}" />
 <block wx:elif="{{timelinePageReady}}">
+<import src="../../../templates/ride-calendar.wxml" />
 <view class="ride-shell create-ride">
   <view class="ride-top" style="padding-top: {{statusBarHeight}}px;">
     <view class="ride-topbar ride-topbar--center">
@@ -28,7 +29,7 @@
     </view>
   </view>
 
-  <scroll-view class="ride-scroll create-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view class="ride-scroll create-scroll" scroll-y="{{!calendarVisible && !timePickerVisible && !placePickerVisible}}" enhanced="true" show-scrollbar="{{false}}">
     <block wx:if="{{mode==='driver'}}">
       <view class="ride-card ride-card-pad create-route-card">
         <view class="create-card-head">
@@ -36,13 +37,7 @@
         </view>
 
         <view class="ride-form-grid">
-          <picker
-            mode="selector"
-            range="{{departureAddresses}}"
-            data-type="departure"
-            bindchange="onAddressSelect"
-            disabled="{{loadingDepartureAddrs}}"
-          >
+          <view class="create-place-trigger" data-type="departure" bindtap="onOpenPlacePicker" role="button" aria-label="选择出发地">
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">出发地</text>
 
@@ -50,40 +45,34 @@
               {{ loadingDepartureAddrs ? '加载中' : (departureAddress || '选择出发地') }}
             </view>
           </view>
-          </picker>
+          </view>
 
-          <picker
-            mode="selector"
-            range="{{arrivalAddresses}}"
-            data-type="destination"
-            bindchange="onAddressSelect"
-            disabled="{{loadingArrivalAddrs}}"
-          >
+          <view class="create-place-trigger" data-type="destination" bindtap="onOpenPlacePicker" role="button" aria-label="选择目的地">
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">目的地</text>
               <view class="ride-field-value ride-field-inline-value {{destinationAddress ? '' : 'ride-placeholder'}}">
                 {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择目的地') }}
               </view>
           </view>
-          </picker>
+          </view>
 
-          <picker mode="date" bindchange="onDateChange">
+          <view class="create-date-trigger" bindtap="onOpenDatePicker" role="button" aria-label="选择出发日期">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">日期</text>
               <view class="ride-field-value ride-field-inline-value {{departureDate ? '' : 'ride-placeholder'}}">
                 {{departureDate || '选择日期'}}
               </view>
             </view>
-          </picker>
+          </view>
 
-          <picker mode="time" bindchange="onTimeChange">
+          <view class="create-time-trigger" bindtap="onOpenTimePicker" role="button" aria-label="选择出发时间">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">时间</text>
                 <view class="ride-field-value ride-field-inline-value {{departureTime ? '' : 'ride-placeholder'}}">
                   {{departureTime || '选择时间'}}
                 </view>
             </view>
-          </picker>
+          </view>
 
           <view class="ride-field ride-field-inline ride-field--full">
             <text class="ride-field-label">载客数量</text>
@@ -200,53 +189,41 @@
         </view>
 
         <view class="ride-form-grid">
-          <picker
-            mode="selector"
-            range="{{departureAddresses}}"
-            data-type="departure"
-            bindchange="onAddressSelect"
-            disabled="{{loadingDepartureAddrs}}"
-          >
+          <view class="create-place-trigger" data-type="departure" bindtap="onOpenPlacePicker" role="button" aria-label="选择出发地">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">出发地</text>
                 <view class="ride-field-value ride-field-inline-value {{departureAddress ? '' : 'ride-placeholder'}}">
                   {{ loadingDepartureAddrs ? '加载中' : (departureAddress || '选择出发地') }}
                 </view>
             </view>
-          </picker>
+          </view>
 
-          <picker
-            mode="selector"
-            range="{{arrivalAddresses}}"
-            data-type="destination"
-            bindchange="onAddressSelect"
-            disabled="{{loadingArrivalAddrs}}"
-          >
+          <view class="create-place-trigger" data-type="destination" bindtap="onOpenPlacePicker" role="button" aria-label="选择目的地">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">目的地</text>
                 <view class="ride-field-value ride-field-inline-value {{destinationAddress ? '' : 'ride-placeholder'}}">
                   {{ loadingArrivalAddrs ? '加载中' : (destinationAddress || '选择目的地') }}
                 </view>
             </view>
-          </picker>
+          </view>
 
-          <picker mode="date" bindchange="onDateChange">
+          <view class="create-date-trigger" bindtap="onOpenDatePicker" role="button" aria-label="选择出发日期">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">日期</text>
               <view class="ride-field-value ride-field-inline-value {{departureDate ? '' : 'ride-placeholder'}}">
                 {{departureDate || '选择日期'}}
               </view>
             </view>
-          </picker>
+          </view>
 
-          <picker mode="time" bindchange="onTimeChange">
+          <view class="create-time-trigger" bindtap="onOpenTimePicker" role="button" aria-label="选择出发时间">
             <view class="ride-field ride-field-inline">
               <text class="ride-field-label">时间</text>
                 <view class="ride-field-value ride-field-inline-value {{departureTime ? '' : 'ride-placeholder'}}">
                   {{departureTime || '选择时间'}}
                 </view>
             </view>
-          </picker>
+          </view>
 
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">乘车人数</text>
@@ -311,5 +288,8 @@
       {{ submitting ? '提交中' : '发布求车' }}
     </button>
   </view>
+  <template is="ride-calendar" data="{{calendarVisible, calendarMonthTitle, calendarDays, calendarCanPrev, calendarCanConfirm, calendarSelectionLabel, calendarLoading, calendarError, calendarConfirmText}}" />
+  <ride-time-picker id="departure-time-picker" visible="{{timePickerVisible}}" value="{{departureTime}}" bindcancel="onCloseTimePicker" bindconfirm="onTimeChange" />
+  <ride-place-picker id="departure-place-picker" visible="{{placePickerVisible}}" title="{{placePickerTitle}}" value="{{placePickerValue}}" options="{{placePickerOptions}}" fixed-options="{{placePickerFixedOptions}}" loading="{{placePickerLoading}}" error="{{placePickerError}}" bindcancel="onClosePlacePicker" bindconfirm="onConfirmPlace" bindretry="onRetryPlaceSuggestions" />
 </view>
 </block>

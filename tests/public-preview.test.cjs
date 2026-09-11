@@ -182,7 +182,7 @@ test('logged-in old list/config and ownership/admin checks keep their behavior',
     assert.equal((await main({ action, id: 'goods-1', openid: 'seller-private-001', patch: { status: 'sold' } })).error, 'forbidden')
   }
   for (const action of ['adminBulkCreate', 'adminListTemplates', 'adminSaveTemplate', 'adminDeleteTemplate']) {
-    assert.equal((await main({ action })).error, 'admin_session_required', action)
+    assert.equal((await main({ action })).error, 'unknown_action', action)
   }
   assert.equal(f.calls.writes.length, 0)
 })

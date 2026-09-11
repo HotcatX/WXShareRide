@@ -1,8 +1,10 @@
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
 const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
+const MAX_TIMEOUT_MS = 2147483647
 const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
 const { prefetchTripDetails } = require("../../utils/tripDetailCache")
+const community = require("../../utils/community")
 const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
@@ -265,6 +267,9 @@ Page({
     cityPickerHintText: RIDE_CITY_PICKER_HINT,
 
     publicStats: normalizePublicStats(),
+    communityGroupLoading: false,
+    communityNoticeVisible: false,
+    communityNotice: null,
 
     isLoggedIn: false,
     customTabMarketBadge: 0,
@@ -280,6 +285,13 @@ Page({
   _lastRefreshAt: 0,
   _publicStatsTimer: null,
   _homeShowTimer: null,
+  _communityActive: false,
+  _communityRequestVersion: 0,
+  _announcementShownOnVisit: false,
+  _skipNextAnnouncementShow: false,
+  _communityNoticeManual: false,
+  _communityNoticeExpiryTimer: null,
+  _communityNoticeExpiryVersion: 0,
 
   // =========================
   // 合并后的两块：计算 show + scrollable
@@ -334,6 +346,7 @@ Page({
   },
 
   async refreshHomeByUser() {
+    this.refreshCommunityConfig()
     try {
       await this.loadPublicStats()
       await this.refreshHomeData(true)
@@ -356,17 +369,28 @@ Page({
   },
 
   onShow() {
+    this._communityActive = true
+    this._announcementShownOnVisit = !!this._skipNextAnnouncementShow
+    this._skipNextAnnouncementShow = false
+    this.setData({ communityGroupLoading: false })
     this.syncLoginState()
     this.startPublicStatsTicker()
     this.scheduleHomeShowRefresh()
+    this.refreshCommunityConfig()
   },
 
   onHide() {
+    this._communityActive = false
+    this._communityRequestVersion += 1
+    this.onCommunityNoticeClose()
     this.clearHomeShowRefresh()
     this.stopPublicStatsTicker()
   },
 
   onUnload() {
+    this._communityActive = false
+    this._communityRequestVersion += 1
+    this.clearCommunityNoticeExpiry()
     this.clearHomeShowRefresh()
     this.stopPublicStatsTicker()
   },
@@ -387,6 +411,107 @@ Page({
     if (!this._homeShowTimer) return
     clearTimeout(this._homeShowTimer)
     this._homeShowTimer = null
+  },
+
+  clearCommunityNoticeExpiry() {
+    this._communityNoticeExpiryVersion += 1
+    if (this._communityNoticeExpiryTimer !== null) {
+      clearTimeout(this._communityNoticeExpiryTimer)
+      this._communityNoticeExpiryTimer = null
+    }
+  },
+
+  scheduleCommunityNoticeExpiry(config, notice) {
+    this.clearCommunityNoticeExpiry()
+    const endAt = notice && notice.endAt
+    if (!Number.isSafeInteger(endAt) || endAt <= 0) return
+    const version = this._communityNoticeExpiryVersion
+    const id = notice.id
+    const checkExpiry = () => {
+      // A callback already queued before cancellation cannot close a newer notice.
+      if (version !== this._communityNoticeExpiryVersion) return
+      this._communityNoticeExpiryTimer = null
+      if (!this._communityActive || !this.data.communityNoticeVisible ||
+        !this.data.communityNotice || this.data.communityNotice.id !== id) return
+      const remaining = endAt - community.getCommunityNow(config)
+      if (remaining <= 0) {
+        this.onCommunityNoticeClose()
+        return
+      }
+      // Longer validity windows must be split to avoid setTimeout overflow.
+      this._communityNoticeExpiryTimer = setTimeout(checkExpiry, Math.min(MAX_TIMEOUT_MS, Math.ceil(remaining)))
+    }
+    checkExpiry()
+  },
+
+  async refreshCommunityConfig() {
+    const version = ++this._communityRequestVersion
+    try {
+      const config = await community.loadCommunityConfig({ force: true })
+      if (!this._communityActive || version !== this._communityRequestVersion) return
+      const notice = community.getAvailableAnnouncement(config)
+      // An updated or disabled notice must not leave an old modal on screen.
+      if (this.data.communityNoticeVisible) {
+        if (!notice || (!this._communityNoticeManual && !notice.enabled) ||
+          notice.id !== this.data.communityNotice.id) {
+          this.onCommunityNoticeClose()
+        } else {
+          this.setData({ communityNotice: notice })
+          this.scheduleCommunityNoticeExpiry(config, notice)
+        }
+        return
+      }
+      if (this._announcementShownOnVisit || this.data.cityPickerVisible ||
+        this.data.communityGroupLoading || !this.data.isRideServiceAvailable ||
+        !community.shouldShowAnnouncement(config)) return
+      // Persist before showing so a failed storage write cannot cause repeat popups.
+      if (!community.recordAnnouncementShown(config)) return
+      this._announcementShownOnVisit = true
+      this._communityNoticeManual = false
+      this.setData({ communityNotice: notice, communityNoticeVisible: true })
+      this.scheduleCommunityNoticeExpiry(config, notice)
+    } catch (e) {
+      // Configuration outages must not interrupt the ride page or show stale notices.
+      if (this._communityActive && version === this._communityRequestVersion) {
+        this.onCommunityNoticeClose()
+      }
+    }
+  },
+
+  onCommunityNoticeClose() {
+    this.clearCommunityNoticeExpiry()
+    this._communityNoticeManual = false
+    this.setData({ communityNoticeVisible: false, communityNotice: null })
+  },
+
+  onAnnouncementPreview() {
+    this._skipNextAnnouncementShow = true
+    this.onCommunityNoticeClose()
+  },
+
+  async onJoinCommunityGroup() {
+    if (this.data.communityGroupLoading) return
+    this._announcementShownOnVisit = true
+    const version = ++this._communityRequestVersion
+    this.setData({ communityGroupLoading: true })
+    try {
+      const config = await community.loadCommunityConfig({ force: true })
+      if (!this._communityActive || version !== this._communityRequestVersion) return
+      const notice = community.getAvailableAnnouncement(config)
+      if (!notice) {
+        wx.showToast({ title: '内容暂不可用，请稍后再试', icon: 'none' })
+        return
+      }
+      this._communityNoticeManual = true
+      this.setData({ communityNotice: notice, communityNoticeVisible: true })
+      this.scheduleCommunityNoticeExpiry(config, notice)
+    } catch (e) {
+      if (this._communityActive && version === this._communityRequestVersion) {
+        wx.showToast({ title: '暂时无法加载，请稍后重试', icon: 'none' })
+      }
+    } finally {
+      if (this._communityActive) this.setData({ communityGroupLoading: false })
+    }
   },
 
   syncLoginState() {

@@ -12,16 +12,10 @@ const ADS_COLLECTION = "market_ads"
 const AD_EVENTS_COLLECTION = "market_ad_events"
 const VIEW_EVENTS_COLLECTION = "market_view_events"
 const USER_COLLECTION = "userInfo"
-const IMPORT_BATCH_COLLECTION = "MarketImportBatches"
-const ADMIN_TEMPLATE_COLLECTION = "MarketAdminTemplates"
-const ADMIN_SETTINGS_COLLECTION = "MarketAdminSettings"
-const ADMIN_SESSION_COLLECTION = "MarketAdminSessions"
-const ADMIN_BULK_PASSWORD_DOC_ID = "bulk_publish_password"
 
 const PUBLIC_CONFIG_DOC_ID = "default"
 const PUBLIC_CONFIG_COLLECTIONS = new Set(["cityTree", "regionTree"])
 
-const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 const MAX_PICKUP_MONTHS = 2
 const MAX_SUBLET_MONTHS = 18
 const DEFAULT_LIMIT = 20
@@ -482,8 +476,8 @@ function marketFileDocId(fileID) {
   return crypto.createHash("sha1").update(String(fileID)).digest("hex")
 }
 
-async function attachMarketFiles(files, goodsId, openid) {
-  if (!files.length || !goodsId || !openid) return
+async function attachMarketFiles(files, goodsId, openid, options = {}) {
+  if (!files.length || !goodsId || (!openid && !options.ownerKey)) return
   const nowMs = Date.now()
   const col = db.collection(FILES_COLLECTION)
 
@@ -495,13 +489,14 @@ async function attachMarketFiles(files, goodsId, openid) {
         folder: file.folder || "",
         goodsId,
         status: "attached",
-        _openid: openid,
+        ...(options.ownerKey ? { ownerKey: options.ownerKey, adminAccountId: options.accountId } : { _openid: openid }),
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
         attachedAt: db.serverDate(),
         updatedAt: db.serverDate()
       }
     }).catch(e => {
+      if (options.strict) throw e
       console.error("[marketApi] attach MarketFiles failed:", e)
     })
   }))
@@ -1045,396 +1040,6 @@ async function createItem(event, openid) {
   return ok({ id: itemId, itemId, status: "online" })
 }
 
-async function adminStatus(event, openid) {
-  if (!openid) return ok({ isAdmin: false, openid: "" })
-  const session = await verifyAdminSession(event, openid, { silent: true })
-  return ok({
-    openid,
-    isAdmin: !!session.ok,
-    source: session.ok ? "password_session" : "",
-    expiresAtMs: session.expiresAtMs || 0
-  })
-}
-
-function sha256(value) {
-  return crypto.createHash("sha256").update(String(value || "")).digest("hex")
-}
-
-function readEnvPasswordConfig() {
-  const code = normalizeText(process.env.MARKET_BULK_ADMIN_CODE || process.env.MARKET_BULK_ADMIN_PASSWORD)
-  if (/^\d{6}$/.test(code)) {
-    return {
-      source: "env_code",
-      code
-    }
-  }
-  return null
-}
-
-async function readAdminPasswordConfig() {
-  try {
-    const doc = await db.collection(ADMIN_SETTINGS_COLLECTION).doc(ADMIN_BULK_PASSWORD_DOC_ID).get()
-    const data = doc && doc.data
-    if (data) {
-      const status = normalizeText(data.status || "active").toLowerCase()
-      if (status !== "disabled" && status !== "inactive") {
-        const code = normalizeText(data.code || data.password || data.adminCode)
-        if (/^\d{6}$/.test(code)) {
-          return {
-            source: ADMIN_SETTINGS_COLLECTION,
-            code
-          }
-        }
-      }
-    }
-  } catch (e) {}
-  return readEnvPasswordConfig()
-}
-
-async function verifyAdminPasswordValue(password) {
-  const value = normalizeText(password)
-  if (!value) return { ok: false, error: "missing_password" }
-  if (!/^\d{6}$/.test(value)) return { ok: false, error: "invalid_password_format" }
-  const config = await readAdminPasswordConfig()
-  if (!config) return { ok: false, error: "password_not_configured" }
-
-  if (config.code && value === config.code) {
-    return { ok: true, source: config.source }
-  }
-  return { ok: false, error: "invalid_password" }
-}
-
-async function ensureAdminSessionCollection() {
-  if (typeof db.createCollection !== "function") return
-  await db.createCollection(ADMIN_SESSION_COLLECTION).catch(e => {
-    const text = String(e && (e.message || e.errMsg || e.code) || "")
-    if (!/exist|already|collection/i.test(text)) {
-      console.warn("[marketApi] create admin session collection failed:", e)
-    }
-  })
-}
-
-function getAdminTokenFromEvent(event = {}) {
-  return normalizeText(event.adminToken || event.token || event.payload?.adminToken || event.data?.adminToken)
-}
-
-function buildAdminSessionDocId(token) {
-  return `sess_${sha256(token).slice(0, 48)}`
-}
-
-async function createAdminSession(openid) {
-  const token = crypto.randomBytes(32).toString("hex")
-  const tokenHash = sha256(token)
-  const id = buildAdminSessionDocId(token)
-  const nowMs = Date.now()
-  const expiresAtMs = nowMs + ADMIN_SESSION_TTL_MS
-  await ensureAdminSessionCollection()
-  await db.collection(ADMIN_SESSION_COLLECTION).doc(id).set({
-    data: {
-      _openid: openid,
-      adminOpenid: openid,
-      tokenHash,
-      status: "active",
-      createTime: db.serverDate(),
-      updateTime: db.serverDate(),
-      createTimeMs: nowMs,
-      updateTimeMs: nowMs,
-      expiresAtMs
-    }
-  })
-  return { token, expiresAtMs }
-}
-
-async function verifyAdminSession(event = {}, openid = "", options = {}) {
-  const token = getAdminTokenFromEvent(event)
-  if (!openid) return { ok: false, error: "not_logged_in" }
-  if (!token) return { ok: false, error: "admin_session_required" }
-  const id = buildAdminSessionDocId(token)
-  const doc = await db.collection(ADMIN_SESSION_COLLECTION).doc(id).get().catch(() => null)
-  const row = doc && doc.data
-  if (!row) return { ok: false, error: "admin_session_invalid" }
-  if (row.tokenHash !== sha256(token)) return { ok: false, error: "admin_session_invalid" }
-  if (normalizeText(row.status || "active").toLowerCase() !== "active") return { ok: false, error: "admin_session_invalid" }
-  if (row._openid && row._openid !== openid) return { ok: false, error: "admin_session_invalid" }
-  if (Number(row.expiresAtMs) && Number(row.expiresAtMs) < Date.now()) return { ok: false, error: "admin_session_expired" }
-  if (!options.silent) {
-    await db.collection(ADMIN_SESSION_COLLECTION).doc(id).update({
-      data: {
-        updateTime: db.serverDate(),
-        updateTimeMs: Date.now()
-      }
-    }).catch(() => {})
-  }
-  return { ok: true, openid, expiresAtMs: Number(row.expiresAtMs) || 0 }
-}
-
-async function adminVerifyPassword(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const password = String(event.password || event.payload?.password || event.data?.password || "")
-  const verified = await verifyAdminPasswordValue(password)
-  if (!verified.ok) return fail(verified.error)
-  const session = await createAdminSession(openid)
-  return ok({
-    openid,
-    isAdmin: true,
-    source: verified.source || "password",
-    adminToken: session.token,
-    expiresAtMs: session.expiresAtMs
-  })
-}
-
-function buildAdminBatchId(value) {
-  const explicit = normalizeClientRequestId(value)
-  if (explicit) return explicit
-  return `market_admin_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`
-}
-
-function buildAdminExternalId(item = {}, index = 0) {
-  return normalizeClientRequestId(item.externalId || item.adminExternalId || item.importId || `row_${index + 1}`)
-}
-
-async function saveAdminCreatedItem(payload, openid, batchId, index) {
-  const listingType = normalizeListingType(payload.listingType)
-  const externalId = buildAdminExternalId(payload, index)
-  const clientRequestId = normalizeClientRequestId(payload.clientRequestId) ||
-    (payload.externalId || payload.adminExternalId || payload.importId
-      ? `admin_external_${externalId}`
-      : `${batchId}_${externalId}`)
-  const sellerName = normalizeText(payload.sellerName || payload.displayName || payload.contactName)
-  const sellerWechat = normalizeText(payload.sellerWechat || payload.wechatID || payload.wechatId || payload.wechat)
-  const sellerPhone = normalizeText(payload.sellerPhone || payload.phone)
-  const sourcePayload = {
-    ...payload,
-    listingType,
-    category: normalizeListingCategory(payload.category || payload.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
-    condition: payload.condition || (listingType === "sublet" ? "转租" : "99新"),
-    status: "online",
-    clientRequestId
-  }
-  const built = buildCreateItemForSave(sourcePayload, openid, {
-    extraData: {
-      managedByAdmin: true,
-      managedByOpenid: openid,
-      managedSource: "admin_bulk",
-      adminBatchId: batchId,
-      adminExternalId: externalId,
-      sellerName,
-      sellerWechat,
-      sellerPhone,
-      sellerAvatar: normalizeFileID(payload.sellerAvatar) || normalizeText(payload.sellerAvatar),
-      sellerNote: normalizeText(payload.sellerNote)
-    }
-  })
-  if (!built.ok) return built
-
-  const { data, files, idempotentGoodsId } = built
-  let itemId = ""
-  let deduped = false
-
-  if (idempotentGoodsId) {
-    const existing = await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).get().catch(() => null)
-    if (existing && existing.data && existing.data._openid === openid) {
-      itemId = idempotentGoodsId
-      deduped = true
-    } else {
-      await db.collection(GOODS_COLLECTION).doc(idempotentGoodsId).set({ data })
-      itemId = idempotentGoodsId
-    }
-  } else {
-    const res = await db.collection(GOODS_COLLECTION).add({ data })
-    itemId = res._id
-  }
-
-  await attachMarketFiles(files, itemId, openid)
-  return ok({
-    id: itemId,
-    itemId,
-    title: data.title,
-    listingType,
-    deduped,
-    externalId,
-    status: "online"
-  })
-}
-
-async function adminBulkCreate(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const session = await verifyAdminSession(event, openid)
-  if (!session.ok) return fail(session.error || "forbidden")
-
-  const items = Array.isArray(event.items)
-    ? event.items
-    : (event.payload && Array.isArray(event.payload.items) ? event.payload.items : [])
-  if (!items.length) return fail("missing_items")
-  if (items.length > 50) return fail("too_many_items", { max: 50 })
-
-  const batchId = buildAdminBatchId(event.batchId || event.payload?.batchId)
-  const results = []
-  const failures = []
-
-  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).set({
-    data: {
-      batchId,
-      type: "market_admin_bulk",
-      source: "marketTrade",
-      _openid: openid,
-      adminOpenid: openid,
-      total: items.length,
-      success: 0,
-      failed: 0,
-      status: "running",
-      createTime: db.serverDate(),
-      updateTime: db.serverDate()
-    }
-  }).catch(e => {
-    console.error("[marketApi] create import batch failed:", e)
-  })
-
-  for (let i = 0; i < items.length; i += 1) {
-    try {
-      const row = items[i] && typeof items[i] === "object" ? items[i] : {}
-      const result = await saveAdminCreatedItem(row, openid, batchId, i)
-      if (result.ok) results.push({ index: i, ...result })
-      else failures.push({ index: i, error: result.error || "create_failed" })
-    } catch (e) {
-      failures.push({
-        index: i,
-        error: "database_error",
-        detail: e && (e.message || e.errMsg) ? String(e.message || e.errMsg) : ""
-      })
-    }
-  }
-
-  await db.collection(IMPORT_BATCH_COLLECTION).doc(batchId).update({
-    data: {
-      success: results.length,
-      failed: failures.length,
-      status: failures.length ? (results.length ? "partial" : "failed") : "done",
-      results: results.map(item => ({
-        index: item.index,
-        id: item.id,
-        listingType: item.listingType,
-        title: item.title,
-        externalId: item.externalId,
-        deduped: !!item.deduped
-      })),
-      failures,
-      updateTime: db.serverDate()
-    }
-  }).catch(e => {
-    console.error("[marketApi] update import batch failed:", e)
-  })
-
-  return ok({
-    batchId,
-    total: items.length,
-    success: results.length,
-    failed: failures.length,
-    results,
-    failures
-  })
-}
-
-function sanitizeAdminTemplateData(input = {}) {
-  const listingType = normalizeListingType(input.listingType)
-
-  const data = {
-    listingType,
-    title: normalizeText(input.title),
-    price: toFiniteNumber(input.price) || 0,
-    category: normalizeListingCategory(input.category || input.roomType || (listingType === "sublet" ? "Studio" : "其他"), listingType),
-    condition: normalizeText(input.condition) || (listingType === "sublet" ? "转租" : "99新"),
-
-    sellerName: normalizeText(input.sellerName || input.displayName || input.contactName),
-    sellerWechat: normalizeText(input.sellerWechat || input.wechatID || input.wechatId || input.wechat),
-    sellerPhone: normalizeText(input.sellerPhone || input.phone),
-
-    regionState: normalizeText(input.regionState),
-    regionCounty: normalizeText(input.regionCounty),
-    regionArea: normalizeText(input.regionArea),
-    Apartment: normalizeText(input.Apartment || input.apartment),
-
-    detailAddress: normalizeText(input.detailAddress),
-    location: input.location && typeof input.location === "object"
-      ? buildLocationForSave(input.location)
-      : {},
-
-    pickupStartDate: normalizeText(input.pickupStartDate),
-    pickupEndDate: normalizeText(input.pickupEndDate),
-    deposit: normalizeText(input.deposit),
-    roomType: listingType === "sublet" ? normalizeSubletCategory(input.roomType || input.category) : "",
-    housingType: normalizeText(input.housingType),
-    furnished: normalizeBoolean(input.furnished),
-    utilitiesIncluded: normalizeBoolean(input.utilitiesIncluded),
-    genderPreference: normalizeText(input.genderPreference),
-    roommateCount: normalizeText(input.roommateCount),
-    externalId: normalizeClientRequestId(input.externalId)
-  }
-
-  data.region = [data.regionState, data.regionCounty, data.regionArea].filter(Boolean).join(" / ")
-
-  return data
-}
-
-async function adminListTemplates(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const session = await verifyAdminSession(event, openid)
-  if (!session.ok) return fail(session.error || "forbidden")
-  const limit = Math.min(50, Math.max(1, Number(event.limit) || 20))
-  const res = await db.collection(ADMIN_TEMPLATE_COLLECTION)
-    .where({ _openid: openid, status: "active" })
-    .limit(limit)
-    .get()
-  return ok({ templates: res.data || [], data: res.data || [] })
-}
-
-async function adminSaveTemplate(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const session = await verifyAdminSession(event, openid)
-  if (!session.ok) return fail(session.error || "forbidden")
-  const payload = event.template || event.payload || event.data || {}
-  const name = normalizeText(payload.name || payload.templateName || payload.title || "代发模板").slice(0, 60)
-  const templateData = sanitizeAdminTemplateData(payload.data || payload)
-  if (!templateData.sellerName || !templateData.sellerWechat) return fail("missing_template_contact")
-  if (!templateData.cityKey || !templateData.regionKey || !templateData.regionArea) return fail("missing_template_region")
-
-  const explicitId = normalizeClientRequestId(payload.id || payload.templateId)
-  const templateId = explicitId || crypto.createHash("sha1")
-    .update(`${openid}:${name}:${templateData.sellerWechat}:${templateData.cityKey}:${templateData.regionKey}`)
-    .digest("hex")
-  const docId = `tpl_${templateId}`
-  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(docId).set({
-    data: {
-      _openid: openid,
-      adminOpenid: openid,
-      name,
-      status: "active",
-      data: templateData,
-      createTime: db.serverDate(),
-      updateTime: db.serverDate()
-    }
-  })
-  return ok({ id: docId, templateId: docId, name, template: { _id: docId, name, data: templateData } })
-}
-
-async function adminDeleteTemplate(event, openid) {
-  if (!openid) return fail("not_logged_in")
-  const session = await verifyAdminSession(event, openid)
-  if (!session.ok) return fail(session.error || "forbidden")
-  const id = normalizeText(event.id || event.templateId)
-  if (!id) return fail("missing_id")
-  const doc = await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).get().catch(() => null)
-  const row = doc && doc.data
-  if (!row || row._openid !== openid) return fail("not_found")
-  await db.collection(ADMIN_TEMPLATE_COLLECTION).doc(id).update({
-    data: {
-      status: "deleted",
-      updateTime: db.serverDate()
-    }
-  })
-  return ok({ id })
-}
-
 async function updateItem(event, openid) {
   if (!openid) return fail("not_logged_in")
   const id = normalizeText(event.id)
@@ -1954,25 +1559,34 @@ async function tradeList(event, openid) {
   return ok({ ...result, items, data: items, type, openid })
 }
 
+let webAdminHandler
 exports.main = async (event = {}) => {
+  // HTTP-looking input never falls through to mini-program actions. The web
+  // handler independently authenticates it, even if an SDK caller forged it.
+  if (event && typeof event.httpMethod === "string" && event.headers && typeof event.headers === "object" && !Array.isArray(event.headers) && Object.prototype.hasOwnProperty.call(event, "body")) {
+    if (!webAdminHandler) {
+      webAdminHandler = require("./webAdmin").createWebAdminHandler({
+        db: cloud.database({ throwOnNotFound: false }), cloud,
+        buildCreateItemForSave, normalizePayloadForSave, attachMarketFiles, collectMarketFiles
+      })
+    }
+    return webAdminHandler(event)
+  }
   const { OPENID } = cloud.getWXContext()
   const action = normalizeText(event.action)
 
   try {
     if (action === "publicPreview") return publicPreview(event)
     if (typeof OPENID !== "string" || !OPENID.trim()) return fail("not_logged_in")
+    if (action === "communityConfig") {
+      const { createCommunityConfigHandler } = require("./communityConfig")
+      return createCommunityConfigHandler({ db: cloud.database({ throwOnNotFound: false }), cloud })()
+    }
     if (action === "list") return listItems(event)
     if (action === "detail") return detail(event, OPENID)
     if (action === "myList") return myList(event, OPENID)
     if (action === "sellerList") return sellerList(event)
     if (action === "tradeList") return tradeList(event, OPENID)
-    if (action === "adminStatus") return adminStatus(event, OPENID)
-    if (action === "adminSessionStatus") return adminStatus(event, OPENID)
-    if (action === "adminVerifyPassword") return adminVerifyPassword(event, OPENID)
-    if (action === "adminBulkCreate") return adminBulkCreate(event, OPENID)
-    if (action === "adminListTemplates") return adminListTemplates(event, OPENID)
-    if (action === "adminSaveTemplate") return adminSaveTemplate(event, OPENID)
-    if (action === "adminDeleteTemplate") return adminDeleteTemplate(event, OPENID)
     if (action === "listAds") return listAds(event)
     if (action === "trackAdClick") return trackAdClick(event, OPENID)
 

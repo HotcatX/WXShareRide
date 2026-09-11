@@ -204,7 +204,14 @@
           <text class="home-stat-subtitle">成功加入</text>
         </view>
         <view class="home-stat-side">
-          <view class="ride-chip ride-chip--accent">{{publicStats.coverageText}}</view>
+          <view
+            class="ride-chip ride-chip--accent home-community-entry"
+            bindtap="onJoinCommunityGroup"
+            hover-class="ride-pressed"
+            hover-stay-time="80"
+            aria-role="button"
+            aria-label="点击加入拼车群"
+          >{{communityGroupLoading ? '正在加载…' : '点击加入拼车群'}}</view>
           <view class="ride-chip">{{publicStats.lastSyncText}}</view>
         </view>
       </view>
@@ -291,5 +298,11 @@
     </view>
   </view>
   <app-tabbar active="home" market-badge="{{customTabMarketBadge}}" profile-badge="{{customTabProfileBadge}}"></app-tabbar>
+  <community-announcement
+    visible="{{communityNoticeVisible}}"
+    notice="{{communityNotice}}"
+    bind:close="onCommunityNoticeClose"
+    bind:preview="onAnnouncementPreview"
+  />
 </view>
 </block>

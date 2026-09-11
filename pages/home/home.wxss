@@ -365,6 +365,16 @@ page{
   gap: 10rpx;
 }
 
+.home-community-entry{
+  min-height: 52rpx;
+  padding: 8rpx 10rpx;
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 22rpx;
+  line-height: 32rpx;
+}
+
 .home-refresh-tip{
   margin-top: 26rpx;
   display: block;

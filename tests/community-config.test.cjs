@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 const { createCommunityConfigHandler } = require('../cloudfunctions/marketApi/communityConfig')
+const { communityConfig: savedCommunityConfig } = require('../cloudfunctions/marketApi/webAdminContent')
 
 const NOW = Date.parse('2026-09-10T16:00:00Z')
 const EXPIRY = NOW + 7 * 86400000
@@ -104,6 +105,61 @@ test('expiry accepts ISO timestamps, Date, cloud date and numeric milliseconds',
     const result=await fixture({group:group({expiresAt})}).handler()
     assert.equal(result.group.enabled,true)
     assert.equal(result.group.expiresAt,EXPIRY)
+  }
+})
+
+test('web admin saves with unset announcement dates stay available for manual and automatic viewing', async () => {
+  for (const showGroupImage of [false, true]) {
+    for (const enabled of [false, true]) {
+      const saved = savedCommunityConfig({
+        group: group({ enabled: showGroupImage }),
+        announcement: announcement({ enabled, showGroupImage, startAt: '', endAt: '' })
+      }, true)
+      assert.equal(saved.announcement.startAt, 0)
+      assert.equal(saved.announcement.endAt, 0)
+      const f = fixture(saved)
+      const result = await f.handler()
+      const context = JSON.stringify({ showGroupImage, enabled })
+      assert.equal(result.ok, true, context)
+      assert.equal(result.announcement.available, true, context)
+      assert.equal(result.announcement.enabled, enabled, context)
+      assert.equal(result.announcement.body, saved.announcement.body, context)
+      assert.equal(result.announcement.startAt, 0, context)
+      assert.equal(result.announcement.endAt, showGroupImage ? EXPIRY : 0, context)
+      assert.equal(result.announcement.imageUrl, showGroupImage ? imageURL(GROUP_FILE) : '', context)
+      assert.equal(f.calls.images.length, showGroupImage ? 1 : 0, context)
+    }
+  }
+})
+
+test('zero optional date bounds preserve configured starts, notice expiry and group expiry after web admin saves', async () => {
+  for (const { bounds, available } of [
+    { bounds: { startAt: NOW, endAt: '' }, available: true },
+    { bounds: { startAt: NOW + 1, endAt: '' }, available: false },
+    { bounds: { startAt: '', endAt: NOW + 1 }, available: true },
+    { bounds: { startAt: '', endAt: NOW }, available: false }
+  ]) {
+    const saved = savedCommunityConfig({ announcement: announcement({ enabled: true, showGroupImage: false, ...bounds }) }, true)
+    const result = await fixture(saved).handler()
+    assert.equal(result.announcement.available, available, JSON.stringify(bounds))
+    assert.equal(result.announcement.enabled, available, JSON.stringify(bounds))
+  }
+  const saved = savedCommunityConfig({ group: group({ expiresAt: NOW }), announcement: announcement({ enabled: true, startAt: '', endAt: '' }) }, true)
+  const result = await fixture(saved).handler()
+  assert.equal(result.group.enabled, false)
+  assert.equal(result.announcement.available, false)
+  assert.equal(result.announcement.enabled, false)
+})
+
+test('zero compatibility does not treat malformed optional dates as unset', async () => {
+  for (const field of ['startAt', 'endAt']) {
+    for (const value of [-1, 0.5, NaN, Infinity, '0', false, {}, { $date: 'invalid' }, '2026-02-30T12:00:00Z']) {
+      const f = fixture({ announcement: announcement({ enabled: true, showGroupImage: false, startAt: 0, endAt: 0, [field]: value }) })
+      const result = await f.handler()
+      assert.equal(result.announcement.available, false, `${field}=${String(value)}`)
+      assert.equal(result.announcement.enabled, false)
+      assert.equal(f.calls.images.length, 0)
+    }
   }
 })
 

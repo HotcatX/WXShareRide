@@ -42,7 +42,8 @@ function validTimestamp(value) {
 }
 
 function optionalTime(value) {
-  if (value === undefined || value === null || value === '') return { valid: true, value: 0 }
+  // The web admin stores an unset boundary as numeric zero.
+  if (value === undefined || value === null || value === '' || value === 0) return { valid: true, value: 0 }
   const parsed = timestamp(value)
   return { valid: parsed > 0, value: parsed }
 }

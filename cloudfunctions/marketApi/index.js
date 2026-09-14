@@ -1560,10 +1560,17 @@ async function tradeList(event, openid) {
 }
 
 let webAdminHandler
+let publicWebHandler
 exports.main = async (event = {}) => {
   // HTTP-looking input never falls through to mini-program actions. The web
   // handler independently authenticates it, even if an SDK caller forged it.
   if (event && typeof event.httpMethod === "string" && event.headers && typeof event.headers === "object" && !Array.isArray(event.headers) && Object.prototype.hasOwnProperty.call(event, "body")) {
+    // A separate exact HTTP path and server secret guard the read-only website.
+    // No browser-provided action can select a private mini-program operation.
+    if (event.path === "/public-api" || event.rawPath === "/public-api" || (event.requestContext && event.requestContext.path === "/public-api")) {
+      if (!publicWebHandler) publicWebHandler = require("./publicWeb").createPublicWebHandler({ publicPreview })
+      return publicWebHandler(event)
+    }
     if (!webAdminHandler) {
       webAdminHandler = require("./webAdmin").createWebAdminHandler({
         db: cloud.database({ throwOnNotFound: false }), cloud,

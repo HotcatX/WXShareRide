@@ -39,3 +39,6 @@ data/
 project.private.config.json
 .cloudbase/container/debug.json
 miniprogram_npm/
+
+# Server-only deployment credential (never a mini-program or website asset)
+/cloudfunctions/marketApi/publicWeb.secret.json

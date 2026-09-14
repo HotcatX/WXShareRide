@@ -381,3 +381,83 @@ test('pure visibility/date and URL policies handle boundaries without trusting c
   assert.match(description, /2026-09-20/)
   assert.doesNotMatch(description, /secretID|201-555|buyer@example/)
 })
+
+test('English website trip DTO exposes fixed public areas and useful seats/date fields without exact pickup data', async () => {
+  const doc = trip({ price: '10 USD/人', referencePrice: undefined, availSeatNum: 0,
+    departures: [{ cityKey: 'ny_nj', address: '123 Secret Street, Fort Lee', date: '2026-09-10', time: '12:00' }],
+    destinations: [{ cityKey: 'ny_nj', address: '哥大 456 Private Avenue' }],
+    driverOpenid: 'private-driver', driverPhone: '123-555-7890'
+  })
+  const f = fixture({ Carpool: [doc] })
+  const result = await f.preview({ previewAction: 'tripList', type: 'carpool', locale: 'en' })
+  const item = result.items[0]
+  assert.equal(item.fromLabel, 'Fort Lee')
+  assert.equal(item.toLabel, 'Columbia University')
+  assert.equal(item.dateKey, '2026-09-10')
+  assert.equal(item.departureAtMs, Date.parse('2026-09-10T16:00:00Z'))
+  assert.equal(item.priceText, '$10/person')
+  assert.equal(item.full, true)
+  assert.equal(item.seats, 0)
+  assert.equal(item.availabilityText, 'Full')
+  assert.doesNotMatch(JSON.stringify(result), /123|456|Secret|Private|driverOpenid|private-driver|Phone|latitude|longitude|哥大/)
+  assert.deepEqual(f.calls.writes, [])
+  assert.deepEqual(f.calls.functions, [])
+})
+
+test('English market DTO keeps original listing content while translating fixed labels and redaction markers', async () => {
+  const doc = goods({ title: '实木书桌', desc: 'A solid desk. Email buyer@example.com', category: '家具', condition: '9成新' })
+  const f = fixture({ market_goods: [doc] })
+  const result = await f.preview({ previewAction: 'marketDetail', id: doc._id, locale: 'en' })
+  assertPublicItem(result.item)
+  assert.equal(result.item.title, '实木书桌')
+  assert.equal(result.item.regionText, 'New York / New Jersey')
+  assert.equal(result.item.availabilityText, 'Available')
+  assert.deepEqual(result.item.tags, ['Furniture', 'Like new'])
+  assert.match(result.item.description, /\[redacted\]/)
+  assert.doesNotMatch(result.item.description, /buyer@example.com|已隐藏/)
+  assert.equal((await f.preview({ previewAction: 'marketList', locale: 'fr' })).error, 'invalid_preview_request')
+  const unusual = fixture({ market_goods: [goods({ cityKey: 'constructor', category: '__proto__', condition: 'constructor' })] })
+  const safe = await unusual.preview({ previewAction: 'marketDetail', id: 'goods-1', locale: 'en' })
+  assert.equal(safe.item.regionText, 'New York / New Jersey')
+  assert.deepEqual(safe.item.tags, ['__proto__', 'constructor'])
+})
+
+test('only record-referenced current-environment web-admin image paths become public image URLs', async () => {
+  const valid = `cloud://${ENV}.bucket-123/web-admin/operator/${'a'.repeat(32)}.jpg`
+  const invalid = [valid.replace(ENV, 'foreign-env'), valid.replace('a'.repeat(32), 'private'), valid.replace('/operator/', '/../'), valid.replace('.jpg', '.svg')]
+  const f = fixture({ market_goods: [goods({ imageFileIDs: [valid, ...invalid] })] })
+  const result = await f.preview({ previewAction: 'marketDetail', id: 'goods-1', locale: 'en' })
+  assert.equal(result.ok, true)
+  assert.deepEqual(f.calls.images[0].fileList, [valid])
+  assert.deepEqual(result.item.images, [HTTPS_IMAGE])
+  for (const fileID of invalid) assert.equal(previewModule.safeFileID(fileID, ENV), '')
+})
+
+test('current and legacy saved fares remain numeric-only and use nonblank fallback fields', async () => {
+  const cases = [
+    [{ referencePrice: '10$/人' }, '$10/person'],
+    [{ referencePrice: '', price: '8' }, '$8/person'],
+    [{ referencePrice: '  ', price: '', displayPrice: '$12/person' }, '$12/person'],
+    [{ referencePrice: 0, price: 99 }, '$0/person'],
+    [{ referencePrice: '11-13$' }, '$11–$13/person'],
+    [{ referencePrice: '$11–$13/person' }, '$11–$13/person'],
+    [{ referencePrice: '13-11$' }, 'Price to be confirmed'],
+    [{ referencePrice: 'Call 2015550199 for a fare' }, 'Price to be confirmed'],
+    [{ referencePrice: '2015550199' }, 'Price to be confirmed']
+  ]
+  for (const [overrides, expected] of cases) {
+    const f = fixture({ Carpool: [trip(overrides)] })
+    const result = await f.preview({ previewAction: 'tripList', type: 'carpool', locale: 'en' })
+    assert.equal(result.items[0].priceText, expected, JSON.stringify(overrides))
+  }
+})
+
+test('full passenger request groups still need seats and airport aliases use the same public labels as mini-program filters', async () => {
+  for (const [address, label] of [['John F. Kennedy International Airport', 'JFK'], ['拉瓜地亚机场', 'LaGuardia'], ['NewarkLibertyInternationalAirport', 'Newark']]) {
+    const f = fixture({ CarpoolRequest: [trip({ status: 'full', passengerCount: 4, requestPassengerCount: undefined, destinations: [{ address }] })] })
+    const result = await f.preview({ previewAction: 'tripList', type: 'request', locale: 'en' })
+    assert.equal(result.items[0].toLabel, label)
+    assert.equal(result.items[0].full, false)
+    assert.equal(result.items[0].availabilityText, '4 seats wanted')
+  }
+})

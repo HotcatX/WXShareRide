@@ -10,6 +10,33 @@ const CITY_LABELS = {
   ann_arbor: '安娜堡', columbus: '哥伦布', dallas: '达拉斯', houston: '休斯顿',
   austin: '奥斯汀', atlanta: '亚特兰大', miami: '迈阿密', orlando: '奥兰多'
 }
+const EN_CITY_LABELS = {
+  ny_nj: 'New York / New Jersey', ny: 'New York', nj: 'New Jersey', boston: 'Boston',
+  philadelphia: 'Philadelphia', dc: 'Washington, DC', la: 'Los Angeles', bay_area: 'San Francisco Bay Area',
+  san_diego: 'San Diego', seattle: 'Seattle', chicago: 'Chicago', champaign: 'Champaign',
+  ann_arbor: 'Ann Arbor', columbus: 'Columbus', dallas: 'Dallas', houston: 'Houston',
+  austin: 'Austin', atlanta: 'Atlanta', miami: 'Miami', orlando: 'Orlando'
+}
+const EN_AREAS = [
+  [/哥大|哥伦比亚大学|\bcolumbia\b/i, 'Columbia University'],
+  [/纽瓦克|newark|(?:^|[^a-z])ewr(?:$|[^a-z])/i, 'Newark'],
+  [/(?:^|[^a-z])jfk(?:$|[^a-z])|john\s*f\.?\s*kennedy|肯尼迪/i, 'JFK'], [/拉瓜[迪地]亚|la\s*guardia|(?:^|[^a-z])lga(?:$|[^a-z])/i, 'LaGuardia'],
+  [/法拉盛|\bflushing\b/i, 'Flushing'], [/\bfort\s?lee\b/i, 'Fort Lee'],
+  [/曼哈顿|\bmanhattan\b/i, 'Manhattan'],
+  [/皇后区|\bqueens\b|\blong island city\b|\blic\b/i, 'Queens'],
+  [/布鲁克林|\bbrooklyn\b/i, 'Brooklyn'],
+  [/\bjersey city\b|\bnewport\b|\bjournal square\b|\bjsq\b/i, 'Jersey City'],
+  [/\bhoboken\b/i, 'Hoboken'], [/新泽西|\bnew jersey\b|\bnj\b/i, 'New Jersey'],
+  [/纽约|\bnew york\b|\bnyc\b|\bny\b/i, 'New York'],
+  [/波士顿|\bboston\b|\bcambridge\b/i, 'Boston'],
+  [/费城|\bphiladelphia\b/i, 'Philadelphia'], [/洛杉矶|\blos angeles\b/i, 'Los Angeles'],
+  [/西雅图|\bseattle\b/i, 'Seattle'], [/芝加哥|\bchicago\b/i, 'Chicago']
+]
+const EN_TAGS = { '家具': 'Furniture', '数码': 'Electronics', '电子产品': 'Electronics', '电器': 'Appliances', '家电': 'Appliances', '日用品': 'Home essentials', '服饰': 'Clothing', '书籍': 'Books', '其他': 'Other', '全新': 'New', '9成新': 'Like new', '九成新': 'Like new', '8成新': 'Good condition', '八成新': 'Good condition' }
+function localizedText(value, doc, max, locale) {
+  const result = cleanPublicText(value, doc, max)
+  return locale === 'en' ? result.replace(/\[(?:已隐藏|链接已隐藏|联系方式已隐藏|地址已隐藏|位置已隐藏)\]/g, '[redacted]') : result
+}
 const STATE_CODES = new Set(('NY_NJ NY NJ CA MA PA CT RI NH VT ME MD VA DC DE NC SC GA FL IL MI OH IN WI MN IA MO KS NE TX WA OR AZ CO UT NV NM TN KY AL LA OK AR MS ID MT WY ND SD AK HI WV').split(' '))
 const CITY_STATES = { ny_nj: 'NY_NJ', ny: 'NY_NJ', nj: 'NY_NJ', boston: 'MA', philadelphia: 'PA', dc: 'DC', la: 'CA', bay_area: 'CA', san_diego: 'CA', seattle: 'WA', chicago: 'IL', champaign: 'IL', ann_arbor: 'MI', columbus: 'OH', dallas: 'TX', houston: 'TX', austin: 'TX', atlanta: 'GA', miami: 'FL', orlando: 'FL' }
 // Only these fixed area labels can be derived from a route's point text.
@@ -127,56 +154,82 @@ function isVisibleMarket(doc, now) {
 function isVisibleTrip(doc, now) {
   return ['open', 'full'].includes(doc.status) && !hasEndedFlag(doc) && tripExpiry(doc) > now
 }
-function region(doc) {
+function region(doc, locale) {
   const city = text(doc.cityKey, 40).toLowerCase()
-  if (CITY_LABELS[city]) return CITY_LABELS[city]
+  if (Object.prototype.hasOwnProperty.call(CITY_LABELS, city)) return locale === 'en' ? EN_CITY_LABELS[city] : CITY_LABELS[city]
   const state = text(doc.regionState, 10).toUpperCase()
-  return STATE_CODES.has(state) ? (state === 'NY_NJ' ? '纽约/新泽西' : state) : '区域待确认'
+  return STATE_CODES.has(state) ? (state === 'NY_NJ' ? (locale === 'en' ? 'New York / New Jersey' : '纽约/新泽西') : state) : (locale === 'en' ? 'Area to be confirmed' : '区域待确认')
 }
-function pointArea(points) {
+function pointArea(points, locale) {
   const list = Array.isArray(points) ? points.slice(0, 30) : []
   for (const point of list) {
     if (!point || typeof point !== 'object') continue
     const city = text(point.cityKey, 40).toLowerCase()
-    if (CITY_LABELS[city]) return CITY_LABELS[city]
+    if (locale === 'en') {
+      // Match public area names only, never return the address text itself.
+      const source = [point.address, point.city, point.regionArea, point.regionCounty, point.regionState].map(v => text(v, 300)).join(' ')
+      const known = EN_AREAS.find(([pattern]) => pattern.test(source))
+      if (known) return known[1]
+      if (Object.prototype.hasOwnProperty.call(EN_CITY_LABELS, city)) return EN_CITY_LABELS[city]
+      continue
+    }
+    if (Object.prototype.hasOwnProperty.call(CITY_LABELS, city)) return CITY_LABELS[city]
     const source = [point.city, point.regionState, point.regionCounty, point.regionArea, point.address].map(v => text(v, 300)).join(' ')
     const known = AREAS.find(([pattern]) => pattern.test(source))
     if (known) return known[1]
   }
   return ''
 }
-function priceText(value, kind) {
+function priceText(value, kind, locale) {
   const s = text(value, 50)
-  if (s === '免费') return '免费'
-  const match = /^\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:美元|元|\/人|每人)?$/.exec(s)
-  if (!match || +match[1] > 1000000) return kind === 'sublet' ? '租金待确认' : '价格待确认'
-  return `$${Number(match[1])}${kind === 'sublet' ? '/月' : ''}`
+  if (s === '免费' || /^free$/i.test(s)) return locale === 'en' ? 'Free' : '免费'
+  const match = /^\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:美元|元|USD|\$)?\s*(?:[-–~至]\s*\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:美元|元|USD|\$)?)?\s*(?:\/人|每人|\/月|\/person|\/month)?$/i.exec(s)
+  if (!match || +match[1] > 1000000 || (match[2] && (+match[2] > 1000000 || +match[2] < +match[1]))) return locale === 'en' ? (kind === 'sublet' ? 'Rent to be confirmed' : 'Price to be confirmed') : (kind === 'sublet' ? '租金待确认' : '价格待确认')
+  return `$${Number(match[1])}${match[2] ? `–$${Number(match[2])}` : ''}${kind === 'sublet' ? (locale === 'en' ? '/month' : '/月') : locale === 'en' && ['carpool', 'request'].includes(kind) ? '/person' : ''}`
 }
-function makeMarketItem(doc, detail) {
+function tripPrice(doc) {
+  // Older imports can contain an empty referencePrice alongside a valid price.
+  // Keep zero fares, but do not let a blank preferred field hide the fallback.
+  return [doc.referencePrice, doc.price, doc.displayPrice].find(value =>
+    (typeof value === 'string' && value.trim()) || (typeof value === 'number' && Number.isFinite(value)))
+}
+function makeMarketItem(doc, detail, locale) {
   const kind = doc.listingType
   const start = dateOnly(kind === 'sublet' ? (doc.availableStartDate || doc.pickupStartDate) : doc.pickupStartDate)
   const end = dateOnly(kind === 'sublet' ? (doc.leaseEndDate || doc.pickupEndDate) : doc.pickupEndDate)
   return {
-    id: doc._id, kind, title: cleanPublicText(doc.title, doc, 90) || (kind === 'sublet' ? '转租房源' : '二手商品'),
-    description: cleanPublicText(doc.desc, doc, detail ? 1200 : 180), priceText: priceText(doc.price, kind),
-    regionText: region(doc), timeText: [start, end].filter(Boolean).join(' 至 '), availabilityText: '发布中',
-    images: [], tags: [cleanPublicText(doc.category, doc, 30), cleanPublicText(doc.condition, doc, 30)].filter(Boolean)
+    id: doc._id, kind, title: localizedText(doc.title, doc, 90, locale) || (locale === 'en' ? (kind === 'sublet' ? 'Sublet listing' : 'Secondhand item') : (kind === 'sublet' ? '转租房源' : '二手商品')),
+    description: localizedText(doc.desc, doc, detail ? 1200 : 180, locale), priceText: priceText(doc.price, kind, locale),
+    regionText: region(doc, locale), timeText: [start, end].filter(Boolean).join(locale === 'en' ? ' to ' : ' 至 '), availabilityText: locale === 'en' ? 'Available' : '发布中',
+    images: [], tags: [localizedText(doc.category, doc, 30, locale), localizedText(doc.condition, doc, 30, locale)].filter(Boolean).map(tag => locale === 'en' && Object.prototype.hasOwnProperty.call(EN_TAGS, tag) ? EN_TAGS[tag] : tag)
   }
 }
-function makeTripItem(doc, kind, now) {
-  const from = pointArea(doc.departures)
-  const to = pointArea(doc.destinations)
-  const route = from && to ? `${from} → ${to}` : region(doc)
+function makeTripItem(doc, kind, now, locale) {
+  const from = pointArea(doc.departures, locale)
+  const to = pointArea(doc.destinations, locale)
+  const route = from && to ? `${from} → ${to}` : region(doc, locale)
   const times = (Array.isArray(doc.departures) ? doc.departures.slice(0, 30) : [])
     .map(point => tripTime(point && point.date, point && point.time)).filter(ms => ms > now).sort((a, b) => a - b)
   const p = zonedParts(times[0] || tripExpiry(doc))
   const pad = n => String(n).padStart(2, '0')
   const seats = number(kind === 'carpool' ? doc.availSeatNum : (doc.requestPassengerCount ?? doc.passengerCount))
   const count = Number.isFinite(seats) && seats >= 0 && seats <= 99 ? Math.floor(seats) : null
+  const dateKey = `${p.year}-${pad(p.month)}-${pad(p.day)}`
+  // A full passenger request group still needs a vehicle; it is not a full car.
+  const full = kind === 'carpool' && (doc.status === 'full' || count === 0)
+  if (locale === 'en') return {
+    id: doc._id, kind, title: `${kind === 'carpool' ? 'Ride offered' : 'Ride wanted'} · ${route}`,
+    description: kind === 'carpool' ? 'A community member is offering seats. Confirm availability and pickup arrangements in the WeChat mini-program.' : 'A community member is looking for a ride. Arrange the details in the WeChat mini-program.',
+    priceText: priceText(tripPrice(doc), kind, locale), regionText: route,
+    timeText: `${dateKey} ${pad(p.hour)}:${pad(p.minute)}`, availabilityText: full ? 'Full' : count === null ? 'Confirm availability' : kind === 'carpool' ? `${count} seat${count === 1 ? '' : 's'} left` : `${count} seat${count === 1 ? '' : 's'} wanted`,
+    images: [], tags: [kind === 'carpool' ? 'Ride offered' : 'Ride wanted'],
+    fromLabel: from || 'Pickup area to be confirmed', toLabel: to || 'Destination area to be confirmed', dateKey,
+    departureAtMs: times[0] || tripExpiry(doc), seats: count, full
+  }
   return {
     id: doc._id, kind, title: `${kind === 'carpool' ? '司机线路' : '乘客求车'} · ${route}`,
     description: kind === 'carpool' ? '提供拼车座位，具体上下车安排请在小程序内确认。' : '乘客正在寻找同行车辆，具体安排请在小程序内确认。',
-    priceText: priceText(doc.referencePrice ?? doc.price ?? doc.displayPrice, kind), regionText: route,
+    priceText: priceText(tripPrice(doc), kind), regionText: route,
     timeText: `${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`,
     availabilityText: doc.status === 'full' ? '已满员' : count === null ? '可联系确认' : kind === 'carpool' ? `余 ${count} 座` : `需 ${count} 座`,
     images: [], tags: [kind === 'carpool' ? '车找人' : '人找车']
@@ -185,6 +238,8 @@ function makeTripItem(doc, kind, now) {
 function parseRequest(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null
   const action = event.previewAction
+  const locale = event.locale === undefined ? 'zh' : event.locale
+  if (!['zh', 'en'].includes(locale)) return null
   if (!['marketList', 'marketDetail', 'tripList', 'tripDetail'].includes(action)) return null
   const market = action.startsWith('market')
   const detail = action.endsWith('Detail')
@@ -202,7 +257,7 @@ function parseRequest(event) {
   const category = text(event.category, 41)
   if (event.cityKey !== undefined && (typeof event.cityKey !== 'string' || cityKey.length > 40 || !/^[a-z_]*$/i.test(cityKey))) return null
   if (event.category !== undefined && (typeof event.category !== 'string' || category.length > 40)) return null
-  return { action, market, detail, type, id, sellerId, limit: Math.min(MAX_LIMIT, Math.floor(rawLimit)), offset, cityKey, category }
+  return { action, market, detail, type, id, sellerId, limit: Math.min(MAX_LIMIT, Math.floor(rawLimit)), offset, cityKey, category, locale }
 }
 function cityMatches(doc, requested, market) {
   const key = requested.toLowerCase()
@@ -251,7 +306,8 @@ function safeFileID(value, envId) {
   const match = /^cloud:\/\/([^/]+)\/(.+)$/.exec(value)
   if (!match || !match[1].startsWith(`${envId}.`) || !/^[a-z\d-]+$/i.test(match[1].slice(envId.length + 1))) return ''
   const path = match[2]
-  if (!/^(market|market_thumb)\//.test(path) || /[\s%?#\\\u0000-\u001f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) return ''
+  const publicPath = /^(market|market_thumb)\//.test(path) || /^web-admin\/[a-z\d_-]{1,128}\/[a-f\d]{32}\.(?:jpe?g|png|webp)$/i.test(path)
+  if (!publicPath || /[\s%?#\\\u0000-\u001f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) return ''
   return /\.(?:jpe?g|png|gif|webp|bmp|avif)$/i.test(path) ? value : ''
 }
 function safeImageURL(value) {
@@ -321,7 +377,7 @@ function createPublicPreviewHandler({ db, cloud, now = () => Date.now(), getEnvI
         const rows = await read('market_goods', where, MARKET_FIELDS, request.detail, 'createTime')
         for (const doc of rows) {
           if (!isVisibleMarket(doc, timestamp) || (!request.detail && !cityMatches(doc, request.cityKey, true))) continue
-          entries.push({ item: makeMarketItem(doc, request.detail), doc, sort: number(doc.createTime) || (doc.createTime instanceof Date ? doc.createTime.getTime() : 0) })
+          entries.push({ item: makeMarketItem(doc, request.detail, request.locale), doc, sort: number(doc.createTime) || (doc.createTime instanceof Date ? doc.createTime.getTime() : 0) })
         }
       } else {
         const types = request.type === 'all' ? ['carpool', 'request'] : [request.type]
@@ -334,7 +390,7 @@ function createPublicPreviewHandler({ db, cloud, now = () => Date.now(), getEnvI
           const rows = await read(kind === 'carpool' ? 'Carpool' : 'CarpoolRequest', where, TRIP_FIELDS, request.detail, 'createdAt')
           for (const doc of rows) {
             if (!isVisibleTrip(doc, timestamp) || (!request.detail && !cityMatches(doc, request.cityKey, false))) continue
-            entries.push({ item: makeTripItem(doc, kind, timestamp), doc, sort: tripExpiry(doc) })
+            entries.push({ item: makeTripItem(doc, kind, timestamp, request.locale), doc, sort: tripExpiry(doc) })
           }
         }
       }

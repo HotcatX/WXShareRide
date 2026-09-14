@@ -95,6 +95,74 @@ test('first route read requests only today and tomorrow, with later routes left 
   assert.equal(state.calls[0].data.type, 'all')
 })
 
+test('reaching the footer during full-car taps or expand/collapse does not fetch later dates', async () => {
+  const { page, state, ids } = harness({ carpool: [
+    route('available'), route('full', '2030-01-01', { availSeatNum: 0 }),
+    route('later', '2030-01-03')
+  ] })
+  await page.loadBothLists()
+  await page.onListScrollToLower()
+  assert.equal(state.calls.length, 1, 'initial short-list layout is not a request to load more')
+
+  page.onListTouchStart({ touches: [{ clientY: 500 }] })
+  page.onListTouchEnd()
+  page.onToggleFullTrips()
+  await page.onListScrollToLower()
+  assert.deepEqual(ids(), ['available', 'full'])
+  assert.equal(page.data.nextPageDate, '2030-01-03')
+  assert.equal(state.calls.length, 1)
+
+  // A previous scroll intent must also be cleared before the list shrinks.
+  page.onListTouchStart({ touches: [{ clientY: 500 }] })
+  page.onListTouchMove({ touches: [{ clientY: 450 }] })
+  page.onToggleFullTrips()
+  await page.onListScrollToLower()
+  assert.deepEqual(ids(), ['available'])
+  assert.equal(state.calls.length, 1)
+})
+
+test('a deliberate upward swipe can load one more date page, including momentum after release', async () => {
+  const { page, state, ids } = harness({ carpool: [
+    route('today'), route('later', '2030-01-03'), route('last', '2030-01-05')
+  ] })
+  await page.loadBothLists()
+  page.onListTouchStart({ touches: [{ clientY: 600 }] })
+  page.onListTouchMove({ touches: [{ clientY: 540 }] })
+  page.onListTouchEnd()
+  await page.onListScrollToLower()
+  assert.deepEqual(ids(), ['today', 'later'])
+  assert.equal(state.calls.length, 2)
+  await page.onListScrollToLower()
+  assert.equal(state.calls.length, 2, 'new content settling does not load a third date page')
+
+  page.onListTouchStart({ touches: [{ clientY: 600 }] })
+  page.onListTouchMove({ touches: [{ clientY: 540 }] })
+  await page.onListScrollToLower()
+  page.onListTouchMove({ touches: [{ clientY: 480 }] })
+  await page.onListScrollToLower()
+  assert.deepEqual(ids(), ['today', 'later', 'last'])
+  assert.equal(state.calls.length, 3, 'the same continuing gesture is consumed only once')
+})
+
+test('tap jitter, downward refresh gestures and cancelled swipes do not load more; the explicit footer still works', async () => {
+  const { page, state, ids } = harness({ carpool: [route('today'), route('later', '2030-01-03')] })
+  await page.loadBothLists()
+  for (const endY of [599, 595, 605, 650]) {
+    page.onListTouchStart({ touches: [{ clientY: 600 }] })
+    page.onListTouchMove({ touches: [{ clientY: endY }] })
+    page.onListTouchEnd()
+    await page.onListScrollToLower()
+  }
+  page.onListTouchStart({ touches: [{ clientY: 600 }] })
+  page.onListTouchMove({ touches: [{ clientY: 540 }] })
+  page.onListTouchCancel()
+  await page.onListScrollToLower()
+  assert.equal(state.calls.length, 1)
+  await page.onLoadMoreDays()
+  assert.deepEqual(ids(), ['today', 'later'])
+  assert.equal(state.calls.length, 2)
+})
+
 test('first-page and load-more duplicates each share a single read', async () => {
   const { page, state, holdNext } = harness()
   const first = holdNext()

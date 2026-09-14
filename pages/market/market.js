@@ -1289,7 +1289,6 @@ Page({
     }
     const id = (item && item.id) || e.currentTarget.dataset.id
     if (!id) return
-    this._preloadMarketDetail(id)
     wx.navigateTo({ url: `/pages/market/marketDetail/marketDetail?id=${id}` })
   },
 
@@ -2196,7 +2195,6 @@ Page({
     if (next.length >= filtered.length - 2) {
       this._fetchNextPage(false, { minDisplayCount: nextLen })
     }
-    this._preloadMarketDetails(next)
   },
 
   // ====== 展示侧过滤/排序（云端已筛选，这里只做排序 + 前端切片）======

@@ -52,8 +52,12 @@
     refresher-enabled="{{true}}"
     refresher-triggered="{{refresherTriggered}}"
     bindrefresherrefresh="onPullDownRefresh"
-    bindscrolltolower="onLoadMoreDays"
-    lower-threshold="120"
+    bindtouchstart="onListTouchStart"
+    bindtouchmove="onListTouchMove"
+    bindtouchend="onListTouchEnd"
+    bindtouchcancel="onListTouchCancel"
+    bindscrolltolower="onListScrollToLower"
+    lower-threshold="32"
   >
     <view wx:if="{{!isRideServiceAvailable}}" class="ride-card ride-card-pad ride-unavailable-card list-unavailable-card">
       <text class="ride-unavailable-title">{{activeCityLabel}} 暂无出行服务</text>
@@ -130,14 +134,16 @@
 
     <view
       wx:if="{{isRideServiceAvailable && fullTripCount > 0}}"
+      id="full-trips-toggle"
       class="ride-card ride-list-card list-trip-card list-full-toggle"
-      bindtap="onToggleFullTrips"
+      catchtap="onToggleFullTrips"
       hover-class="ride-card-pressed"
       hover-stay-time="80"
       role="button"
       aria-label="{{(showFullTrips ? '收起' : '显示') + fullTripCount + '辆已满车辆'}}"
     >
       <text>{{showFullTrips ? '收起' : '显示'}}{{fullTripCount}}辆已满车辆</text>
+      <text class="list-full-toggle-arrow" aria-hidden="true">{{showFullTrips ? '⌃' : '⌄'}}</text>
     </view>
 
     <view
@@ -148,7 +154,7 @@
       role="button"
       aria-label="{{loadingMoreDays ? '正在加载更多路线' : (loadMoreError ? '加载失败，点击重试' : '加载后两天的路线')}}"
       aria-disabled="{{loadingMoreDays || loading}}"
-    >{{loadingMoreDays ? '正在加载更多路线…' : (loadMoreError ? '加载失败，点击重试' : '继续向下滑，查看后两天')}}</view>
+    >{{loadingMoreDays ? '正在加载更多路线…' : (loadMoreError ? '加载失败，点击重试' : '点击或继续上滑，查看后两天')}}</view>
     <view wx:elif="{{isRideServiceAvailable && hasLoadedOnce && !loading && (dayGroups.length || fullTripCount)}}" class="list-load-more list-load-more--complete">已显示全部路线</view>
 
     <view class="toast-bar" wx:if="{{showToast}}">

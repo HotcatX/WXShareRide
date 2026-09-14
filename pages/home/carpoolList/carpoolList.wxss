@@ -295,18 +295,33 @@ page{
 }
 
 .list-trip-card{
+  min-height: 114rpx;
   margin-bottom: 12rpx;
   padding: 16rpx 18rpx;
 }
 
 .list-full-toggle{
-  min-height: 84rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 16rpx;
   color: #111418;
   font-size: 26rpx;
   font-weight: 800;
+}
+
+.list-full-toggle-arrow{
+  color: #0f746f;
+  font-size: 32rpx;
+  line-height: 36rpx;
+}
+
+.list-full-toggle + .list-load-more{
+  margin-top: 28rpx;
+}
+
+.list-ride .ride-bottom-space{
+  height: calc(180rpx + env(safe-area-inset-bottom));
 }
 
 .list-load-more{

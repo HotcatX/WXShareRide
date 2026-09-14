@@ -1124,7 +1124,42 @@ Page({
     }
   },
 
+  onListTouchStart(event) {
+    const touch = event && event.touches && event.touches[0]
+    this._listTouchStartY = touch && Number.isFinite(touch.clientY) ? touch.clientY : null
+    this._listLoadMoreArmed = false
+    this._listGestureConsumed = false
+  },
+
+  onListTouchMove(event) {
+    const touch = event && event.touches && event.touches[0]
+    if (this._listGestureConsumed || this._listTouchStartY == null || !touch || !Number.isFinite(touch.clientY)) return
+    const movedUp = this._listTouchStartY - touch.clientY
+    if (movedUp >= 12) this._listLoadMoreArmed = true
+    else if (movedUp <= -12) this._listLoadMoreArmed = false
+  },
+
+  onListTouchEnd() {
+    // Keep the intent until scroll momentum reaches the bottom.
+    this._listTouchStartY = null
+  },
+
+  onListTouchCancel() {
+    this._listTouchStartY = null
+    this._listLoadMoreArmed = false
+  },
+
+  onListScrollToLower() {
+    // Taps and expand/collapse layout changes must not advance the date page.
+    if (!this._listLoadMoreArmed) return
+    this._listLoadMoreArmed = false
+    this._listGestureConsumed = true
+    return this.onLoadMoreDays()
+  },
+
   async onLoadMoreDays() {
+    this._listLoadMoreArmed = false
+    this._listGestureConsumed = true
     if (this._listDisposed || !this.data.isRideServiceAvailable || this.data.refresherTriggered ||
       this.data.loading || this.data.placePickerVisible || this.data.refineFiltersVisible || this.data.cityPickerVisible || this.data.calendarVisible) return
     if (this._listLoadingPromise) return this._listLoadingPromise
@@ -1448,6 +1483,9 @@ Page({
   },
 
   onToggleFullTrips() {
+    this._listTouchStartY = null
+    this._listLoadMoreArmed = false
+    this._listGestureConsumed = true
     this.setData({ showFullTrips: !this.data.showFullTrips }, () => this.applyAllFiltersAndGroup())
   },
 

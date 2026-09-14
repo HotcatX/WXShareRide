@@ -18,7 +18,7 @@ const item = id => ({ _id: id, title: id, listingType: 'goods', status: 'online'
 const result = items => ({ result: { ok: true, items, hasMore: false, nextSkip: items.length } })
 
 function fixture() {
-  const calls = [], errors = [], fileCalls = [], timers = []
+  const calls = [], errors = [], fileCalls = [], timers = [], navigations = []
   const storage = new Map()
   let now = 1800000000000, definition, stopped = 0
   class Clock extends Date { static now() { return now } }
@@ -26,6 +26,7 @@ function fixture() {
     getStorageSync: key => storage.get(key),
     setStorageSync: (key, value) => storage.set(key, value),
     removeStorageSync: key => storage.delete(key),
+    navigateTo: options => navigations.push(options.url),
     stopPullDownRefresh: () => { stopped++ },
     cloud: {
       callFunction(request) { const wait = deferred(); calls.push({ request: plain(request), ...wait }); return wait.promise },
@@ -50,7 +51,7 @@ function fixture() {
   page._marketViewerKey = 'guest'
   page._thumbUrlCache = {}
   page._sellerProfileCache = {}
-  return { page, calls, fileCalls, errors, storage, timers, advance: ms => { now += ms }, stopped: () => stopped }
+  return { page, calls, fileCalls, errors, storage, timers, navigations, advance: ms => { now += ms }, stopped: () => stopped }
 }
 
 test('forced concurrent refreshes share a request; an empty success is reused on ordinary return for 30 seconds', async () => {
@@ -149,6 +150,42 @@ test('rendering listings does not schedule unseen detail or sibling-category req
   assert.equal(calls.length, 1)
   assert.equal(f.timers.length, 0)
   assert.equal(page.data.allGoods.length, 3)
+})
+
+test('tapping goods and sublet cards opens their detail page without a list-side detail request', () => {
+  for (const listingType of ['goods', 'sublet']) {
+    const { page, calls, navigations, timers } = fixture()
+    page.data.activeListingType = listingType
+    page.data.displayFeed = [{ id: `${listingType}-one`, listingType }]
+    page.onTapFeedItem({ currentTarget: { dataset: { index: 0, id: `${listingType}-one` } } })
+    assert.deepEqual(navigations, [`/pages/market/marketDetail/marketDetail?id=${listingType}-one`])
+    assert.equal(calls.length, 0, 'detail loading belongs to the destination page')
+    assert.equal(timers.length, 0)
+  }
+})
+
+test('ad cards retain their own action and an empty product tap does not navigate', () => {
+  const { page, navigations, calls } = fixture()
+  const ads = []
+  page._openMarketAd = ad => ads.push(ad.id)
+  page.data.displayFeed = [{ id: 'ad-one', isAd: true }]
+  page.onTapFeedItem({ currentTarget: { dataset: { index: 0, id: 'ad-one' } } })
+  page.onTapFeedItem({ currentTarget: { dataset: { index: 99 } } })
+  assert.deepEqual(ads, ['ad-one'])
+  assert.equal(navigations.length, 0)
+  assert.equal(calls.length, 0)
+})
+
+test('revealing the next local batch completes without the removed detail preloader', () => {
+  const { page, calls, timers } = fixture()
+  const rows = Array.from({ length: 24 }, (_, index) => ({ ...item(`row-${index}`), id: `row-${index}` }))
+  Object.assign(page.data, { filteredGoods: rows, displayGoods: rows.slice(0, 8), cloudHasMore: false, pageSize: 8 })
+  page.onViewMore()
+  assert.equal(page.data.displayGoods.length, 16)
+  assert.equal(page.data.canViewMore, true)
+  assert.equal(page.data.displayFeed.filter(row => !row.isAd).length, 16)
+  assert.equal(calls.length, 0)
+  assert.equal(timers.length, 0)
 })
 
 test('empty list snapshots restore correctly instead of causing a false cache miss', async () => {

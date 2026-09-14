@@ -44,6 +44,7 @@ function harness() {
     getApp: () => ({ withReferralShare: value => value }),
     console: { error() {}, warn() {} },
     require(name) {
+      if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {

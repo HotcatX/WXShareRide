@@ -11,10 +11,10 @@ function harness(value = '') {
   let definition
   class Clock extends Date {
     constructor(...args) {
-      super(...(args.length ? args : [2030, 4, 5, 14, 37, 0]))
+      super(...(args.length ? args : [Date.parse('2030-05-05T18:37:00Z')]))
     }
   }
-  vm.runInNewContext(source, { Component: input => { definition = input }, Date: Clock })
+  vm.runInNewContext(source, { Component: input => { definition = input }, Date: Clock, require: () => require('../utils/rideTime') })
   const events = []
   const component = {
     ...definition.methods,
@@ -109,7 +109,7 @@ test('cancelling while the wheel moves cannot confirm a stale draft and reopenin
   assert.deepEqual(events.at(-1), { name: 'confirm', detail: { value: '06:07' } })
 })
 
-test('missing and invalid external times use the current local hour and minute', () => {
+test('missing and invalid external times use the current New York hour and minute', () => {
   for (const value of ['', '24:00', '12:60', '7:09', '07:9', '09:07:00', ' 09:07 ', 'invalid', null]) {
     const { component, visible } = harness(value)
     visible(true)

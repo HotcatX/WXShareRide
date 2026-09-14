@@ -1,4 +1,5 @@
 const { showDataError } = require("../../../utils/error")
+const rideTime = require("../../../utils/rideTime")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { loadRidePlaceOptions, shortRidePlaceLabel, ridePlaceAliasPattern } = require("../../../utils/ridePlaceOptions")
 const { loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
@@ -197,14 +198,8 @@ Page({
   },
 
   parseDateTimeSafe(dateStr, timeStr) {
-    if (!dateStr || !timeStr) return null
-    const d = dateStr.split("-").map(n => parseInt(n, 10))
-    const t = timeStr.split(":").map(n => parseInt(n, 10))
-    if (d.length !== 3 || t.length !== 2) return null
-    const [Y, M, D] = d
-    const [hh, mm] = t
-    if (!Y || !M || !D || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
-    return new Date(Y, M - 1, D, hh, mm, 0, 0)
+    const timestamp = rideTime.parseRideDateTime(dateStr, timeStr)
+    return Number.isFinite(timestamp) ? new Date(timestamp) : null
   },
 
   // -------------------------
@@ -278,15 +273,11 @@ Page({
   // 通用：日期时间
   // -------------------------
   getFilterDateData(now = new Date()) {
-    const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-    return { todayDateStr: format(now), tomorrowDateStr: format(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) }
+    return rideTime.getRideDateData(now)
   },
 
   isValidFilterDate(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false
-    const [year, month, day] = value.split("-").map(Number)
-    const date = new Date(year, month - 1, day)
-    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    return rideTime.isValidRideDate(value)
   },
 
   getListViewerKey() {
@@ -625,16 +616,12 @@ Page({
   },
 
   getNearestDateByWeekdayIndex_Mon0(idx) {
-    if (idx === null || idx === undefined) return ""
+    if (!Number.isInteger(idx) || idx < 0 || idx > 6) return ""
     const targetJsDay = (idx + 1) % 7
-    const now = new Date()
-    const todayJsDay = now.getDay()
+    const today = this.getFilterDateData().todayDateStr
+    const todayJsDay = rideTime.getRideWeekday(today)
     const add = (targetJsDay - todayJsDay + 7) % 7
-    const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + add)
-    const Y = dt.getFullYear()
-    const M = String(dt.getMonth() + 1).padStart(2, "0")
-    const D = String(dt.getDate()).padStart(2, "0")
-    return `${Y}-${M}-${D}`
+    return rideTime.shiftRideDate(today, add)
   },
 
   // -------------------------

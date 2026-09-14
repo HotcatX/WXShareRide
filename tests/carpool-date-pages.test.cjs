@@ -57,6 +57,7 @@ function harness({ carpool = [], request = [], store } = {}) {
     Page: value => { definition = value }, wx, Date: Clock, setTimeout, clearTimeout,
     console: { error() {}, warn() {} },
     require(name) {
+      if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {

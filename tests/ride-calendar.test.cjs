@@ -63,6 +63,7 @@ function harness({ realStatusRefresh = false } = {}) {
     getApp: () => ({ globalData: {} }),
     console: { error() {}, warn() {}, log() {} },
     require(name) {
+      if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {

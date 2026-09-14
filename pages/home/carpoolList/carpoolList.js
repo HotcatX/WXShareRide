@@ -1,4 +1,5 @@
 const { showDataError } = require("../../../utils/error")
+const rideTime = require("../../../utils/rideTime")
 const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { getCachedRideAddressConfig, loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
@@ -194,8 +195,7 @@ Page({
   },
 
   shiftDate(date, days) {
-    const [year, month, day] = date.split("-").map(Number)
-    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+    return rideTime.shiftRideDate(date, days)
   },
 
   getInitialDatePage() {
@@ -460,9 +460,7 @@ Page({
   },
 
   getFilterDateData(now = new Date()) {
-    const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-    return { todayDateStr: format(now), tomorrowDateStr: format(tomorrow) }
+    return rideTime.getRideDateData(now)
   },
 
   normalizeFilterPlace(value) {
@@ -580,10 +578,7 @@ Page({
   },
 
   isValidFilterDate(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false
-    const [year, month, day] = String(value).split("-").map(Number)
-    const date = new Date(year, month - 1, day)
-    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    return rideTime.isValidRideDate(value)
   },
 
   readShareFilters(options) {
@@ -748,8 +743,7 @@ Page({
     const dep = this.getFirstDeparture(trip)
     if (!dep || !dep.date || !dep.time) return Number.MAX_SAFE_INTEGER
 
-    const dt = new Date(`${dep.date}T${dep.time}`)
-    const ts = dt.getTime()
+    const ts = rideTime.parseRideDateTime(dep.date, dep.time)
     return Number.isNaN(ts) ? Number.MAX_SAFE_INTEGER : ts
   },
 
@@ -775,11 +769,9 @@ Page({
   formatMonthDayWeek(dateStr) {
     if (!dateStr) return ""
     const weekMap = ["日", "一", "二", "三", "四", "五", "六"]
-    const dObj = new Date(`${dateStr}T00:00:00`)
-    if (isNaN(dObj.getTime())) return dateStr
-    const m = dObj.getMonth() + 1
-    const d = dObj.getDate()
-    const w = weekMap[dObj.getDay()]
+    if (!rideTime.isValidRideDate(dateStr)) return dateStr
+    const [, m, d] = dateStr.split("-").map(Number)
+    const w = weekMap[rideTime.getRideWeekday(dateStr)]
     return `${m}月${d}日 周${w}`
   },
 

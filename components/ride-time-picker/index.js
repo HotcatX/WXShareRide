@@ -1,11 +1,12 @@
+const { getRideDateTime } = require('../../utils/rideTime')
 const pad = value => String(value).padStart(2, '0')
 
 function initialTime(value) {
   if (typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) {
     return value.split(':').map(Number)
   }
-  const now = new Date()
-  return [now.getHours(), now.getMinutes()]
+  const now = getRideDateTime(new Date())
+  return [now.hour, now.minute]
 }
 
 Component({

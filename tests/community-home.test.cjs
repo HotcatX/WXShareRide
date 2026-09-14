@@ -58,7 +58,7 @@ function harness({ enabled = false, maxShows = 2 } = {}) {
     Page: value => { definition = value }, console, Date,
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, setInterval, clearInterval,
     wx: { showToast: value => state.toasts.push(value.title), previewImage: () => { throw new Error('Home must open the shared notice, not another preview') } },
-    require(name) { return name.includes('/community') ? community : name.includes('/cityTree') ? city : {} }
+    require(name) { if (name.includes('rideTime')) return require('../utils/rideTime'); return name.includes('/community') ? community : name.includes('/cityTree') ? city : {} }
   })
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }

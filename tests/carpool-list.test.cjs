@@ -50,6 +50,7 @@ function harness({ store, now = NOW, holdTimers = false } = {}) {
     setTimeout: holdTimers ? (callback, delay) => state.timers.push({ callback, delay }) : setTimeout,
     clearTimeout,
     require(name) {
+      if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {

@@ -6,6 +6,7 @@ const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const RIDE_LIST_REFRESH_KEY = 'rideListShouldRefreshAt'
 const MAX_TIMEOUT_MS = 2147483647
 const { formatRidePriceTag: formatRidePriceTagShared, markRideListStale } = require("../../utils/tripManage")
+const rideTime = require("../../utils/rideTime")
 const community = require("../../utils/community")
 const {
   DEFAULT_CITY_TREE,
@@ -66,6 +67,8 @@ function readHomeResource(page, resource, key, force, read) {
 // 按发车时间排序（date + time）
 // =========================
 function getDepartTimestamp(trip) {
+  const savedMs = Number(trip && trip.departureAtMs)
+  if (Number.isFinite(savedMs) && savedMs > 0) return savedMs
   const date =
     trip.date ||
     trip.departDate ||
@@ -81,15 +84,8 @@ function getDepartTimestamp(trip) {
   if (!date) return Infinity
   const t = time || '00:00'
 
-  // ✅ 手动解析，避免 iOS new Date("YYYY-MM-DD HH:mm") 兼容性问题
-  const [y, m, d] = String(date).split('-').map(n => parseInt(n, 10))
-  const [hh, mm] = String(t).split(':').map(n => parseInt(n, 10))
-
-  if (!y || !m || !d) return Infinity
-  const H = Number.isFinite(hh) ? hh : 0
-  const M = Number.isFinite(mm) ? mm : 0
-
-  return new Date(y, m - 1, d, H, M, 0).getTime()
+  const timestamp = rideTime.parseRideDateTime(String(date), String(t))
+  return Number.isFinite(timestamp) ? timestamp : Infinity
 }
 
 function sortByDepartTimeAsc(list) {
@@ -113,16 +109,8 @@ function sortByDepartTimeAsc(list) {
 }
 
 function getWeekdayCN(dateStr) {
-  if (!dateStr) return ''
-  const parts = String(dateStr).split('-')
-  if (parts.length !== 3) return ''
-  const y = Number(parts[0])
-  const m = Number(parts[1])
-  const d = Number(parts[2])
-  if (!y || !m || !d) return ''
-  const dt = new Date(y, m - 1, d)
   const map = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  return map[dt.getDay()] || ''
+  return map[rideTime.getRideWeekday(dateStr)] || ''
 }
 
 function formatDateCNNoYear(dateStr) {

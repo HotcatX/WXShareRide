@@ -58,6 +58,14 @@ function harness({ carpool = [], request = [], store } = {}) {
     console: { error() {}, warn() {} },
     require(name) {
       if (name.includes('cityTree')) return city
+      if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
+      if (name.includes('rideAddressConfig')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/ridePlaceOptions')
+        })
+        return module.exports
+      }
       if (name.includes('tripManage')) return pricing
       if (name.includes('rideCalendarPicker')) {
         const module = { exports: {} }
@@ -95,7 +103,7 @@ test('first route read requests only today and tomorrow, with later routes left 
   assert.equal(state.calls[0].data.type, 'all')
 })
 
-test('reaching the footer during full-car taps or expand/collapse does not fetch later dates', async () => {
+test('changing the hide-full-cars preference cannot turn a pending scroll or layout change into a later-date read', async () => {
   const { page, state, ids } = harness({ carpool: [
     route('available'), route('full', '2030-01-01', { availSeatNum: 0 }),
     route('later', '2030-01-03')
@@ -106,7 +114,9 @@ test('reaching the footer during full-car taps or expand/collapse does not fetch
 
   page.onListTouchStart({ touches: [{ clientY: 500 }] })
   page.onListTouchEnd()
-  page.onToggleFullTrips()
+  page.onToggleHideFullTrips()
+  assert.equal(page.data.hideFullTrips, false)
+  assert.equal(state.store.carpoolListHideFullTripsV1, false)
   await page.onListScrollToLower()
   assert.deepEqual(ids(), ['available', 'full'])
   assert.equal(page.data.nextPageDate, '2030-01-03')
@@ -115,7 +125,8 @@ test('reaching the footer during full-car taps or expand/collapse does not fetch
   // A previous scroll intent must also be cleared before the list shrinks.
   page.onListTouchStart({ touches: [{ clientY: 500 }] })
   page.onListTouchMove({ touches: [{ clientY: 450 }] })
-  page.onToggleFullTrips()
+  page.onToggleHideFullTrips()
+  assert.equal(page.data.hideFullTrips, true)
   await page.onListScrollToLower()
   assert.deepEqual(ids(), ['available'])
   assert.equal(state.calls.length, 1)
@@ -184,7 +195,7 @@ test('first-page and load-more duplicates each share a single read', async () =>
   assert.equal(state.calls.length, 2, 'exhausted lists do not read another page')
 })
 
-test('later two-day pages append without duplicate route IDs and retain full-car folding and date counts', async () => {
+test('later two-day pages append unique routes, preserve hidden and shown full-car preferences, and keep complete date totals', async () => {
   const { page, state, ids, holdNext, ranges } = harness()
   let held = holdNext()
   let load = page.loadBothLists()
@@ -199,13 +210,29 @@ test('later two-day pages append without duplicate route IDs and retain full-car
   await load
   assert.deepEqual(ranges(), [['2030-01-01', '2030-01-03'], ['2030-01-03', '2030-01-05']])
   assert.deepEqual(ids(), ['today', 'later', 'request'])
+  assert.equal(page.data.hideFullTrips, true)
   assert.equal(page.data.fullTripCount, 1)
   const group = page.data.dayGroups.find(item => item.date === '2030-01-03')
   assert.equal(group.carpoolCount, 2)
   assert.equal(group.requestCount, 1)
   assert.equal(page.data.nextPageDate, '2030-01-05')
-  page.onToggleFullTrips()
+  page.onToggleHideFullTrips()
   assert.deepEqual(ids(), ['today', 'later', 'request', 'full'])
+  assert.equal(page.data.hideFullTrips, false)
+  assert.equal(state.calls.length, 2, 'changing display preference only regroups existing routes')
+  held = holdNext()
+  load = page.onLoadMoreDays()
+  held.resolve(pageResponse(state.calls[2], [
+    route('last-available', '2030-01-05'), route('last-full', '2030-01-05', { status: 'full' })
+  ]))
+  await load
+  assert.equal(page.data.hideFullTrips, false)
+  assert.equal(state.store.carpoolListHideFullTripsV1, false)
+  assert.deepEqual(ids(), ['today', 'later', 'request', 'last-available', 'full', 'last-full'])
+  assert.equal(page.data.fullTripCount, 2)
+  const lastGroups = page.data.dayGroups.filter(item => item.date === '2030-01-05')
+  assert.deepEqual(plain(lastGroups.map(item => [item.carpoolCount, item.requestCount])), [[2, 0], [2, 0]])
+  assert.deepEqual(ranges().at(-1), ['2030-01-05', '2030-01-07'])
 })
 
 test('an empty two-day range still allows loading a later range when the server reports more', async () => {

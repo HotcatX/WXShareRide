@@ -12,6 +12,50 @@ page{
 
 .detail-hero-head{
   margin-bottom: 18rpx;
+  gap: 12rpx;
+}
+
+.detail-driver-stats{
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  color: #6b7581;
+  font-size: 24rpx;
+  font-weight: 600;
+  line-height: 36rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+.detail-driver-stats text{
+  white-space: nowrap;
+}
+
+.detail-driver-completed{
+  color: #0f9b95;
+  font-weight: 800;
+}
+
+.detail-driver-divider{
+  color: #a1a9b2;
+}
+
+.detail-hero-head .ride-head-actions{
+  flex-shrink: 0;
+}
+
+@media (max-width: 360px){
+  .detail-driver-stats{
+    gap: 6rpx;
+  }
+
+  .detail-hero-head .ride-head-actions{
+    gap: 8rpx;
+  }
+
+  .detail-hero-head .ride-head-actions .ride-chip{
+    padding: 0 12rpx;
+  }
 }
 
 .detail-section-head{

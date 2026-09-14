@@ -197,6 +197,48 @@ test('calendar Other matches places outside configured presets with alias-aware 
   })), [{ date: '2026-09-11', carpoolCount: 1, requestCount: 0 }])
 })
 
+test('calendar fixed airport and Flushing choices match historical aliases while a specific custom address stays specific', async () => {
+  const groups = [
+    ['纽瓦克', ['EWR', '纽瓦克', 'Newark', 'Newark Liberty International Airport', 'EWR Terminal C', '纽瓦克机场 T1']],
+    ['JFK', ['JFK', '肯尼迪', 'John F Kennedy International Airport', '肯尼迪机场', 'JFK Terminal 4']],
+    ['拉瓜迪亚', ['LGA', '拉瓜迪亚', 'LaGuardia', 'La Guardia Airport', 'LGA Terminal B']],
+    ['法拉盛', ['Flushing', '法拉盛', 'Flushing Library', '法拉盛地铁站']]
+  ]
+  const rows = groups.flatMap(([name, aliases]) => aliases.map((address, i) => trip(`${name}-${i}`, '2026-09-11', {
+    departures: [{ date: '2026-09-11', time: '15:00', address }], destinations: [{ address }]
+  })))
+  rows.push(trip('not-airport-code', '2026-09-11', {
+    departures: [{ date: '2026-09-11', time: '15:00', address: 'fewr AJFK BLGA station' }],
+    destinations: [{ address: 'fewr AJFK BLGA station' }]
+  }))
+  const h = harness({ carpool: rows })
+  for (const [name, aliases] of groups) {
+    for (const selected of [name, aliases[0]]) {
+      const before = h.reads.length
+      assert.deepEqual(days(await h.main({ ...calendar, fromPlace: selected, toPlace: selected })), [
+        { date: '2026-09-11', carpoolCount: aliases.length, requestCount: 0 }
+      ], `${selected} must match only its alias family`)
+      assert.equal(h.reads.slice(before).filter(read => read.name !== 'UserBlocks').length, 2,
+        'alias matching must reuse the two existing route scans')
+    }
+  }
+  assert.deepEqual(days(await h.main({ ...calendar, fromPlace: 'EWR Terminal C' })), [
+    { date: '2026-09-11', carpoolCount: 1, requestCount: 0 }
+  ])
+})
+
+test('calendar Other excludes the new configured fixed groups using their historical aliases', async () => {
+  const presetNames = ['Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛']
+  const h = harness({ carpool: ['EWR', 'LGA', '肯尼迪机场', 'Flushing', 'EWR Terminal C', 'Newport station'].map((address, i) =>
+    trip(`other-${i}`, '2026-09-11', {
+      departures: [{ date: '2026-09-11', time: '15:00', address }], destinations: [{ address: '哥大' }]
+    }))
+  })
+  assert.deepEqual(days(await h.main({ ...calendar, fromPlace: '其他', fromPresets: presetNames })), [
+    { date: '2026-09-11', carpoolCount: 1, requestCount: 0 }
+  ])
+})
+
 test('calendar excludes both blocking directions for owners and participants without exposing their records', async () => {
   const h = harness({ carpool: [
     trip('blocked-owner', '2026-09-11', { _openid: 'blocked-owner' }),
@@ -261,11 +303,11 @@ function suggestedPlaces(result) {
 test('place suggestions scan both route types beyond 100 rows with minimal projections and no next-date probes', async () => {
   const h = harness({
     carpool: Array.from({ length: 215 }, (_, i) => suggestedTrip(`car-${String(i).padStart(3, '0')}`, 'Newport', 'Hudson Yards')).reverse(),
-    request: Array.from({ length: 120 }, (_, i) => suggestedTrip(`req-${String(i).padStart(3, '0')}`, 'Flushing', 'Penn Station')).reverse()
+    request: Array.from({ length: 120 }, (_, i) => suggestedTrip(`req-${String(i).padStart(3, '0')}`, 'Flushing Library', 'Penn Station')).reverse()
   })
   const result = await h.main({ ...places, type: 'carpool', limit: 20, quick: false })
   assert.deepEqual(suggestedPlaces(result), {
-    fromPlaces: ['Newport', 'Flushing'], toPlaces: ['Hudson Yards', 'Penn Station']
+    fromPlaces: ['Newport', 'Flushing Library'], toPlaces: ['Hudson Yards', 'Penn Station']
   })
   const routeReads = h.reads.filter(read => read.name !== 'UserBlocks')
   assert.equal(routeReads.length, 5)
@@ -334,6 +376,20 @@ test('place suggestions exclude exact fixed aliases but retain custom Fort Lee/C
     fromPlaces: ['Alpha', 'Newport Station', 'Fort Lee 某公寓'],
     toPlaces: ['Alpha', 'Penn Station', 'Columbia 北门']
   })
+})
+
+test('place suggestions exclude only exact airport/Flushing aliases and retain terminal and street details', async () => {
+  const excluded = [
+    '纽瓦克', 'EWR', 'ewr airport', 'Newark', 'Newark Liberty International Airport', '纽瓦克国际机场',
+    'JFK', 'jfk airport', '肯尼迪', '肯尼迪机场', 'John F Kennedy International Airport',
+    'LGA', '拉瓜迪亚', '拉瓜迪亚机场', 'LaGuardia', 'La Guardia Airport',
+    '法拉盛', 'Flushing'
+  ]
+  const custom = ['EWR Terminal C', 'JFK Terminal 4', 'LGA Terminal B', 'Newark Broad Street', 'Flushing Library', '纽瓦克机场 T1', '法拉盛地铁站']
+  const h = harness({ carpool: [...excluded, ...custom].map((address, i) => suggestedTrip(`place-${i}`, address, address)) })
+  const result = suggestedPlaces(await h.main(places))
+  assert.deepEqual([...result.fromPlaces].sort(), [...custom].sort())
+  assert.deepEqual([...result.toPlaces].sort(), [...custom].sort())
 })
 
 test('place suggestions rank by distinct route frequency then stable text and cap each side at 100', async () => {

@@ -2,7 +2,7 @@ const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
-const { blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
+const { blockRideUser, formatRidePricePerPerson, formatRideStats, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
@@ -91,6 +91,8 @@ Page({
 
     driverInfo: null,
     driverOpenid: '',
+    driverCompletedText: '无',
+    driverRatingText: '无',
     defaultAvatarUrl: '/images/profile.png',
 
     departAddress: '',
@@ -336,6 +338,8 @@ Page({
       isOwner: false,
       driverInfo: null,
       driverOpenid: '',
+      driverCompletedText: '无',
+      driverRatingText: '无',
       departAddress: '',
       destAddress: '',
       formattedDepartTime: '',
@@ -446,6 +450,8 @@ Page({
       hasJoined = getCarpoolPassengerOpenids(trip).includes(myOpenid)
     }
     const driverOpenid = getCarpoolDriverOpenid(trip)
+    const keepDriverStats = options.fromPreview && this.data.trip &&
+      this.data.trip._id === trip._id && this.data.driverOpenid === driverOpenid
 
     let departAddress = ''
     let destAddress = ''
@@ -479,6 +485,8 @@ Page({
       hasJoined,
       isOwner,
       driverInfo: options.fromPreview ? this.data.driverInfo : null,
+      driverCompletedText: keepDriverStats ? this.data.driverCompletedText : '无',
+      driverRatingText: keepDriverStats ? this.data.driverRatingText : '无',
       driverOpenid,
       departAddress,
       destAddress,
@@ -523,6 +531,7 @@ Page({
     } else if (driverOpenid && canShowDriverInfo) {
       this.loadDriverInfo(driverOpenid, trip._id || id)
     }
+    this.applyDriverStats(result.driverStats || (result.driverInfo && result.driverInfo.rideStats))
     return true
   },
 
@@ -564,6 +573,23 @@ Page({
     this.setData({
       driverInfo,
       carBrandModel: parts.join(' ')
+    })
+    this.applyDriverStats(driverInfo.rideStats)
+  },
+
+  applyDriverStats(rideStats) {
+    const stats = rideStats && typeof rideStats === 'object' ? rideStats : {}
+    const completed = stats.completedDriverTrips
+    const completedNumber = Number(completed)
+    const hasCount = (typeof completed === 'number' || (typeof completed === 'string' && completed.trim())) &&
+      Number.isSafeInteger(completedNumber) && completedNumber >= 0
+    const formatted = formatRideStats(stats, 'driver')
+    const rating = Number(formatted.ratingAvg)
+    this.setData({
+      // Existing counters record completed driver trips, excluding uncompleted listings.
+      driverCompletedText: hasCount ? `${completedNumber} 次` : '无',
+      driverRatingText: Number.isSafeInteger(formatted.ratingCount) && formatted.ratingCount > 0 && rating > 0 && rating <= 5
+        ? formatted.ratingAvg : '无'
     })
   },
 

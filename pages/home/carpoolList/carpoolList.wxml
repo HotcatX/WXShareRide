@@ -77,7 +77,7 @@
     </view>
 
     <view wx:elif="{{!dayGroups || dayGroups.length === 0}}" class="ride-state">
-      <text>{{fullTripCount ? '暂无有空座的车辆，可展开查看已满车辆' : (hasMoreDays ? '这两天暂无符合条件的路线，可继续查看后续日期' : (hasActiveFilters ? '没有符合条件的路线，试试其他地点或日期' : '暂无可查看的行程'))}}</text>
+      <text>{{fullTripCount && hideFullTrips ? '暂无有空座的车辆，可在筛选中取消“不显示已满车辆”' : (hasMoreDays ? '这两天暂无符合条件的路线，可继续查看后续日期' : (hasActiveFilters ? '没有符合条件的路线，试试其他地点或日期' : '暂无可查看的行程'))}}</text>
       <view wx:if="{{hasActiveFilters && !fullTripCount}}" class="list-empty-reset" bindtap="onResetFilter" hover-class="ride-pressed">清除筛选</view>
     </view>
 
@@ -133,20 +133,6 @@
     </block>
 
     <view
-      wx:if="{{isRideServiceAvailable && fullTripCount > 0}}"
-      id="full-trips-toggle"
-      class="ride-card ride-list-card list-trip-card list-full-toggle"
-      catchtap="onToggleFullTrips"
-      hover-class="ride-card-pressed"
-      hover-stay-time="80"
-      role="button"
-      aria-label="{{(showFullTrips ? '收起' : '显示') + fullTripCount + '辆已满车辆'}}"
-    >
-      <text>{{showFullTrips ? '收起' : '显示'}}{{fullTripCount}}辆已满车辆</text>
-      <text class="list-full-toggle-arrow" aria-hidden="true">{{showFullTrips ? '⌃' : '⌄'}}</text>
-    </view>
-
-    <view
       wx:if="{{isRideServiceAvailable && hasLoadedOnce && (hasMoreDays || loadingMoreDays || loadMoreError)}}"
       class="list-load-more {{loadingMoreDays || loading ? 'is-loading' : ''}} {{loadMoreError ? 'is-error' : ''}}"
       bindtap="onLoadMoreDays"
@@ -162,7 +148,6 @@
       <text class="toast-text">{{toastText}}</text>
     </view>
 
-    <text wx:if="{{isRideServiceAvailable}}" class="ride-refresh-hint">{{refreshHintText}}</text>
     <view class="ride-bottom-space"></view>
   </scroll-view>
 
@@ -179,7 +164,21 @@
         <view class="list-date-option {{timeFilterIndex < 0 && !selectedDate ? 'is-active' : ''}}" data-value="all" bindtap="onQuickDateChange" hover-class="ride-pressed">不限日期</view>
         <view class="list-date-option {{timeFilterIndex === 0 && !selectedDate ? 'is-active' : ''}}" data-value="today" bindtap="onQuickDateChange" hover-class="ride-pressed">今天</view>
         <view class="list-date-option {{timeFilterIndex === 1 && !selectedDate ? 'is-active' : ''}}" data-value="tomorrow" bindtap="onQuickDateChange" hover-class="ride-pressed">明天</view>
-        <view class="list-date-option list-date-picker {{selectedDate || timeFilterIndex === 2 ? 'is-active' : ''}}" bindtap="onOpenCalendar" hover-class="ride-pressed" role="button" aria-label="打开日期日历"><text>{{dateFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
+        <view class="list-date-preference-row">
+          <view class="list-date-option list-date-picker {{selectedDate || timeFilterIndex === 2 ? 'is-active' : ''}}" bindtap="onOpenCalendar" hover-class="ride-pressed" role="button" aria-label="打开日期日历"><text class="list-date-picker-label">{{dateFilterLabel}}</text><text class="list-filter-caret">⌄</text></view>
+          <view
+            id="hide-full-trips-toggle"
+            class="list-full-visibility-toggle {{hideFullTrips ? 'is-checked' : ''}}"
+            bindtap="onToggleHideFullTrips"
+            hover-class="ride-pressed"
+            role="checkbox"
+            aria-checked="{{hideFullTrips}}"
+            aria-label="不显示已满车辆"
+          >
+            <view class="list-full-visibility-check" aria-hidden="true"><text wx:if="{{hideFullTrips}}">✓</text></view>
+            <text>不显示已满车辆</text>
+          </view>
+        </view>
       </view>
 
       <text class="list-refine-section-title">路线类型</text>

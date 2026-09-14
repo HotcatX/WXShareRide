@@ -1,6 +1,8 @@
 const { showDataError } = require("../../../utils/error")
 const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
+const { getCachedRideAddressConfig, loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
+const { makeRidePlaceMatcher, shortRidePlaceLabel, placeIdentity } = require("../../../utils/ridePlaceOptions")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -24,8 +26,7 @@ const {
 } = require("../../../utils/cityTree")
 
 const LIST_REFRESH_INTERVAL = 30 * 1000
-const OPTION_CACHE_KEY = "carpoolListFilterOptionsV1"
-const OPTION_CACHE_TTL = 24 * 60 * 60 * 1000
+const HIDE_FULL_TRIPS_KEY = "carpoolListHideFullTripsV1"
 const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
 const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
@@ -37,33 +38,6 @@ const RIDE_CITY_PICKER_HINT = "找不到你的城市？可以联系开发者请�
 const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
 
 
-const DEFAULT_FROM_PLACES = [
-  "Manhattan",
-  "哥大/Columbia",
-  "NYU",
-  "Fordham",
-  "JFK",
-  "LGA",
-  "EWR",
-  "Fort Lee",
-  "Jersey City",
-  "Hoboken"
-]
-
-const DEFAULT_TO_PLACES = [
-  "Manhattan",
-  "哥大/Columbia",
-  "NYU",
-  "Fordham",
-  "JFK",
-  "LGA",
-  "EWR",
-  "Fort Lee",
-  "Jersey City",
-  "Hoboken",
-  "Brooklyn",
-  "Queens"
-]
 Page({
   ...rideCalendarPicker.methods,
 
@@ -72,7 +46,6 @@ Page({
     hasLoadedOnce: false,
     loadingText: "正在加载附近路线...",
     refresherTriggered: false,
-    refreshHintText: "下拉刷新最新路线列表",
 
     statusBarHeight: 80,
     pageTitle: "线路列表",
@@ -128,10 +101,10 @@ Page({
     originalRequestList: [],
 
     // 分组后的渲染数据
-    // 有空座/求车路线在前，满员车辆展开后统一放在最后。
+    // 有空座/求车路线在前；是否显示末尾的满员车辆是长期本地偏好。
     dayGroups: [],
     fullTripCount: 0,
-    showFullTrips: false,
+    hideFullTrips: true,
     hasMoreDays: false,
     nextPageDate: "",
     loadingMoreDays: false,
@@ -139,13 +112,14 @@ Page({
   },
 
   _listLoadingPromise: null,
-  _optionsLoading: false,
+  _optionsLoadingPromise: null,
   _statusRefreshing: false,
   _loadedOnceAt: 0,
   _initFilterFromShare: null,
 
   onLoad(options) {
     this._listDisposed = false
+    this.restoreFullTripPreference()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
     this._applyCityUi((options && options.city) || storedCity.key || RIDE_DEFAULT_CITY_KEY, { persist: false })
@@ -161,7 +135,6 @@ Page({
 
     const cachedOptions = this.getCachedFilterOptions()
     const defaultOptions = cachedOptions || this.buildFilterOptionData([], [])
-    // const defaultOptions = cachedOptions || this.buildFilterOptionData(DEFAULT_FROM_PLACES, DEFAULT_TO_PLACES)
 
     this.setData({
       statusBarHeight: info.statusBarHeight,
@@ -177,15 +150,14 @@ Page({
             originalRequestList: [],
             dayGroups: [],
             fullTripCount: 0,
-            showFullTrips: false
           })
           setTimeout(() => this.loadCityTreeFromCloud(), 120)
-          if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
+          if (!cachedOptions) setTimeout(() => this.loadFilterPlaceConfig(), 200)
           return
         }
         this.loadBothLists({ showLoading: true }).then(() => {
           setTimeout(() => this.loadCityTreeFromCloud(), 120)
-          if (!cachedOptions) setTimeout(() => this.loadFromToOptionsFromDBMerged(), 200)
+          if (!cachedOptions) setTimeout(() => this.loadFilterPlaceConfig(), 200)
           setTimeout(() => this.refreshStatusInBackground(false), 800)
         })
       })
@@ -371,7 +343,6 @@ Page({
       loadMoreError: "",
       dayGroups: [],
       fullTripCount: 0,
-      showFullTrips: false,
       originalCarpoolList: [],
       originalRequestList: [],
       loading: serviceAvailable,
@@ -423,30 +394,8 @@ Page({
   },
 
   getCachedFilterOptions() {
-    try {
-      const cached = wx.getStorageSync(OPTION_CACHE_KEY)
-      if (!cached || !cached.savedAt) return null
-      if (Date.now() - Number(cached.savedAt) > OPTION_CACHE_TTL) return null
-
-      const fromList = Array.isArray(cached.fromPlaceList) ? cached.fromPlaceList : []
-      const toList = Array.isArray(cached.toPlaceList) ? cached.toPlaceList : []
-      if (!fromList.length && !toList.length) return null
-
-      return this.buildFilterOptionData(fromList, toList)
-    } catch (e) {
-      return null
-    }
-  },
-
-  cacheFilterOptions(fromPlaceList, toPlaceList) {
-    try {
-      wx.setStorageSync(OPTION_CACHE_KEY, {
-        savedAt: Date.now(),
-        fromPlaceList,
-        toPlaceList
-      })
-    } catch (e) {
-    }
+    const cached = getCachedRideAddressConfig()
+    return cached ? this.buildFilterOptionData(cached.fromPlaces, cached.toPlaces) : null
   },
 
   restoreCachedLists() {
@@ -518,7 +467,7 @@ Page({
 
   normalizeFilterPlace(value) {
     const place = String(value == null ? "" : value).trim().slice(0, 200)
-    return place === "全部" ? "" : place
+    return place === "全部" ? "" : shortRidePlaceLabel(place)
   },
 
   getSelectedFilterPlace(field) {
@@ -555,8 +504,8 @@ Page({
       toFilterOptions,
       fromFilterIndex: selectedFromPlace ? fromFilterOptions.indexOf(selectedFromPlace) : -1,
       toFilterIndex: selectedToPlace ? toFilterOptions.indexOf(selectedToPlace) : -1,
-      fromFilterLabel: selectedFromPlace || "不限出发地",
-      toFilterLabel: selectedToPlace || "不限目的地",
+      fromFilterLabel: shortRidePlaceLabel(selectedFromPlace) || "不限出发地",
+      toFilterLabel: shortRidePlaceLabel(selectedToPlace) || "不限目的地",
       dateFilterLabel,
       moreFilterCount: Number(!!(selectedDate || this.data.timeFilterIndex >= 0)) + Number(this.data.routeTypeFilter !== "all"),
       hasActiveFilters: !!(selectedFromPlace || selectedToPlace || selectedDate || this.data.timeFilterIndex >= 0 || this.data.routeTypeFilter !== "all")
@@ -692,72 +641,32 @@ Page({
   },
 
   // =========================
-  // 地点库：合并 Departure/Arrival 与 Departure_Request/Arrival_Request
+  // 固定地点与发布页共享 5 分钟配置缓存。
   // =========================
-  extractPlacesFromDoc(doc) {
-    if (!doc || typeof doc !== "object") return []
-    return Object.keys(doc)
-      .filter((k) => k && k !== "_id")
-      .map((k) => String(k).trim())
-      .filter(Boolean)
-  },
-
   uniqNonEmpty(arr) {
     const seen = new Set()
     const out = []
     ;(arr || []).forEach((x) => {
-      const s = String(x || "").trim()
+      const s = shortRidePlaceLabel(String(x || "").trim())
       if (!s) return
-      if (seen.has(s)) return
-      seen.add(s)
+      const identity = placeIdentity(s)
+      if (seen.has(identity)) return
+      seen.add(identity)
       out.push(s)
     })
     return out
   },
 
-  async loadFromToOptionsFromDBMerged() {
-    if (this._optionsLoading) return
-    this._optionsLoading = true
-  
-    try {
-      const db = wx.cloud.database()
-  
-      const [depRes, arrRes] = await Promise.all([
-        db.collection("Departure").get(),
-        db.collection("Arrival").get()
-      ])
-  
-      const depDocs = depRes.data || []
-      const arrDocs = arrRes.data || []
-  
-      const fromRaw = depDocs.flatMap(doc => this.extractPlacesFromDoc(doc))
-      const toRaw = arrDocs.flatMap(doc => this.extractPlacesFromDoc(doc))
-  
-      const fromList = this.uniqNonEmpty(fromRaw)
-      const toList = this.uniqNonEmpty(toRaw)
-  
-      this.cacheFilterOptions(fromList, toList)
-      this.applyFilterOptionData(
-        this.buildFilterOptionData(fromList, toList)
-      )
-  
-    } catch (e) {
-  
-      console.error("loadFromToOptionsFromDBMerged", e)
-  
-      const cachedOptions = this.getCachedFilterOptions()
-  
-      if (cachedOptions) {
-        this.applyFilterOptionData(cachedOptions)
-      } else {
-        this.applyFilterOptionData(
-          this.buildFilterOptionData([], [])
-        )
-      }
-  
-    } finally {
-      this._optionsLoading = false
-    }
+  loadFilterPlaceConfig() {
+    if (this._listDisposed) return Promise.resolve()
+    if (this._optionsLoadingPromise) return this._optionsLoadingPromise
+    this._optionsLoadingPromise = loadRideAddressConfig().then(config => {
+      if (!this._listDisposed) this.applyFilterOptionData(this.buildFilterOptionData(config.fromPlaces, config.toPlaces))
+    }).catch(error => {
+      // Keep the visible options and selection if a hot update is temporarily unavailable.
+      console.error("loadFilterPlaceConfig", error)
+    }).finally(() => { this._optionsLoadingPromise = null })
+    return this._optionsLoadingPromise
   },
 
   // =========================
@@ -953,7 +862,6 @@ Page({
         originalRequestList: [],
         dayGroups: [],
         fullTripCount: 0,
-        showFullTrips: false,
         hasMoreDays: false,
         nextPageDate: "",
         loadingMoreDays: false,
@@ -974,7 +882,6 @@ Page({
         originalRequestList: [],
         dayGroups: [],
         fullTripCount: 0,
-        showFullTrips: false,
         hasMoreDays: false,
         nextPageDate: ""
       })
@@ -1071,7 +978,6 @@ Page({
           originalRequestList: [],
           dayGroups: [],
           fullTripCount: 0,
-          showFullTrips: false,
           hasMoreDays: false,
           nextPageDate: ""
         })
@@ -1098,7 +1004,6 @@ Page({
         originalRequestList: decoratedRequest,
         loading: false,
         hasLoadedOnce: true,
-        showFullTrips: false,
         hasMoreDays: !request.exactDate && result.page.hasMore,
         nextPageDate: !request.exactDate && result.page.hasMore ? result.page.nextDate : "",
         loadMoreError: ""
@@ -1228,7 +1133,7 @@ Page({
   },
 
   // =========================
-  // 地址匹配（Fort Lee / Columbia / 普通包含匹配）
+  // 固定地点使用共享别名匹配，自选具体地址保留原文。
   // =========================
   isFortLee(address) {
     return /fort\s*lee/i.test(String(address || ""))
@@ -1244,17 +1149,11 @@ Page({
   },
 
   isPresetPlace(address) {
-    return this.isFortLee(address) || this.isColumbia(address)
+    return ["Fort Lee", "哥大", "纽瓦克", "JFK", "拉瓜迪亚", "法拉盛"].some(place => makeRidePlaceMatcher(place)(address))
   },
 
   makePlaceMatcher(place) {
-    const p = String(place || "").trim()
-    if (!p) return () => false
-    if (this.isFortLee(p)) return (addr) => this.isFortLee(addr)
-    if (this.isColumbia(p)) {
-      return (addr) => this.isColumbia(addr)
-    }
-    return (addr) => !!addr && String(addr).toLowerCase().indexOf(p.toLowerCase()) >= 0
+    return makeRidePlaceMatcher(place)
   },
 
   tripMatchesCity(trip, city) {
@@ -1444,9 +1343,8 @@ Page({
       ...requestFiltered
     ]
     const groups = this.groupTripsByDate(availableTrips, "available", dateCounts)
-    const showFullTrips = this.data.showFullTrips && fullTrips.length > 0
-    if (showFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
-    this.setData({ dayGroups: groups, fullTripCount: fullTrips.length, showFullTrips })
+    if (!this.data.hideFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
+    this.setData({ dayGroups: groups, fullTripCount: fullTrips.length })
   },
 
   getAvailableSeatCount(trip) {
@@ -1482,11 +1380,27 @@ Page({
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date))
   },
 
-  onToggleFullTrips() {
+  restoreFullTripPreference() {
+    let hideFullTrips = true
+    try {
+      const saved = wx.getStorageSync(HIDE_FULL_TRIPS_KEY)
+      if (typeof saved === "boolean") hideFullTrips = saved
+    } catch (e) {
+    }
+    this.setData({ hideFullTrips })
+  },
+
+  onToggleHideFullTrips() {
     this._listTouchStartY = null
     this._listLoadMoreArmed = false
     this._listGestureConsumed = true
-    this.setData({ showFullTrips: !this.data.showFullTrips }, () => this.applyAllFiltersAndGroup())
+    const hideFullTrips = !this.data.hideFullTrips
+    // No TTL: this display preference survives list refreshes and future visits.
+    try {
+      wx.setStorageSync(HIDE_FULL_TRIPS_KEY, hideFullTrips)
+    } catch (e) {
+    }
+    this.setData({ hideFullTrips }, () => this.applyAllFiltersAndGroup())
   },
 
   // =========================
@@ -1496,7 +1410,7 @@ Page({
     // 配置异步返回时，不能再用分享初始值覆盖用户已经做出的选择。
     this._initFilterFromShare = null
     const previousRange = this.getDateRangeKey()
-    this.setData({ ...patch, showFullTrips: false }, () => {
+    this.setData(patch, () => {
       if ((this.data.hasLoadedOnce || this._listLoadingPromise) && previousRange !== this.getDateRangeKey()) {
         this.setData({
           hasLoadedOnce: false, loading: true,
@@ -1523,6 +1437,7 @@ Page({
       placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地",
       placeSearchKeyword: ""
     }, () => this.updatePlacePickerOptions())
+    return this.loadFilterPlaceConfig()
   },
 
   updatePlacePickerOptions() {
@@ -1531,11 +1446,13 @@ Page({
     const keyword = String(this.data.placeSearchKeyword || "").trim().toLowerCase()
     const options = this.getAvailablePlaceOptions(field).map(place => ({
       value: this.normalizeFilterPlace(place),
-      label: place === "全部" ? (field === "to" ? "不限目的地" : "不限出发地") : place,
+      label: place === "全部" ? (field === "to" ? "不限目的地" : "不限出发地") : shortRidePlaceLabel(place),
       selected: this.normalizeFilterPlace(place) === selected
     })).filter(option => {
       if (!keyword || option.value === "") return true
       if (option.label.toLowerCase().includes(keyword)) return true
+      if (placeIdentity(option.value) === placeIdentity(keyword)) return true
+      if (makeRidePlaceMatcher(keyword)(option.value)) return true
       if (this.isFortLee(option.value) && "fort lee fortlee".includes(keyword)) return true
       return this.isColumbia(option.value) && "哥大 哥伦比亚 columbia".includes(keyword)
     })
@@ -1660,7 +1577,6 @@ Page({
           hasLoadedOnce: true,
           dayGroups: [],
           fullTripCount: 0,
-          showFullTrips: false,
           originalCarpoolList: [],
           originalRequestList: []
         })

@@ -6,7 +6,8 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../cloudfunctions/getTripDetail/index.js'), 'utf8')
 
-function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false }) {
+function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false, failProfile = false,
+  user = { _id: 'driver-profile', _openid: 'driver', phone: 'fixture' } }) {
   const reads = []
   const db = {
     command: { in: values => ({ $in: values }) },
@@ -17,12 +18,27 @@ function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false }) {
         field(value) { fields = value; return query },
         limit(value) { count = value; return query },
         async get() {
-          reads.push({ name, condition, count })
+          reads.push({ name, condition, count, fields })
           if (name === 'UserBlocks' && failBlocks) throw new Error('database unavailable')
-          const rows = name === 'UserBlocks' ? blocks : name === 'userInfo' ? [{ _id: 'driver-profile', _openid: 'driver', phone: 'fixture' }] : []
+          if (name === 'userInfo' && failProfile) throw new Error('profile unavailable')
+          const rows = name === 'UserBlocks' ? blocks : name === 'userInfo' ? (user ? [user] : []) : []
           const selected = rows.filter(row => Object.entries(condition).every(([key, value]) =>
             value && value.$in ? value.$in.includes(row[key]) : row[key] === value)).slice(0, count)
-          return { data: selected.map(row => fields ? Object.fromEntries(Object.entries(row).filter(([key]) => fields[key])) : row) }
+          return { data: selected.map(row => {
+            if (!fields) return row
+            const projected = {}
+            for (const field of Object.keys(fields)) {
+              if (!fields[field]) continue
+              const parts = field.split('.')
+              let value = row
+              for (const part of parts) value = value && value[part]
+              if (value === undefined) continue
+              let target = projected
+              for (const part of parts.slice(0, -1)) target = target[part] || (target[part] = {})
+              target[parts.at(-1)] = value
+            }
+            return projected
+          }) }
         },
         doc(id) { return { async get() { reads.push({ name, id }); return { data: trip } } } }
       }
@@ -51,6 +67,7 @@ test('batch access checks preserve both blocking directions for every carpool an
         assert.equal(result.blocked, true, `${type}/${member}`)
         assert.equal(result.data, undefined)
         assert.equal(result.driverInfo, undefined)
+        assert.equal(result.driverStats, undefined)
         assert.equal(h.blockReads().length, 2)
         assert.equal(h.reads.some(read => read.name === 'userInfo' || read.name === 'TripRatings'), false)
       }
@@ -67,7 +84,7 @@ test('nonmembers without an active matching block need only two block reads and 
   assert.equal(result.ok, true)
   assert.equal(result.driverInfo, null)
   assert.equal(h.blockReads().length, 2)
-  assert.equal(h.reads.length, 4) // trip, two directional block queries, ratings
+  assert.equal(h.reads.length, 5) // trip, two directional block queries, ratings, public driver aggregates
 })
 
 test('existing participant access and anonymous/missing identity behavior are preserved', async () => {
@@ -78,7 +95,7 @@ test('existing participant access and anonymous/missing identity behavior are pr
   const result = await anonymous.main({ id: 'trip' })
   assert.equal(result.ok, true)
   assert.equal(result.driverInfo, null)
-  assert.equal(anonymous.reads.length, 1)
+  assert.equal(anonymous.reads.length, 2) // trip plus public driver aggregates; no private contact read
   const missing = harness({ trip: { _id: 'trip', passengers: [null, {}, { _openid: '' }] } })
   assert.equal((await missing.main({ id: 'trip' })).ok, true)
   assert.equal(missing.blockReads().length, 0)
@@ -98,4 +115,60 @@ test('a failed access lookup fails closed instead of exposing a route', async ()
   assert.equal(result.ok, false)
   assert.equal(result.data, undefined)
   assert.equal(result.driverInfo, undefined)
+})
+
+test('ordinary and anonymous carpool viewers receive only driver aggregate counts and ratings from one projected profile read', async () => {
+  const rideStats = {
+    completedDriverTrips: 12, completedPassengerTrips: 999,
+    driverRatingCount: 3, driverRatingAvg: 4.2, driverRatingWeightedAvg: 4.7,
+    passengerRatingAvg: 2.1, privateModerationNote: 'private'
+  }
+  for (const actor of ['viewer', '']) {
+    const h = harness({ actor, trip: carpool(), user: {
+      _openid: 'driver', phone: 'private-phone', wechatID: 'private-wechat', rideStats
+    } })
+    const result = await h.main({ id: 'trip' })
+    assert.equal(result.ok, true)
+    assert.equal(result.driverInfo, null)
+    assert.deepEqual(JSON.parse(JSON.stringify(result.driverStats)), {
+      completedDriverTrips: 12, driverRatingCount: 3, driverRatingAvg: 4.2, driverRatingWeightedAvg: 4.7
+    })
+    const profileReads = h.reads.filter(read => read.name === 'userInfo')
+    assert.equal(profileReads.length, 1)
+    assert.equal(profileReads[0].condition._openid, 'driver')
+    assert.equal(profileReads[0].count, 1)
+    assert.ok(Object.keys(profileReads[0].fields).every(field => /^rideStats\.(completedDriverTrips|driverRatingCount|driverRatingWeightedAvg|driverRatingAvg)$/.test(field)))
+    assert.ok(!JSON.stringify(result).includes('private'))
+  }
+})
+
+test('a joined viewer gets driver statistics from the existing contact query without a duplicate read', async () => {
+  const h = harness({ actor: 'p4', trip: carpool(), user: {
+    _openid: 'driver', phone: 'fixture', rideStats: { completedDriverTrips: 0, driverRatingCount: 0 }
+  } })
+  const result = await h.main({ id: 'trip' })
+  assert.equal(result.driverInfo.phone, 'fixture')
+  assert.equal(result.driverStats.completedDriverTrips, 0)
+  assert.equal(result.driverStats.driverRatingCount, 0)
+  assert.equal(h.reads.filter(read => read.name === 'userInfo').length, 1)
+})
+
+test('missing and failed driver statistics do not block route details or invent a zero completion count', async () => {
+  for (const options of [{ user: null }, { user: { _openid: 'driver' } }, { failProfile: true }]) {
+    const h = harness({ trip: carpool(), ...options })
+    const result = await h.main({ id: 'trip' })
+    assert.equal(result.ok, true)
+    assert.equal(result.data._id, 'trip')
+    assert.equal(result.driverStats, null)
+  }
+  for (const value of [null, '', 'bad', -1, 1.2, true]) {
+    const h = harness({ trip: carpool(), user: {
+      _openid: 'driver', rideStats: { completedDriverTrips: value, driverRatingCount: -1, driverRatingAvg: 99 }
+    } })
+    const result = await h.main({ id: 'trip' })
+    assert.equal(result.ok, true)
+    assert.equal(result.driverStats.completedDriverTrips, null)
+    assert.equal(result.driverStats.driverRatingCount, 0)
+    assert.equal(result.driverStats.driverRatingAvg, 0)
+  }
 })

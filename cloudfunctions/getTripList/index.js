@@ -13,6 +13,20 @@ const RIDE_SERVICE_CITY_KEYS = [RIDE_SERVICE_CITY_KEY, 'ny', 'nj']
 const DATE_PAGE_SIZE = 100
 const DAY_MS = 24 * 60 * 60 * 1000
 
+// Keep these exact aliases and route patterns aligned with utils/ridePlaceOptions.js.
+const PLACE_ALIASES = {
+  ewr: ['ewr', 'ewr机场', 'ewrairport', '纽瓦克', '纽瓦克机场', '纽瓦克国际机场', '纽瓦克自由国际机场', 'newark', 'newarkairport', 'newarkinternationalairport', 'newarklibertyairport', 'newarklibertyinternationalairport'],
+  jfk: ['jfk', 'jfk机场', 'jfk国际机场', 'jfkairport', '肯尼迪', '肯尼迪机场', '肯尼迪国际机场', '纽约肯尼迪机场', 'johnfkennedy', 'johnfkennedyairport', 'johnfkennedyinternationalairport'],
+  lga: ['lga', 'lga机场', 'lgaairport', '拉瓜迪亚', '拉瓜迪亚机场', '拉瓜迪亚国际机场', '拉瓜地亚', '拉瓜地亚机场', 'laguardia', 'laguardiaairport', 'laguardiainternationalairport'],
+  flushing: ['法拉盛', 'flushing']
+}
+const PLACE_PATTERNS = {
+  ewr: /(?:^|[^a-z])ewr(?:$|[^a-z])|newark|纽瓦克/i,
+  jfk: /(?:^|[^a-z])jfk(?:$|[^a-z])|john\s*f\.?\s*kennedy|肯尼迪/i,
+  lga: /(?:^|[^a-z])lga(?:$|[^a-z])|la\s*guardia|拉瓜[迪地]亚/i,
+  flushing: /flushing|法拉盛/i
+}
+
 const TYPE_CONFIG = {
   carpool: {
     collection: 'Carpool',
@@ -138,6 +152,9 @@ function makeCalendarPlaceMatcher(place) {
   const value = String(place || '').trim()
   if (/fort\s*lee/i.test(value)) return address => /fort\s*lee/i.test(String(address || ''))
   if (/哥大|columbia/i.test(value)) return address => /哥大|columbia/i.test(String(address || ''))
+  const compact = value.toLowerCase().replace(/\s+/g, '')
+  const aliasKey = Object.keys(PLACE_ALIASES).find(key => PLACE_ALIASES[key].includes(compact))
+  if (aliasKey) return address => PLACE_PATTERNS[aliasKey].test(String(address || ''))
   return address => !!address && String(address).toLowerCase().includes(value.toLowerCase())
 }
 
@@ -497,7 +514,8 @@ async function readCalendar(event, type, openid) {
 const FIXED_PLACE_NAMES = new Set([
   'fortlee', 'fortlee核心区', 'fortlee全区域',
   '哥大', 'columbia', '哥大columbia', '哥大/columbia', '哥伦比亚大学', 'columbiauniversity',
-  '其他', '自选', '全部'
+  '其他', '自选', '全部',
+  ...Object.values(PLACE_ALIASES).flat()
 ])
 
 function readPlaceSuggestionCity(event) {

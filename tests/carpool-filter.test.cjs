@@ -19,21 +19,40 @@ function route(id, from = 'Fort Lee', to = 'Columbia', date = '2030-01-01', extr
 
 function harness() {
   let definition
-  const state = { now: Date.parse('2030-01-01T10:00:00'), calls: [] }
+  const state = { now: Date.parse('2030-01-01T10:00:00'), calls: [], store: {}, dbReads: [],
+    config: { Departure: { _id: 'from', fortLee: 'Fort Lee', jfk: 'JFK' }, Arrival: { _id: 'to', columbia: '哥大/Columbia', ewr: 'EWR' } },
+    configFailure: false, holdConfig: null
+  }
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [state.now])) }
     static now() { return state.now }
   }
   const context = {
     Page: page => { definition = page }, Date: Clock, setTimeout, clearTimeout,
-    wx: { cloud: {
+    wx: {
+      getStorageSync: key => state.store[key],
+      setStorageSync: (key, value) => { state.store[key] = value },
+      cloud: {
       callFunction(args) { state.calls.push(args); throw new Error('Filters must not call the cloud') },
-      database() { throw new Error('Filters must not query the database') }
+      database() { return { collection(name) { return { async get() {
+        state.dbReads.push(name)
+        if (state.holdConfig) await state.holdConfig
+        if (state.configFailure) throw new Error('configuration temporarily unavailable')
+        return { data: [plain(state.config[name])] }
+      } } } } }
     } },
     getApp: () => ({ withReferralShare: value => value }),
-    console,
+    console: { error() {}, warn() {} },
     require(name) {
       if (name.includes('cityTree')) return city
+      if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
+      if (name.includes('rideAddressConfig')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/ridePlaceOptions')
+        })
+        return module.exports
+      }
       if (name.includes('tripManage')) return pricing
       if (name.includes('rideCalendarPicker')) {
         const module = { exports: {} }
@@ -78,19 +97,19 @@ test('combined place, date and route-type filters update results and full counts
   assert.deepEqual(ids(), ['tomorrow', 'request'])
   assert.equal(page.data.fullTripCount, 1)
   assert.deepEqual(counts(), [['2030-01-02', 2, 1]], 'daily totals include folded full cars after place/date filtering')
-  page.onToggleFullTrips()
+  page.onToggleHideFullTrips()
   assert.deepEqual(ids(), ['tomorrow', 'request', 'full-tomorrow'])
   assert.deepEqual(counts(), [['2030-01-02', 2, 1], ['2030-01-02', 2, 1]], 'both sections show the same daily totals')
   page.onRouteTypeChange(event('type', 'request'))
   assert.deepEqual(ids(), ['request'])
-  assert.equal(page.data.showFullTrips, false)
+  assert.equal(page.data.hideFullTrips, false, 'changing route type keeps the display preference')
   assert.equal(page.data.fullTripCount, 0, 'requests never enter the full-car section')
   assert.deepEqual(counts(), [['2030-01-02', 0, 1]])
   assert.equal(page.data.moreFilterCount, 2)
   page.onRouteTypeChange(event('type', 'carpool'))
-  assert.deepEqual(ids(), ['tomorrow'])
+  assert.deepEqual(ids(), ['tomorrow', 'full-tomorrow'])
   assert.equal(page.data.fullTripCount, 1)
-  assert.deepEqual(counts(), [['2030-01-02', 2, 0]])
+  assert.deepEqual(counts(), [['2030-01-02', 2, 0], ['2030-01-02', 2, 0]])
   assert.equal(state.calls.length, 0)
 })
 
@@ -99,9 +118,9 @@ test('choosing a departure keeps the selected destination by name when option in
   fill([route('airport', 'Fort Lee', 'EWR'), route('campus', 'JFK', 'Columbia')])
   pick('to', 'EWR')
   pick('from', 'Fort Lee')
-  assert.equal(page.data.selectedToPlace, 'EWR')
+  assert.equal(page.data.selectedToPlace, '纽瓦克')
   page.applyFilterOptionData(page.buildFilterOptionData(['JFK', 'Fort Lee'], ['New destination', '哥大/Columbia', 'EWR']))
-  assert.equal(page.data.toFilterOptions[page.data.toFilterIndex], 'EWR')
+  assert.equal(page.data.toFilterOptions[page.data.toFilterIndex], '纽瓦克')
   assert.deepEqual(ids(), ['airport'])
 })
 
@@ -111,15 +130,15 @@ test('swap retains both names even when absent from the opposite configuration a
   pick('from', 'Fort Lee')
   pick('to', 'EWR')
   page.onSwapFilterPlaces()
-  assert.equal(page.data.fromFilterLabel, 'EWR')
+  assert.equal(page.data.fromFilterLabel, '纽瓦克')
   assert.equal(page.data.toFilterLabel, 'Fort Lee')
-  assert.ok(page.data.fromFilterOptions.includes('EWR'))
+  assert.ok(page.data.fromFilterOptions.includes('纽瓦克'))
   assert.ok(page.data.toFilterOptions.includes('Fort Lee'))
   assert.deepEqual(ids(), ['return'])
   pick('to', '')
   page.onSwapFilterPlaces()
   assert.equal(page.data.fromFilterLabel, '不限出发地')
-  assert.equal(page.data.toFilterLabel, 'EWR')
+  assert.equal(page.data.toFilterLabel, '纽瓦克')
   assert.deepEqual(ids(), ['outbound'])
 })
 
@@ -197,7 +216,7 @@ test('new shares round-trip stable names, special characters, date and type acro
   other.applyShareFilters(true)
   other.applyFilterOptionData(other.buildFilterOptionData(['New place', 'JFK'], ['EWR']))
   assert.equal(other.data.selectedFromPlace, place)
-  assert.equal(other.data.selectedToPlace, '哥大/Columbia')
+  assert.equal(other.data.selectedToPlace, '哥大')
   assert.equal(other.data.selectedDate, '2030-01-05')
   assert.equal(other.data.routeTypeFilter, 'carpool')
 })
@@ -208,7 +227,7 @@ test('old index shares and other-date shares survive appended custom places', ()
   page._initFilterFromShare = page.readShareFilters({ from: '3', to: '1', time: '2' })
   page.applyShareFilters(true, () => page.applyAllFiltersAndGroup())
   assert.equal(page.data.selectedFromPlace, '其他', 'legacy index 3 refers to configured other, not appended venue')
-  assert.equal(page.data.selectedToPlace, '哥大/Columbia')
+  assert.equal(page.data.selectedToPlace, '哥大')
   assert.equal(page.data.dateFilterLabel, '其他日期')
   assert.deepEqual(ids(), ['other'])
 })
@@ -229,4 +248,129 @@ test('reset clears all filters; a late configuration read cannot restore stale s
   assert.equal(page.data.hasActiveFilters, false)
   assert.equal(page.data.placePickerVisible, false)
   assert.equal(page.data.moreFilterCount, 0)
+})
+
+test('full-car visibility is independent from filter badges and survives resetting every filter', () => {
+  const { page, fill, pick, ids, state } = harness()
+  fill([route('available'), route('full', 'Fort Lee', 'Columbia', '2030-01-01', { availSeatNum: 0 })])
+  assert.equal(page.data.hideFullTrips, true)
+  assert.equal(page.data.hasActiveFilters, false)
+  assert.equal(page.data.moreFilterCount, 0)
+  page.onToggleHideFullTrips()
+  assert.deepEqual(ids(), ['available', 'full'])
+  assert.equal(page.data.hasActiveFilters, false)
+  assert.equal(page.data.moreFilterCount, 0)
+  pick('from', 'Fort Lee')
+  page.onRouteTypeChange(event('type', 'carpool'))
+  page.onQuickDateChange(event('value', 'today'))
+  assert.equal(page.data.moreFilterCount, 2)
+  page.onResetFilter()
+  assert.equal(page.data.hideFullTrips, false)
+  assert.deepEqual(ids(), ['available', 'full'])
+  assert.equal(page.data.hasActiveFilters, false)
+  assert.equal(page.data.moreFilterCount, 0)
+  assert.equal(state.store.carpoolListHideFullTripsV1, false)
+  assert.equal(state.calls.length, 0)
+})
+
+test('cloud fixed places lead in the agreed short-name order, with current custom places retained afterwards', async () => {
+  const { page, state, fill } = harness()
+  state.config.Departure = { _id: 'from', flushing: 'Flushing', jfk: 'JFK机场', lga: 'LaGuardia', fortLee: 'Fort Lee', ewr: 'EWR机场', columbia: 'Columbia' }
+  state.config.Arrival = plain(state.config.Departure)
+  fill([
+    route('legacy-ewr', 'Newark', 'LaGuardia'),
+    route('legacy-jfk', '肯尼迪机场', 'Flushing'),
+    route('specific', 'EWR Terminal C', '法拉盛 Main St 123号'),
+    route('concert', 'BigBang演唱会', 'Fort Lee 某公寓')
+  ])
+  await page.onOpenPlacePicker(event('field', 'from'))
+  assert.deepEqual(plain(page.data.fromFilterOptions), ['全部', 'Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛', 'EWR Terminal C', 'BigBang演唱会', '其他'])
+  assert.deepEqual(plain(page.data.toFilterOptions), ['全部', 'Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛', '法拉盛 Main St 123号', 'Fort Lee 某公寓', '其他'])
+  assert.equal(state.calls.length, 0, 'reusing currently loaded route places needs no new cloud function call')
+})
+
+test('selecting short airport/place names finds legacy aliases and terminal addresses; searching aliases finds short options', async () => {
+  const { page, state, fill, ids } = harness()
+  state.config.Departure = { _id: 'from', fortLee: 'Fort Lee', columbia: '哥大', ewr: '纽瓦克', jfk: 'JFK', lga: '拉瓜迪亚', flushing: '法拉盛' }
+  state.config.Arrival = plain(state.config.Departure)
+  fill([
+    route('ewr-cn', 'EWR机场'), route('ewr-en', 'Newark'), route('ewr-terminal', 'EWR Terminal C'),
+    route('lga-cn', 'LGA机场'), route('lga-en', 'LaGuardia'),
+    route('jfk-cn', '肯尼迪机场'), route('jfk-en', 'JFK机场'),
+    route('flushing', 'Flushing'), route('custom', '自选聚会地点')
+  ])
+  await page.onOpenPlacePicker(event('field', 'from'))
+  for (const [label, matching] of [
+    ['纽瓦克', ['ewr-cn', 'ewr-en', 'ewr-terminal']],
+    ['拉瓜迪亚', ['lga-cn', 'lga-en']],
+    ['JFK', ['jfk-cn', 'jfk-en']], ['法拉盛', ['flushing']]
+  ]) {
+    page.changeFilters({ selectedFromPlace: label })
+    assert.deepEqual(ids(), matching)
+    assert.equal(page.data.fromFilterLabel, label)
+  }
+  page.changeFilters({ selectedFromPlace: 'EWR Terminal C' })
+  assert.deepEqual(ids(), ['ewr-terminal'], 'specific custom selections do not widen into the whole airport')
+  for (const [keyword, label] of [['ewr', '纽瓦克'], ['Newark', '纽瓦克'], ['lga机场', '拉瓜迪亚'], ['LaGuardia', '拉瓜迪亚'], ['肯尼迪', 'JFK'], ['Flushing', '法拉盛']]) {
+    page.onPlaceSearchInput({ detail: { value: keyword } })
+    assert.ok(page.data.placePickerOptions.some(option => option.label === label), keyword)
+  }
+  assert.equal(state.calls.length, 0)
+})
+
+test('fixed-place config is refreshed at five minutes on opening either picker, without old 24-hour storage blocking updates', async () => {
+  const { page, state, fill } = harness()
+  state.store.carpoolListFilterOptionsV1 = { savedAt: state.now, fromPlaceList: ['旧出发地'], toPlaceList: ['旧目的地'] }
+  assert.equal(page.getCachedFilterOptions(), null)
+  fill([route('custom', '自选演唱会')])
+  await page.onOpenPlacePicker(event('field', 'from'))
+  assert.deepEqual(state.dbReads, ['Departure', 'Arrival'])
+  page.onSelectFilterPlace(event('value', '自选演唱会'))
+  page.onToggleHideFullTrips()
+  state.config.Departure = { _id: 'from', fortLee: 'Fort Lee', ewr: '纽瓦克', lga: '拉瓜迪亚' }
+  state.config.Arrival = { _id: 'to', columbia: '哥大', flushing: '法拉盛' }
+  state.now += 299999
+  await page.onOpenPlacePicker(event('field', 'to'))
+  assert.equal(state.dbReads.length, 2)
+  assert.ok(!page.data.toPlaceList.includes('法拉盛'))
+  state.now += 1
+  await page.onOpenPlacePicker(event('field', 'from'))
+  assert.equal(state.dbReads.length, 4)
+  assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '纽瓦克', '拉瓜迪亚'])
+  assert.deepEqual(plain(page.data.toPlaceList), ['哥大', '法拉盛'])
+  assert.equal(page.data.selectedFromPlace, '自选演唱会')
+  assert.equal(page.data.hideFullTrips, false)
+  assert.ok(page.data.fromFilterOptions.includes('自选演唱会'))
+  await page.onOpenPlacePicker(event('field', 'to'))
+  assert.equal(state.dbReads.length, 4)
+})
+
+test('concurrent fixed-place opens coalesce; a failed or late update preserves the current page and its selection', async () => {
+  const { page, state, fill } = harness()
+  fill([route('one')])
+  let release
+  state.holdConfig = new Promise(resolve => { release = resolve })
+  const first = page.onOpenPlacePicker(event('field', 'from'))
+  const same = page.onOpenPlacePicker(event('field', 'to'))
+  assert.equal(state.dbReads.length, 2)
+  release()
+  await Promise.all([first, same])
+  state.holdConfig = null
+  page.changeFilters({ selectedToPlace: '纽瓦克' })
+  state.now += 300000
+  state.configFailure = true
+  const before = plain(page.data)
+  await page.onOpenPlacePicker(event('field', 'to'))
+  assert.deepEqual(plain(page.data.fromPlaceList), before.fromPlaceList)
+  assert.deepEqual(plain(page.data.toPlaceList), before.toPlaceList)
+  assert.equal(page.data.selectedToPlace, '纽瓦克')
+
+  state.configFailure = false
+  state.holdConfig = new Promise(resolve => { release = resolve })
+  const late = page.onOpenPlacePicker(event('field', 'from'))
+  page.onUnload()
+  const beforeUnload = plain(page.data)
+  release()
+  await late
+  assert.deepEqual(plain(page.data), beforeUnload)
 })

@@ -56,6 +56,29 @@ test('place normalization deduplicates canonical common places without swallowin
   assert.equal(api.normalizeRidePlace('  one\n two  '), 'one two')
 })
 
+test('airport labels and exact alias deduplication retain specific self-selected addresses', () => {
+  const { api } = utilityHarness()
+  assert.deepEqual(plain(api.uniqueRidePlaces([
+    'EWR机场', '纽瓦克', 'Newark Liberty International Airport', 'JFK', '肯尼迪机场',
+    'LGA Airport', '拉瓜迪亚', 'La Guardia Airport', '法拉盛', 'Flushing',
+    'EWR Terminal C', 'Newark Broad Street', 'Flushing Library'
+  ])), ['EWR机场', 'JFK', 'LGA Airport', '法拉盛', 'EWR Terminal C', 'Newark Broad Street', 'Flushing Library'])
+  assert.deepEqual(['Fort Lee', '哥大', 'EWR机场', 'JFK Airport', 'LGA', 'Flushing'].map(api.shortRidePlaceLabel), ['Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛'])
+  assert.equal(api.shortRidePlaceLabel('EWR Terminal C'), 'EWR Terminal C')
+  for (const [place, matching, unrelated] of [
+    ['纽瓦克', 'EWR Terminal C', 'fewr plaza'],
+    ['JFK', '肯尼迪机场', 'AJFK'],
+    ['拉瓜迪亚', 'La Guardia Airport', 'BLGA'],
+    ['法拉盛', 'Flushing Library', 'Fort Lee']
+  ]) {
+    const matches = api.makeRidePlaceMatcher(place)
+    assert.equal(matches(matching), true, place)
+    assert.equal(matches(unrelated), false, place)
+  }
+  assert.equal(api.makeRidePlaceMatcher('EWR Terminal C')('EWR Terminal B'), false)
+  assert.equal(api.makeRidePlaceMatcher('EWR Terminal C')('EWR Terminal C pickup'), true)
+})
+
 test('place options coalesce pending reads, cache successes five minutes, and protect cached arrays', async () => {
   const { api, state } = utilityHarness()
   const wait = deferred()
@@ -129,6 +152,20 @@ test('picker renders fixed canonical values, filters duplicates and confirms exa
   component.onSelect(tap('Park'))
   component.onSelect(tap('injected missing option'))
   assert.deepEqual(component.events.map(event => event.detail.value), ['Fort Lee 核心区', 'Park'])
+})
+
+test('picker shows short airport labels while confirming cloud values and keeps terminal suggestions', () => {
+  const { component } = componentHarness({
+    value: '纽瓦克',
+    fixedOptions: [{ label: '纽瓦克', value: 'EWR 机场' }, { label: '拉瓜迪亚', value: 'LGA Airport' }],
+    options: ['Newark Airport', '纽瓦克', 'La Guardia Airport', 'EWR Terminal C', '法拉盛某商场']
+  })
+  assert.equal(component.data.fixedEntries[0].selected, true)
+  assert.deepEqual(plain(component.data.suggestions.map(item => item.value)), ['EWR Terminal C', '法拉盛某商场'])
+  component.onSelect(tap('EWR 机场'))
+  component.confirmValue('拉瓜迪亚')
+  component.confirmValue('EWR Terminal C')
+  assert.deepEqual(component.events.map(event => event.detail.value), ['EWR 机场', 'LGA Airport', 'EWR Terminal C'])
 })
 
 test('custom place editing stays in the panel, validates text and retains configured price keys', () => {

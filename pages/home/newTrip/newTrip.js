@@ -1,6 +1,7 @@
 const { showDataError } = require("../../../utils/error")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
-const { loadRidePlaceOptions } = require("../../../utils/ridePlaceOptions")
+const { loadRidePlaceOptions, shortRidePlaceLabel, ridePlaceAliasPattern } = require("../../../utils/ridePlaceOptions")
+const { loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const {
   markRideListStale,
   normalizeRidePriceInput,
@@ -138,7 +139,7 @@ Page({
       referencePriceHasNumber: false,
       // passengerCountInput 只给司机用；乘客人数你也可保留不动
     }, async () => {
-      // ✅ 用“新 mode”去加载对应地址集合
+      // 两种发布模式共用地点配置，切换时复用五分钟缓存。
       await this.loadAllAddresses()
       if (this._calendarDisposed || this.data.mode !== mode) return
 
@@ -238,7 +239,7 @@ Page({
   },
 
   // -------------------------
-  // 地址列表（根据 mode 调用不同 type）
+  // 两种发布模式共用云端 Departure / Arrival 地点配置。
   // -------------------------
   async loadAllAddresses() {
     const mode = this.data.mode
@@ -247,13 +248,7 @@ Page({
     this.setData({ loadingDepartureAddrs: true, loadingArrivalAddrs: true })
 
     try {
-      const depType = (this.data.mode === "passenger") ? "Departure_Request" : "Departure"
-      const arrType = (this.data.mode === "passenger") ? "Arrival_Request" : "Arrival"
-
-      const [dep, arr] = await Promise.all([
-        this.loadAddressList(depType),
-        this.loadAddressList(arrType)
-      ])
+      const { fromPlaces: dep, toPlaces: arr } = await loadRideAddressConfig()
       if (!isCurrent()) return
 
       this.setData({
@@ -267,20 +262,6 @@ Page({
       console.error("loadAllAddresses error:", e)
       this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
       showDataError("地址加载失败", e, "地址配置从数据库加载失败，请稍后重试。")
-    }
-  },
-
-  async loadAddressList(type) {
-    try {
-      const res = await wx.cloud.callFunction({
-        name: "getAddressList",
-        data: { type }
-      })
-      if (res?.result?.success) return res.result.addressList || []
-      throw new Error(res?.result?.errorMsg || res?.result?.message || "getAddressList 返回失败")
-    } catch (e) {
-      console.error("loadAddressList error:", e)
-      throw e
     }
   },
 
@@ -369,9 +350,8 @@ Page({
   updatePlacePickerData() {
     const isDeparture = this._placePickerField !== "destination"
     const configured = (isDeparture ? this.data.departureAddresses : this.data.arrivalAddresses) || []
-    const fixed = configured.filter(value => /fort\s*lee|哥大|columbia/i.test(value))
-    if (!fixed.some(value => /fort\s*lee/i.test(value))) fixed.unshift("Fort Lee")
-    if (!fixed.some(value => /哥大|columbia/i.test(value))) fixed.push("哥大")
+    const fixed = configured.filter(value => typeof value === "string" && !["全部", "其他", "自选"].includes(value))
+      .map(value => ({ value, label: shortRidePlaceLabel(value) }))
     const suggestions = this._placeSuggestions || {}
     this.setData({
       placePickerFixedOptions: fixed,
@@ -398,9 +378,16 @@ Page({
       context.viewerKey === this.getListViewerKey() && context.revision === this.getRideListRefreshAt() &&
       context.cityKey === (getRideCitySnapshot().key || DEFAULT_CITY_KEY)
     try {
-      const result = await loadRidePlaceOptions(context)
+      const [result, config] = await Promise.all([
+        loadRidePlaceOptions(context),
+        loadRideAddressConfig({ force: !!options.force })
+      ])
       if (!isCurrent()) return
       this._placeSuggestions = result
+      this.setData({
+        departureAddresses: [...config.fromPlaces, "其他"],
+        arrivalAddresses: [...config.toPlaces, "其他"]
+      })
       this.updatePlacePickerData()
       this.setData({ placePickerLoading: false })
     } catch (error) {
@@ -485,12 +472,20 @@ Page({
 
     try {
       const db = wx.cloud.database()
+      const departureAlias = ridePlaceAliasPattern(dep)
+      const destinationAlias = ridePlaceAliasPattern(dest)
       const res = await db.collection("Request_Price")
-        .where({ Departure: dep, Destination: dest })
-        .limit(1)
+        .where({
+          Departure: departureAlias ? db.RegExp({ regexp: departureAlias, options: 'i' }) : dep,
+          Destination: destinationAlias ? db.RegExp({ regexp: destinationAlias, options: 'i' }) : dest
+        })
+        .limit(departureAlias || destinationAlias ? 100 : 1)
         .get()
 
-      const row = (res?.data?.length) ? res.data[0] : null
+      // Prefer an exact configured price when both new and legacy airport names exist.
+      const rows = Array.isArray(res?.data) ? res.data : []
+      const exactScore = row => Number(row.Departure === dep) + Number(row.Destination === dest)
+      const row = rows.slice().sort((a, b) => exactScore(b) - exactScore(a))[0] || null
       if (!isCurrent()) return
       if (row && row.Price !== undefined && row.Price !== null && String(row.Price).trim() !== "") {
         const priceNumber = extractRidePriceNumber(row.Price)

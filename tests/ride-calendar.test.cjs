@@ -64,6 +64,14 @@ function harness({ realStatusRefresh = false } = {}) {
     console: { error() {}, warn() {}, log() {} },
     require(name) {
       if (name.includes('cityTree')) return city
+      if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
+      if (name.includes('rideAddressConfig')) {
+        const module = { exports: {} }
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
+          ...context, module, require: () => require('../utils/ridePlaceOptions')
+        })
+        return module.exports
+      }
       if (name.includes('tripManage')) return {
         ...pricing,
         markRideListStale() {
@@ -252,7 +260,7 @@ test('month counts send the active city, route type and stable place filters to 
   assert.equal(sent.cityKey, page.data.activeCityKey)
   assert.equal(sent.type, 'request')
   assert.equal(sent.fromPlace, 'Fort Lee')
-  assert.equal(sent.toPlace, '哥大/Columbia')
+  assert.equal(sent.toPlace, '哥大')
   assert.equal(sent.action, 'calendar')
   assert.equal(sent.month, '2030-01')
   assert.equal('startDate' in sent, false, 'month counts do not inherit the two-day list window')
@@ -383,13 +391,13 @@ test('calendar-only reads and drafts preserve loaded two-day routes, date totals
   Object.assign(page.data, {
     originalCarpoolList: [{ _id: 'loaded-car' }], originalRequestList: [{ _id: 'loaded-request' }],
     dayGroups: [{ date: '2030-01-15', carpoolCount: 1, requestCount: 1, items: [{ _id: 'loaded-car' }] }],
-    hasMoreDays: true, nextPageDate: '2030-01-17', fullTripCount: 2, showFullTrips: false
+    hasMoreDays: true, nextPageDate: '2030-01-17', fullTripCount: 2, hideFullTrips: false
   })
   const readListState = () => plain({
     carpool: page.data.originalCarpoolList, request: page.data.originalRequestList,
     groups: page.data.dayGroups, hasMoreDays: page.data.hasMoreDays,
     nextPageDate: page.data.nextPageDate, fullTripCount: page.data.fullTripCount,
-    showFullTrips: page.data.showFullTrips
+    hideFullTrips: page.data.hideFullTrips
   })
   const before = readListState()
   await open()

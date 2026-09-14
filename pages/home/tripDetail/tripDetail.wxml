@@ -40,7 +40,11 @@
 
     <view class="ride-card ride-card-pad detail-hero">
       <view class="ride-row-between detail-hero-head">
-        <text class="ride-list-kind">司机发车</text>
+        <view id="driver-ride-summary" class="detail-driver-stats">
+          <text id="driver-completed-count" class="detail-driver-completed">已发车 {{driverCompletedText}}</text>
+          <text class="detail-driver-divider">·</text>
+          <text id="driver-rating">评分 {{driverRatingText}}</text>
+        </view>
         <view class="ride-head-actions">
           <view
             wx:if="{{driverOpenid && !isOwner}}"

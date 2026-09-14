@@ -36,6 +36,13 @@ const PUBLIC_DRIVER_FIELDS = {
   rideStats: true
 }
 
+const DRIVER_STATS_FIELDS = {
+  'rideStats.completedDriverTrips': true,
+  'rideStats.driverRatingCount': true,
+  'rideStats.driverRatingWeightedAvg': true,
+  'rideStats.driverRatingAvg': true
+}
+
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
   if (type === 'request') return 'request'
@@ -133,22 +140,55 @@ function canExposeDriverInfo(actorOpenid, type, doc = {}) {
   return getTripParticipantOpenids(type, doc).includes(actor)
 }
 
-async function getDriverInfo(type, doc = {}, actorOpenid = '') {
-  if (!canExposeDriverInfo(actorOpenid, type, doc)) return null
+function normalizeDriverStats(user = {}) {
+  const stats = user.rideStats
+  if (!stats || typeof stats !== 'object' || Array.isArray(stats)) return null
+
+  const count = value => {
+    if (typeof value !== 'number' && !(typeof value === 'string' && value.trim())) return null
+    const parsed = Number(value)
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null
+  }
+  const score = value => {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) && parsed > 0 && parsed <= 5 ? parsed : 0
+  }
+  // Only these aggregate fields are public; never forward the whole profile or rideStats.
+  return {
+    completedDriverTrips: count(stats.completedDriverTrips),
+    driverRatingCount: count(stats.driverRatingCount) || 0,
+    driverRatingWeightedAvg: score(stats.driverRatingWeightedAvg),
+    driverRatingAvg: score(stats.driverRatingAvg)
+  }
+}
+
+async function getDriverData(type, doc = {}, actorOpenid = '') {
+  const empty = { driverInfo: null, driverStats: null }
+  const canExposeInfo = canExposeDriverInfo(actorOpenid, type, doc)
+  if (!canExposeInfo && type !== 'carpool') return empty
 
   const driverOpenid = type === 'request'
     ? getRequestDriverOpenid(doc)
     : getCarpoolDriverOpenid(doc)
-  if (!driverOpenid) return null
+  if (!driverOpenid) return empty
 
-  const res = await db.collection('userInfo')
-    .where({ _openid: driverOpenid })
-    .field(PUBLIC_DRIVER_FIELDS)
-    .limit(1)
-    .get()
+  try {
+    const res = await db.collection('userInfo')
+      .where({ _openid: driverOpenid })
+      .field(canExposeInfo ? PUBLIC_DRIVER_FIELDS : DRIVER_STATS_FIELDS)
+      .limit(1)
+      .get()
 
-  const user = res.data && res.data[0] ? res.data[0] : null
-  return normalizeDriverInfo(user, driverOpenid)
+    const user = res.data && res.data[0] ? res.data[0] : null
+    if (!user) return empty
+    return {
+      driverInfo: canExposeInfo ? normalizeDriverInfo(user, driverOpenid) : null,
+      driverStats: normalizeDriverStats(user)
+    }
+  } catch (e) {
+    console.error('getTripDetail driver profile lookup failed:', e)
+    return empty
+  }
 }
 
 async function shouldBlockDetail(actorOpenid, type, doc) {
@@ -231,16 +271,16 @@ exports.main = async (event = {}) => {
       }
     }
 
-    const [ratedTargetOpenids, driverInfo] = await Promise.all([
+    const [ratedTargetOpenids, driverData] = await Promise.all([
       getRatedTargetOpenids(type, id, wxContext.OPENID || ''),
-      getDriverInfo(type, res.data, wxContext.OPENID || '')
+      getDriverData(type, res.data, wxContext.OPENID || '')
     ])
 
     return {
       ok: true,
       success: true,
       data: sanitizeTripDoc(res.data),
-      driverInfo,
+      ...driverData,
       openid: wxContext.OPENID || '',
       type,
       from: type,

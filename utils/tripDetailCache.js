@@ -99,6 +99,8 @@ function writeTripDetailCache(type, id, result) {
 function removeTripDetailCache(type, id) {
   const key = makeKey(type, id)
   if (!key) return
+  // An older read must not put pre-mutation membership/contact data back into storage.
+  pendingRequests.delete(key)
   const store = getStore()
   if (!store[key]) return
   delete store[key]

@@ -118,3 +118,19 @@ test('failed requests release deduplication and fresh access denials remove stal
     assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
   }
 })
+
+test('invalidating a request after accepting it prevents an older unassigned read from repopulating its cache', async () => {
+  const h = harness()
+  const beforeAccept = h.api.fetchTripDetail('request', 'trip')
+  await flush()
+  h.api.removeTripDetailCache('request', 'trip')
+  h.calls[0].resolve({ ok: true, data: { _id: 'trip', driverOpenid: '' } })
+  await beforeAccept
+  assert.equal(h.api.readTripDetailCache('request', 'trip', { allowStale: true }), null)
+  const afterAccept = h.api.fetchTripDetail('request', 'trip')
+  await flush()
+  assert.equal(h.calls.length, 2)
+  h.calls[1].resolve({ ok: true, data: { _id: 'trip', driverOpenid: 'alice' } })
+  assert.equal((await afterAccept).data.driverOpenid, 'alice')
+  assert.equal(h.api.readTripDetailCache('request', 'trip').data.driverOpenid, 'alice')
+})

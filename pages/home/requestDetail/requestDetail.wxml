@@ -90,8 +90,8 @@
       自己发布的求车
     </button>
 
-    <button wx:elif="{{acceptedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
-      你已接单
+    <button wx:elif="{{acceptedByMe}}" bindtap="openAcceptedDriverDetail" class="ride-btn ride-btn--primary">
+      查看乘客信息
     </button>
 
     <button wx:elif="{{joinedByMe}}" disabled="true" class="ride-btn ride-btn--disabled">
@@ -102,18 +102,14 @@
       该路线已结束
     </button>
 
-    <button wx:elif="{{isFull}}" disabled="true" class="ride-btn ride-btn--disabled">
-      该路线已满员
-    </button>
-
     <block wx:else>
       <button
-        class="ride-btn ride-btn--accent {{submittingPassenger ? 'ride-btn--disabled' : ''}}"
+        class="ride-btn ride-btn--accent {{submittingPassenger || isFull ? 'ride-btn--disabled' : ''}}"
         bindtap="joinAsPassenger"
-        disabled="{{submittingPassenger || submittingDriver}}"
+        disabled="{{submittingPassenger || submittingDriver || isFull}}"
         loading="{{submittingPassenger}}"
       >
-        {{ submittingPassenger ? '加入中' : '乘客加入' }}
+        {{ isFull ? '乘客已满员' : (submittingPassenger ? '加入中' : '乘客加入') }}
       </button>
 
       <button

@@ -65,18 +65,23 @@
     <view wx:if="{{isMyRequest}}" class="ride-card ride-card-pad">
       <view class="ride-row-between my-section-head">
         <text class="ride-section-title">乘客信息</text>
-        <text class="ride-section-subtitle">{{passengers.length || 0}} 人</text>
+        <text class="ride-section-subtitle">{{passengerSummaryText}}</text>
       </view>
 
       <view wx:if="{{passengersLoading}}" class="my-empty">
         正在加载乘客信息
       </view>
 
-      <view wx:elif="{{!passengers || passengers.length === 0}}" class="my-empty">
+      <view wx:if="{{passengersError}}" id="passenger-contact-error" class="my-empty">
+        <text>{{passengersError}}</text>
+        <view id="retry-passenger-contacts" class="ride-copy" bindtap="onRetryPassengerInfo">重新加载</view>
+      </view>
+
+      <view wx:if="{{!passengersLoading && !passengersError && (!passengers || passengers.length === 0)}}" class="my-empty">
         暂无乘客加入
       </view>
 
-      <block wx:else>
+      <block wx:if="{{!passengersLoading && passengers.length > 0}}">
         <view class="ride-person" wx:for="{{passengers}}" wx:key="_openid" wx:for-item="p">
           <image class="ride-avatar" src="{{p.avatarUrl || '/images/profile.png'}}" mode="aspectFill" />
           <view class="ride-person-main">

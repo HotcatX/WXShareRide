@@ -8,7 +8,7 @@ const {
   isTargetRated,
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
-const { fetchTripDetail } = require("../../../utils/tripDetailCache")
+const { fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
 
 Page({
   data: {
@@ -32,6 +32,8 @@ Page({
     // 乘客信息
     passengers: [],
     passengersLoading: false,
+    passengersError: '',
+    passengerSummaryText: '',
     ratedTargetMap: {},
 
     // 是否为该路线司机（只有为 true 才展示乘客信息 + 退出按钮）
@@ -90,6 +92,8 @@ Page({
       largeLuggageCount: 0,
       passengers: [],
       passengersLoading: false,
+      passengersError: '',
+      passengerSummaryText: '',
       ratedTargetMap: {},
       isMyRequest: false,
       isRequestCompleted: false,
@@ -120,11 +124,16 @@ Page({
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    await this.loadRequestDetail(requestId)
+    await this.loadRequestDetail(requestId, { force: true })
   },
 
   async onPullDownRefresh() {
     await this.onDetailRefresherRefresh()
+  },
+
+  onUnload() {
+    this._pageUnloaded = true
+    this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
   },
 
   async onDetailRefresherRefresh() {
@@ -132,20 +141,29 @@ Page({
     try {
       await this.loadRequestDetail(this.data.requestId, { force: true, silent: true })
     } finally {
-      this.setData({ refresherTriggered: false })
+      if (!this._pageUnloaded) this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
 
   async loadRequestDetail(requestId, options = {}) {
+    const sequence = this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
+    const viewerKey = JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
+    const isCurrent = () => {
+      if (sequence !== this._requestLoadSequence) return false
+      if (viewerKey === JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])) return true
+      this.setLoadError('登录状态已变化，请重新打开路线')
+      return false
+    }
     if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
       // 1) 读 CarpoolRequest 详情
       const rawResult = await fetchTripDetail('request', requestId, {
         force: !!options.force,
-        allowStale: true
+        allowStale: false
       })
+      if (!isCurrent()) return
 
       // 兼容：有的函数返回 {success:true,data:[...]}，有的返回 {ok:true,data:...}
       const success = !!(rawResult && (rawResult.success || rawResult.ok))
@@ -197,9 +215,16 @@ Page({
       }
 
       // 4) 拉取乘客信息：通过 passengerID（数组）读取 openids
-      const passengerOpenids = Array.isArray(trip.passengerID)
-        ? trip.passengerID.filter(Boolean)
-        : []
+      const passengerOpenids = Array.from(new Set([
+        trip._openid,
+        ...(Array.isArray(trip.passengerID) ? trip.passengerID : [])
+      ].filter(value => typeof value === 'string' && value.trim())
+        .map(value => value.trim()))).filter(op => op !== driverOpenid)
+      const recordedPassengerCount = Number(trip.passengerCount ?? trip.requestPassengerCount)
+      const passengerCount = Number.isSafeInteger(recordedPassengerCount) && recordedPassengerCount > 0
+        ? Math.max(recordedPassengerCount, passengerOpenids.length) : passengerOpenids.length
+      const passengerSummaryText = passengerCount === passengerOpenids.length
+        ? `${passengerCount} 人` : `${passengerCount} 人 · ${passengerOpenids.length} 位联系人`
 
       const buildPassengers = (userMap = {}) => passengerOpenids.map(op => {
         const u = userMap[op] || {}
@@ -231,6 +256,8 @@ Page({
         isRequestCompleted,
         passengers: isMyRequest ? buildPassengers() : [],
         passengersLoading: isMyRequest && passengerOpenids.length > 0,
+        passengersError: '',
+        passengerSummaryText: isMyRequest ? passengerSummaryText : '',
         ratedTargetMap,
 
         loadError: '',
@@ -242,44 +269,47 @@ Page({
         return
       }
 
-      let passengers = []
+      let passengers = buildPassengers()
+      let passengersError = ''
       try {
-        const uRes = await wx.cloud.callFunction({
-          name: 'getUserInfoByOpenids',
-          data: { openids: passengerOpenids }
-        })
-        if (uRes.result && uRes.result.ok) {
-          const list = uRes.result.data || []
-          const map = {}
-          list.forEach(u => { if (u && u._openid) map[u._openid] = u })
-
-          passengers = passengerOpenids.map(op => {
-            const u = map[op] || {}
-            return {
-              _openid: op,
-              name: u.name || '',
-              phone: u.phone || '',
-              wechatID: u.wechatID || '',
-              address: u.address || '',
-              avatarUrl: u.avatarUrl || '',
-              ...attachRideStats(u, 'passenger'),
-              hasRated: isTargetRated(ratedTargetMap, op)
-            }
+        if (rawResult.passengerProfilesError) throw new Error('passenger profiles unavailable')
+        let list = rawResult.passengerProfiles
+        if (!Array.isArray(list)) {
+          // Compatibility with older deployments; current details include the authorized profiles.
+          const uRes = await wx.cloud.callFunction({
+            name: 'getUserInfoByOpenids',
+            data: { openids: passengerOpenids }
           })
+          if (!uRes.result || !uRes.result.ok || !Array.isArray(uRes.result.data)) {
+            throw new Error('passenger profiles unavailable')
+          }
+          list = uRes.result.data
         }
+        const map = {}
+        list.forEach(u => { if (u && passengerOpenids.includes(u._openid)) map[u._openid] = u })
+        passengers = buildPassengers(map)
+        if (passengerOpenids.some(op => !map[op])) passengersError = '部分乘客资料暂不可用，请重试'
       } catch (e) {
         console.error('load request passenger info error:', e)
+        passengersError = '乘客信息加载失败，请重试'
       }
 
+      if (!isCurrent()) return
       this.setData({
         passengers,
-        passengersLoading: false
+        passengersLoading: false,
+        passengersError
       })
     } catch (e) {
+      if (!isCurrent()) return
       console.error('loadRequestDetail error:', e)
       this.setData({ passengersLoading: false })
       this.setLoadError('加载失败，请稍后重试')
     }
+  },
+
+  onRetryPassengerInfo() {
+    return this.loadRequestDetail(this.data.requestId, { force: true, silent: true })
   },
 
   copyPassengerWechat(e) {
@@ -334,6 +364,8 @@ Page({
           }
 
           if (rr && (rr.ok || rr.success)) {
+            removeTripDetailCache('request', requestId)
+            markRideListStale()
             wx.showToast({ title: '已退出', icon: 'success' })
             setTimeout(() => this.goBack(), 500)
           } else {

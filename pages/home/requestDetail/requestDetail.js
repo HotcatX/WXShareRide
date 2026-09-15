@@ -3,7 +3,7 @@ const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { callTripManage, blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
-const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
+const { readTripDetailCache, fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -68,7 +68,7 @@ Page({
     isClosed: false,
 
     // 司机侧状态
-    isAccepted: false,     // 是否已有司机接单/或状态不为 open
+    isAccepted: false,     // 是否已有司机接单；乘客满员不代表已有司机
     acceptedByMe: false,   // 我是否就是该司机
 
     // 顶部横向提示条（你 WXML 里有 toastVisible）
@@ -361,7 +361,7 @@ Page({
 
     // 5) 状态
     const rawStatus = String(trip.status || 'open').toLowerCase()
-    const closedStatusList = ['closed', 'cancelled', 'canceled', 'deleted', 'finished', 'completed']
+    const closedStatusList = ['past', 'closed', 'cancelled', 'canceled', 'deleted', 'finished', 'completed']
     const isClosed = closedStatusList.includes(rawStatus)
 
     // 6) 已登录才计算“我是谁”
@@ -370,7 +370,7 @@ Page({
     const joinedByMe = !!(myOpenid && joinedAll.includes(myOpenid))
 
     // 7) 司机接单状态（保持与 driverPickupDetail 一致）
-    const isAccepted = !!driverOpenid || (trip.status && String(trip.status) !== 'open')
+    const isAccepted = !!driverOpenid
     const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
 
     this.setData({
@@ -484,6 +484,7 @@ Page({
       })
 
       if (ret.result && ret.result.success) {
+        removeTripDetailCache('request', tripId)
         markRideListStale()
         this.showToast('加入成功', 'success', 1200)
         setTimeout(() => {
@@ -513,6 +514,7 @@ Page({
       acceptedByMe,
       isOwner,
       joinedByMe,
+      isClosed,
       submittingDriver
     } = this.data
 
@@ -531,6 +533,7 @@ Page({
 
     // 规则2：已作为乘客加入，不能接单
     if (joinedByMe) return this.showToast('你已作为乘客加入该路线，无法再接单', 'none')
+    if (isClosed) return this.showToast('该路线已结束', 'none')
 
     // 已被接单
     if (isAccepted) {
@@ -547,12 +550,12 @@ Page({
     try {
       const result = await callTripManage({ type: 'request', requestId: tripId, action: 'acceptRequest' })
 
-      if (result && (result.success || result.ok)) {
+      if (result && result.ok !== false && result.success !== false &&
+          (result.success === true || result.ok === true)) {
+        removeTripDetailCache('request', tripId)
         markRideListStale()
         this.showToast('接单成功', 'success', 1200)
-        setTimeout(() => {
-          wx.reLaunch({ url: '/pages/home/home' })
-        }, 1200)
+        this.openAcceptedDriverDetail()
         return
       }
 
@@ -564,6 +567,11 @@ Page({
     } finally {
       this.setData({ submittingDriver: false })
     }
+  },
+
+  openAcceptedDriverDetail() {
+    const { tripId } = this.data
+    if (tripId) wx.redirectTo({ url: `/pages/profile/myRequestDetailDriver/myRequestDetailDriver?requestId=${encodeURIComponent(tripId)}` })
   },
 
   async onBlockRequestOwner() {

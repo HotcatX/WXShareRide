@@ -62,6 +62,11 @@
       </view>
     </view>
 
+    <view wx:if="{{driverInfoError}}" class="ride-card ride-notice">
+      <text class="ride-notice-text">{{driverInfoError}}</text>
+      <view class="ride-copy" bindtap="onDetailRefresherRefresh">重新加载</view>
+    </view>
+
     <view wx:if="{{driverInfo}}" class="ride-card ride-card-pad">
       <view class="ride-row-between my-section-head">
         <text class="ride-section-title">司机信息</text>

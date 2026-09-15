@@ -25,6 +25,8 @@ const PUBLIC_DRIVER_FIELDS = {
   nickname: true,
   avatarUrl: true,
   wechatID: true,
+  wechatId: true,
+  wechat: true,
   phone: true,
   carNumber: true,
   carBrand: true,
@@ -41,6 +43,15 @@ const DRIVER_STATS_FIELDS = {
   'rideStats.driverRatingCount': true,
   'rideStats.driverRatingWeightedAvg': true,
   'rideStats.driverRatingAvg': true
+}
+
+const REQUEST_PASSENGER_FIELDS = {
+  _openid: true, name: true, nickName: true, nickname: true, avatarUrl: true,
+  wechatID: true, wechatId: true, wechat: true, phone: true, address: true,
+  'rideStats.completedPassengerTrips': true,
+  'rideStats.passengerRatingCount': true,
+  'rideStats.passengerRatingWeightedAvg': true,
+  'rideStats.passengerRatingAvg': true
 }
 
 function normalizeType(value) {
@@ -113,6 +124,8 @@ function normalizeDriverInfo(user = {}, driverOpenid = '') {
   return {
     ...user,
     _openid: driverOpenid || user._openid || user.openid || '',
+    name: cleanText(user.name || user.nickName || user.nickname),
+    wechatID: cleanText(user.wechatID || user.wechatId || user.wechat),
     carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
     carBrand: user.carBrand || '',
     carModel: user.carModel || ''
@@ -188,6 +201,55 @@ async function getDriverData(type, doc = {}, actorOpenid = '') {
   } catch (e) {
     console.error('getTripDetail driver profile lookup failed:', e)
     return empty
+  }
+}
+
+async function getRequestPassengerData(type, doc = {}, actorOpenid = '') {
+  if (type !== 'request') return {}
+  const empty = { passengerProfiles: [], passengerProfilesError: false }
+  const actor = cleanText(actorOpenid, 80)
+  const driver = getRequestDriverOpenid(doc)
+  // Capacity and assigned driver are independent. A full passenger group still
+  // needs to share its contacts with its assigned driver, never with a visitor.
+  if (!actor || !driver || actor !== driver) return empty
+
+  const ids = new Set()
+  addId(ids, getRequestCreatorOpenid(doc))
+  getRequestPassengerOpenids(doc).forEach(id => addId(ids, id))
+  ids.delete(driver)
+  const passengers = Array.from(ids)
+  if (!passengers.length) return empty
+
+  try {
+    const users = new Map()
+    for (let offset = 0; offset < passengers.length; offset += BLOCK_QUERY_CHUNK_SIZE) {
+      const chunk = passengers.slice(offset, offset + BLOCK_QUERY_CHUNK_SIZE)
+      const result = await db.collection('userInfo')
+        .where({ _openid: db.command.in(chunk) }).field(REQUEST_PASSENGER_FIELDS)
+        .limit(chunk.length).get()
+      ;(result.data || []).forEach(user => {
+        if (user && chunk.includes(user._openid) && !users.has(user._openid)) users.set(user._openid, user)
+      })
+    }
+    const passengerProfiles = passengers.map(openid => {
+      const user = users.get(openid) || {}
+      return {
+        _openid: openid,
+        name: cleanText(user.name || user.nickName || user.nickname),
+        avatarUrl: cleanText(user.avatarUrl, 2048),
+        wechatID: cleanText(user.wechatID || user.wechatId || user.wechat),
+        phone: cleanText(user.phone),
+        address: cleanText(user.address, 300),
+        rideStats: Object.fromEntries(Object.keys(REQUEST_PASSENGER_FIELDS)
+          .filter(key => key.startsWith('rideStats.'))
+          .map(key => [key.slice('rideStats.'.length), user.rideStats && user.rideStats[key.slice('rideStats.'.length)]])
+          .filter(([, value]) => typeof value === 'number' && Number.isFinite(value)))
+      }
+    })
+    return { passengerProfiles, passengerProfilesError: false }
+  } catch (e) {
+    console.error('getTripDetail request passenger profile lookup failed:', e)
+    return { passengerProfiles: [], passengerProfilesError: true }
   }
 }
 
@@ -271,9 +333,10 @@ exports.main = async (event = {}) => {
       }
     }
 
-    const [ratedTargetOpenids, driverData] = await Promise.all([
+    const [ratedTargetOpenids, driverData, passengerData] = await Promise.all([
       getRatedTargetOpenids(type, id, wxContext.OPENID || ''),
-      getDriverData(type, res.data, wxContext.OPENID || '')
+      getDriverData(type, res.data, wxContext.OPENID || ''),
+      getRequestPassengerData(type, res.data, wxContext.OPENID || '')
     ])
 
     return {
@@ -281,6 +344,7 @@ exports.main = async (event = {}) => {
       success: true,
       data: sanitizeTripDoc(res.data),
       ...driverData,
+      ...passengerData,
       openid: wxContext.OPENID || '',
       type,
       from: type,

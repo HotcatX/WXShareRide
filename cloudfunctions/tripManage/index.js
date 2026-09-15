@@ -6,6 +6,7 @@ const db = cloud.database()
 const _ = db.command
 
 const MAX_REQUEST_PASSENGERS = 4
+const { requestPassengerIds, requestSeatCount, requestIsActive, requestStatusAfterChange } = require('./requestState')
 const RATING_PRIOR = 4.7
 const RATING_PRIOR_WEIGHT = 3
 
@@ -83,9 +84,7 @@ function getCarpoolPassengerOpenids(doc = {}) {
 }
 
 function getRequestPassengerOpenids(doc = {}) {
-  const ids = new Set()
-  ;(Array.isArray(doc.passengerID) ? doc.passengerID : []).forEach(id => addId(ids, id))
-  return Array.from(ids)
+  return requestPassengerIds(doc)
 }
 
 function getRequestDriverOpenid(doc = {}) {
@@ -185,6 +184,22 @@ async function removeIdFromUserArray(openid, fieldName, id) {
   }
 }
 
+async function getRequestUser(transaction, openid) {
+  if (!openid) return null
+  // Query only resolves the ID; ownership and updates use transaction doc reads.
+  const result = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  const located = result && result.data && result.data[0]
+  if (!located) return null
+  const current = await transaction.collection('userInfo').doc(located._id).get()
+  if (!current.data || current.data._openid !== openid) throw new Error('用户资料已变更，请重试')
+  return current.data
+}
+
+async function removeRequestUserReference(transaction, openid, fieldName, requestId) {
+  const user = await getRequestUser(transaction, openid)
+  if (user) await transaction.collection('userInfo').doc(user._id).update({ data: { [fieldName]: _.pull(requestId), updatedAt: new Date(), updateTime: new Date() } })
+}
+
 async function userArrayHas(openid, fieldName, id) {
   const user = await getUser(openid)
   if (!user) return false
@@ -240,6 +255,35 @@ function buildClearDriverFields(req) {
     next.driverOpenid = ''
   }
   return next
+}
+
+async function removeRequestMember({ requestId, actorOpenid, targetOpenid, role, creatorOnly }) {
+  return db.runTransaction(async transaction => {
+    const ref = transaction.collection('CarpoolRequest').doc(requestId)
+    const result = await ref.get()
+    const req = result && result.data
+    if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
+    const creator = getRequestCreatorOpenid(req)
+    if (creatorOnly && creator !== actorOpenid) return { ok: false, success: false, errorMsg: '仅创建者可执行该操作' }
+    let target = targetOpenid || actorOpenid
+    let count = requestSeatCount(req)
+    let patch
+    if (role === 'driver') {
+      target = getRequestDriverOpenid(req)
+      if (!target || (!creatorOnly && target !== actorOpenid)) return { ok: false, success: false, errorMsg: '你不是该路线司机，或司机已退出' }
+      patch = buildClearDriverFields(req)
+    } else {
+      if (target === creator) return { ok: false, success: false, errorMsg: '创建者请使用删除路线' }
+      if (!getRequestPassengerOpenids(req).includes(target)) return { ok: false, success: false, errorMsg: '该乘客不在路线中' }
+      count = Math.max(1, count - 1)
+      patch = { passengerID: _.pull(target), passengerCount: count }
+    }
+    patch.status = requestStatusAfterChange(req, count)
+    patch.updatedAt = new Date()
+    await ref.update({ data: patch })
+    await removeRequestUserReference(transaction, target, role === 'driver' ? 'tripDriverJoin' : 'tripPassenger', requestId)
+    return { ok: true, success: true, req, target }
+  })
 }
 
 async function kickPassengerFromCarpool(event, actorOpenid) {
@@ -371,18 +415,9 @@ async function kickDriverFromRequest(event, actorOpenid) {
   const reasonCheck = requireReason(event, '剔除司机')
   if (!reasonCheck.ok) return reasonCheck
 
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
-  const creatorOpenid = getRequestCreatorOpenid(req)
-  if (creatorOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '仅创建者可执行该操作' }
-  const driverOpenid = getRequestDriverOpenid(req)
-  if (!driverOpenid) return { ok: false, success: false, errorMsg: '当前无司机' }
-
-  const updateData = Object.assign(buildClearDriverFields(req), { updatedAt: db.serverDate() })
-  if (normalizeTripStatus(req.status) !== 'past') updateData.status = 'open'
-  await db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
-  await removeIdFromUserArray(driverOpenid, 'tripDriverJoin', requestId)
+  const changed = await removeRequestMember({ requestId, actorOpenid, role: 'driver', creatorOnly: true })
+  if (!changed.success) return changed
+  const { req, target: driverOpenid } = changed
 
   const route = buildRouteInfo(req, '该求车路线')
   await sendNotification(
@@ -405,24 +440,9 @@ async function kickPassengerFromRequest(event, actorOpenid) {
   const reasonCheck = requireReason(event, '剔除乘客')
   if (!reasonCheck.ok) return reasonCheck
 
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
-  const creatorOpenid = getRequestCreatorOpenid(req)
-  if (creatorOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '仅创建者可执行该操作' }
-  if (targetOpenid === creatorOpenid) return { ok: false, success: false, errorMsg: '不能剔除创建者' }
-  const passengerOpenids = getRequestPassengerOpenids(req)
-  if (!passengerOpenids.includes(targetOpenid)) return { ok: false, success: false, errorMsg: '该乘客不在队列中' }
-
-  const updateData = {
-    passengerID: _.pull(targetOpenid),
-    updatedAt: db.serverDate()
-  }
-  if (typeof req.passengerCount === 'number') updateData.passengerCount = Math.max(0, req.passengerCount - 1)
-  if (normalizeTripStatus(req.status) !== 'past') updateData.status = 'open'
-
-  await db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
-  await removeIdFromUserArray(targetOpenid, 'tripPassenger', requestId)
+  const changed = await removeRequestMember({ requestId, actorOpenid, targetOpenid, role: 'passenger', creatorOnly: true })
+  if (!changed.success) return changed
+  const { req } = changed
 
   const route = buildRouteInfo(req, '该求车路线')
   await sendNotification(
@@ -443,43 +463,29 @@ async function deleteRequest(event, actorOpenid) {
   const reasonCheck = requireReason(event, '删除路线')
   if (!reasonCheck.ok) return reasonCheck
 
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
-  const creatorOpenid = getRequestCreatorOpenid(req)
-  if (creatorOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '仅创建者可执行该操作' }
+  const removed = await db.runTransaction(async transaction => {
+    const ref = transaction.collection('CarpoolRequest').doc(requestId)
+    const snap = await ref.get()
+    const req = snap && snap.data
+    if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
+    const creatorOpenid = getRequestCreatorOpenid(req)
+    if (creatorOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '仅创建者可执行该操作' }
+    // Removing the route and every membership reference in one transaction
+    // prevents a concurrent join/accept from leaving a dangling user record.
+    await removeRequestUserReference(transaction, creatorOpenid, 'tripPassengerCreate', requestId)
+    const driver = getRequestDriverOpenid(req)
+    if (driver) await removeRequestUserReference(transaction, driver, 'tripDriverJoin', requestId)
+    for (const passenger of getRequestPassengerOpenids(req)) await removeRequestUserReference(transaction, passenger, 'tripPassenger', requestId)
+    await ref.remove()
+    return { ok: true, success: true, req }
+  })
+  if (!removed.success) return removed
+  const { req } = removed
 
   const driverOpenid = getRequestDriverOpenid(req)
   const passengerOpenids = getRequestPassengerOpenids(req)
   const notifyTargets = uniq([driverOpenid].concat(passengerOpenids)).filter(id => id && id !== actorOpenid)
   const route = buildRouteInfo(req, '该求车路线')
-
-  await Promise.all([
-    removeIdFromUserArray(creatorOpenid, 'tripPassengerCreate', requestId),
-    driverOpenid ? removeIdFromUserArray(driverOpenid, 'tripDriverJoin', requestId) : Promise.resolve(false),
-    ...passengerOpenids.map(pid => removeIdFromUserArray(pid, 'tripPassenger', requestId))
-  ])
-
-  const remain = []
-  if (await userArrayHas(creatorOpenid, 'tripPassengerCreate', requestId)) {
-    remain.push({ openid: creatorOpenid, field: 'tripPassengerCreate' })
-  }
-  for (const pid of passengerOpenids) {
-    if (await userArrayHas(pid, 'tripPassenger', requestId)) remain.push({ openid: pid, field: 'tripPassenger' })
-  }
-  if (driverOpenid && await userArrayHas(driverOpenid, 'tripDriverJoin', requestId)) {
-    remain.push({ openid: driverOpenid, field: 'tripDriverJoin' })
-  }
-  if (remain.length) {
-    return {
-      ok: false,
-      success: false,
-      errorMsg: '成员记录清理未完成，已阻止删除路线，请重试',
-      remain
-    }
-  }
-
-  await db.collection('CarpoolRequest').doc(requestId).remove()
 
   await Promise.all(notifyTargets.map(to => sendNotification(
       to,
@@ -498,19 +504,12 @@ async function quitRequestDriver(event, actorOpenid) {
   const requestId = cleanText(event.requestId || event.tripId || event.id, 80)
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
 
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
-  const driverOpenid = getRequestDriverOpenid(req)
-  if (driverOpenid !== actorOpenid) return { ok: false, success: false, errorMsg: '你不是该路线司机，无法退出' }
-
-  const updateData = Object.assign(buildClearDriverFields(req), { updatedAt: db.serverDate() })
-  if (normalizeTripStatus(req.status) !== 'past') updateData.status = 'open'
-  await db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
-  await removeIdFromUserArray(actorOpenid, 'tripDriverJoin', requestId)
+  const changed = await removeRequestMember({ requestId, actorOpenid, role: 'driver' })
+  if (!changed.success) return changed
+  const { req } = changed
 
   const route = buildRouteInfo(req, '该求车路线')
-  const passengerOpenids = getRequestPassengerOpenids(req)
+  const passengerOpenids = uniq([getRequestCreatorOpenid(req)].concat(getRequestPassengerOpenids(req)))
   await Promise.all(passengerOpenids
     .filter(id => id !== actorOpenid)
     .map(id => sendNotification(
@@ -531,23 +530,10 @@ async function quitRequestPassenger(event, actorOpenid) {
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
   const reason = getReason(event)
 
-  const snap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const req = snap && snap.data
-  if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
+  const changed = await removeRequestMember({ requestId, actorOpenid, role: 'passenger' })
+  if (!changed.success) return changed
+  const { req } = changed
   const creatorOpenid = getRequestCreatorOpenid(req)
-  if (creatorOpenid === actorOpenid) return { ok: false, success: false, errorMsg: '创建者请使用删除路线' }
-  const passengerOpenids = getRequestPassengerOpenids(req)
-  if (!passengerOpenids.includes(actorOpenid)) return { ok: false, success: false, errorMsg: '你不在该路线中' }
-
-  const updateData = {
-    passengerID: _.pull(actorOpenid),
-    updatedAt: db.serverDate()
-  }
-  if (typeof req.passengerCount === 'number') updateData.passengerCount = Math.max(0, req.passengerCount - 1)
-  if (normalizeTripStatus(req.status) !== 'past') updateData.status = 'open'
-
-  await db.collection('CarpoolRequest').doc(requestId).update({ data: updateData })
-  await removeIdFromUserArray(actorOpenid, 'tripPassenger', requestId)
 
   const driverOpenid = getRequestDriverOpenid(req)
   const targets = uniq([creatorOpenid, driverOpenid]).filter(id => id && id !== actorOpenid)
@@ -572,16 +558,6 @@ async function acceptRequest(event, actorOpenid) {
   let passengersToNotify = []
   let reqSnapshotForMsg = null
 
-  const preSnap = await db.collection('CarpoolRequest').doc(requestId).get()
-  const preReq = preSnap && preSnap.data
-  if (!preReq) return { ok: false, success: false, errorMsg: '未找到该求车记录' }
-  const preOwnerOpenid = getRequestCreatorOpenid(preReq)
-  const prePassengerIds = getRequestPassengerOpenids(preReq)
-  const preBlockCheck = await checkBlockWithMany(actorOpenid, [preOwnerOpenid].concat(prePassengerIds))
-  if (preBlockCheck.blocked) {
-    return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法接单' }
-  }
-
   const result = await db.runTransaction(async (transaction) => {
     const reqRef = transaction.collection('CarpoolRequest').doc(requestId)
     const snap = await reqRef.get()
@@ -598,26 +574,32 @@ async function acceptRequest(event, actorOpenid) {
       return { ok: false, success: false, errorMsg: '你已作为乘客加入该路线，无法再接单' }
     }
 
+    if (!requestIsActive(req)) {
+      return { ok: false, success: false, errorMsg: '该求车已关闭、取消或超过出发时间，无法接单' }
+    }
+    if (requestSeatCount(req) > MAX_REQUEST_PASSENGERS) {
+      return { ok: false, success: false, errorMsg: '求车人数超过上限，请联系创建者确认' }
+    }
+
     const existingDriver = getRequestDriverOpenid(req)
     if (existingDriver) {
       if (existingDriver === actorOpenid) return { ok: true, success: true, alreadyAccepted: true }
       return { ok: false, success: false, errorMsg: '该求车已被其他司机接单' }
     }
 
-    if (normalizeTripStatus(req.status) !== 'open') {
-      return { ok: false, success: false, errorMsg: `当前状态不可接单：${req.status || 'unknown'}` }
-    }
+    const blockCheck = await checkBlockWithMany(actorOpenid, [ownerOpenid].concat(passengerIds))
+    if (blockCheck.blocked) return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法接单' }
 
     await reqRef.update({
       data: {
         driverOpenid: actorOpenid,
+        status: requestStatusAfterChange(req),
         updatedAt: new Date()
       }
     })
 
-    const userInfoQueryRes = await transaction.collection('userInfo').where({ _openid: actorOpenid }).limit(1).get()
-    const list = (userInfoQueryRes && userInfoQueryRes.data) ? userInfoQueryRes.data : []
-    if (list.length === 0) {
+    const user = await getRequestUser(transaction, actorOpenid)
+    if (!user) {
       await transaction.collection('userInfo').add({
         data: {
           _openid: actorOpenid,
@@ -633,7 +615,7 @@ async function acceptRequest(event, actorOpenid) {
         }
       })
     } else {
-      await transaction.collection('userInfo').doc(list[0]._id).update({
+      await transaction.collection('userInfo').doc(user._id).update({
         data: {
           tripDriverJoin: _.addToSet(requestId),
           updatedAt: new Date()
@@ -641,7 +623,7 @@ async function acceptRequest(event, actorOpenid) {
       })
     }
 
-    passengersToNotify = passengerIds
+    passengersToNotify = uniq([ownerOpenid].concat(passengerIds))
     reqSnapshotForMsg = req
     return { ok: true, success: true }
   })

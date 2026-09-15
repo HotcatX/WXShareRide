@@ -6,7 +6,7 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../cloudfunctions/getTripDetail/index.js'), 'utf8')
 
-function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false, failProfile = false,
+function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false, failProfile = false, users,
   user = { _id: 'driver-profile', _openid: 'driver', phone: 'fixture' } }) {
   const reads = []
   const db = {
@@ -21,7 +21,7 @@ function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false, fail
           reads.push({ name, condition, count, fields })
           if (name === 'UserBlocks' && failBlocks) throw new Error('database unavailable')
           if (name === 'userInfo' && failProfile) throw new Error('profile unavailable')
-          const rows = name === 'UserBlocks' ? blocks : name === 'userInfo' ? (user ? [user] : []) : []
+          const rows = name === 'UserBlocks' ? blocks : name === 'userInfo' ? (users || (user ? [user] : [])) : []
           const selected = rows.filter(row => Object.entries(condition).every(([key, value]) =>
             value && value.$in ? value.$in.includes(row[key]) : row[key] === value)).slice(0, count)
           return { data: selected.map(row => {
@@ -54,6 +54,17 @@ function harness({ actor = 'viewer', trip, blocks = [], failBlocks = false, fail
 const carpool = () => ({ _id: 'trip', _openid: 'driver', passengers: ['p1', 'p2', 'p3', 'p4'].map(_openid => ({ _openid })) })
 const request = () => ({ _id: 'trip', _openid: 'creator', driverOpenid: 'driver', passengerID: ['p1', 'p2', 'creator'] })
 const block = (from, to, extra = {}) => ({ _id: `block-${from}-${to}`, _openid: from, targetOpenid: to, active: true, ...extra })
+
+test('request participants receive legacy driver contact aliases in the canonical fields', async () => {
+  for (const key of ['wechatID', 'wechatId', 'wechat']) {
+    const h = harness({ actor: 'creator', trip: request(), user: { _openid: 'driver', nickName: 'Driver', [key]: 'driver-contact' } })
+    const result = await h.main({ type: 'request', id: 'trip' })
+    assert.equal(result.driverInfo.name, 'Driver')
+    assert.equal(result.driverInfo.wechatID, 'driver-contact')
+    const outsider = harness({ actor: 'visitor', trip: request(), user: { _openid: 'driver', [key]: 'driver-contact' } })
+    assert.equal((await outsider.main({ type: 'request', id: 'trip' })).driverInfo, null)
+  }
+})
 
 test('batch access checks preserve both blocking directions for every carpool and request member', async () => {
   for (const [type, trip, members] of [
@@ -171,4 +182,61 @@ test('missing and failed driver statistics do not block route details or invent 
     assert.equal(result.driverStats.driverRatingCount, 0)
     assert.equal(result.driverStats.driverRatingAvg, 0)
   }
+})
+
+test('assigned request driver receives each passenger contact for a full group, including a missing legacy creator ID', async () => {
+  const trip = { ...request(), status: 'full', passengerCount: 4, passengerID: ['p1', 'p1', 'p2', 'driver'] }
+  const users = [
+    { _openid: 'creator', nickName: 'Organizer', wechatId: 'organizer-contact', phone: 'fixture-phone',
+      address: 'fixture pickup', zelleAccount: 'private-payment', admin: true,
+      rideStats: { completedPassengerTrips: 4, passengerRatingAvg: 4.8, passengerRatingCount: 2, privateNote: 'hidden' } },
+    { _openid: 'p1', name: 'Passenger 1', wechatID: 'p1-contact' },
+    { _openid: 'p2', name: 'Passenger 2', wechat: 'p2-contact' },
+    { _openid: 'unrelated', wechatID: 'private-unrelated' }
+  ]
+  const h = harness({ actor: 'driver', trip, users })
+  const result = await h.main({ type: 'request', id: 'trip' })
+  assert.equal(result.ok, true)
+  assert.equal(result.passengerProfilesError, false)
+  assert.deepEqual(Array.from(result.passengerProfiles, p => p._openid), ['creator', 'p1', 'p2'])
+  assert.deepEqual(Array.from(result.passengerProfiles, p => p.wechatID), ['organizer-contact', 'p1-contact', 'p2-contact'])
+  assert.equal(result.passengerProfiles[0].rideStats.completedPassengerTrips, 4)
+  assert.equal(result.passengerProfiles[0].address, 'fixture pickup')
+  assert.ok(!JSON.stringify(result.passengerProfiles).includes('private'))
+  assert.ok(!JSON.stringify(result.passengerProfiles).includes('hidden'))
+  assert.ok(!JSON.stringify(result.passengerProfiles).includes('admin'))
+  const contactReads = h.reads.filter(r => r.name === 'userInfo' && r.condition._openid.$in)
+  assert.equal(contactReads.length, 1)
+  assert.equal(contactReads[0].fields.zelleAccount, undefined)
+})
+
+test('request contacts are gated by the trusted assigned driver, never by supplied identities, full status or group membership', async () => {
+  for (const actor of ['', 'viewer', 'creator', 'p1', 'former-driver']) {
+    const h = harness({ actor, trip: { ...request(), status: 'full', passengerCount: 4 } })
+    const result = await h.main({ type: 'request', id: 'trip', openid: 'driver', driverOpenid: 'driver' })
+    assert.equal(result.ok, true)
+    assert.deepEqual(Array.from(result.passengerProfiles), [])
+    assert.equal(result.passengerProfilesError, false)
+    assert.ok(!h.reads.some(r => r.name === 'userInfo' && r.condition._openid.$in))
+  }
+  const h = harness({ actor: 'driver', trip: { ...request(), driverOpenid: '', status: 'full' } })
+  assert.deepEqual(Array.from((await h.main({ type: 'request', id: 'trip' })).passengerProfiles), [])
+})
+
+test('request profile lookup failures keep the route and surface a retryable contact error, not an empty passenger group', async () => {
+  const h = harness({ actor: 'driver', trip: request(), failProfile: true })
+  const result = await h.main({ type: 'request', id: 'trip' })
+  assert.equal(result.ok, true)
+  assert.equal(result.data._id, 'trip')
+  assert.equal(result.passengerProfilesError, true)
+  assert.deepEqual(Array.from(result.passengerProfiles), [])
+})
+
+test('group seat count does not fabricate passenger accounts and missing profiles retain a contact placeholder', async () => {
+  const h = harness({ actor: 'driver', trip: { ...request(), passengerCount: 4, passengerID: ['creator'] }, users: [] })
+  const result = await h.main({ type: 'request', id: 'trip' })
+  assert.equal(result.passengerProfiles.length, 1)
+  assert.equal(result.passengerProfiles[0]._openid, 'creator')
+  assert.equal(result.passengerProfiles[0].wechatID, '')
+  assert.equal(result.passengerProfilesError, false)
 })

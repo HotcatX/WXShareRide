@@ -160,7 +160,13 @@ async function upsertDriverUser(transaction, openid, tripId, event) {
 }
 
 async function upsertPassengerCreator(transaction, openid, requestId) {
-  const userRes = await transaction.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  // Query only locates the ID; the request transaction rechecks the user doc.
+  const userRes = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  if (userRes.data.length) {
+    const current = await transaction.collection('userInfo').doc(userRes.data[0]._id).get()
+    if (!current.data || current.data._openid !== openid) throw new Error('用户资料已变更，请重试')
+    userRes.data = [current.data]
+  }
   const now = new Date()
 
   if (!userRes.data.length) {
@@ -232,10 +238,28 @@ async function createCarpool(event, openid) {
 }
 
 async function createRequest(event, openid) {
+  const passengerCount = event.passengerCount === undefined ? 1 : Number(event.passengerCount)
+  if (!Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 4 ||
+    (typeof event.passengerCount !== 'undefined' && typeof event.passengerCount !== 'string' && typeof event.passengerCount !== 'number')) {
+    return { ok: false, success: false, errorMsg: '求车人数必须为 1 至 4 人' }
+  }
+  const departureMeta = buildDepartureMeta(event.departures)
+  const validDepartures = Array.isArray(event.departures) && event.departures.length > 0 && event.departures.every(point => {
+    const ms = parseTripTimeMs(point && point.date, point && point.time)
+    if (!Number.isFinite(ms)) return false
+    const local = getZonedParts(new Date(ms))
+    const date = String(point.date || '').trim().split('-').map(Number)
+    const time = String(point.time || '').trim().slice(0, 5).split(':').map(Number)
+    // Reject impossible calendar dates and New York's skipped spring hour.
+    return local.year === date[0] && local.month === date[1] && local.day === date[2] &&
+      local.hour === time[0] && local.minute === time[1]
+  })
+  if (!validDepartures || !Number.isFinite(departureMeta.latestDepartureAtMs) || departureMeta.latestDepartureAtMs <= Date.now()) {
+    return { ok: false, success: false, errorMsg: '请选择有效的未来出发时间' }
+  }
   const transaction = await db.startTransaction()
 
   try {
-    const departureMeta = buildDepartureMeta(event.departures)
     const cityKey = normalizeCityKey(event.cityKey)
     const addRes = await transaction.collection('CarpoolRequest').add({
       data: {
@@ -245,9 +269,9 @@ async function createRequest(event, openid) {
         cityLabel: normalizeCityLabel(),
         departures: event.departures || [],
         destinations: event.destinations || [],
-        passengerCount: event.passengerCount || 1,
+        passengerCount,
         largeLuggageCount: event.largeLuggageCount || 0,
-        status: event.status || 'open',
+        status: passengerCount >= 4 ? 'full' : 'open',
         referencePrice: event.referencePrice || '',
         comment: event.comment || '',
         createdAt: db.serverDate(),

@@ -9,15 +9,15 @@ const {
   isTargetRated,
   formatRidePricePerPerson
 } = require("../../../utils/tripManage")
-const { fetchTripDetail } = require("../../../utils/tripDetailCache")
+const { fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
 
-function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
-  if (!user || !driverOpenid) return null
+function buildDriverInfo(user, driverOpenid = '', ratedTargetMap = {}) {
+  if (!user || !driverOpenid || user._openid !== driverOpenid) return null
   return {
     _openid: driverOpenid,
-    name: user.name || '',
+    name: user.name || user.nickName || user.nickname || '',
     phone: user.phone || '',
-    wechatID: user.wechatID || '',
+    wechatID: user.wechatID || user.wechatId || user.wechat || '',
     avatarUrl: user.avatarUrl || '',
     carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
     carBrand: user.carBrand || '',
@@ -53,6 +53,7 @@ Page({
 
     // 信息
     driverInfo: null,
+    driverInfoError: '',
     ratedTargetMap: {},
     otherPassengers: [],
 
@@ -127,6 +128,7 @@ Page({
       timeText: '',
       showFortLeeCoreTip: false,
       driverInfo: null,
+      driverInfoError: '',
       ratedTargetMap: {},
       otherPassengers: [],
       kickMode: false,
@@ -171,11 +173,16 @@ Page({
     // ✅ 开启分享
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    await this.loadRequestDetail(requestId)
+    await this.loadRequestDetail(requestId, { force: true })
   },
 
   async onPullDownRefresh() {
     await this.onDetailRefresherRefresh()
+  },
+
+  onUnload() {
+    this._pageUnloaded = true
+    this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
   },
 
   async onDetailRefresherRefresh() {
@@ -183,20 +190,29 @@ Page({
     try {
       await this.loadRequestDetail(this.data.requestId, { force: true, silent: true })
     } finally {
-      this.setData({ refresherTriggered: false })
+      if (!this._pageUnloaded) this.setData({ refresherTriggered: false })
       wx.stopPullDownRefresh()
     }
   },
 
   async loadRequestDetail(requestId, options = {}) {
+    const sequence = this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
+    const viewerKey = JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
+    const isCurrent = () => {
+      if (sequence !== this._requestLoadSequence) return false
+      if (viewerKey === JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])) return true
+      this.setLoadError('登录状态已变化，请重新打开路线')
+      return false
+    }
     if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
       // 1) 读 CarpoolRequest 详情
       const rr = await fetchTripDetail('request', requestId, {
         force: !!options.force,
-        allowStale: true
+        allowStale: false
       })
+      if (!isCurrent()) return
 
       const ok = !!(rr && (rr.ok || rr.success))
       if (!ok) {
@@ -212,6 +228,7 @@ Page({
 
       // ✅ myOpenid 必须可靠：云函数不返回则调用 login 获取
       const myOpenid = rr.openid || (await this.getMyOpenid()) || ''
+      if (!isCurrent()) return
       const creatorOpenid = trip._openid || ''
       const rawStatus = String(trip.status || 'open').toLowerCase()
       const isRequestCompleted = rawStatus === 'past'
@@ -239,19 +256,27 @@ Page({
       // 2) 司机信息（若已接单）
       const driverOpenid = trip.driverOpenid || ''
       let driverInfo = null
+      let driverInfoError = ''
       if (driverOpenid) {
         driverInfo = buildDriverInfo(rr.driverInfo, driverOpenid, ratedTargetMap)
         if (!driverInfo) {
-          const uRes = await wx.cloud.callFunction({
-            name: 'getUserInfoByOpenids',
-            data: { openids: [driverOpenid] }
-          })
-          if (uRes.result && uRes.result.ok) {
-            const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-            driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
+          try {
+            const uRes = await wx.cloud.callFunction({
+              name: 'getUserInfoByOpenids',
+              data: { openids: [driverOpenid] }
+            })
+            if (!isCurrent()) return
+            if (uRes.result && uRes.result.ok) {
+              const u = (uRes.result.data || []).find(user => user && user._openid === driverOpenid)
+              driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
+            }
+          } catch (error) {
+            console.error('load request driver info error:', error)
           }
+          if (!driverInfo) driverInfoError = '司机信息加载失败，请下拉刷新重试'
         }
       }
+      if (!isCurrent()) return
 
       // 3) 其他乘客：显示除“我本人”以外所有加入乘客
       const a1 = Array.isArray(trip.passengerID) ? trip.passengerID : []
@@ -269,6 +294,7 @@ Page({
           name: 'getUserInfoByOpenids',
           data: { openids: filteredOpenids }
         })
+        if (!isCurrent()) return
         if (pRes.result && pRes.result.ok) {
           const list = pRes.result.data || []
           const map = {}
@@ -289,6 +315,7 @@ Page({
         }
       }
 
+      if (!isCurrent()) return
       this.setData({
         trip: displayTrip,
         myOpenid,
@@ -300,6 +327,7 @@ Page({
         timeText,
         showFortLeeCoreTip,
         driverInfo,
+        driverInfoError,
         ratedTargetMap,
         otherPassengers,
         isRequestCompleted,
@@ -308,6 +336,7 @@ Page({
         loading: false
       })
     } catch (e) {
+      if (!isCurrent()) return
       console.error('loadRequestDetail error:', e)
       this.setLoadError('加载失败，请稍后重试')
     }
@@ -376,6 +405,8 @@ Page({
       const result = await callTripManage({ type: 'request', requestId, action: 'kickDriver', reason })
       wx.hideLoading()
       if (result && (result.ok || result.success)) {
+        removeTripDetailCache('request', requestId)
+        markRideListStale()
         wx.showToast({ title: '已剔除', icon: 'success' })
         await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
@@ -416,6 +447,8 @@ Page({
       const result = await callTripManage({ type: 'request', requestId, action: 'kickPassenger', targetOpenid, reason })
       wx.hideLoading()
       if (result && (result.ok || result.success)) {
+        removeTripDetailCache('request', requestId)
+        markRideListStale()
         wx.showToast({ title: '已剔除', icon: 'success' })
         await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
@@ -455,6 +488,8 @@ Page({
       wx.hideLoading()
 
       if (result && (result.ok || result.success)) {
+        removeTripDetailCache('request', requestId)
+        markRideListStale()
         wx.showToast({ title: '已删除', icon: 'success' })
         setTimeout(() => this.goBack(), 500)
         return

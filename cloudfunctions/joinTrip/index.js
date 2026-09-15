@@ -6,6 +6,7 @@ const db = cloud.database()
 const _ = db.command
 
 const MAX_REQUEST_PASSENGERS = 4
+const { requestPassengerIds, requestSeatCount, requestIsActive } = require('./requestState')
 
 function normalizeType(value) {
   const type = String(value || '').toLowerCase()
@@ -102,8 +103,14 @@ function getRequestDriverOpenid(doc = {}) {
   return cleanOpenid(doc.driverOpenid)
 }
 
-async function upsertPassengerUser(transaction, openid, tripId) {
-  const res = await transaction.collection('userInfo').where({ _openid: openid }).limit(1).get()
+async function upsertPassengerUser(transaction, openid, tripId, requestOnly = false) {
+  // Request transactions use doc reads; query only locates the existing user ID.
+  const res = await (requestOnly ? db : transaction).collection('userInfo').where({ _openid: openid }).limit(1).get()
+  if (requestOnly && res.data.length) {
+    const current = await transaction.collection('userInfo').doc(res.data[0]._id).get()
+    if (!current.data || current.data._openid !== openid) throw new Error('用户资料已变更，请重试')
+    res.data = [current.data]
+  }
   const now = new Date()
 
   if (!res.data.length) {
@@ -235,26 +242,6 @@ async function joinRequest(event, openid) {
   const requestId = String(event.requestId || event.tripId || event.id || '').trim()
   if (!requestId) return { ok: false, success: false, errorMsg: '缺少 requestId' }
 
-  const preReqRes = await db.collection('CarpoolRequest').doc(requestId).get().catch(() => null)
-  const preReq = preReqRes && preReqRes.data
-  if (preReq) {
-    const passengerIds = Array.isArray(preReq.passengerID) ? preReq.passengerID.filter(Boolean) : []
-    const preCreatorOpenid = getRequestCreatorOpenid(preReq)
-    const preDriverOpenid = getRequestDriverOpenid(preReq)
-    if (preCreatorOpenid && preCreatorOpenid === openid) {
-      return { ok: false, success: false, errorMsg: '不能加入自己发布的求车' }
-    }
-    if (preDriverOpenid && preDriverOpenid === openid) {
-      return { ok: false, success: false, errorMsg: '你已是该路线司机，无法作为乘客加入' }
-    }
-    if (!passengerIds.includes(openid)) {
-      const blockCheck = await checkBlockWithMany(openid, [preCreatorOpenid, preDriverOpenid].concat(passengerIds))
-      if (blockCheck.blocked) {
-        return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
-      }
-    }
-  }
-
   let reqForMsg = null
   let notifyTargets = []
   let alreadyJoined = false
@@ -265,8 +252,7 @@ async function joinRequest(event, openid) {
     const req = reqDoc && reqDoc.data
     if (!req) return { ok: false, success: false, errorMsg: '未找到该路线' }
 
-    const status = normalizeTripStatus(req.status)
-    if (status !== 'open') {
+    if (!requestIsActive(req)) {
       return { ok: false, success: false, errorMsg: '该路线不可加入（已关闭或已结束）' }
     }
     const creatorOpenid = getRequestCreatorOpenid(req)
@@ -278,10 +264,9 @@ async function joinRequest(event, openid) {
       return { ok: false, success: false, errorMsg: '你已是该路线司机，无法作为乘客加入' }
     }
 
-    const passengerIds = Array.isArray(req.passengerID) ? req.passengerID.filter(Boolean) : []
+    const passengerIds = requestPassengerIds(req)
     alreadyJoined = passengerIds.includes(openid)
-    const passengerCountRaw = Number(req.passengerCount)
-    const baseCount = Number.isFinite(passengerCountRaw) ? passengerCountRaw : passengerIds.length
+    const baseCount = requestSeatCount(req)
     const nextCount = alreadyJoined ? baseCount : baseCount + 1
 
     if (!alreadyJoined && nextCount > MAX_REQUEST_PASSENGERS) {
@@ -289,6 +274,8 @@ async function joinRequest(event, openid) {
     }
 
     if (!alreadyJoined) {
+      const blockCheck = await checkBlockWithMany(openid, [creatorOpenid, driverOpenid].concat(passengerIds))
+      if (blockCheck.blocked) return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
       await reqRef.update({
         data: {
           passengerID: _.addToSet(openid),
@@ -299,7 +286,7 @@ async function joinRequest(event, openid) {
       })
     }
 
-    await upsertPassengerUser(transaction, openid, requestId)
+    await upsertPassengerUser(transaction, openid, requestId, true)
 
     const targets = [creatorOpenid, driverOpenid]
       .filter(Boolean)

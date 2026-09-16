@@ -33,6 +33,20 @@
 
 未附着的网站图片会保留上传记录，但现有清理函数只处理旧 market 路径，暂不自动删除 web-admin 路径，以免误删群码或回滚所需图片。
 
+## 2026-09-16 图片上传修复
+
+CloudBase HTTP 网关对 JSON/文本请求体限制为 100 KB；原先图片转 Base64 后放入 JSON，即使图片小于后台标示的 2 MB，也会被网关拒绝为 `413 EXCEED_MAX_PAYLOAD_SIZE`。该网关错误没有 CORS 头，浏览器只能显示连接失败。相同原图使用 `application/octet-stream` 后可通过网关的二进制通道，函数按 `isBase64Encoded` 解码并读取原 JSON 上传参数。
+
+仅 `uploadImage` 使用二进制传输；其他后台动作仍使用 JSON。来源白名单、Bearer 会话、最大 2 MB、真实图片格式、账号归属、哈希去重和审计均保持原校验。后端 `webAdmin.js` 应先于新版管理前端部署，继续兼容旧客户端的小图 JSON 上传。无需新增函数、集合或临时分块。
+
+限制依据：[CloudBase EXCEED_MAX_PAYLOAD_SIZE](https://docs.cloudbase.net/en/error-code/EXCEED_MAX_PAYLOAD_SIZE)。生产接口已只读复现原图 143,841 字节 JSON 被网关拒绝；二进制同字节请求可进入函数。
+
+微信保存的部分 JPEG 会在 EOI 结束标记后附加元数据，原先强制最后两字节为 EOI 会误拒绝完整图片。`webAdminContent.js` 现在按 JPEG 分段边界检查帧、扫描与结束标记，允许尾部附加数据，保留原图全部字节；不会把 EXIF 内嵌的 EOI 当作完整图片。对应测试覆盖微信附加数据、渐进扫描、截断及伪造图片。
+
+本次群码替换为用户提供的 NYNJ 生活服务原图，群码展示到期和公告结束时间同步设置为 2027-09-16（纽约时间），保留其他公告设置和旧图。先直接更新版本 5，再通过修复后的管理接口验证原图上传和保存，最终版本为 6，图片位于 `web-admin/admin/2135e9c3edef1a69634101c89222b944.jpg`；回读文件与原图 107,802 字节完全一致。该设置控制小程序展示，不改变微信本身的二维码有效性。原配置及更新记录备份于仓库外 `CloudFunctionBackups/WXCarGoods/community-2026-09-16/`。
+
+验证：442 项小程序/云函数测试、9 项管理前端测试通过。两个后端文件增量部署成功，腾讯云 `/admin/index.html` 和新 JS 产物与本地构建一致；小程序模拟器已确认显示完整新二维码。
+
 ## 验证
 
 - 小程序/云函数：`node --test tests/*.test.cjs`，168 项通过。

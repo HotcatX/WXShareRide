@@ -55,7 +55,11 @@ function createWebAdminHandler(dependencies) {
       origin = requestedOrigin
       if (event.httpMethod.toUpperCase() === 'OPTIONS') return respond(null, 204)
       if (event.httpMethod.toUpperCase() !== 'POST') reject('method_not_allowed', 405)
-      if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(headers['content-type'] || '')) reject('invalid_content_type', 415)
+      const contentType = headers['content-type'] || ''
+      // CloudBase limits JSON/text requests to 100 KB. Image envelopes use its
+      // binary request transport (6 MB) while retaining the same auth and limits.
+      const binaryUpload = /^application\/octet-stream$/i.test(contentType)
+      if (!binaryUpload && !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(contentType)) reject('invalid_content_type', 415)
       if (typeof event.body !== 'string' || Buffer.byteLength(event.body) > MAX_BODY_BYTES * (event.isBase64Encoded === true ? 1.34 : 1)) reject('invalid_request', 413)
       let body = event.body
       if (event.isBase64Encoded === true) {
@@ -66,6 +70,7 @@ function createWebAdminHandler(dependencies) {
       let input
       try { input = JSON.parse(body) } catch (_) { reject('invalid_json') }
       if (input !== record(input) || !ACTIONS.has(input.action)) reject('unknown_action')
+      if (binaryUpload && input.action !== 'uploadImage') reject('invalid_content_type', 415)
       if (input.action === 'login') return respond(await security.login(input))
       const account = await security.authenticate(headers)
       if (input.action === 'session') return respond({ ok: true, admin: { username: account.accountId }, expiresAtMs: account.expiresAtMs })

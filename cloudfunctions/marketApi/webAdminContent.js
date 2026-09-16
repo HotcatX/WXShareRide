@@ -44,6 +44,56 @@ function communityConfig(row = {}, strict = false) {
   if (!validFrequency) { announcement.maxShows = 1; announcement.intervalHours = 24; announcement.enabled = false }
   return { group, announcement }
 }
+function isJPEG(bytes) {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return false
+  let offset = 2, frameComponents = null, hasScan = false
+  while (offset < bytes.length) {
+    if (bytes[offset++] !== 0xff) return false
+    while (bytes[offset] === 0xff) offset++
+    const marker = bytes[offset++]
+    // JPEG decoders stop at EOI. WeChat may append metadata after it, so the
+    // marker need not be the file's final bytes. Parse segments rather than
+    // searching for FF D9, which may also occur inside EXIF/other metadata.
+    if (marker === 0xd9) return !!frameComponents && hasScan
+    if (marker === undefined || marker === 0 || marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7) || offset + 2 > bytes.length) return false
+    const length = bytes.readUInt16BE(offset), end = offset + length
+    if (length < 2 || end > bytes.length) return false
+    const isFrame = marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)
+    if (isFrame) {
+      if (frameComponents || length < 8) return false
+      const count = bytes[offset + 7]
+      if (!count || count > 4 || length !== 8 + 3 * count || ![8, 12, 16].includes(bytes[offset + 2]) || !bytes.readUInt16BE(offset + 3) || !bytes.readUInt16BE(offset + 5)) return false
+      frameComponents = new Set()
+      for (let i = 0; i < count; i++) {
+        const id = bytes[offset + 8 + 3 * i], sampling = bytes[offset + 9 + 3 * i]
+        if (frameComponents.has(id) || !(sampling >> 4) || (sampling >> 4) > 4 || !(sampling & 15) || (sampling & 15) > 4 || bytes[offset + 10 + 3 * i] > 3) return false
+        frameComponents.add(id)
+      }
+    }
+    if (marker !== 0xda) { offset = end; continue }
+    if (!frameComponents || length < 6) return false
+    const count = bytes[offset + 2], scanComponents = new Set()
+    if (!count || count > frameComponents.size || length !== 6 + 2 * count) return false
+    for (let i = 0; i < count; i++) {
+      const id = bytes[offset + 3 + 2 * i]
+      if (!frameComponents.has(id) || scanComponents.has(id)) return false
+      scanComponents.add(id)
+    }
+    offset = end
+    let hasData = false
+    while (offset < bytes.length) {
+      if (bytes[offset] !== 0xff) { hasData = true; offset++; continue }
+      const next = bytes[offset + 1]
+      if (next === 0) { hasData = true; offset += 2; continue }
+      if (next >= 0xd0 && next <= 0xd7) { offset += 2; continue }
+      if (next === 0xff) { offset++; continue }
+      break
+    }
+    if (!hasData) return false
+    hasScan = true
+  }
+  return false
+}
 function imageInput(input) {
   const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
   const ext = extensions[input.contentType]
@@ -54,7 +104,7 @@ function imageInput(input) {
   const bytes = Buffer.from(base64, 'base64')
   if (bytes.length < 12 || bytes.length > MAX_IMAGE_BYTES || bytes.toString('base64') !== base64) reject('invalid_image')
   const png = bytes.length >= 33 && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && bytes.toString('ascii', 12, 16) === 'IHDR' && bytes.readUInt32BE(16) > 0 && bytes.readUInt32BE(20) > 0
-  const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 && bytes[bytes.length - 2] === 255 && bytes[bytes.length - 1] === 217
+  const jpeg = isJPEG(bytes)
   const webp = bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' && bytes.readUInt32LE(4) + 8 === bytes.length && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.toString('ascii', 12, 16))
   if (!(ext === 'jpg' ? jpeg : ext === 'png' ? png : webp)) reject('invalid_image')
   return { bytes, ext, contentHash: crypto.createHash('sha256').update(bytes).digest('hex') }

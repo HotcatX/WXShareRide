@@ -159,6 +159,43 @@ test('uploads are registered, repeated uploads reuse the same path and QR never 
   assert.equal(f.rows('WebAdminAuditLogs').filter(x => x.action === 'uploadImage').length, 2)
 })
 
+test('binary image transport accepts originals above the gateway text limit without changing bytes', async () => {
+  const f = fixture()
+  const bytes = Buffer.concat([png(), Buffer.alloc(MAX_IMAGE_BYTES - png().length, 13)])
+  const input = uploadInput({ purpose: 'community', filename: '群二维码.png', contentType: 'image/png', base64: bytes.toString('base64') })
+  const event = f.event(input, { headers: { 'Content-Type': 'application/octet-stream' } })
+  assert.ok(Buffer.byteLength(event.body) > 100 * 1024)
+  // HTTP gateway base64-encodes binary bodies before invoking an Event function.
+  event.body = Buffer.from(event.body).toString('base64'); event.isBase64Encoded = true
+  const result = await f.handler(event)
+  assert.equal(result.statusCode, 200)
+  assert.equal(JSON.parse(result.body).ok, true)
+  assert.equal(result.headers['Access-Control-Allow-Origin'], ORIGIN)
+  assert.equal(f.calls.uploads[0].fileContent.equals(bytes), true)
+  assert.equal(f.rows('MarketFiles').length, 0)
+  const repeated = await f.handler(event)
+  assert.equal(JSON.parse(repeated.body).deduped, true)
+  assert.equal(f.calls.uploads.length, 1)
+})
+
+test('binary transport remains upload-only with normal auth, origin, image and body limits', async () => {
+  const f = fixture()
+  const options = { headers: { 'Content-Type': 'application/octet-stream' } }
+  assert.equal((await f.api({ action: 'login', username: 'admin', password: PASSWORD }, options)).status, 415)
+  assert.equal((await f.api({ action: 'updateCommunity', config: {} }, options)).status, 415)
+  assert.equal((await f.api(uploadInput(), { ...options, token: false })).status, 401)
+  assert.equal((await f.api(uploadInput(), { ...options, origin: 'https://untrusted.example.com' })).status, 403)
+  assert.equal((await f.api(uploadInput({ contentType: 'image/jpeg' }), options)).error, 'invalid_image')
+  assert.equal((await f.api(uploadInput({ base64: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') }), options)).error, 'invalid_image')
+  const oversized = f.event(uploadInput(), options)
+  oversized.body = 'A'.repeat(3 * 1024 * 1024 + 1)
+  assert.equal((await f.handler(oversized)).statusCode, 413)
+  const corrupt = { ...f.event(uploadInput(), options), isBase64Encoded: true, body: 'not!base64' }
+  assert.equal((await f.handler(corrupt)).statusCode, 400)
+  assert.equal(f.calls.uploads.length, 0)
+  assert.equal(f.writes.length, 0)
+})
+
 test('upload registration failure retries the reserved object path and commits only one audit', async () => {
   const f = fixture()
   const contentHash = crypto.createHash('sha256').update(png()).digest('hex')

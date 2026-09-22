@@ -1,8 +1,6 @@
 # WXShareRide
 
-**Community carpooling and everyday sharing, built for WeChat.**
-
-WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX (极链行服务)**. It brings ride offers, passenger requests, secondhand listings, and sublets into one community service, with a focus on the New York and New Jersey area.
+WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX**. It brings ride offers, passenger requests, secondhand listings, and sublets into one community service, with a focus on the New York and New Jersey area.
 
 ## What the service includes
 

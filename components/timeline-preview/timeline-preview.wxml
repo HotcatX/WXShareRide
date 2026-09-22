@@ -7,13 +7,18 @@
   bindscroll="onScroll"
 >
   <view class="preview-shell" style="padding-top: calc({{topInset}}px + 36rpx);">
-    <view class="preview-header">
+    <view wx:if="{{!error || !error.expiredRoute}}" class="preview-header">
       <text class="preview-kicker">朋友圈 · 公开浏览</text>
       <text class="preview-title">{{mode === 'detail' && detail ? detail.kindLabel : title}}</text>
       <text class="preview-intro">可在此浏览公开信息；联系、报名等操作需在小程序内完成。</text>
     </view>
 
-    <block wx:if="{{mode === 'info'}}">
+    <view wx:if="{{error && error.expiredRoute}}" class="preview-state preview-expired-state">
+      <text class="state-title">当前路线已过期</text>
+      <button class="preview-button" bindtap="onFindAvailableTrips" hover-class="preview-pressed">查找当前可用拼车</button>
+    </view>
+
+    <block wx:elif="{{mode === 'info'}}">
       <view class="info-hero">
         <text class="info-title">让附近的生活更方便</text>
         <text class="info-description">发现同城好物、转租房源，也可以找到一起出行的伙伴。</text>

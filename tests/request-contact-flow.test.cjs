@@ -46,6 +46,7 @@ function harness(kind, result, actor = 'driver') {
         readTripDetailCache() { return null },
         removeTripDetailCache(type, id) { invalidated.push([type, id]) }
       }
+      if (name.endsWith('routeExpiry')) return require('../utils/routeExpiry')
       throw new Error(`Unexpected dependency ${name}`)
     }
   })

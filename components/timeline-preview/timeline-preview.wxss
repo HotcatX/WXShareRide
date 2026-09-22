@@ -282,6 +282,12 @@ button::after {
   text-align: center;
 }
 
+.preview-expired-state {
+  margin-top: 24rpx;
+  padding-top: 96rpx;
+  padding-bottom: 96rpx;
+}
+
 .state-title {
   font-size: 30rpx;
   font-weight: 600;

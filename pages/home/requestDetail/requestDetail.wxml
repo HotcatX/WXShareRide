@@ -17,6 +17,11 @@
 
   <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
 
+  <view wx:elif="{{routeExpired}}" class="ride-state" id="expired-route">
+    <text class="ride-state-title">当前路线已过期</text>
+    <button class="ride-state-action expired-route-action" id="find-available-carpools" bindtap="goToAvailableCarpools">查找当前可用拼车</button>
+  </view>
+
   <view wx:elif="{{loadError}}" class="ride-state">
     <text class="ride-state-title">{{loadError}}</text>
     <button class="ride-state-action" bindtap="goBack">返回</button>
@@ -85,7 +90,7 @@
     <view class="ride-bottom-space"></view>
   </scroll-view>
 
-  <view wx:if="{{!loading && !loadError}}" class="ride-bottom request-bottom">
+  <view wx:if="{{!loading && !loadError && !routeExpired && trip}}" class="ride-bottom request-bottom">
     <button wx:if="{{isOwner}}" disabled="true" class="ride-btn ride-btn--disabled">
       自己发布的求车
     </button>

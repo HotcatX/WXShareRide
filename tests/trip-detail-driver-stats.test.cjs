@@ -19,6 +19,7 @@ function harness() {
     require(name) {
       if (name.endsWith('tripManage')) return tripManage
       if (name.endsWith('tripDetailCache')) return {}
+      if (name.endsWith('routeExpiry')) return require('../utils/routeExpiry')
       throw new Error(`Unexpected dependency ${name}`)
     }
   })

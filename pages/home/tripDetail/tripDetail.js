@@ -4,6 +4,7 @@ const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { blockRideUser, formatRidePricePerPerson, formatRideStats, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
+const { isRouteExpired } = require("../../../utils/routeExpiry")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -76,6 +77,7 @@ Page({
     loading: true,
     loadError: '',
     notFound: false,
+    routeExpired: false,
     hasJoined: false,
     isOwner: false,
 
@@ -160,7 +162,7 @@ Page({
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
-      path: `/pages/home/tripDetail/tripDetail?id=${realId}`,
+      path: `/pages/home/tripDetail/tripDetail?id=${realId}&fromShare=1`,
     })
   },
 
@@ -170,7 +172,7 @@ Page({
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
-      query: `id=${realId}`
+      query: `id=${realId}&fromShare=1`
     })
   },
 
@@ -188,8 +190,10 @@ Page({
 
     // ✅ 允许游客浏览：不再 onLoad 强制登录
     this.setData({ tripId })
-    const hasPreview = this.applyCachedPreview(tripId)
-    const loadPromise = this.loadTripDetail(tripId, { silent: hasPreview })
+    // Shared/direct entries verify current status before showing any cached details.
+    const sharedEntry = options.fromShare === '1' || getCurrentPages().length <= 1
+    const hasPreview = !sharedEntry && this.applyCachedPreview(tripId)
+    const loadPromise = this.loadTripDetail(tripId, { silent: hasPreview, force: sharedEntry })
     this._detailLoadPromise = loadPromise
     loadPromise.then(
       () => {
@@ -204,6 +208,7 @@ Page({
 
 
   async onShow() {
+    if (this.checkRouteExpiry()) return
     try {
       await this.loadUserSpots()
     } catch (e) {
@@ -243,6 +248,7 @@ Page({
     try {
       // 如果注册资料页通过 redirectTo 回到一个新建的详情页，先等待路线加载完成。
       if (this._detailLoadPromise) await this._detailLoadPromise
+      if (this.checkRouteExpiry()) return false
       if (!this.data.trip) {
         await this.loadTripDetail(currentId, { silent: false, force: true })
       }
@@ -328,11 +334,30 @@ Page({
     else wx.reLaunch({ url: '/pages/home/home' })
   },
 
+  goToAvailableCarpools() {
+    wx.redirectTo({ url: '/pages/home/carpoolList/carpoolList' })
+  },
+
+  checkRouteExpiry() {
+    if (this.data.routeExpired) return true
+    if (!isRouteExpired(this.data.trip)) return false
+    this.setRouteExpired()
+    return true
+  },
+
+  setRouteExpired() {
+    this.setLoadError('')
+    this.setData({ routeExpired: true, loadError: '', toastVisible: false,
+      pickupAddress: '', dropoffAddress: '', pickupSpotList: [], dropoffSpotList: [],
+      referencePriceText: '', showPickupOptions: false, showDropoffOptions: false })
+  },
+
   setLoadError(message, options = {}) {
     this.setData({
       loading: false,
       loadError: message || '路线加载失败，请稍后重试',
       notFound: !!options.notFound,
+      routeExpired: false,
       trip: null,
       hasJoined: false,
       isOwner: false,
@@ -364,6 +389,7 @@ Page({
   },
 
   onUnload() {
+    this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
     if (this._toastTimer) clearTimeout(this._toastTimer)
   },
 
@@ -440,6 +466,12 @@ Page({
 
   applyTripData(trip, id, options = {}) {
     if (!trip) return false
+    if (isRouteExpired(trip)) {
+      this.setRouteExpired()
+      return true
+    }
+    // A delayed list preview must not revive a route the detail request has closed.
+    if (options.fromPreview && this.data.routeExpired) return true
 
     const myOpenid = wx.getStorageSync('openid') || ''
     let hasJoined = false
@@ -482,6 +514,7 @@ Page({
       trip,
       loadError: '',
       notFound: false,
+      routeExpired: false,
       hasJoined,
       isOwner,
       driverInfo: options.fromPreview ? this.data.driverInfo : null,
@@ -505,7 +538,7 @@ Page({
     if (!(result.ok || result.success)) {
       const isNotFound = !!result.notFound
       const message = result.errorMsg || result.msg || (isNotFound ? '该路线不存在或已被删除' : '路线加载失败，请稍后重试')
-      if (!isNotFound && this.data.trip) {
+      if (!isNotFound && (this.data.trip || this.data.routeExpired)) {
         if (!options.silentError) this.showToastBar(message, 'error')
         this.setData({ loading: false })
         return false
@@ -524,6 +557,7 @@ Page({
     }
 
     this.applyTripData(trip, id)
+    if (this.data.routeExpired) return true
     const driverOpenid = getCarpoolDriverOpenid(trip)
     const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
     if (result.driverInfo && result.driverInfo._openid) {
@@ -536,11 +570,14 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
+    const sequence = this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
     const { silent = false, force = false } = options
     const cached = !force ? readTripDetailCache("carpool", id, { allowStale: true }) : null
     if (cached && this.applyTripDetailResult(cached, id, { silentError: true })) {
       fetchTripDetail("carpool", id, { force: true })
-        .then(result => this.applyTripDetailResult(result, id, { silentError: true }))
+        .then(result => {
+          if (sequence === this._detailLoadSequence) this.applyTripDetailResult(result, id, { silentError: true })
+        })
         .catch(() => {})
       return
     }
@@ -549,9 +586,11 @@ Page({
 
     try {
       const result = await fetchTripDetail("carpool", id, { force: true })
+      if (sequence !== this._detailLoadSequence) return
       this.applyTripDetailResult(result, id)
     } catch (err) {
-      if (this.data.trip) {
+      if (sequence !== this._detailLoadSequence) return
+      if (this.data.trip || this.data.routeExpired) {
         this.showToastBar('网络异常', 'error')
         this.setData({ loading: false })
         return
@@ -562,7 +601,7 @@ Page({
   },
 
   applyDriverInfo(driverInfo, id) {
-    if (!driverInfo) return
+    if (!driverInfo || this.checkRouteExpiry()) return
     const currentId = this.data.tripId || (this.data.trip && this.data.trip._id) || ''
     if (id && currentId && id !== currentId) return
 
@@ -618,6 +657,7 @@ Page({
   // 一键加入出行路线（加入必填上下车点 + 写入乘客记录）
   // =========================
   async joinCarpool() {
+    if (this.checkRouteExpiry() || !this.data.trip) return
     const { trip, hasJoined, submitting, isOwner, tripId, pickupAddress, dropoffAddress } = this.data
 
     // const p = String(this.data.pickupAddress || '').trim()

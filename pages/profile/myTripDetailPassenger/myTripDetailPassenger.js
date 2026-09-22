@@ -519,14 +519,14 @@ Page({
     if (sourceType === 'carpool') {
       return getApp().withReferralShare({
         title,
-        path: `/pages/home/tripDetail/tripDetail?id=${tripId}`
+        path: `/pages/home/tripDetail/tripDetail?id=${tripId}&fromShare=1`
       })
     }
 
     // 乘客求车记录分享指向接单详情
     return getApp().withReferralShare({
       title,
-      path: `/pages/home/requestDetail/requestDetail?id=${tripId}`
+      path: `/pages/home/requestDetail/requestDetail?id=${tripId}&fromShare=1`
     })
   },
 

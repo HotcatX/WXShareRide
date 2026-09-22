@@ -379,7 +379,7 @@ Page({
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路乘客` : '寻找顺路乘客',
-      path: `/pages/home/tripDetail/tripDetail?id=${tripId}`
+      path: `/pages/home/tripDetail/tripDetail?id=${tripId}&fromShare=1`
     })
   },
 

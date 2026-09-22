@@ -79,8 +79,11 @@ function viewItem(item) {
   }
 }
 
-function errorState(error) {
+function errorState(error, tripDetail = false) {
   const unavailable = error && error.code === 'UNAVAILABLE'
+  if (unavailable && tripDetail) {
+    return { title: '当前路线已过期', message: '', retryable: false, expiredRoute: true }
+  }
   return {
     title: unavailable ? '这条信息暂不可查看' : '暂时没有加载成功',
     message: unavailable
@@ -279,7 +282,7 @@ Component({
       }).catch(error => {
         if (!this._alive || sequence !== this._detailSeq) return
         this._detailPending = false
-        this._setData({ loading: false, error: errorState(error) })
+        this._setData({ loading: false, error: errorState(error, this.data.kind === 'trip' && this.data.mode === 'detail') })
       })
     },
 
@@ -318,6 +321,19 @@ Component({
       this._setData({ mode: 'list', detail: null, detailImages: [], loading: false, error: null })
       this._scrollTo(this._listLoaded ? this._listScrollPosition : 0)
       if (!this._listLoaded) this._loadList(false)
+    },
+
+    onFindAvailableTrips() {
+      if (!this._alive || this.data.kind !== 'trip' || this.data.mode !== 'detail' || !this.data.error || !this.data.error.expiredRoute) return
+      // Stay inside the single-page preview: navigation APIs are unavailable
+      // here, and an earlier list may still contain the now-expired route.
+      this._listSeq += 1
+      this._listPending = false
+      this._listLoaded = false
+      this._nextOffset = 0
+      this._listScrollPosition = 0
+      this._setData({ type: 'all', items: [], hasMore: false, fromList: false, moreError: false })
+      this.onBackToList()
     },
 
     onLoadMore() {

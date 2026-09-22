@@ -6,6 +6,13 @@ page{
   background: #f4f6f8;
 }
 
+.expired-route-action{
+  width: auto;
+  max-width: 100%;
+  display: inline-block;
+  padding: 0 32rpx;
+}
+
 .request-scroll{
   padding-top: 14rpx;
 }

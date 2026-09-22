@@ -4,6 +4,7 @@ const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
 const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { callTripManage, blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
+const { isRouteExpired } = require("../../../utils/routeExpiry")
 
 // 乘客上限（CarpoolRequest 固定 4）
 const MAX_PASSENGERS = 4
@@ -39,6 +40,7 @@ Page({
 
     loading: true,
     loadError: '',
+    routeExpired: false,
 
     // 两个按钮独立 submitting（避免一个按钮 loading 影响另一个）
     submittingDriver: false,
@@ -95,11 +97,13 @@ Page({
     this.setData({ tripId: id, myOpenid })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
-    const hasPreview = this.applyCachedPreview(id)
-    this.loadTripDetail(id, { silent: hasPreview })
+    const sharedEntry = options.fromShare === '1' || getCurrentPages().length <= 1
+    const hasPreview = !sharedEntry && this.applyCachedPreview(id)
+    this.loadTripDetail(id, { silent: hasPreview, force: sharedEntry })
   },
 
   onShow() {
+    if (this.checkRouteExpiry()) return
     // ✅ 从 login “游客身份查看”返回时的提示
     const tip = wx.getStorageSync('needLoginToast')
     if (tip) {
@@ -121,6 +125,10 @@ Page({
     await this.onDetailRefresherRefresh()
   },
 
+  onUnload() {
+    this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+  },
+
   async onDetailRefresherRefresh() {
     this.setData({ refresherTriggered: true })
     try {
@@ -138,6 +146,22 @@ Page({
     else wx.reLaunch({ url: '/pages/home/home' })
   },
 
+  goToAvailableCarpools() {
+    wx.redirectTo({ url: '/pages/home/carpoolList/carpoolList' })
+  },
+
+  checkRouteExpiry() {
+    if (this.data.routeExpired) return true
+    if (!isRouteExpired(this.data.trip)) return false
+    this.setRouteExpired()
+    return true
+  },
+
+  setRouteExpired() {
+    this.setLoadError('')
+    this.setData({ routeExpired: true, loadError: '', toastVisible: false, referencePriceText: '' })
+  },
+
   // 系统 toast（简单）
   showToast(text, icon = 'none', duration = 1800) {
     wx.showToast({ title: text, icon, duration })
@@ -147,6 +171,7 @@ Page({
     this.setData({
       loading: false,
       loadError: message || '加载失败',
+      routeExpired: false,
       trip: null,
       departAddress: '',
       destAddress: '',
@@ -296,7 +321,7 @@ Page({
     try {
       const cached = wx.getStorageSync(DETAIL_PREVIEW_KEY)
       if (this.isFreshPreview(cached, id, "request")) {
-        applied = this.applyRequestData(cached.item)
+        applied = this.applyRequestData(cached.item, { fromPreview: true })
       }
     } catch (e) {
     }
@@ -306,7 +331,7 @@ Page({
       if (channel && typeof channel.on === "function") {
         channel.on("routePreview", (preview) => {
           if (this.isFreshPreview(preview, id, "request")) {
-            this.applyRequestData(preview.item)
+            this.applyRequestData(preview.item, { fromPreview: true })
           }
         })
       }
@@ -318,6 +343,11 @@ Page({
 
   applyRequestData(trip, options = {}) {
     if (!trip) return false
+    if (isRouteExpired(trip)) {
+      this.setRouteExpired()
+      return true
+    }
+    if (options.fromPreview && this.data.routeExpired) return true
 
     // 1) 顶部展示字段
     let departAddress = ''
@@ -394,6 +424,7 @@ Page({
       acceptedByMe,
 
       loadError: '',
+      routeExpired: false,
       loading: false
     })
 
@@ -402,11 +433,14 @@ Page({
   },
 
   async loadTripDetail(id, options = {}) {
+    const sequence = this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
     const { silent = false, force = false } = options
     const cached = !force ? readTripDetailCache("request", id, { allowStale: true }) : null
     if (cached && this.applyRequestDetailResult(cached, id, { silentError: true })) {
       fetchTripDetail("request", id, { force: true })
-        .then(result => this.applyRequestDetailResult(result, id, { silentError: true }))
+        .then(result => {
+          if (sequence === this._detailLoadSequence) this.applyRequestDetailResult(result, id, { silentError: true })
+        })
         .catch(() => {})
       return
     }
@@ -415,9 +449,12 @@ Page({
 
     try {
       const result = await fetchTripDetail("request", id, { force: true })
+      if (sequence !== this._detailLoadSequence) return
       this.applyRequestDetailResult(result, id)
     } catch (err) {
-      if (this.data.trip) {
+      if (sequence !== this._detailLoadSequence) return
+      if (this.data.trip || this.data.routeExpired) {
+        this.setData({ loading: false })
         return
       }
       console.error('loadTripDetail error:', err)
@@ -427,7 +464,10 @@ Page({
 
   applyRequestDetailResult(result = {}, id, options = {}) {
     if (!result || !(result.ok || result.success)) {
-      if (this.data.trip && !(result && result.notFound)) return false
+      if ((this.data.trip || this.data.routeExpired) && !(result && result.notFound)) {
+        this.setData({ loading: false })
+        return false
+      }
       const msg = (result && (result.errorMsg || result.msg)) || '加载失败'
       this.setLoadError(msg)
       return false
@@ -444,6 +484,7 @@ Page({
 
   // 乘客加入
   async joinAsPassenger() {
+    if (this.checkRouteExpiry() || !this.data.trip) return
     const {
       tripId,
       trip,
@@ -507,6 +548,7 @@ Page({
   // ✅ 司机加入（tripManage）
   // =========================
   async acceptRequest() {
+    if (this.checkRouteExpiry() || !this.data.trip) return
     const {
       tripId,
       trip,
@@ -597,7 +639,7 @@ Page({
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
     return getApp().withReferralShare({
       title: title ? `${title}｜路线详情` : '路线详情',
-      path: `/pages/home/requestDetail/requestDetail?id=${tripId}`
+      path: `/pages/home/requestDetail/requestDetail?id=${tripId}&fromShare=1`
     })
   },
 
@@ -606,7 +648,7 @@ Page({
     const title = `${departAddress} → ${destAddress} ${formattedDepartTime}`.trim().slice(0, 30)
     return getApp().withReferralShare({
       title: title ? `${title}｜路线详情` : '路线详情',
-      query: `id=${tripId}`
+      query: `id=${tripId}&fromShare=1`
     })
   }
 })

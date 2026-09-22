@@ -560,7 +560,7 @@ Page({
     const title = `${fromText} → ${toText} ${dateText} ${weekdayText} ${timeText}`.trim()
     return getApp().withReferralShare({
       title: title ? `${title}｜寻找顺路同伴` : '寻找顺路同伴',
-      path: `/pages/home/requestDetail/requestDetail?id=${requestId}`
+      path: `/pages/home/requestDetail/requestDetail?id=${requestId}&fromShare=1`
     })
   },
 

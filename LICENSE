@@ -1,0 +1,87 @@
+WXShareRide — Proprietary Source-Viewing Terms
+Version 1.0 — 22 September 2026
+
+Copyright (c) HotcatX and the respective copyright holders.
+All rights reserved.
+
+1. Scope and ownership
+
+These terms apply to the first-party source code, documentation, designs, and
+other materials in versions of this repository that carry these terms, to the
+extent the relevant copyright holders have authority to license them (the
+"Materials"). These terms do not claim ownership of third-party material or
+license another contributor's rights without that contributor's authorization.
+The Materials are proprietary and source-visible, not open-source software.
+
+2. Limited permission to inspect
+
+Subject to section 4, permission is granted only to read and inspect the
+Materials for personal, noncommercial understanding, including the incidental
+technical copies necessary for ordinary viewing through GitHub. This permission
+does not grant a right to use the Materials as software, a product, a service,
+a template, or a component of another project.
+
+3. Uses requiring separate written permission
+
+Except as expressly allowed by section 2 or preserved by section 4, prior
+written permission from the relevant copyright holders is required to:
+
+- reproduce or copy the Materials, in whole or in part;
+- build, execute, test, deploy, host, or operate the Materials as a service;
+- modify, translate, adapt, or create derivative works from the Materials;
+- incorporate any Materials into another project, application, or service;
+- distribute, republish, sublicense, sell, rent, or otherwise make the Materials
+  available to others; or
+- use or exploit the Materials for commercial purposes, including paid or
+  advertising-supported services, client work, resale, and commercial products.
+
+These restrictions apply to both commercial and noncommercial reuse. Calling
+a use educational, experimental, personal, or noncommercial does not by itself
+grant permission beyond section 2. Notices of ownership and applicable license
+terms must be preserved in any copy permitted under these terms.
+
+4. Rights and permissions that remain unaffected
+
+Nothing in these terms restricts or revokes:
+
+- rights granted under GitHub's applicable Terms of Service, including permitted
+  viewing and forking through the service, or rights granted to GitHub itself;
+- rights, limitations, or exceptions under applicable law that cannot lawfully
+  be restricted, including applicable fair-use or fair-dealing rights;
+- rights granted under the independent licenses of third-party software,
+  dependencies, assets, or other third-party material;
+- valid permissions previously granted for earlier versions of the Materials;
+  or
+- separate permissions granted by the relevant copyright holders to authorized
+  collaborators or other licensees, within the scope of those permissions.
+
+Third-party copyright and license notices remain in force. Earlier ISC or other
+license grants, if validly made, are not retroactively withdrawn by these terms.
+If a provision conflicts with a right preserved in this section, that right
+prevails to the extent of the conflict. GitHub's technical ability to download
+or fork content does not itself grant additional rights beyond the applicable
+platform terms and other permissions preserved here.
+
+5. Production systems, branding, and collaboration
+
+No permission is granted to access, operate, test, or extract data from live
+services, databases, storage, accounts, credentials, or infrastructure. No
+trademark, branding, or endorsement rights are granted. Repository collaborator
+access is not a general license for reuse outside the separately authorized
+project work.
+
+6. Warranty and liability
+
+To the extent permitted by applicable law, the Materials are provided "AS IS",
+without warranties of any kind, express or implied, including merchantability,
+fitness for a particular purpose, and noninfringement. To the extent permitted
+by applicable law, the copyright holders are not liable for claims, damages, or
+other liability arising from the Materials or their use. These exclusions do
+not apply where prohibited by law.
+
+7. Additional permission
+
+All rights not expressly granted or preserved above are reserved. Any additional
+permission must be obtained in writing from the relevant copyright holders.
+Contact the repository owner at https://github.com/HotcatX to request permission
+for a specific use.

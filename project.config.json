@@ -39,7 +39,28 @@
   "cloudfunctionTemplateRoot": "cloudfunctionTemplate/",
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "services"
+      },
+      {
+        "type": "folder",
+        "value": "data"
+      },
+      {
+        "type": "folder",
+        "value": "docs"
+      },
+      {
+        "type": "folder",
+        "value": "tests"
+      },
+      {
+        "type": "folder",
+        "value": "research"
+      }
+    ],
     "include": []
   },
   "editorSetting": {}

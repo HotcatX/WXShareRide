@@ -91,9 +91,18 @@ function harness(functionName, initial = {}, options = {}) {
     },
     serverDate: () => new Date(NOW),
     async runTransaction(callback) {
-      // Sufficient for the serial real-helper wiring cases below. This harness
-      // does not claim to emulate the cloud database's conflict detection.
-      return callback({ collection: name => db.collection(name) })
+      // Serial SDK boundary tests stage a snapshot and roll back every table
+      // and observable committed write on failure. Conflict races have separate tests.
+      const before = copy(tables)
+      const writeCount = writes.length
+      const traceCount = trace.length
+      try { return await callback({ collection: name => db.collection(name) }) } catch (error) {
+        for (const key of Object.keys(tables)) delete tables[key]
+        Object.assign(tables, before)
+        writes.length = writeCount
+        trace.length = traceCount
+        throw error
+      }
     },
     collection(name) {
       const rows = () => tables[name] ||= []
@@ -230,6 +239,33 @@ test('failed ordinary status mutation does not invoke completion counting for th
   })
   const result = await h.main({ type: 'carpool', ids: ['write-fails'] })
   assert.equal(result.ok, false)
+  assert.equal(h.ensureCalls.length, 0)
+  assertNoPlatformWrites(h)
+})
+
+test('a status transition writes one durable event with matching version and retries leave it unchanged', async () => {
+  const h = harness('syncTripStatus', { Carpool: [carpool('ledger-past', { status: 'open', servedStatsCounted: false, businessVersion: 3 })] })
+  assert.equal((await h.main({ type: 'carpool', ids: ['ledger-past'] })).success, true)
+  const event = h.tables.TripActions[0].event
+  assert.equal(event.action, 'status')
+  assert.equal(event.actorOpenid, '')
+  assert.equal(event.before.status, 'open')
+  assert.equal(event.after.status, 'past')
+  assert.equal(event.version, 4)
+  assert.equal(h.tables.Carpool[0].businessVersion, 4)
+  assert.equal(h.tables.TripActions[0].deliveryState, 'pending')
+  await h.main({ type: 'carpool', ids: ['ledger-past'] })
+  assert.equal(h.tables.TripActions.length, 1)
+  assert.equal(h.tables.PublicStats[0].servedTrips, 52)
+})
+
+test('failed outbox insertion rolls back status and public totals, leaving completion retryable', async () => {
+  const h = harness('syncTripStatus', { Carpool: [carpool('ledger-fails', { status: 'open', servedStatsCounted: false })] }, {
+    failWrite: entry => entry.name === 'TripActions'
+  })
+  assert.equal((await h.main({ type: 'carpool', ids: ['ledger-fails'] })).success, false)
+  assert.equal(h.tables.Carpool[0].status, 'open')
+  assert.equal(h.tables.Carpool[0].servedStatsCounted, false)
   assert.equal(h.ensureCalls.length, 0)
   assertNoPlatformWrites(h)
 })

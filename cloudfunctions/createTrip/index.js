@@ -4,6 +4,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const { appendBusinessEvent, isSyntheticContext } = require('./businessLedger')
 const TRIP_TIME_ZONE = 'America/New_York'
 const RIDE_SERVICE_CITY_KEY = 'ny_nj'
 const RIDE_SERVICE_CITY_LABEL = '纽约/新泽西'
@@ -115,7 +116,12 @@ function buildCustomPriceUpdate(customPrice) {
 }
 
 async function upsertDriverUser(transaction, openid, tripId, event) {
-  const userRes = await transaction.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  const userRes = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  if (userRes.data.length) {
+    const current = await transaction.collection('userInfo').doc(userRes.data[0]._id).get()
+    if (!current.data || current.data._openid !== openid) throw new Error('用户资料已变更，请重试')
+    userRes.data = [current.data]
+  }
   const now = new Date()
 
   if (!userRes.data.length) {
@@ -202,33 +208,36 @@ async function upsertPassengerCreator(transaction, openid, requestId) {
   await transaction.collection('userInfo').doc(doc._id).update({ data })
 }
 
-async function createCarpool(event, openid) {
+async function createCarpool(event, openid, synthetic) {
+  const passengerCount = event.passengerCount === undefined ? 1 : Number(event.passengerCount)
+  if (!Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 8) return { ok: false, success: false, errorMsg: '可用座位数必须为 1 至 8 人' }
   const transaction = await db.startTransaction()
 
   try {
     const departureMeta = buildDepartureMeta(event.departures)
     const cityKey = normalizeCityKey(event.cityKey)
-    const addRes = await transaction.collection('Carpool').add({
-      data: {
+    const tripData = {
         cityKey,
         cityLabel: normalizeCityLabel(),
         departures: event.departures || [],
         destinations: event.destinations || [],
-        passengerCount: event.passengerCount || 1,
-        availSeatNum: event.availSeatNum || event.passengerCount || 1,
-        status: event.status || 'open',
-        passengers: Array.isArray(event.passengers) ? event.passengers : [],
+        passengerCount,
+        availSeatNum: passengerCount,
+        status: 'open',
+        passengers: [],
         referencePrice: event.referencePrice || '',
         comment: event.comment || '',
         zelle: event.zelle || 'no',
         createdAt: db.serverDate(),
         updatedAt: db.serverDate(),
         _openid: openid,
-        ...departureMeta
-      }
-    })
+        ...departureMeta,
+        businessVersion: 1, businessSynthetic: synthetic
+    }
 
+    const addRes = await transaction.collection('Carpool').add({ data: tripData })
     await upsertDriverUser(transaction, openid, addRes._id, event)
+    await appendBusinessEvent(transaction, db, { type: 'carpool', tripId: addRes._id, action: 'publish', actorOpenid: openid, after: tripData })
     await transaction.commit()
     return { ok: true, success: true, id: addRes._id, type: 'carpool' }
   } catch (e) {
@@ -237,7 +246,7 @@ async function createCarpool(event, openid) {
   }
 }
 
-async function createRequest(event, openid) {
+async function createRequest(event, openid, synthetic) {
   const passengerCount = event.passengerCount === undefined ? 1 : Number(event.passengerCount)
   if (!Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 4 ||
     (typeof event.passengerCount !== 'undefined' && typeof event.passengerCount !== 'string' && typeof event.passengerCount !== 'number')) {
@@ -261,8 +270,7 @@ async function createRequest(event, openid) {
 
   try {
     const cityKey = normalizeCityKey(event.cityKey)
-    const addRes = await transaction.collection('CarpoolRequest').add({
-      data: {
+    const tripData = {
         _openid: openid,
         passengerID: [openid],
         cityKey,
@@ -276,11 +284,13 @@ async function createRequest(event, openid) {
         comment: event.comment || '',
         createdAt: db.serverDate(),
         updatedAt: db.serverDate(),
-        ...departureMeta
-      }
-    })
+        ...departureMeta,
+        businessVersion: 1, businessSynthetic: synthetic
+    }
 
+    const addRes = await transaction.collection('CarpoolRequest').add({ data: tripData })
     await upsertPassengerCreator(transaction, openid, addRes._id)
+    await appendBusinessEvent(transaction, db, { type: 'request', tripId: addRes._id, action: 'publish', actorOpenid: openid, after: tripData })
     await transaction.commit()
     return { ok: true, success: true, id: addRes._id, type: 'request' }
   } catch (e) {
@@ -289,15 +299,15 @@ async function createRequest(event, openid) {
   }
 }
 
-exports.main = async (event = {}) => {
+exports.main = async (event = {}, context = {}) => {
   const { OPENID: openid } = cloud.getWXContext()
   if (!openid) return { ok: false, success: false, errorMsg: '未获取到 openid' }
 
   try {
     const type = normalizeType(event.type)
     return type === 'request'
-      ? await createRequest(event, openid)
-      : await createCarpool(event, openid)
+      ? await createRequest(event, openid, isSyntheticContext(context))
+      : await createCarpool(event, openid, isSyntheticContext(context))
   } catch (e) {
     console.error('createTrip error:', e)
     return {

@@ -42,3 +42,7 @@ miniprogram_npm/
 
 # Server-only deployment credential (never a mini-program or website asset)
 /cloudfunctions/marketApi/publicWeb.secret.json
+/cloudfunctions/syncPublicStatsReplica/sync.secret
+/cloudfunctions/researchParticipation/participation.secret.json
+/cloudfunctions/statistics/participation.secret.json
+/cloudfunctions/statistics/sync.secret

@@ -210,8 +210,8 @@
       </view>
       <scroll-view class="list-place-options-scroll" scroll-y enhanced="true" show-scrollbar="false">
         <view class="list-place-options">
-          <view wx:for="{{placePickerOptions}}" wx:key="value" class="list-place-option {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelectFilterPlace" hover-class="ride-pressed">
-            <text>{{item.label}}</text><text wx:if="{{item.selected}}" class="list-place-check">✓</text>
+          <view wx:for="{{placePickerOptions}}" wx:key="value" class="list-place-option {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" data-place-id="{{item.placeId}}" data-position="{{item.position}}" data-source="{{item.source}}" data-filter-token="{{item.filterToken}}" bindtap="onSelectFilterPlace" hover-class="ride-pressed">
+            <view><text>{{item.label}}</text><text wx:if="{{item.groupLabel}}" class="list-place-source">{{item.groupLabel}}</text></view><text wx:if="{{item.selected}}" class="list-place-check">✓</text>
           </view>
         </view>
         <view wx:if="{{!placePickerOptions.length || (placeSearchKeyword && placePickerOptions.length === 1 && !placePickerOptions[0].value)}}" class="list-place-no-results">没有匹配的地点，换个关键词试试</view>

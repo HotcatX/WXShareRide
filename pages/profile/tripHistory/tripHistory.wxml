@@ -68,5 +68,22 @@
 
     <view class="ride-bottom-space"></view>
   </scroll-view>
+  <view wx:if="{{followupVisible}}" class="history-followup-mask" bindtap="onFollowupClose" catchtouchmove="onFollowupTouch">
+    <view class="history-followup-panel" catchtap="onFollowupTouch" aria-role="dialog" aria-label="行程回访">
+      <view class="history-followup-head">
+        <text class="history-followup-title">行程回访</text>
+        <view class="history-followup-close" bindtap="onFollowupClose" aria-role="button" aria-label="稍后回答">×</view>
+      </view>
+      <text class="history-followup-time">{{followupTime}}</text>
+      <text wx:if="{{followupRoute}}" class="history-followup-route">{{followupRoute}}</text>
+      <text class="history-followup-question">{{followupQuestion}}</text>
+      <text class="history-followup-note">可关闭后稍后回答，不影响使用。</text>
+      <text wx:if="{{followupError}}" class="history-followup-error">{{followupError}}</text>
+      <view class="history-followup-actions">
+        <button class="history-followup-no" data-outcome="no" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">否</button>
+        <button class="history-followup-yes" data-outcome="yes" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">是</button>
+      </view>
+    </view>
+  </view>
 </view>
 </block>

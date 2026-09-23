@@ -4,6 +4,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const { appendBusinessEvent, nextVersion } = require('./businessLedger')
 
 const MAX_REQUEST_PASSENGERS = 4
 const { requestPassengerIds, requestSeatCount, requestIsActive } = require('./requestState')
@@ -105,8 +106,8 @@ function getRequestDriverOpenid(doc = {}) {
 
 async function upsertPassengerUser(transaction, openid, tripId, requestOnly = false) {
   // Request transactions use doc reads; query only locates the existing user ID.
-  const res = await (requestOnly ? db : transaction).collection('userInfo').where({ _openid: openid }).limit(1).get()
-  if (requestOnly && res.data.length) {
+  const res = await db.collection('userInfo').where({ _openid: openid }).limit(1).get()
+  if (res.data.length) {
     const current = await transaction.collection('userInfo').doc(res.data[0]._id).get()
     if (!current.data || current.data._openid !== openid) throw new Error('用户资料已变更，请重试')
     res.data = [current.data]
@@ -165,6 +166,9 @@ async function joinCarpool(event, openid) {
   let alreadyJoined = false
 
   const transactionResult = await db.runTransaction(async (transaction) => {
+    alreadyJoined = false
+    tripSnapshot = null
+    passengerForMsg = null
     const tripRef = transaction.collection('Carpool').doc(tripId)
     const tripRes = await tripRef.get()
     const trip = tripRes && tripRes.data
@@ -172,22 +176,22 @@ async function joinCarpool(event, openid) {
 
     const status = normalizeTripStatus(trip.status)
     const availSeatNum = Number(trip.availSeatNum == null ? trip.passengerCount : trip.availSeatNum)
-    if (status === 'past' || availSeatNum <= 0) {
-      return { ok: false, success: false, errorMsg: '该路线已结束或已满员' }
-    }
     const driverOpenid = getCarpoolDriverOpenid(trip)
     if (driverOpenid && driverOpenid === openid) {
       return { ok: false, success: false, errorMsg: '无法加入自己发布的路线' }
     }
 
     const passengers = Array.isArray(trip.passengers) ? trip.passengers.filter(Boolean) : []
-    alreadyJoined = passengers.some(p => p && p._openid === openid)
+    alreadyJoined = passengers.some(p => (typeof p === 'string' ? p : p && p._openid) === openid)
     if (alreadyJoined) {
       await upsertPassengerUser(transaction, openid, tripId)
       tripSnapshot = trip
       return { ok: true, success: true, alreadyJoined: true }
     }
 
+    if (!['open', 'full'].includes(status) || availSeatNum <= 0) return { ok: false, success: false, errorMsg: '该路线已结束或已满员' }
+    const blockCheck = await checkBlockWithMany(openid, [driverOpenid].concat(passengers.map(p => typeof p === 'string' ? p : p && p._openid)))
+    if (blockCheck.blocked) return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
     const passengerInfo = event.passengerInfo || {}
     const pickupAddress = String(passengerInfo.pickupAddress || event.pickupAddress || '').trim()
     const dropoffAddress = String(passengerInfo.dropoffAddress || event.dropoffAddress || '').trim()
@@ -205,6 +209,7 @@ async function joinCarpool(event, openid) {
     const nextAvail = availSeatNum - 1
     await tripRef.update({
       data: {
+        businessVersion: nextVersion(trip),
         availSeatNum: _.inc(-1),
         passengers: _.push(fixedPassenger),
         status: nextAvail <= 0 ? 'full' : 'open',
@@ -213,6 +218,7 @@ async function joinCarpool(event, openid) {
     })
 
     await upsertPassengerUser(transaction, openid, tripId)
+    await appendBusinessEvent(transaction, db, { type: 'carpool', tripId, action: 'join', actorOpenid: openid, before: trip, after: { ...trip, availSeatNum: nextAvail, passengers: passengers.concat(fixedPassenger), status: nextAvail <= 0 ? 'full' : 'open' } })
     tripSnapshot = trip
     passengerForMsg = fixedPassenger
     return { ok: true, success: true, newAvail: nextAvail }
@@ -247,6 +253,9 @@ async function joinRequest(event, openid) {
   let alreadyJoined = false
 
   const result = await db.runTransaction(async (transaction) => {
+    alreadyJoined = false
+    reqForMsg = null
+    notifyTargets = []
     const reqRef = transaction.collection('CarpoolRequest').doc(requestId)
     const reqDoc = await reqRef.get()
     const req = reqDoc && reqDoc.data
@@ -278,6 +287,7 @@ async function joinRequest(event, openid) {
       if (blockCheck.blocked) return { ok: false, success: false, errorMsg: '你和该路线成员之间存在拉黑关系，无法加入' }
       await reqRef.update({
         data: {
+          businessVersion: nextVersion(req),
           passengerID: _.addToSet(openid),
           passengerCount: nextCount,
           status: nextCount >= MAX_REQUEST_PASSENGERS ? 'full' : 'open',
@@ -287,6 +297,7 @@ async function joinRequest(event, openid) {
     }
 
     await upsertPassengerUser(transaction, openid, requestId, true)
+    if (!alreadyJoined) await appendBusinessEvent(transaction, db, { type: 'request', tripId: requestId, action: 'join', actorOpenid: openid, before: req, after: { ...req, passengerID: passengerIds.concat(openid), passengerCount: nextCount, status: nextCount >= MAX_REQUEST_PASSENGERS ? 'full' : 'open' } })
 
     const targets = [creatorOpenid, driverOpenid]
       .filter(Boolean)

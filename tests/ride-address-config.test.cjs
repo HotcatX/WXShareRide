@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const defaults = require('../utils/placeCatalog').fixedPlaceValues()
 const plain = value => JSON.parse(JSON.stringify(value))
 
 function deferred() {
@@ -23,7 +24,7 @@ function harness() {
   const module = { exports: {} }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
     module, Date: Clock,
-    require: () => require('../utils/ridePlaceOptions'),
+    require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions')),
     wx: { cloud: { database: () => ({ collection(name) {
       assert.ok(['Departure', 'Arrival'].includes(name))
       return { get() {
@@ -44,19 +45,19 @@ function harness() {
   return { api: module.exports, state, hold }
 }
 
-test('shared fixed configuration reads existing collection values and sorts only present common places', async () => {
+test('shared fixed configuration reads existing collection values and keeps the fixed eight, shared order and configured price keys', async () => {
   const { api, state } = harness()
   const result = await api.loadRideAddressConfig()
   assert.deepEqual(plain(result), {
-    fromPlaces: ['Fort Lee 核心区', '哥大', 'Newark Airport', 'JFK机场', 'LGA', 'Flushing', '广场'],
-    toPlaces: ['Fort Lee', '哥大', 'EWR机场', '博物馆']
+    fromPlaces: ['Fort Lee 核心区', '哥大', 'Flushing', 'JFK机场', 'Newark Airport', 'LGA', 'LIC', 'JSQ', '广场'],
+    toPlaces: ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR机场', 'LGA 机场', 'LIC', 'JSQ', '博物馆']
   })
   assert.deepEqual(state.reads, ['Departure', 'Arrival'])
   assert.equal(api.ADDRESS_CONFIG_CACHE_MS, 300000)
   state.documents.Departure = [{ _id: 'from', jfk: 'JFK', plaza: '新广场' }]
   state.documents.Arrival = [{ _id: 'to', last: '新地点' }]
   const replaced = await api.loadRideAddressConfig({ force: true })
-  assert.deepEqual(plain(replaced), { fromPlaces: ['JFK', '新广场'], toPlaces: ['新地点'] }, 'removed places are never supplied from hardcoded defaults')
+  assert.deepEqual(plain(replaced), { fromPlaces: [...defaults, '新广场'], toPlaces: [...defaults, '新地点'] }, 'curated fixed places survive configuration gaps; removed custom places do not')
 })
 
 test('pages share in-flight reads, receive independent arrays and reuse successful configuration for exactly five minutes', async () => {
@@ -70,11 +71,11 @@ test('pages share in-flight reads, receive independent arrays and reuse successf
   to.resolve({ data: [{ campus: '哥大' }] })
   const [a, b] = await Promise.all([first, second])
   a.fromPlaces.push('local edit')
-  assert.deepEqual(plain(b), { fromPlaces: ['EWR'], toPlaces: ['哥大'] })
+  assert.deepEqual(plain(b), { fromPlaces: defaults.map(value => value === 'EWR 机场' ? 'EWR' : value), toPlaces: defaults })
   const cached = api.getCachedRideAddressConfig()
   cached.toPlaces.push('another local edit')
   state.now += 299999
-  assert.deepEqual(plain(await api.loadRideAddressConfig()), { fromPlaces: ['EWR'], toPlaces: ['哥大'] })
+  assert.deepEqual(plain(await api.loadRideAddressConfig()), { fromPlaces: defaults.map(value => value === 'EWR 机场' ? 'EWR' : value), toPlaces: defaults })
   assert.equal(state.reads.length, 2)
   state.now++
   assert.equal(api.getCachedRideAddressConfig(), null)
@@ -89,7 +90,7 @@ test('failed or incomplete configuration is not cached and the next page can ret
     await assert.rejects(api.loadRideAddressConfig())
     assert.equal(api.getCachedRideAddressConfig(), null)
     state.documents.Arrival = [{ good: '哥大' }]
-    assert.deepEqual(plain((await api.loadRideAddressConfig()).toPlaces), ['哥大'])
+    assert.deepEqual(plain((await api.loadRideAddressConfig()).toPlaces), defaults)
     assert.equal(state.reads.length, 4)
   }
   const { api, state, hold } = harness()
@@ -115,5 +116,5 @@ test('clock rollback forces a fresh configuration read and failure cannot replac
   assert.equal(api.getCachedRideAddressConfig(), null)
   await api.loadRideAddressConfig()
   assert.equal(state.reads.length, 6)
-  assert.deepEqual(plain(api.getCachedRideAddressConfig().fromPlaces), ['未完成更新'])
+  assert.deepEqual(plain(api.getCachedRideAddressConfig().fromPlaces), [...defaults, '未完成更新'])
 })

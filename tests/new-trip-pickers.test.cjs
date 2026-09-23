@@ -13,15 +13,16 @@ const valueEvent = value => ({ detail: { value } })
 const calendarResponse = (month, days = [{ date: `${month}-20`, carpoolCount: 17, requestCount: 6 }]) => ({
   result: { success: true, month, data: { days } }
 })
-const placeResponse = (fromPlaces = ['JFK 出发'], toPlaces = ['EWR 到达']) => ({
-  result: { success: true, data: { fromPlaces, toPlaces } }
-})
+const defaults = require('../utils/placeCatalog').fixedPlaceValues()
+const placeResponse = (labels = ['公共车站']) => ({ ok: true, catalogVersion: 'places-v1', rankingVersion: 'circle-selection-v1', generatedAt: 1894703400000,
+  circles: [], places: labels.map((label, index) => ({ placeId: 'poi_test_' + index, label, source: 'circle' })) })
+
 
 function harness() {
   let definition
   const state = {
     now: new Date(2030, 0, 15, 12, 30).getTime(),
-    calls: [], queue: new Map(), navigation: [], errors: [],
+    calls: [], placeRequests: [], telemetry: [], queue: new Map(), navigation: [], errors: [],
     store: { openid: 'viewer-a', ride_active_city_v1: { key: 'ny_nj' } },
     templateReads: 0, userReads: 0, driverPrices: 0, passengerPrices: 0, addressReads: [], priceReads: [], priceRows: [],
     addressConfig: {
@@ -81,6 +82,15 @@ function harness() {
   const modules = new Map()
   function loadModule(filename) {
     const absolute = path.resolve(filename)
+    if (absolute === path.join(ROOT, 'utils/researchParticipation.js')) return {
+      getCollectionScope: () => 'test:' + state.store.openid,
+      recordEvent: (name, data) => { state.telemetry.push({ name, data: plain(data) }); return { ok: true } },
+      requestPlaceSuggestions: async data => {
+        state.placeRequests.push(plain(data))
+        const queue = state.queue.get('places:independent')
+        return queue?.length ? queue.shift().promise : placeResponse([data.field === 'departure' ? '公共出发站' : '公共到达站'])
+      }
+    }
     if (absolute === path.join(ROOT, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
     if (absolute === path.join(ROOT, 'utils/error.js')) return { showDataError: (...args) => state.errors.push(args) }
     if (modules.has(absolute)) return modules.get(absolute).exports
@@ -116,7 +126,7 @@ function harness() {
     readPassengerPrice: () => definition.updateReferencePriceFromRequestPrice.call(page),
     async start(mode) { page.onLoad(mode == null ? {} : { mode }); await tick() },
     calendarCalls: () => state.calls.filter(call => call.data?.action === 'calendar'),
-    placeCalls: () => state.calls.filter(call => call.data?.action === 'places'),
+    placeCalls: () => state.placeRequests,
     day: date => page.data.calendarDays.find(day => day.date === date)
   }
 }
@@ -128,7 +138,7 @@ test('passenger deep link shares driver address configuration without loading dr
   assert.equal(page.data.referencePrice, '')
   assert.equal(state.templateReads, 0)
   assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
-  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'EWR 机场', 'JFK', 'LGA 机场', 'Flushing', '其他'])
+  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', '其他'])
   assert.deepEqual(page.data.arrivalAddresses, page.data.departureAddresses)
 })
 
@@ -223,19 +233,25 @@ test('switching months reads that month and a failed read keeps counts unknown u
   assert.deepEqual(calendarCalls().map(call => call.data.month), ['2030-01', '2030-02', '2030-02'])
 })
 
-test('destination picker uses destination values and suggestions instead of the previous departure', async () => {
+test('the two fields use distinct snapshots and refreshed options only appear on the next opening', async () => {
   const { page, start, placeCalls } = harness()
   await start('driver')
   Object.assign(page.data, { departureAddress: '出发自选', destinationAddress: '到达自选' })
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(page.data.placePickerValue, '出发自选')
-  assert.deepEqual(page.data.placePickerOptions, ['JFK 出发'])
+  assert.deepEqual(page.data.placePickerOptions, [], 'first order is frozen while the public response arrives')
+  page.onClosePlacePicker()
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共出发站'])
   page.onClosePlacePicker()
   await page.onOpenPlacePicker(placeEvent('destination'))
   assert.equal(page.data.placePickerTitle, '选择目的地')
   assert.equal(page.data.placePickerValue, '到达自选')
-  assert.deepEqual(page.data.placePickerOptions, ['EWR 到达'])
-  assert.equal(placeCalls().length, 1, 'the two fields share a successful place-options read')
+  assert.deepEqual(page.data.placePickerOptions, [])
+  page.onClosePlacePicker()
+  await page.onOpenPlacePicker(placeEvent('destination'))
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共到达站'])
+  assert.deepEqual(placeCalls().map(row => row.field), ['departure', 'destination'])
 })
 
 test('custom place confirmation updates only its field and invokes the correct mode price hook', async () => {
@@ -292,7 +308,7 @@ test('late place suggestions cannot change a closed or unloaded page', async () 
   for (const finish of ['close', 'unload']) {
     const { page, start, hold } = harness()
     await start('driver')
-    const held = hold('getTripList:places')
+    const held = hold('places:independent')
     const opened = page.onOpenPlacePicker(placeEvent('departure'))
     if (finish === 'close') page.onClosePlacePicker()
     else page.onUnload()
@@ -300,25 +316,25 @@ test('late place suggestions cannot change a closed or unloaded page', async () 
     held.resolve(placeResponse(['迟到的出发'], ['迟到的到达']))
     await opened
     assert.deepEqual(page.data, before)
-    assert.equal(page._placeSuggestions, null)
+    assert.deepEqual(plain(page._placeSuggestions.places), [])
   }
 })
 
-test('place responses from an old identity cannot replace current identity suggestions', async () => {
+test('account change closes the private panel and late responses cannot repopulate it', async () => {
   const { page, state, start, hold, placeCalls } = harness()
   await start('driver')
-  const old = hold('getTripList:places')
+  const old = hold('places:independent')
   const opened = page.onOpenPlacePicker(placeEvent('departure'))
   state.store.openid = 'viewer-b'
-  const current = hold('getTripList:places')
-  const changed = page.loadPlaceSuggestions()
-  current.resolve(placeResponse(['新身份出发'], ['新身份到达']))
-  await changed
-  assert.deepEqual(page.data.placePickerOptions, ['新身份出发'])
-  old.resolve(placeResponse(['旧身份出发'], ['旧身份到达']))
+  await page.loadPlaceSuggestions()
+  assert.equal(page.data.placePickerVisible, false)
+  old.resolve(placeResponse(['旧账号公共地点']))
   await opened
-  assert.deepEqual(page.data.placePickerOptions, ['新身份出发'])
-  assert.equal(page.data.placePickerLoading, false)
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  assert.deepEqual(page.data.placePickerOptions, [])
+  page.onClosePlacePicker()
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共出发站'])
   assert.equal(placeCalls().length, 2)
 })
 
@@ -354,8 +370,8 @@ test('switching from driver to passenger shares in-flight configuration without 
   oldDeparture.resolve({ data: [{ _id: 'dep', place: '共有出发' }] })
   oldArrival.resolve({ data: [{ _id: 'arr', place: '共有到达' }] })
   await tick()
-  assert.deepEqual(page.data.departureAddresses, ['共有出发', '其他'])
-  assert.deepEqual(page.data.arrivalAddresses, ['共有到达', '其他'])
+  assert.deepEqual(page.data.departureAddresses, [...defaults, '共有出发', '其他'])
+  assert.deepEqual(page.data.arrivalAddresses, [...defaults, '共有到达', '其他'])
   assert.equal(page.data.loadingDepartureAddrs, false)
   assert.equal(page.data.loadingArrivalAddrs, false)
   assert.equal(state.errors.length, 0)
@@ -378,17 +394,20 @@ test('address responses after unload cannot modify the page or show an obsolete 
   }
 })
 
-test('both forms show six short fixed labels and retain canonical values and dynamic custom places', async () => {
+test('both forms show the eight fixed places and keep a completed background response for next opening', async () => {
   for (const mode of ['driver', 'passenger']) {
     const { page, start, state, hold } = harness()
     await start(mode)
-    const suggestions = hold('getTripList:places')
+    const suggestions = hold('places:independent')
     const opened = page.onOpenPlacePicker(placeEvent('departure'))
-    suggestions.resolve(placeResponse(['EWR Terminal C', 'Fort Lee 某公寓'], ['自选目的地']))
+    const labels = page.data.placePickerFixedOptions.map(item => item.label)
+    suggestions.resolve(placeResponse(['公共车站']))
     await opened
-    assert.deepEqual(page.data.placePickerFixedOptions.map(item => item.label), ['Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛'])
-    assert.deepEqual(page.data.placePickerFixedOptions.map(item => item.value), ['Fort Lee核心区', '哥大', 'EWR 机场', 'JFK', 'LGA 机场', 'Flushing'])
-    assert.deepEqual(page.data.placePickerOptions, ['EWR Terminal C', 'Fort Lee 某公寓'])
+    assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ'])
+    assert.deepEqual(page.data.placePickerOptions, [])
+    page.onClosePlacePicker()
+    await page.onOpenPlacePicker(placeEvent('departure'))
+    assert.deepEqual(page.data.placePickerOptions.map(row => row.value), ['公共车站'])
     await page.onConfirmPlace(valueEvent('EWR 机场'))
     assert.equal(page.data.departureAddress, 'EWR 机场')
     assert.equal(state.driverPrices, mode === 'driver' ? 1 : 0)
@@ -397,34 +416,27 @@ test('both forms show six short fixed labels and retain canonical values and dyn
   }
 })
 
-test('opening either place field hot-reloads expired fixed configuration without reviving removed places or adding reads within five minutes', async () => {
+test('expired fixed configuration refreshes underlying data while the open panel stays stable', async () => {
   const { page, start, state } = harness()
   await start('driver')
   await page.onOpenPlacePicker(placeEvent('departure'))
+  const frozen = plain(page.data.placePickerFixedOptions)
   page.onClosePlacePicker()
   state.addressConfig.Departure = { _id: 'dep', museum: '博物馆', campus: '哥大', jfk: 'JFK' }
   state.addressConfig.Arrival = { _id: 'arr', destination: '新目的地', newark: 'Newark Airport' }
-  state.now += 299999
-  await page.onOpenPlacePicker(placeEvent('destination'))
-  assert.equal(state.addressReads.length, 2)
-  assert.equal(page.data.placePickerFixedOptions.length, 6)
-  page.onClosePlacePicker()
-  state.now++
+  state.now += 300000
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(state.addressReads.length, 4)
-  assert.deepEqual(page.data.placePickerFixedOptions.map(item => item.label), ['哥大', 'JFK', '博物馆'])
+  assert.deepEqual(page.data.placePickerFixedOptions, frozen)
   page.onClosePlacePicker()
-  await page.onOpenPlacePicker(placeEvent('destination'))
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  assert.equal(page.data.placePickerFixedOptions.at(-1).label, '博物馆')
+  assert.equal(page.data.placePickerFixedOptions.length, 9)
   assert.equal(state.addressReads.length, 4)
-  assert.deepEqual(page.data.placePickerFixedOptions.map(item => item.label), ['纽瓦克', '新目的地'])
-  page.setMode({ currentTarget: { dataset: { mode: 'passenger' } } })
-  await tick()
-  assert.equal(state.addressReads.length, 4)
-  assert.deepEqual(page.data.departureAddresses, ['哥大', 'JFK', '博物馆', '其他'])
 })
 
 test('short airport labels resolve existing passenger price rows with one query and prefer an exact configured pair', async () => {
-  for (const [selected, saved] of [['纽瓦克', 'EWR机场'], ['JFK', 'JFK 机场'], ['拉瓜迪亚', 'La Guardia Airport'], ['法拉盛', 'Flushing']]) {
+  for (const [selected, saved] of [['EWR 机场', '纽瓦克'], ['JFK', 'JFK 机场'], ['拉瓜迪亚', 'La Guardia Airport'], ['法拉盛', 'Flushing']]) {
     const { page, start, state, readPassengerPrice } = harness()
     await start('passenger')
     Object.assign(page.data, { departureAddress: selected, destinationAddress: '哥大' })
@@ -445,7 +457,7 @@ test('short airport labels resolve existing passenger price rows with one query 
 test('airport price alias matching works in either direction and does not broaden specific custom destinations', async () => {
   const { page, start, state, readPassengerPrice } = harness()
   await start('passenger')
-  Object.assign(page.data, { departureAddress: '哥大', destinationAddress: '纽瓦克' })
+  Object.assign(page.data, { departureAddress: '哥大', destinationAddress: 'EWR 机场' })
   state.priceRows = [{ Departure: '哥大', Destination: 'Newark Liberty International Airport', Price: 45 }]
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '45')

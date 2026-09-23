@@ -8,6 +8,7 @@ const MAX_TIMEOUT_MS = 2147483647
 const { formatRidePriceTag: formatRidePriceTagShared, markRideListStale } = require("../../utils/tripManage")
 const rideTime = require("../../utils/rideTime")
 const community = require("../../utils/community")
+const publicStatsPilot = require("../../utils/publicStatsPilot")
 const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
@@ -763,22 +764,28 @@ Page({
 
   async loadPublicStats({ force = false } = {}) {
     try {
-      const pending = this._homeReads && this._homeReads.stats && this._homeReads.stats.promise
+      const context = publicStatsPilot.getPublicStatsReadContext()
+      const previous = this._homeReads && this._homeReads.stats
+      const pending = previous && previous.key === context.key && previous.promise
       if (!force && !pending) {
         const cached = readPublicStatsCache()
         if (cached) {
+          this._publicStatsReadDiagnostic = { source: 'local-cache' }
           this.setData({ publicStats: normalizePublicStats(cached.data) })
           return
         }
       }
       // Public totals have a separate persistent TTL and do not change when a
       // local ride mutation or login invalidates the personal lists.
-      await readHomeResource(this, 'stats', 'public', true, async isCurrent => {
-        const res = await wx.cloud.callFunction({ name: 'getPublicStats' })
+      await readHomeResource(this, 'stats', context.key, true, async isCurrent => {
+        const read = await publicStatsPilot.loadPublicStats(context)
+        if (!isCurrent() || !publicStatsPilot.isPublicStatsReadCurrent(context)) return false
+        this._publicStatsReadDiagnostic = read.diagnostic
+        const res = read.response
         if (!res || !res.result || res.result.success !== true) throw new Error('获取社区统计失败')
-        if (!isCurrent()) return false
         const syncedAt = Date.now()
         const stats = normalizePublicStats(res.result.data || {})
+        // Both read transports share the original 24-hour public cache.
         if (stats.hasServedTrips) {
           try {
             wx.setStorageSync(PUBLIC_STATS_CACHE_KEY, {

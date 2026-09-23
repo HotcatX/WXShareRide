@@ -199,7 +199,7 @@ test('calendar Other matches places outside configured presets with alias-aware 
 
 test('calendar fixed airport and Flushing choices match historical aliases while a specific custom address stays specific', async () => {
   const groups = [
-    ['纽瓦克', ['EWR', '纽瓦克', 'Newark', 'Newark Liberty International Airport', 'EWR Terminal C', '纽瓦克机场 T1']],
+    ['EWR', ['EWR', 'Newark Liberty International Airport', 'EWR Terminal C', '纽瓦克机场 T1']],
     ['JFK', ['JFK', '肯尼迪', 'John F Kennedy International Airport', '肯尼迪机场', 'JFK Terminal 4']],
     ['拉瓜迪亚', ['LGA', '拉瓜迪亚', 'LaGuardia', 'La Guardia Airport', 'LGA Terminal B']],
     ['法拉盛', ['Flushing', '法拉盛', 'Flushing Library', '法拉盛地铁站']]
@@ -228,7 +228,7 @@ test('calendar fixed airport and Flushing choices match historical aliases while
 })
 
 test('calendar Other excludes the new configured fixed groups using their historical aliases', async () => {
-  const presetNames = ['Fort Lee', '哥大', '纽瓦克', 'JFK', '拉瓜迪亚', '法拉盛']
+  const presetNames = ['Fort Lee', '哥大', 'EWR', 'JFK', '拉瓜迪亚', '法拉盛']
   const h = harness({ carpool: ['EWR', 'LGA', '肯尼迪机场', 'Flushing', 'EWR Terminal C', 'Newport station'].map((address, i) =>
     trip(`other-${i}`, '2026-09-11', {
       departures: [{ date: '2026-09-11', time: '15:00', address }], destinations: [{ address: '哥大' }]
@@ -300,113 +300,19 @@ function suggestedPlaces(result) {
   return JSON.parse(JSON.stringify(result.data))
 }
 
-test('place suggestions scan both route types beyond 100 rows with minimal projections and no next-date probes', async () => {
-  const h = harness({
-    carpool: Array.from({ length: 215 }, (_, i) => suggestedTrip(`car-${String(i).padStart(3, '0')}`, 'Newport', 'Hudson Yards')).reverse(),
-    request: Array.from({ length: 120 }, (_, i) => suggestedTrip(`req-${String(i).padStart(3, '0')}`, 'Flushing Library', 'Penn Station')).reverse()
-  })
-  const result = await h.main({ ...places, type: 'carpool', limit: 20, quick: false })
-  assert.deepEqual(suggestedPlaces(result), {
-    fromPlaces: ['Newport', 'Flushing Library'], toPlaces: ['Hudson Yards', 'Penn Station']
-  })
-  const routeReads = h.reads.filter(read => read.name !== 'UserBlocks')
-  assert.equal(routeReads.length, 5)
-  assert.ok(routeReads.every(read => read.limit === 100))
-  assert.ok(routeReads.every(read => JSON.stringify(read.order) === JSON.stringify([['firstDepartureDate', 'asc'], ['_id', 'asc']])))
-  for (const read of routeReads) {
-    assert.deepEqual(Object.keys(read.fields).sort(), (read.name === 'Carpool' ?
-      ['_id', '_openid', 'departures', 'destinations', 'firstDepartureDate', 'passengers'] :
-      ['_id', '_openid', 'departures', 'destinations', 'driverOpenid', 'firstDepartureDate', 'passengerID']).sort())
+test('legacy place suggestions never redistribute unverified user addresses or scan business history', async () => {
+  for (const actor of ['viewer', '']) {
+    const h = harness({ actor, carpool: [
+      suggestedTrip('private', 'Fort Lee Apartment 3A', '555 Private Street'),
+      suggestedTrip('public-looking', 'Some park entrance', 'Unverified station'),
+      suggestedTrip('known', 'EWR Terminal C', 'Flushing Library')
+    ] })
+    assert.deepEqual(suggestedPlaces(await h.main(places)), { fromPlaces: [], toPlaces: [] })
+    assert.equal(h.reads.length, 0)
   }
-  assert.equal(h.reads.filter(read => read.name === 'UserBlocks').length, 2)
-  assert.equal(JSON.stringify(result).includes('owner-'), false)
 })
 
-test('place suggestions contain other creators in the current city and only open/full unexpired routes', async () => {
-  const h = harness({ carpool: [
-    suggestedTrip('ny', 'NY Place', 'NY Destination', { cityKey: 'ny' }),
-    suggestedTrip('nj-full', 'NJ Place', 'NJ Destination', { cityKey: 'nj', status: 'full' }),
-    suggestedTrip('own-car', 'Own Car Place', 'Own Car Destination', { _openid: 'viewer' }),
-    suggestedTrip('boston', 'Boston Place', 'Boston Destination', { cityKey: 'boston' }),
-    suggestedTrip('expired', 'Expired Place', 'Expired Destination', { latestDepartureAtMs: NOW - 31 * 60 * 1000 }),
-    suggestedTrip('grace', 'Grace Place', 'Grace Destination', { latestDepartureAtMs: NOW - 30 * 60 * 1000 }),
-    suggestedTrip('cancelled', 'Cancelled Place', 'Cancelled Destination', { status: 'cancelled' }),
-    suggestedTrip('completed', 'Completed Place', 'Completed Destination', { status: 'past' }),
-    suggestedTrip('joined', 'Joined Place', 'Joined Destination', { passengers: [{ _openid: 'viewer' }] })
-  ], request: [
-    suggestedTrip('own-request', 'Own Request Place', 'Own Request Destination', { _openid: 'viewer' }),
-    suggestedTrip('request', 'Request Place', 'Request Destination')
-  ] })
-  const result = suggestedPlaces(await h.main({ ...places, cityKey: 'nj' }))
-  assert.deepEqual(result.fromPlaces, ['Grace Place', 'Joined Place', 'NJ Place', 'NY Place', 'Request Place'])
-  assert.deepEqual(result.toPlaces, ['Grace Destination', 'Joined Destination', 'NJ Destination', 'NY Destination', 'Request Destination'])
-  const boston = suggestedPlaces(await h.main({ ...places, cityKey: 'boston' }))
-  assert.deepEqual(boston.fromPlaces, ['Boston Place'])
-})
-
-test('place suggestions apply both block directions to owners, carpool passengers, and request participants before extracting addresses', async () => {
-  const h = harness({ carpool: [
-    suggestedTrip('owner', 'Blocked Owner Place', 'Hidden Owner Destination', { _openid: 'blocked-owner' }),
-    suggestedTrip('passenger', 'Blocked Passenger Place', 'Hidden Passenger Destination', { passengers: [{ _openid: 'blocked-passenger' }] }),
-    suggestedTrip('safe', 'Safe Place', 'Safe Destination')
-  ], request: [
-    suggestedTrip('driver', 'Blocked Driver Place', 'Hidden Driver Destination', { driverOpenid: 'reverse-driver' }),
-    suggestedTrip('request-passenger', 'Blocked Request Place', 'Hidden Request Destination', { passengerID: ['reverse-passenger'] })
-  ], blocks: [
-    { _openid: 'viewer', targetOpenid: 'blocked-owner', active: true },
-    { _openid: 'viewer', targetOpenid: 'blocked-passenger', active: true },
-    { _openid: 'reverse-driver', targetOpenid: 'viewer', active: true },
-    { _openid: 'reverse-passenger', targetOpenid: 'viewer', active: true }
-  ] })
-  assert.deepEqual(suggestedPlaces(await h.main(places)), { fromPlaces: ['Safe Place'], toPlaces: ['Safe Destination'] })
-})
-
-test('place suggestions exclude exact fixed aliases but retain custom Fort Lee/Columbia addresses and normalize duplicate stops', async () => {
-  const excluded = ['FortLee', 'FORT LEE', 'Fort Lee 核心区', 'Fort Lee 全区域', '哥大', 'Columbia', '哥大Columbia', '哥大 / Columbia', '哥伦比亚大学', 'Columbia University', '其他', '自选', '全部']
-  const h = harness({ carpool: [
-    ...excluded.map((name, i) => suggestedTrip(`fixed-${i}`, name, name)),
-    suggestedTrip('custom-a', 'Fort Lee 某公寓', 'Columbia 北门'),
-    suggestedTrip('custom-b', '  Newport   Station  ', 'Penn   Station', {
-      departures: [{ address: '  Newport   Station  ' }, { address: 'newport station' }, { address: {} }, { address: ' ' }, { address: 'x'.repeat(201) }]
-    }),
-    suggestedTrip('custom-c', 'newport station', 'penn station'),
-    suggestedTrip('alpha-a', 'Alpha', 'Alpha'), suggestedTrip('alpha-b', 'Alpha', 'Alpha')
-  ] })
-  assert.deepEqual(suggestedPlaces(await h.main(places)), {
-    fromPlaces: ['Alpha', 'Newport Station', 'Fort Lee 某公寓'],
-    toPlaces: ['Alpha', 'Penn Station', 'Columbia 北门']
-  })
-})
-
-test('place suggestions exclude only exact airport/Flushing aliases and retain terminal and street details', async () => {
-  const excluded = [
-    '纽瓦克', 'EWR', 'ewr airport', 'Newark', 'Newark Liberty International Airport', '纽瓦克国际机场',
-    'JFK', 'jfk airport', '肯尼迪', '肯尼迪机场', 'John F Kennedy International Airport',
-    'LGA', '拉瓜迪亚', '拉瓜迪亚机场', 'LaGuardia', 'La Guardia Airport',
-    '法拉盛', 'Flushing'
-  ]
-  const custom = ['EWR Terminal C', 'JFK Terminal 4', 'LGA Terminal B', 'Newark Broad Street', 'Flushing Library', '纽瓦克机场 T1', '法拉盛地铁站']
-  const h = harness({ carpool: [...excluded, ...custom].map((address, i) => suggestedTrip(`place-${i}`, address, address)) })
-  const result = suggestedPlaces(await h.main(places))
-  assert.deepEqual([...result.fromPlaces].sort(), [...custom].sort())
-  assert.deepEqual([...result.toPlaces].sort(), [...custom].sort())
-})
-
-test('place suggestions rank by distinct route frequency then stable text and cap each side at 100', async () => {
-  const h = harness({ actor: '', carpool: [
-    ...Array.from({ length: 105 }, (_, i) => suggestedTrip(`car-${String(i).padStart(3, '0')}`, `Place ${String(i).padStart(3, '0')}`, `Destination ${String(i).padStart(3, '0')}`)),
-    suggestedTrip('popular-car', 'Place 104', 'Destination 104')
-  ], request: [suggestedTrip('popular-request', 'Place 104', 'Destination 104')] })
-  const result = suggestedPlaces(await h.main(places))
-  assert.equal(result.fromPlaces.length, 100)
-  assert.equal(result.toPlaces.length, 100)
-  assert.deepEqual(result.fromPlaces.slice(0, 3), ['Place 104', 'Place 000', 'Place 001'])
-  assert.deepEqual(result.toPlaces.slice(0, 3), ['Destination 104', 'Destination 000', 'Destination 001'])
-  assert.equal(result.fromPlaces.at(-1), 'Place 098')
-  assert.equal(h.reads.some(read => read.name === 'UserBlocks'), false)
-})
-
-test('place suggestions reject malformed cities before reading and never return partial data after range or block failures', async () => {
+test('legacy place compatibility validates city before returning fixed-only fallback', async () => {
   for (const cityKey of [undefined, null, {}, [], 12, '', ' ny_nj', 'ny nj', 'ny_nj\n', 'all', 'ny/nj', '../ny', 'a'.repeat(81)]) {
     const h = harness()
     const result = await h.main({ ...places, cityKey })
@@ -414,13 +320,13 @@ test('place suggestions reject malformed cities before reading and never return 
     assert.match(result.errorMsg, /invalid_places_city/)
     assert.equal(h.reads.length, 0)
   }
-  for (const failQuery of [
-    read => read.name === 'Carpool' && JSON.stringify(read.condition).includes('"op":"or"'),
-    read => read.name === 'UserBlocks'
-  ]) {
-    const h = harness({ carpool: Array.from({ length: 101 }, (_, i) => suggestedTrip(`car-${i}`, 'Newport')), failQuery })
-    const result = await h.main(places)
-    assert.equal(result.success, false)
-    assert.equal(result.data, undefined)
+})
+
+test('EWR does not include Newark city and new JSQ/LIC filters retain region boundaries', async () => {
+  const addresses = ['Newark', '纽瓦克', 'Newark Broad Street', 'Newark Liberty International Airport', 'EWR Terminal C',
+    'Jersey City', 'Journal Square', 'JSQ PATH', 'Long Island', 'Long Island City', 'LIC']
+  const h = harness({ carpool: addresses.map((address, i) => suggestedTrip('boundary-' + i, address)) })
+  for (const [fromPlace, count] of [['EWR', 2], ['JSQ', 2], ['LIC', 2]]) {
+    assert.deepEqual(days(await h.main({ ...calendar, fromPlace })), [{ date: '2026-09-11', carpoolCount: count, requestCount: 0 }])
   }
 })

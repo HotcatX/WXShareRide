@@ -1,0 +1,16 @@
+[Unit]
+Description=Isolated public-statistics snapshot read pilot
+Requires=linkx-collector.service
+After=linkx-collector.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/linkx-collector
+ExecStart=/usr/bin/docker compose --env-file /etc/linkx-collector/compose.env --profile pilot up -d --no-build public-read-pilot
+ExecStop=/usr/bin/docker compose --env-file /etc/linkx-collector/compose.env --profile pilot stop public-read-pilot
+TimeoutStartSec=120
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,5 @@
 // pages/profile/myRequestDetailDriver/myRequestDetailDriver.js
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const {
   callTripManage,
   attachRideStats,
@@ -127,11 +128,23 @@ Page({
     await this.loadRequestDetail(requestId, { force: true })
   },
 
+  onShow() {
+    rideTelemetry.pageVisible(this)
+    if (!this.data.loading && !this.data.loadError && this.data.trip) {
+      rideTelemetry.detailViewed(this, this.data.trip, 'request', 'history')
+    }
+  },
+
+  onHide() {
+    rideTelemetry.pageHidden(this)
+  },
+
   async onPullDownRefresh() {
     await this.onDetailRefresherRefresh()
   },
 
   onUnload() {
+    rideTelemetry.pageHidden(this)
     this._pageUnloaded = true
     this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
   },
@@ -262,7 +275,7 @@ Page({
 
         loadError: '',
         loading: false
-      })
+      }, () => rideTelemetry.detailViewed(this, trip, 'request', 'history'))
 
       if (!isMyRequest || passengerOpenids.length === 0) {
         this.setData({ passengersLoading: false })
@@ -318,8 +331,7 @@ Page({
       wx.showToast({ title: '暂无微信号可复制', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: String(wechatID).trim(),
+    rideTelemetry.copyContact(this, String(wechatID).trim(), 'wechat', 'passenger', {
       success: () => wx.showToast({ title: '微信号已复制', icon: 'none' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })
@@ -331,8 +343,7 @@ Page({
       wx.showToast({ title: '未填写手机号', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: String(phone).trim(),
+    rideTelemetry.copyContact(this, String(phone).trim(), 'phone', 'passenger', {
       success: () => wx.showToast({ title: '手机号已复制', icon: 'none' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })

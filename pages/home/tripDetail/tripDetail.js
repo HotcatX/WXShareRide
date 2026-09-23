@@ -1,3 +1,4 @@
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
@@ -528,7 +529,7 @@ Page({
       carBrandModel,
       showFortLeeCoreTip,
       loading: false
-    })
+    }, () => rideTelemetry.detailViewed(this, trip, 'carpool'))
 
     this._lastDetailLoadedAt = Date.now()
     return true
@@ -809,8 +810,7 @@ Page({
       wx.showToast({ title: '司机未填写微信号', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: wechat,
+    rideTelemetry.copyContact(this, wechat, 'wechat', 'driver', {
       success: () => wx.showToast({ title: '已复制微信号', icon: 'success', duration: 1500 })
     })
   },
@@ -822,8 +822,7 @@ Page({
       wx.showToast({ title: '司机未填写手机号', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: phone,
+    rideTelemetry.copyContact(this, phone, 'phone', 'driver', {
       success: () => wx.showToast({ title: '已复制手机号', icon: 'success', duration: 1500 })
     })
   },
@@ -836,8 +835,7 @@ Page({
       wx.showToast({ title: '司机未完整填写 Zelle 信息', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: `${name} ${acc}`,
+    rideTelemetry.copyContact(this, `${name} ${acc}`, 'zelle', 'driver', {
       success: () => wx.showToast({ title: '已复制 Zelle 信息', icon: 'success', duration: 1500 })
     })
   }

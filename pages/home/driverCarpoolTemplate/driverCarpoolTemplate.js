@@ -3,6 +3,8 @@ const { showDataError } = require("../../../utils/error")
 const { callUpdateUser } = require("../../../utils/userProfileUpdate")
 const { getDriverRouteDefaultPrice } = require("../../../utils/driverRideDefaults")
 
+const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
+
 Page({
   data: {
     editMode: false,
@@ -196,10 +198,7 @@ Page({
     this.setData({ loadingDepartureAddrs: true, loadingArrivalAddrs: true })
 
     try {
-      const [depRes, arrRes] = await Promise.all([
-        this.loadAddressList("Departure"),
-        this.loadAddressList("Arrival")
-      ])
+      const { fromPlaces: depRes, toPlaces: arrRes } = await loadRideAddressConfig()
 
       this.setData({
         departureAddresses: [...depRes, "其他"],
@@ -209,31 +208,8 @@ Page({
       })
     } catch (err) {
       console.error("地址加载失败", err)
-      showDataError("地址加载失败", err, "地址配置从数据库加载失败，请稍后重试。")
-      this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
-    }
-  },
-
-  async loadAddressList(type) {
-    try {
-      const db = wx.cloud.database()
-      const res = await db.collection(type).get()
-
-      if (!res.data || res.data.length === 0) {
-        throw new Error(`集合 ${type} 为空`)
-      }
-
-      const record = { ...res.data[0] }
-      delete record._id
-
-      const addressList = Object.keys(record)
-        .map(k => record[k])
-        .filter(v => v !== undefined && v !== null && String(v).trim() !== "")
-
-      return addressList
-    } catch (e) {
-      console.error("地址列表数据库加载失败：", e)
-      throw e
+      const fallback = getStaticRideAddressConfig()
+      this.setData({ departureAddresses: [...fallback.fromPlaces, "其他"], arrivalAddresses: [...fallback.toPlaces, "其他"], loadingDepartureAddrs: false, loadingArrivalAddrs: false })
     }
   },
 

@@ -31,7 +31,7 @@ function pageResponse(args, carpool = [], request = [], page = {}) {
 function harness({ carpool = [], request = [], store } = {}) {
   let definition
   const state = {
-    now: Date.parse('2030-01-01T10:00:00'), calls: [], queued: [],
+    now: Date.parse('2030-01-01T10:00:00'), calls: [], queued: [], research: [], telemetry: [], collect: false,
     store: store || { openid: 'viewer-a' }, carpool, request
   }
   class Clock extends Date {
@@ -57,13 +57,30 @@ function harness({ carpool = [], request = [], store } = {}) {
     Page: value => { definition = value }, wx, Date: Clock, setTimeout, clearTimeout,
     console: { error() {}, warn() {} },
     require(name) {
+      if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
+        if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('researchParticipation'))
+        return context._placeModules(name)
+      }
+      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('researchParticipation'), { wx: context.wx, Date: typeof Clock === 'undefined' ? Date : Clock })
+      if (name.includes('researchParticipation')) return {
+        getCollectionScope: () => state.collect ? 'test:account_version_1' : '',
+        makeEventId: () => 'selection_synthetic_' + (state.research.length + state.telemetry.length),
+        recordEvent(eventName, data) { state.telemetry.push({eventName, data: plain(data)}); return {ok: true} },
+        recordSearch(data) {
+          if (!state.collect) return ''
+          const searchId = 'search_synthetic_' + state.research.length
+          state.research.push({ eventName: 'search_submitted', data: plain(data), searchId })
+          return searchId
+        },
+        recordResults(data) { state.research.push({ eventName: 'result_set_rendered', data: plain(data) }); return { ok: true } }
+      }
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: () => require('../utils/ridePlaceOptions')
+          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
         })
         return module.exports
       }
@@ -465,4 +482,45 @@ test('crossing midnight changes the base range even while the previous cache is 
   await tick()
   assert.deepEqual(ranges().at(-1), ['2030-01-02', '2030-01-04'])
   assert.deepEqual(ids(), ['next-day', 'day-three'])
+})
+
+test('research records only explicit exact-date searches and their actually rendered count; cached refinements stay local', async () => {
+  const h = harness({ carpool: [route('available'), route('full', '2030-01-01', { availSeatNum: 0 })] })
+  h.state.collect = true
+  await h.page.loadBothLists(); await tick()
+  assert.equal(h.state.research.length, 0, 'initial all-date load is not a submitted search')
+  h.page.onQuickDateChange(event('value', 'today'))
+  await tick()
+  assert.deepEqual(h.state.research.map(e => e.eventName), ['search_submitted', 'result_set_rendered'])
+  assert.equal(h.state.research[0].data.serviceDate, '2030-01-01')
+  const { candidates, candidatesComplete, selectionSetId, ...summary } = h.state.research[1].data
+  assert.deepEqual(summary, { searchId: h.state.research[0].searchId,
+    source: 'network', renderedCount: 1, loadedDateCount: 1, hasMore: false })
+  assert.equal(candidatesComplete, true)
+  assert.ok(selectionSetId)
+  assert.deepEqual(candidates.map(item => item.tripKey), ['available'], 'hidden full trips are not included in the rendered candidate snapshot')
+  const calls = h.state.calls.length
+  h.page.onRouteTypeChange(event('type', 'request')); await tick()
+  assert.equal(h.state.calls.length, calls)
+  assert.equal(h.state.research[3].data.source, 'cache')
+  assert.equal(h.state.research[3].data.renderedCount, 0)
+  h.page.onQuickDateChange(event('value', 'all')); await tick()
+  assert.equal(h.state.research.length, 4, 'all dates never become a fabricated today search')
+})
+
+test('failed and superseded exact-date reads never report empty successful research results', async () => {
+  const h = harness(); h.state.collect = true
+  await h.page.loadBothLists()
+  const failed = h.holdNext()
+  h.page.onQuickDateChange(event('value', 'today'))
+  failed.reject(new Error('offline')); await tick()
+  assert.deepEqual(h.state.research.map(e => e.eventName), ['search_submitted'])
+  const old = h.holdNext()
+  h.page.onQuickDateChange(event('value', 'tomorrow')); await tick()
+  const oldRequest = h.state.calls[h.state.calls.length - 1]
+  h.page.onSpecificDateChange({ detail: { value: '2030-01-05' } }); await tick()
+  old.resolve(pageResponse(oldRequest)); await tick()
+  const results = h.state.research.filter(e => e.eventName === 'result_set_rendered')
+  assert.equal(results.length, 1)
+  assert.equal(results[0].data.searchId, h.state.research.filter(e => e.eventName === 'search_submitted').at(-1).searchId)
 })

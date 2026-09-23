@@ -17,6 +17,7 @@ function harness() {
       cloud: { callFunction(options) { calls.push(options); throw new Error('Unexpected extra cloud request') } }
     },
     require(name) {
+      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('tripManage')) return tripManage
       if (name.endsWith('tripDetailCache')) return {}
       if (name.endsWith('routeExpiry')) return require('../utils/routeExpiry')

@@ -33,3 +33,5 @@
 .place-use-search{display:flex;align-items:center;justify-content:space-between;gap:20rpx;margin-top:14rpx;padding:20rpx;border-radius:14rpx;background:#eaf6f2;color:#087b73;font-size:26rpx;line-height:38rpx}
 .place-use-arrow{flex:none;font-size:30rpx}
 .place-bottom-space{height:26rpx}
+
+.place-group-label { display: block; font-size: 22rpx; color: #8a94a2; padding: 18rpx 10rpx 6rpx; }

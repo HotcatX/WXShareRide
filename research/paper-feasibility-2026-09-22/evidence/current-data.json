@@ -1,0 +1,184 @@
+{
+  "startedAt": "2026-09-22T23:20:26.867Z",
+  "finishedAt": "2026-09-22T23:20:36.413Z",
+  "timeZone": "America/New_York",
+  "queryAudit": {
+    "collection": "Carpool",
+    "totalAtFirstRead": 3586,
+    "totalsDuringRead": [
+      3586
+    ],
+    "fetchedRows": 3586,
+    "distinctRows": 3586,
+    "consistentCounts": true
+  },
+  "definitions": [
+    "Live reads are not an atomic frozen snapshot. Count consistency does not prove absence of edits.",
+    "Broad OD categories use string aliases, not geospatial trip equivalence.",
+    "Members are those retained in surviving records; exited/deleted relationships are absent.",
+    "All observed capacity and pairing statistics describe platform records, not independently confirmed travel.",
+    "Nearest departure gaps describe listed supply only; they do not establish missing demand or willingness to shift.",
+    "Repeated-pair statistics use the whole observed window and must not be used as pre-treatment predictive features."
+  ],
+  "offer": {
+    "count": 3586,
+    "states": {
+      "past": 3517,
+      "open": 63,
+      "full": 6
+    },
+    "plannedMonthly": {
+      "2026-02": 740,
+      "2026-03": 612,
+      "2026-01": 349,
+      "2026-04": 604,
+      "2026-05": 164,
+      "2026-07": 11,
+      "2025-12": 179,
+      "2026-06": 29,
+      "2026-08": 45,
+      "2026-09": 853
+    },
+    "createdMonthlyNY": {
+      "2026-02": 739,
+      "2026-03": 619,
+      "2026-01": 356,
+      "2026-04": 597,
+      "2026-05": 155,
+      "2026-07": 11,
+      "2025-12": 183,
+      "2026-06": 28,
+      "2026-08": 64,
+      "2026-09": 834
+    },
+    "createdDateRangeUTC": [
+      "2025-12-08T16:32:07.636Z",
+      "2026-09-22T22:50:50.944Z"
+    ],
+    "departuresPerRecord": {
+      "1": 3586
+    },
+    "broadRoutes": {
+      "Fort Lee -> Columbia": 1688,
+      "Fort Lee -> Other": 207,
+      "Columbia -> Fort Lee": 1362,
+      "Other -> Flushing": 4,
+      "Other -> JFK": 4,
+      "Fort Lee -> EWR": 28,
+      "EWR -> Fort Lee": 13,
+      "Other -> Fort Lee": 42,
+      "JFK -> Other": 8,
+      "Other -> Other": 18,
+      "Columbia -> Other": 24,
+      "Flushing -> Other": 2,
+      "Fort Lee -> Flushing": 66,
+      "Fort Lee -> JFK": 31,
+      "EWR -> Columbia": 1,
+      "Columbia -> Columbia": 1,
+      "Flushing -> Fort Lee": 24,
+      "JFK -> Fort Lee": 15,
+      "Columbia -> JFK": 6,
+      "Fort Lee -> LGA": 3,
+      "Columbia -> Flushing": 7,
+      "LGA -> Fort Lee": 1,
+      "JFK -> Columbia": 2,
+      "Flushing -> Columbia": 2,
+      "JFK -> Flushing": 1,
+      "Other -> Columbia": 25,
+      "EWR -> JFK": 1
+    },
+    "coreCorridorCount": 3050,
+    "coreCorridorPercent": 85.05,
+    "uniquePublishingAccounts": 197,
+    "top10PublishingPercent": 29.17,
+    "creationLeadHours": {
+      "n": 3586,
+      "min": 0.20522361111111112,
+      "p25": 3.3778230555555555,
+      "median": 12.829013333333334,
+      "p75": 22.172424444444445,
+      "p90": 43.796373055555556,
+      "p95": 70.49676333333333,
+      "max": 430.5509866666667
+    },
+    "septemberCreationLeadHours": {
+      "n": 853,
+      "min": 0.21395722222222222,
+      "p25": 5.1528366666666665,
+      "median": 17.7633125,
+      "p75": 31.676053888888887,
+      "p90": 71.19260305555555,
+      "p95": 111.13144166666666,
+      "max": 239.32286527777777
+    },
+    "membershipsWithJoinTimes": 4722,
+    "missingJoinTimes": 0,
+    "joinsAfterScheduledDeparture": 34,
+    "joinLeadHours": {
+      "n": 4688,
+      "min": 0.0013244444444444445,
+      "p25": 1.6859197222222222,
+      "median": 5.575511666666666,
+      "p75": 14.405774722222223,
+      "p90": 21.406966666666666,
+      "p95": 25.720032777777778,
+      "max": 218.66457027777778
+    },
+    "septemberJoinLeadHours": {
+      "n": 1156,
+      "min": 0.0013244444444444445,
+      "p25": 1.6354383333333333,
+      "median": 7.481089166666667,
+      "p75": 17.311981666666668,
+      "p90": 25.951588055555554,
+      "p95": 40.427798055555556,
+      "max": 218.66457027777778
+    },
+    "joinAfterCreationHours": {
+      "n": 4722,
+      "min": 0.004169722222222222,
+      "p25": 1.4618955555555555,
+      "median": 5.860446944444444,
+      "p75": 16.65945138888889,
+      "p90": 29.648145833333334,
+      "p95": 50.38677055555556,
+      "max": 417.1209463888889
+    },
+    "recordsWithCurrentMembers": 2289,
+    "currentPassengerMemberships": 4722,
+    "uniqueCurrentPassengerAccounts": 455,
+    "uniqueDriverPassengerPairs": 3107,
+    "repeatedPairCount": 821,
+    "membershipsInRepeatedPairs": 2436,
+    "repeatedMembershipPercent": 51.59,
+    "samePublisherDateTimeBroadRouteDuplicateRows": 32,
+    "recordsPastPlannedTime": 3518,
+    "capacityCheck": {
+      "eligible": 3586,
+      "accountMembersEqualCapacityMinusRemaining": 2990
+    },
+    "septemberCompletedCalendarDaysWithCoreSupply": 20,
+    "septemberCoreOffersPerObservedActiveDay": {
+      "n": 20,
+      "min": 2,
+      "p25": 8,
+      "median": 23,
+      "p75": 59,
+      "p90": 69,
+      "p95": 69,
+      "max": 70
+    },
+    "septemberCoreSameDirectionNearestOfferGapMinutes": {
+      "n": 639,
+      "min": 0,
+      "p25": 0,
+      "median": 10,
+      "p75": 20,
+      "p90": 50,
+      "p95": 110,
+      "max": 690
+    },
+    "septemberCoreOffersWithNeighbourWithin15Minutes": 447,
+    "septemberCoreOffersWithNeighbourWithin30Minutes": 539
+  }
+}

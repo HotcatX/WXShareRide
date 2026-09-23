@@ -353,7 +353,7 @@ function makeAppHarness(scene = 1001) {
     }
   }
   const context = vm.createContext({
-    wx, console,
+    wx, console, setTimeout, clearTimeout,
     Page(config) { pageConfigs.push(config) },
     App(config) { app = config },
     getApp: () => app,

@@ -47,6 +47,7 @@ function harness(kind, result, actor = 'driver') {
         removeTripDetailCache(type, id) { invalidated.push([type, id]) }
       }
       if (name.endsWith('routeExpiry')) return require('../utils/routeExpiry')
+      if (name.endsWith('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')({}, { wx })
       throw new Error(`Unexpected dependency ${name}`)
     }
   })

@@ -1,0 +1,115 @@
+{
+  "type": "hypothetical_power_sensitivity_not_empirical_evidence",
+  "alpha_two_sided": 0.05,
+  "power": 0.8,
+  "assumptions": [
+    "Control probability 0.4 is hypothetical, not estimated from surviving trip records.",
+    "10 and 30 unique eligible intents per day are illustrative, not observed traffic.",
+    "Exposure clicks, posted offers, seats, memberships and users are not interchangeable denominators.",
+    "Actual cluster power depends on number of randomized clusters, unequal size, time trends, serial correlation, interference, and user recurrence.",
+    "Missing or disputed actual-travel outcomes cannot simply be coded as failures or handled by inflating n alone.",
+    "Reachability dilutes ITT effects: at 50% reach, a 10-point effect among reached users may yield a 5-point ITT effect only under strong assumptions.",
+    "Final sample size requires pilot-estimated parameters and simulation of the predeclared randomization and estimator."
+  ],
+  "scenarios": [
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 5.0,
+      "independent_observations_per_arm": 1534,
+      "assumed_mean_cluster_size": 1,
+      "assumed_intracluster_correlation": 0,
+      "approximate_design_effect": 1,
+      "approximate_total_observations": 3068,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 307,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 103
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 5.0,
+      "independent_observations_per_arm": 1534,
+      "assumed_mean_cluster_size": 10,
+      "assumed_intracluster_correlation": 0.05,
+      "approximate_design_effect": 1.45,
+      "approximate_total_observations": 4450,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 445,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 149
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 5.0,
+      "independent_observations_per_arm": 1534,
+      "assumed_mean_cluster_size": 20,
+      "assumed_intracluster_correlation": 0.1,
+      "approximate_design_effect": 2.9000000000000004,
+      "approximate_total_observations": 8898,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 890,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 297
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 10.0,
+      "independent_observations_per_arm": 388,
+      "assumed_mean_cluster_size": 1,
+      "assumed_intracluster_correlation": 0,
+      "approximate_design_effect": 1,
+      "approximate_total_observations": 776,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 78,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 26
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 10.0,
+      "independent_observations_per_arm": 388,
+      "assumed_mean_cluster_size": 10,
+      "assumed_intracluster_correlation": 0.05,
+      "approximate_design_effect": 1.45,
+      "approximate_total_observations": 1126,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 113,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 38
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 10.0,
+      "independent_observations_per_arm": 388,
+      "assumed_mean_cluster_size": 20,
+      "assumed_intracluster_correlation": 0.1,
+      "approximate_design_effect": 2.9000000000000004,
+      "approximate_total_observations": 2252,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 226,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 76
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 15.0,
+      "independent_observations_per_arm": 173,
+      "assumed_mean_cluster_size": 1,
+      "assumed_intracluster_correlation": 0,
+      "approximate_design_effect": 1,
+      "approximate_total_observations": 346,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 35,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 12
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 15.0,
+      "independent_observations_per_arm": 173,
+      "assumed_mean_cluster_size": 10,
+      "assumed_intracluster_correlation": 0.05,
+      "approximate_design_effect": 1.45,
+      "approximate_total_observations": 502,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 51,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 17
+    },
+    {
+      "assumed_control_probability": 0.4,
+      "absolute_effect_percentage_points": 15.0,
+      "independent_observations_per_arm": 173,
+      "assumed_mean_cluster_size": 20,
+      "assumed_intracluster_correlation": 0.1,
+      "approximate_design_effect": 2.9000000000000004,
+      "approximate_total_observations": 1004,
+      "calendar_days_at_assumed_10_eligible_intents_daily": 101,
+      "calendar_days_at_assumed_30_eligible_intents_daily": 34
+    }
+  ]
+}

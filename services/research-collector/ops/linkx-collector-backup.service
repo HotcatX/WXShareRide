@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up LinkX collector and verify SQLite integrity
+Requires=linkx-collector.service
+After=linkx-collector.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/linkx-collector-backup
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle

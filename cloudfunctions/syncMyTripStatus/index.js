@@ -4,6 +4,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
 const _ = db.command
+const { appendBusinessEvent, nextVersion } = require('./businessLedger')
 const { createRideCompletionCounter } = require('./rideCompletion')
 const ensureRideCompletion = createRideCompletionCounter({ db: cloud.database({ throwOnNotFound: false }) })
 
@@ -170,48 +171,6 @@ function getRequestServedPeople(doc) {
   return hasDriver ? normalizeServedDelta(passengerTotal + 1) : 0
 }
 
-async function bumpServedTrips(delta, source, tripId, collection) {
-  const amount = normalizeServedDelta(delta)
-  if (amount <= 0) return false
-
-  const now = db.serverDate()
-  const data = {
-    servedTrips: _.inc(amount),
-    servedTripsLastDelta: amount,
-    servedTripsLastSource: source,
-    servedTripsLastTripId: tripId,
-    servedTripsLastCollection: collection,
-    lastServedAt: now,
-    updatedAt: now
-  }
-
-  try {
-    await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-    return true
-  } catch (e) {
-    try {
-      await db.collection(PUBLIC_STATS_COLLECTION).add({
-        data: {
-          _id: PUBLIC_STATS_DOC_ID,
-          servedTrips: amount,
-          servedTripsLastDelta: amount,
-          servedTripsLastSource: source,
-          servedTripsLastTripId: tripId,
-          servedTripsLastCollection: collection,
-          coverageText: 'NY / NJ',
-          lastServedAt: now,
-          createdAt: now,
-          updatedAt: now
-        }
-      })
-      return true
-    } catch (addErr) {
-      await db.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID).update({ data })
-      return true
-    }
-  }
-}
-
 function computeStatus(type, doc, now) {
   const latest = getLatestDeparture(doc)
   if (!latest) return { ok: false, expired: false }
@@ -233,33 +192,41 @@ function computeStatus(type, doc, now) {
   return { ok: true, latest, diffMs, oldStatus, newStatus, expired: diffMs > 0 }
 }
 
-async function updatePastAndCount(type, id, doc, updateData, source) {
+async function updateStatusAndLedger(type, id, now) {
   const collection = type === 'request' ? 'CarpoolRequest' : 'Carpool'
-  const delta = type === 'request' ? getRequestServedPeople(doc) : getCarpoolServedPeople(doc)
-  const data = Object.assign({}, updateData, {
-    servedStatsCounted: true,
-    servedStatsDelta: delta,
-    servedStatsSource: source,
-    servedStatsCountedAt: db.serverDate()
+  const source = 'syncMyTripStatus:' + type
+  return db.runTransaction(async transaction => {
+    const ref = transaction.collection(collection).doc(id)
+    const fresh = await ref.get()
+    const doc = fresh && fresh.data
+    if (!doc || isCancelledOrUnsupported(doc) || ['past', 'close'].includes(normalizeTripStatus(doc.status))) return { updated: false }
+    const result = computeStatus(type, doc, now)
+    if (!result.ok) return { updated: false }
+    const meta = buildDepartureMeta(doc.departures || [])
+    if (doc.status === result.newStatus && Object.keys(meta).every(key => doc[key] === meta[key])) return { updated: false }
+    const patch = { ...meta, status: result.newStatus, updatedAt: now, businessVersion: nextVersion(doc) }
+    if (result.newStatus === 'past' && !doc.servedStatsCounted) {
+      const delta = type === 'request' ? getRequestServedPeople(doc) : getCarpoolServedPeople(doc)
+      Object.assign(patch, { servedStatsCounted: true, servedStatsDelta: delta, servedStatsSource: source, servedStatsCountedAt: db.serverDate() })
+      if (delta > 0) {
+        const statsRef = transaction.collection(PUBLIC_STATS_COLLECTION).doc(PUBLIC_STATS_DOC_ID)
+        let current
+        try { current = await statsRef.get() } catch (error) {
+          // Cloud databases configured to throw on a missing document report -1.
+          // Do not reinterpret other failures as absence.
+          if (!error || !/does not exist|not found|DOCUMENT_NOT_EXIST/i.test(String(error.errMsg || error.message || ''))) throw error
+        }
+        const data = { servedTrips: Number(current && current.data && current.data.servedTrips || 0) + delta,
+          servedTripsLastDelta: delta, servedTripsLastSource: source, servedTripsLastTripId: id,
+          servedTripsLastCollection: collection, lastServedAt: db.serverDate(), updatedAt: db.serverDate() }
+        if (current && current.data) await statsRef.update({ data })
+        else await transaction.collection(PUBLIC_STATS_COLLECTION).add({ data: { _id: PUBLIC_STATS_DOC_ID, ...data, coverageText: 'NY / NJ', createdAt: db.serverDate() } })
+      }
+    }
+    await ref.update({ data: patch })
+    await appendBusinessEvent(transaction, db, { type, tripId: id, action: 'status', actorOpenid: '', before: doc, after: { ...doc, ...patch }, now: now.getTime() })
+    return { updated: true }
   })
-
-  const res = await db.collection(collection)
-    .where({ _id: id, servedStatsCounted: _.neq(true) })
-    .update({ data })
-
-  const updated = Number((res && res.stats && res.stats.updated) || (res && res.updated) || 0)
-  if (updated > 0) {
-    const counted = await bumpServedTrips(delta, source, id, collection)
-    return { updated: true, counted, delta }
-  }
-
-  const fresh = await db.collection(collection).doc(id).get().catch(() => null)
-  if (fresh && fresh.data && normalizeTripStatus(fresh.data.status) !== 'past') {
-    await db.collection(collection).doc(id).update({ data: updateData })
-    return { updated: true, counted: false, delta: 0 }
-  }
-
-  return { updated: false, counted: false, delta: 0 }
 }
 
 async function updateDocs(type, docs, now, personalStats) {
@@ -279,11 +246,7 @@ async function updateDocs(type, docs, now, personalStats) {
         const shouldUpdateMeta = Object.keys(meta).some(key => doc[key] !== meta[key])
         const shouldUpdateStatus = doc.status !== result.newStatus
         if (shouldUpdateMeta || shouldUpdateStatus) {
-          const updateData = Object.assign({}, meta, { updatedAt: now })
-          if (shouldUpdateStatus) updateData.status = result.newStatus
-          const outcome = result.newStatus === 'past'
-            ? await updatePastAndCount(type, doc._id, doc, updateData, source)
-            : await db.collection(collection).doc(doc._id).update({ data: updateData }).then(() => ({ updated: true }))
+          const outcome = await updateStatusAndLedger(type, doc._id, now)
           changed = outcome.updated !== false
         }
         if (result.newStatus !== 'past') return changed

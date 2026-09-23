@@ -3,8 +3,10 @@ const rideTime = require("../../../utils/rideTime")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { getDriverRouteDefaultPrice, getDriverRoutePriceKey } = require("../../../utils/driverRideDefaults")
 const { readRecentDriverRoutes, loadRecentDriverRoutes, recordRecentDriverRoute } = require("../../../utils/driverRecentRoutes")
-const { loadRidePlaceOptions, shortRidePlaceLabel, ridePlaceAliasPattern } = require("../../../utils/ridePlaceOptions")
-const { loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
+const { shortRidePlaceLabel, ridePlaceAliasPattern, resolvePlaceId } = require("../../../utils/ridePlaceOptions")
+const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
+const placeRecommendations = require("../../../utils/placeRecommendations")
+const placePickerTelemetry = require("../../../utils/placePickerTelemetry")
 const {
   markRideListStale,
   normalizeRidePriceInput,
@@ -135,7 +137,13 @@ Page({
     this.loadRecentRoutesIfNeeded()
   },
 
+  onHide() {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
+    if (this.data.placePickerVisible) this.setData({ placePickerVisible: false })
+  },
+
   onUnload() {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     this._calendarDisposed = true
     this._placeReadRevision = (this._placeReadRevision || 0) + 1
   },
@@ -147,6 +155,7 @@ Page({
     const mode = e.currentTarget.dataset.mode
     if (this.data.submitting || this._driverSubmitInFlight) return
     if (!["driver", "passenger"].includes(mode) || mode === this.data.mode) return
+    placePickerTelemetry.closePlacePicker(this._placeSession, "replaced")
     this._priceManuallyEdited = false
     this._returnDepartureTimestamp = null
 
@@ -315,12 +324,12 @@ Page({
         arrivalAddresses: [...(arr || []), "其他"],
         loadingDepartureAddrs: false,
         loadingArrivalAddrs: false
-      }, () => { if (this.data.placePickerVisible) this.updatePlacePickerData() })
+      })
     } catch (e) {
       if (!isCurrent()) return
       console.error("loadAllAddresses error:", e)
-      this.setData({ loadingDepartureAddrs: false, loadingArrivalAddrs: false })
-      showDataError("地址加载失败", e, "地址配置从数据库加载失败，请稍后重试。")
+      const fallback = getStaticRideAddressConfig()
+      this.setData({ departureAddresses: [...fallback.fromPlaces, "其他"], arrivalAddresses: [...fallback.toPlaces, "其他"], loadingDepartureAddrs: false, loadingArrivalAddrs: false })
     }
   },
 
@@ -390,81 +399,72 @@ Page({
     this.setData({ departureTime: value, timePickerVisible: false })
   },
 
+  getPlaceRecommendationContext() {
+    return { cityKey: getRideCitySnapshot().key || DEFAULT_CITY_KEY, viewerKey: this.getListViewerKey(),
+      revision: this.getRideListRefreshAt(), field: this._placePickerField === "destination" ? "destination" : "departure", mode: this.data.mode,
+      counterpartPlaceId: resolvePlaceId(this._placePickerField === "destination" ? this.data.departureAddress : this.data.destinationAddress) }
+  },
+
   onOpenPlacePicker(e) {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "replaced")
     this._placePickerField = e.currentTarget.dataset.type === "destination" ? "destination" : "departure"
     wx.hideKeyboard()
+    this._placeContext = this.getPlaceRecommendationContext()
+    this._placeSuggestions = placeRecommendations.getCachedPlaceRecommendations(this._placeContext)
+    this._placeSession = placePickerTelemetry.createPlacePickerSession(this._placeContext, this._placeSuggestions)
+    const isDeparture = this._placePickerField !== "destination"
+    const configured = (isDeparture ? this.data.departureAddresses : this.data.arrivalAddresses) || []
+    const fallback = getStaticRideAddressConfig()
+    const fixed = (configured.length ? configured : (isDeparture ? fallback.fromPlaces : fallback.toPlaces)).filter(value => !["全部", "其他", "自选"].includes(value))
     this.setData({
       placePickerVisible: true, calendarVisible: false, timePickerVisible: false,
-      placePickerTitle: this._placePickerField === "departure" ? "选择出发地" : "选择目的地",
-      placePickerError: "", placePickerOptions: [], placePickerLoading: false
+      placePickerTitle: isDeparture ? "选择出发地" : "选择目的地",
+      placePickerError: "", placePickerLoading: false,
+      placePickerFixedOptions: fixed.map(value => ({ value, label: shortRidePlaceLabel(value) })),
+      placePickerValue: isDeparture ? this.data.departureAddress : this.data.destinationAddress,
+      placePickerOptions: this._placeSuggestions.places
     })
-    this.updatePlacePickerData()
+    // The visible order is frozen. A completed refresh is used on the next open.
     return this.loadPlaceSuggestions()
   },
 
-  updatePlacePickerData() {
-    const isDeparture = this._placePickerField !== "destination"
-    const configured = (isDeparture ? this.data.departureAddresses : this.data.arrivalAddresses) || []
-    const fixed = configured.filter(value => typeof value === "string" && !["全部", "其他", "自选"].includes(value))
-      .map(value => ({ value, label: shortRidePlaceLabel(value) }))
-    const suggestions = this._placeSuggestions || {}
-    this.setData({
-      placePickerFixedOptions: fixed,
-      placePickerValue: isDeparture ? this.data.departureAddress : this.data.destinationAddress,
-      placePickerOptions: isDeparture ? (suggestions.fromPlaces || []) : (suggestions.toPlaces || [])
-    })
-  },
+  updatePlacePickerData() {},
 
   async loadPlaceSuggestions(options = {}) {
     if (!this.data.placePickerVisible || this._calendarDisposed) return
-    const revision = this._placeReadRevision = (this._placeReadRevision || 0) + 1
-    const context = {
-      cityKey: getRideCitySnapshot().key || DEFAULT_CITY_KEY,
-      viewerKey: this.getListViewerKey(), revision: this.getRideListRefreshAt(), force: !!options.force
+    const context = this.getPlaceRecommendationContext()
+    if (this._placeContext && (context.viewerKey !== this._placeContext.viewerKey || context.cityKey !== this._placeContext.cityKey || context.mode !== this._placeContext.mode)) {
+      this.onClosePlacePicker()
+      return
     }
-    const contextKey = JSON.stringify([context.cityKey, context.viewerKey, context.revision])
-    if (contextKey !== this._placeSuggestionsKey) {
-      this._placeSuggestions = null
-      this._placeSuggestionsKey = contextKey
-      this.updatePlacePickerData()
-    }
-    this.setData({ placePickerLoading: true, placePickerError: "" })
-    const isCurrent = () => !this._calendarDisposed && this.data.placePickerVisible && revision === this._placeReadRevision &&
-      context.viewerKey === this.getListViewerKey() && context.revision === this.getRideListRefreshAt() &&
-      context.cityKey === (getRideCitySnapshot().key || DEFAULT_CITY_KEY)
-    try {
-      const [result, config] = await Promise.all([
-        loadRidePlaceOptions(context),
-        loadRideAddressConfig({ force: !!options.force })
-      ])
-      if (!isCurrent()) return
-      this._placeSuggestions = result
-      this.setData({
-        departureAddresses: [...config.fromPlaces, "其他"],
-        arrivalAddresses: [...config.toPlaces, "其他"]
-      })
-      this.updatePlacePickerData()
-      this.setData({ placePickerLoading: false })
-    } catch (error) {
-      if (!isCurrent()) return
-      this.setData({ placePickerLoading: false, placePickerError: "地点加载失败，点击重试" })
+    const session = this._placeSession
+    const [, config] = await Promise.all([placeRecommendations.loadPlaceRecommendations({ ...context, force: !!options.force }), loadRideAddressConfig({ force: !!options.force }).catch(() => null)])
+    if (config && !this._calendarDisposed && this.data.placePickerVisible && session === this._placeSession && context.viewerKey === this.getListViewerKey()) {
+      this.setData({ departureAddresses: [...config.fromPlaces, "其他"], arrivalAddresses: [...config.toPlaces, "其他"] })
     }
   },
 
   onRetryPlaceSuggestions() { return this.loadPlaceSuggestions({ force: true }) },
+  onPlacePresentation(e) { placePickerTelemetry.renderPlaces(this._placeSession, e.detail.items, e.detail.stage) },
+  onPlaceCustomCancelled() { placePickerTelemetry.customCancelled(this._placeSession) },
 
   onClosePlacePicker() {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "close")
     this._placeReadRevision = (this._placeReadRevision || 0) + 1
     this.setData({ placePickerVisible: false })
   },
 
   async onConfirmPlace(e) {
-    if (!this.data.placePickerVisible) return
+    if (!this.data.placePickerVisible || !this._placeContext || this._placeContext.viewerKey !== this.getListViewerKey()) return
     const value = typeof e.detail.value === "string" ? e.detail.value.trim() : ""
     if (!value || value.length > 200) return
     const field = this._placePickerField === "destination" ? "destinationAddress" : "departureAddress"
-    this.onClosePlacePicker()
-    this.setData({ [field]: value })
+    const row = this.data.placePickerOptions.find(item => item.value === value) || this.data.placePickerFixedOptions.find(item => item.value === value)
+    const id = resolvePlaceId(value)
+    const selected = { value, placeId: e.detail.placeId || (row && row.placeId) || (id === 'unknown' ? 'custom' : id), source: e.detail.source || (row && row.source) || (id === 'unknown' ? 'custom' : 'fixed') }
+    placeRecommendations.rememberPlace(value, this._placeContext, selected.placeId)
+    placePickerTelemetry.selectPlace(this._placeSession, selected, Number.isInteger(e.detail.position) ? e.detail.position : 0, !!e.detail.custom || selected.source === 'custom')
+    this.setData({ [field]: value, placePickerVisible: false })
     await this.afterAddressChanged()
   },
 

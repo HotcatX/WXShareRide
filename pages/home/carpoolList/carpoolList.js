@@ -1,9 +1,13 @@
 const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
+const research = require("../../../utils/researchParticipation")
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
-const { getCachedRideAddressConfig, loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
-const { makeRidePlaceMatcher, shortRidePlaceLabel, placeIdentity } = require("../../../utils/ridePlaceOptions")
+const { getCachedRideAddressConfig, loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
+const { makeRidePlaceMatcher, shortRidePlaceLabel, placeIdentity, resolvePlaceId, FIXED_PLACES } = require("../../../utils/ridePlaceOptions")
+const placeRecommendations = require("../../../utils/placeRecommendations")
+const placePickerTelemetry = require("../../../utils/placePickerTelemetry")
 const {
   DEFAULT_CITY_KEY,
   DEFAULT_CITY_LABEL,
@@ -41,6 +45,8 @@ const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAU
 
 Page({
   ...rideCalendarPicker.methods,
+  onOpenCalendar() { rideTelemetry.stopList(this); return rideCalendarPicker.methods.onOpenCalendar.call(this) },
+  onCloseCalendar() { const result = rideCalendarPicker.methods.onCloseCalendar.call(this); rideTelemetry.observeList(this); return result },
 
   data: {
     loading: true,
@@ -120,6 +126,11 @@ Page({
 
   onLoad(options) {
     this._listDisposed = false
+    if (typeof research.subscribe === 'function') this._researchUnsubscribe = research.subscribe(state => {
+      if (state.participating && (!this._rideResultSet || this._rideResultSet.scope !== research.getCollectionScope()) && this.data.hasLoadedOnce) {
+        Promise.resolve().then(() => this.recordResearchResult(this._researchSearch, this.data.dayGroups || []))
+      }
+    })
     this.restoreFullTripPreference()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const storedCity = getStoredCitySnapshot(RIDE_CITY_STORAGE_KEY, DEFAULT_CITY_TREE, RIDE_DEFAULT_CITY_KEY)
@@ -166,6 +177,9 @@ Page({
   },
 
   onShow() {
+    if (this.data.placePickerVisible && this._placeContext && this._placeContext.viewerKey !== this.getListViewerKey()) this.onClosePlacePicker()
+    this._researchVisible = true
+    rideTelemetry.observeList(this)
     this.setData(this.getFilterDateData())
     if (this.data.calendarVisible) this.loadCalendarCounts()
     // 首屏由 onLoad 负责；返回时复用短缓存，身份/路线变更会立即失效。
@@ -173,8 +187,19 @@ Page({
     this.loadBothLists({ showLoading: false })
   },
 
+  onHide() {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
+    if (this.data.placePickerVisible) this.setData({ placePickerVisible: false })
+    this._researchVisible = false
+    rideTelemetry.stopList(this)
+  },
+
   onUnload() {
+    placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     this._listDisposed = true
+    this._researchSearch = null
+    rideTelemetry.stopList(this)
+    if (this._researchUnsubscribe) this._researchUnsubscribe()
   },
 
   getListViewerKey() {
@@ -276,6 +301,7 @@ Page({
   },
 
   onTapCity() {
+    rideTelemetry.stopList(this)
     const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
     const cityPickerGroups = getCountryGroups(
       cityTree,
@@ -294,7 +320,7 @@ Page({
   },
 
   onCityPickerCancel() {
-    this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" }, () => this.resumeResearchList())
   },
 
   stopTouchMove() {},
@@ -416,6 +442,8 @@ Page({
         .map(item => this.decorateTripCommon(item, "request"))
         .filter(item => this.shouldShowTrip(item))
 
+      this._researchResultSource = 'cache'
+
       this.setData({
         originalCarpoolList: carpoolList,
         originalRequestList: requestList,
@@ -477,11 +505,11 @@ Page({
   getAvailablePlaceOptions(field, optionData = this.data, selectedPlace) {
     const isTo = field === "to"
     const configured = optionData[isTo ? "toPlaceList" : "fromPlaceList"] || []
-    const routePlaces = [...(this.data.originalCarpoolList || []), ...(this.data.originalRequestList || [])]
-      .flatMap(trip => (trip && trip[isTo ? "destinations" : "departures"]) || [])
-      .map(place => place && (place.address || place.displayName || place.name))
+    const counterpartPlaceId = resolvePlaceId(this.getSelectedFilterPlace(isTo ? "from" : "to"))
+    const suggestions = placeRecommendations.getCachedPlaceRecommendations({ cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
+      viewerKey: this.getListViewerKey(), field: isTo ? 'destination' : 'departure', mode: 'filter', counterpartPlaceId })
     const selected = selectedPlace == null ? this.getSelectedFilterPlace(field) : selectedPlace
-    const places = this.uniqNonEmpty([...configured, ...routePlaces, selected])
+    const places = this.uniqNonEmpty([...configured, ...suggestions.places.map(place => place.value), selected])
       .filter(place => place !== "全部" && place !== "其他")
     return ["全部", ...places, "其他"]
   },
@@ -542,20 +570,25 @@ Page({
 
     const { from, to, time, fromPlace, toPlace, date, type } = this._initFilterFromShare
     const next = {}
-    const legacyOptions = this.buildFilterOptionData(this.data.fromPlaceList, this.data.toPlaceList)
+    const legacyOptions = ["", "Fort Lee", "哥大"]
+    const ambiguousLegacy = (fromPlace == null && from >= legacyOptions.length) || (toPlace == null && to >= legacyOptions.length)
+    if (ambiguousLegacy && consume && !this._legacyPlaceNoticeShown) {
+      this._legacyPlaceNoticeShown = true
+      if (typeof wx.showToast === 'function') wx.showToast({ title: "旧分享地点已更新，请重新选择", icon: "none" })
+    }
 
     if (fromPlace != null) {
       next.selectedFromPlace = fromPlace
       next.fromFilterIndex = -1
-    } else if (from >= 0 && from < legacyOptions.fromFilterOptions.length) {
-      next.selectedFromPlace = this.normalizeFilterPlace(legacyOptions.fromFilterOptions[from])
+    } else if (from >= 0) {
+      next.selectedFromPlace = legacyOptions[from] || ""
       next.fromFilterIndex = -1
     }
     if (toPlace != null) {
       next.selectedToPlace = toPlace
       next.toFilterIndex = -1
-    } else if (to >= 0 && to < legacyOptions.toFilterOptions.length) {
-      next.selectedToPlace = this.normalizeFilterPlace(legacyOptions.toFilterOptions[to])
+    } else if (to >= 0) {
+      next.selectedToPlace = legacyOptions[to] || ""
       next.toFilterIndex = -1
     }
     if (time >= 0 && time < this.data.timeFilterOptions.length) {
@@ -590,8 +623,8 @@ Page({
       from: options.from != null ? Number(options.from) : -1,
       to: options.to != null ? Number(options.to) : -1,
       time: options.time != null ? Number(options.time) : -1,
-      fromPlace: options.fromPlace == null ? null : this.normalizeFilterPlace(decode(options.fromPlace)),
-      toPlace: options.toPlace == null ? null : this.normalizeFilterPlace(decode(options.toPlace)),
+      fromPlace: FIXED_PLACES.some(item => item.placeId === options.fromPlaceId) ? shortRidePlaceLabel(options.fromPlaceId) : (options.fromPlace == null ? null : this.normalizeFilterPlace(decode(options.fromPlace))),
+      toPlace: FIXED_PLACES.some(item => item.placeId === options.toPlaceId) ? shortRidePlaceLabel(options.toPlaceId) : (options.toPlace == null ? null : this.normalizeFilterPlace(decode(options.toPlace))),
       date: this.isValidFilterDate(date) ? date : "",
       type: ["carpool", "request"].includes(options.type) ? options.type : "all"
     }
@@ -602,6 +635,8 @@ Page({
       city: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
       fromPlace: this.getSelectedFilterPlace("from"),
       toPlace: this.getSelectedFilterPlace("to"),
+      fromPlaceId: resolvePlaceId(this.getSelectedFilterPlace("from")),
+      toPlaceId: resolvePlaceId(this.getSelectedFilterPlace("to")),
       date: this.data.selectedDate || "",
       time: this.data.timeFilterIndex,
       type: this.data.routeTypeFilter
@@ -881,6 +916,7 @@ Page({
     if (!options.force) {
       const age = Date.now() - this._loadedOnceAt
       if (this.data.hasLoadedOnce && this._loadedListKey === key && age >= 0 && age < LIST_REFRESH_INTERVAL) {
+        this._researchResultSource = 'cache'
         this.applyAllFiltersAndGroup()
         return
       }
@@ -1005,6 +1041,7 @@ Page({
       this._loadedListKey = request.key
       this._loadedViewerKey = request.viewerKey
       this.cacheLoadedLists(decoratedCarpool, decoratedRequest, request)
+      this._researchResultSource = 'network'
       this.applyAllFiltersAndGroup()
     } catch (err) {
       console.error("loadBothLists error:", err)
@@ -1141,7 +1178,7 @@ Page({
   },
 
   isPresetPlace(address) {
-    return ["Fort Lee", "哥大", "纽瓦克", "JFK", "拉瓜迪亚", "法拉盛"].some(place => makeRidePlaceMatcher(place)(address))
+    return FIXED_PLACES.some(place => makeRidePlaceMatcher(place.value)(address))
   },
 
   makePlaceMatcher(place) {
@@ -1336,7 +1373,27 @@ Page({
     ]
     const groups = this.groupTripsByDate(availableTrips, "available", dateCounts)
     if (!this.data.hideFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
-    this.setData({ dayGroups: groups, fullTripCount: fullTrips.length })
+    const search = this._researchSearch
+    const renderGeneration = this._researchRenderGeneration = (this._researchRenderGeneration || 0) + 1
+    this.setData({ dayGroups: groups, fullTripCount: fullTrips.length }, () => {
+      // Read the state after synchronous cache restoration has completed too.
+      Promise.resolve().then(() => {
+        if (renderGeneration === this._researchRenderGeneration) this.recordResearchResult(search, groups)
+      })
+    })
+  },
+
+  recordResearchResult(search, groups) {
+    if (this._listDisposed || this._researchVisible === false || !this.data.hasLoadedOnce || this.data.loading ||
+      this._loadedListKey !== this.getListRequestKey()) return
+    const activeSearch = search && search === this._researchSearch && !search.emitted &&
+      search.key === this.getListRequestKey() && this.getInitialDatePage().exactDate
+    const id = rideTelemetry.renderList(this, groups, { searchId: activeSearch ? search.id : '', source: this._researchResultSource })
+    if (id && activeSearch) search.emitted = true
+  },
+
+  resumeResearchList() {
+    this.recordResearchResult(this._researchSearch, this.data.dayGroups || [])
   },
 
   getAvailableSeatCount(trip) {
@@ -1403,6 +1460,16 @@ Page({
     this._initFilterFromShare = null
     const previousRange = this.getDateRangeKey()
     this.setData(patch, () => {
+      // This method is called by explicit filter controls only, never by initial
+      // load/share normalization. Broad date ranges are intentionally not sampled.
+      const range = this.getInitialDatePage()
+      const searchId = range.exactDate ? research.recordSearch({
+        tripType: this.data.routeTypeFilter || 'all', serviceDate: range.startDate,
+        originArea: rideTelemetry.coarseArea(this.data.selectedFromPlace), destinationArea: rideTelemetry.coarseArea(this.data.selectedToPlace),
+        hideFullTrips: this.data.hideFullTrips === true
+      }) : ''
+      this._researchSearch = searchId ? { id: searchId, key: this.getListRequestKey(), emitted: false } : null
+      this._researchResultSource = 'cache'
       if ((this.data.hasLoadedOnce || this._listLoadingPromise) && previousRange !== this.getDateRangeKey()) {
         this.setData({
           hasLoadedOnce: false, loading: true,
@@ -1418,36 +1485,51 @@ Page({
   },
 
   onOpenPlacePicker(e) {
+    rideTelemetry.stopList(this)
+    placePickerTelemetry.closePlacePicker(this._placeSession, "replaced")
     const field = e && e.currentTarget && e.currentTarget.dataset.field
     this._placePickerField = field === "to" ? "to" : "from"
     this.syncFilterUi()
-    this.setData({
-      placePickerVisible: true,
-      calendarVisible: false,
-      cityPickerVisible: false,
-      refineFiltersVisible: false,
-      placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地",
-      placeSearchKeyword: ""
-    }, () => this.updatePlacePickerOptions())
-    return this.loadFilterPlaceConfig()
+    this._placeContext = { cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, viewerKey: this.getListViewerKey(),
+      field: this._placePickerField === 'to' ? 'destination' : 'departure', mode: 'filter',
+      counterpartPlaceId: resolvePlaceId(this.getSelectedFilterPlace(this._placePickerField === 'to' ? 'from' : 'to')) }
+    const snapshot = placeRecommendations.getCachedPlaceRecommendations(this._placeContext)
+    this._placeSession = placePickerTelemetry.createPlacePickerSession(this._placeContext, snapshot)
+    const configured = this.data[this._placePickerField === 'to' ? 'toPlaceList' : 'fromPlaceList']
+    const fixed = configured.length ? configured : getStaticRideAddressConfig().fromPlaces
+    const seen = new Set()
+    this._frozenPlaceOptions = [{ value: '', label: this._placePickerField === 'to' ? '不限目的地' : '不限出发地', placeId: 'unknown', source: 'fixed', filterToken: true },
+      ...fixed.map(value => ({ value: this.normalizeFilterPlace(value), label: shortRidePlaceLabel(value), placeId: resolvePlaceId(value), source: 'fixed' })),
+      ...snapshot.places.map(row => ({ ...row, value: this.normalizeFilterPlace(row.value) })),
+      { value: '其他', label: '其他', placeId: 'unknown', source: 'fixed', filterToken: true }].filter(row => {
+        const id = placeIdentity(row.value)
+        if (seen.has(id)) return false
+        seen.add(id); return true
+      })
+    const selected = this.getSelectedFilterPlace(this._placePickerField)
+    if (selected && !this._frozenPlaceOptions.some(row => row.value === selected)) this._frozenPlaceOptions.splice(-1, 0, { value: selected, label: selected, placeId: resolvePlaceId(selected), source: 'personal' })
+    let placeCount = 0
+    this._frozenPlaceOptions = this._frozenPlaceOptions.filter(row => row.filterToken || ++placeCount <= 20)
+    this.setData({ placePickerVisible: true, calendarVisible: false, cityPickerVisible: false, refineFiltersVisible: false,
+      placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地", placeSearchKeyword: ""
+    }, () => {
+      this.updatePlacePickerOptions()
+      placePickerTelemetry.renderPlaces(this._placeSession, this.data.placePickerOptions)
+      placePickerTelemetry.observePlaces(this, this._placeSession, '.list-place-option')
+    })
+    // Keep the current panel stable while new data warms the next opening.
+    return Promise.all([placeRecommendations.loadPlaceRecommendations(this._placeContext), this.loadFilterPlaceConfig()])
   },
 
   updatePlacePickerOptions() {
     const field = this._placePickerField === "to" ? "to" : "from"
     const selected = this.getSelectedFilterPlace(field)
     const keyword = String(this.data.placeSearchKeyword || "").trim().toLowerCase()
-    const options = this.getAvailablePlaceOptions(field).map(place => ({
-      value: this.normalizeFilterPlace(place),
-      label: place === "全部" ? (field === "to" ? "不限目的地" : "不限出发地") : shortRidePlaceLabel(place),
-      selected: this.normalizeFilterPlace(place) === selected
-    })).filter(option => {
+    const options = (this._frozenPlaceOptions || []).filter(option => {
       if (!keyword || option.value === "") return true
-      if (option.label.toLowerCase().includes(keyword)) return true
-      if (placeIdentity(option.value) === placeIdentity(keyword)) return true
-      if (makeRidePlaceMatcher(keyword)(option.value)) return true
-      if (this.isFortLee(option.value) && "fort lee fortlee".includes(keyword)) return true
-      return this.isColumbia(option.value) && "哥大 哥伦比亚 columbia".includes(keyword)
-    })
+      return option.label.toLowerCase().includes(keyword) || placeIdentity(option.value) === placeIdentity(keyword) || makeRidePlaceMatcher(keyword)(option.value)
+    }).map((option, position) => ({ ...option, position, selected: option.value === selected,
+      groupLabel: { personal: '我的最近', circle: '同圈常用', city: '本区常用', new: '新公共地点' }[option.source] || '' }))
     this.setData({ placePickerOptions: options })
   },
 
@@ -1456,27 +1538,30 @@ Page({
   },
 
   onSelectFilterPlace(e) {
+    if (!this.data.placePickerVisible || !this._placeContext || this._placeContext.viewerKey !== this.getListViewerKey()) return
     const value = this.normalizeFilterPlace(e.currentTarget.dataset.value)
     const field = this._placePickerField === "to" ? "to" : "from"
-    if (!this.getAvailablePlaceOptions(field).some(place => this.normalizeFilterPlace(place) === value)) return
-    this.changeFilters({
-      [field === "to" ? "selectedToPlace" : "selectedFromPlace"]: value,
-      [`${field}FilterIndex`]: -1,
-      placePickerVisible: false,
-      placeSearchKeyword: ""
-    })
+    const row = this.data.placePickerOptions.find(place => place.value === value)
+    if (!row) return
+    placePickerTelemetry.renderPlaces(this._placeSession, this.data.placePickerOptions)
+    placePickerTelemetry.selectPlace(this._placeSession, row, row.position)
+    if (value && value !== '其他') placeRecommendations.rememberPlace(value, this._placeContext, row.placeId)
+    this.changeFilters({ [field === "to" ? "selectedToPlace" : "selectedFromPlace"]: value,
+      [`${field}FilterIndex`]: -1, placePickerVisible: false, placeSearchKeyword: "" })
   },
 
   onClosePlacePicker() {
-    this.setData({ placePickerVisible: false, placeSearchKeyword: "" })
+    placePickerTelemetry.closePlacePicker(this._placeSession, "close")
+    this.setData({ placePickerVisible: false, placeSearchKeyword: "" }, () => this.resumeResearchList())
   },
 
   onOpenRefineFilters() {
+    rideTelemetry.stopList(this)
     this.setData({ refineFiltersVisible: true, placePickerVisible: false, cityPickerVisible: false, calendarVisible: false })
   },
 
   onCloseRefineFilters() {
-    this.setData({ refineFiltersVisible: false })
+    this.setData({ refineFiltersVisible: false }, () => this.resumeResearchList())
   },
 
   onSwapFilterPlaces() {
@@ -1605,6 +1690,7 @@ Page({
 
   openDetailPage(url, id, type) {
     const item = this.findDetailItem(id, type)
+    rideTelemetry.clickTrip(this, id, type, item)
     const preview = item ? { id, type, item, savedAt: Date.now() } : null
 
     if (preview) {

@@ -1,4 +1,5 @@
 // pages/profile/myTripRequestPassenger/myTripRequestPassenger.js
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const {
   callTripManage,
   askReason,
@@ -150,8 +151,7 @@ Page({
       return
     }
 
-    wx.setClipboardData({
-      data: val,
+    rideTelemetry.copyContact(this, val, e.currentTarget.dataset.channel, e.currentTarget.dataset.targetRole, {
       success: () => wx.showToast({ title: '已复制', icon: 'none' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })
@@ -176,11 +176,23 @@ Page({
     await this.loadRequestDetail(requestId, { force: true })
   },
 
+  onShow() {
+    rideTelemetry.pageVisible(this)
+    if (!this.data.loading && !this.data.loadError && this.data.trip) {
+      rideTelemetry.detailViewed(this, this.data.trip, 'request', 'history')
+    }
+  },
+
+  onHide() {
+    rideTelemetry.pageHidden(this)
+  },
+
   async onPullDownRefresh() {
     await this.onDetailRefresherRefresh()
   },
 
   onUnload() {
+    rideTelemetry.pageHidden(this)
     this._pageUnloaded = true
     this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
   },
@@ -334,7 +346,7 @@ Page({
         kickMode: isRequestCompleted ? false : this.data.kickMode,
         loadError: '',
         loading: false
-      })
+      }, () => rideTelemetry.detailViewed(this, trip, 'request', 'history'))
     } catch (e) {
       if (!isCurrent()) return
       console.error('loadRequestDetail error:', e)
@@ -350,13 +362,13 @@ Page({
       (this.data.driverInfo && this.data.driverInfo.wechatID) ||
       ''
     if (!wechat) return wx.showToast({ title: '未填写', icon: 'none' })
-    wx.setClipboardData({ data: String(wechat).trim() })
+    rideTelemetry.copyContact(this, String(wechat).trim(), 'wechat', 'driver')
   },
 
   copyPassengerWechat(e) {
     const wechat = (e.currentTarget.dataset && e.currentTarget.dataset.wechat) || ''
     if (!wechat) return wx.showToast({ title: '未填写', icon: 'none' })
-    wx.setClipboardData({ data: String(wechat).trim() })
+    rideTelemetry.copyContact(this, String(wechat).trim(), 'wechat', 'passenger')
   },
 
   copyZelleAccount(e) {
@@ -365,13 +377,13 @@ Page({
       (this.data.driverInfo && this.data.driverInfo.zelleAccount) ||
       ''
     if (!zelle) return wx.showToast({ title: '未填写', icon: 'none' })
-    wx.setClipboardData({ data: String(zelle).trim() })
+    rideTelemetry.copyContact(this, String(zelle).trim(), 'zelle', 'driver')
   },
 
   onCallPhone(e) {
     const phone = (e.currentTarget.dataset && e.currentTarget.dataset.phone) || ''
     if (!phone) return wx.showToast({ title: '未填写手机号', icon: 'none' })
-    wx.setClipboardData({ data: String(phone).trim() })
+    rideTelemetry.copyContact(this, String(phone).trim(), 'phone', e.currentTarget.dataset.targetRole || 'unknown')
     wx.showToast({ title: '手机号已复制', icon: 'none' })
   },
 

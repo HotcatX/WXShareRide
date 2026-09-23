@@ -1,0 +1,135 @@
+{
+  "status": "hypothetical-not-measured",
+  "units": "Decimal KB/GB; requests are not CloudBase billing units or active users.",
+  "assumptions": {
+    "daysPerMonth": 30,
+    "eventsPerSession": 30,
+    "bytesPerSession": 50000,
+    "batchesPerSessionRange": [
+      1,
+      3
+    ],
+    "retryExtraPercent": 10,
+    "hotRetentionDays": 14,
+    "hotSpacePlanningMultiplier": 3,
+    "workersCpuMsPerRequest": 20,
+    "cloudbaseMeteredUnitsPerBatchSensitivity": [
+      3,
+      6
+    ],
+    "cloudbaseCallPriceCnyPer10000": 0.5,
+    "scfMemoryGB": 0.25,
+    "scfBilledSecondsPerRequest": 0.2,
+    "scfPriceCnyPerGBSecond": 0.00011108,
+    "scfPriceCnyPer10000Requests": 0.0133,
+    "cosOperationsPerBatchPlanning": 6,
+    "cosGuangzhouExampleCnyPer10000Operations": 0.01
+  },
+  "limitations": [
+    "One observed day does not establish the recurring baseline.",
+    "3–6 CloudBase metered units per batch is sensitivity input, not verified billing semantics.",
+    "CPU 20ms and 3x hot space are engineering assumptions, not benchmarks or provider multipliers.",
+    "Payload counts exclude business outbox, SQL/index overhead, copies, protocol overhead and backup; no compression credit.",
+    "Request ranges exclude auth refresh, business export, withdrawal, archive jobs and monitoring.",
+    "CloudBase fee sensitivity assumes incremental calls are beyond the included quota; excludes other resources.",
+    "Independent collection does not remove existing CloudBase business calls.",
+    "SCF uses 256MiB and 200ms billed duration as assumptions, including waiting; this is not Workers CPU time.",
+    "SCF function estimates exclude response/outbound traffic, COS capacity, logs, state/withdrawal jobs, domain and backups.",
+    "COS 6 operations per batch is a planning input, not a verified implementation; rate is the official Guangzhou billing example, subject to region and current purchase pricing."
+  ],
+  "screenshotBaselineScenarioOnly": {
+    "observedTodayCalls": 47700,
+    "monthlyIncludedCalls": 200000,
+    "monthlyIfSameDaily": 1431000,
+    "callOnlyOverageCnyIfSameDaily": 61.55
+  },
+  "scenarios": [
+    {
+      "sessionsPerDay": 100,
+      "eventsPerMonth": 90000,
+      "oneBatchPerSessionMonthlyRequestsBeforeRetries": 3000,
+      "monthlyCollectorRequestsWithRetriesRange": [
+        3300,
+        9900
+      ],
+      "monthlyNewPayloadDecimalGB": 0.15,
+      "annualNewPayloadDecimalGB": 1.825,
+      "hotPayloadDecimalGB": 0.07,
+      "hotSpaceBudgetDecimalGB": 0.21,
+      "workersCpuMsRange": [
+        66000,
+        198000
+      ],
+      "scfFunctionOnlyCnyRange": [
+        0.022717,
+        0.068152
+      ],
+      "cosReadWriteOnlyCnyRange": [
+        0.0198,
+        0.0594
+      ],
+      "cloudbaseAdditionalCallOnlyCnySensitivity": [
+        0.5,
+        2.97
+      ]
+    },
+    {
+      "sessionsPerDay": 500,
+      "eventsPerMonth": 450000,
+      "oneBatchPerSessionMonthlyRequestsBeforeRetries": 15000,
+      "monthlyCollectorRequestsWithRetriesRange": [
+        16500,
+        49500
+      ],
+      "monthlyNewPayloadDecimalGB": 0.75,
+      "annualNewPayloadDecimalGB": 9.125,
+      "hotPayloadDecimalGB": 0.35,
+      "hotSpaceBudgetDecimalGB": 1.05,
+      "workersCpuMsRange": [
+        330000,
+        990000
+      ],
+      "scfFunctionOnlyCnyRange": [
+        0.113586,
+        0.340758
+      ],
+      "cosReadWriteOnlyCnyRange": [
+        0.099,
+        0.297
+      ],
+      "cloudbaseAdditionalCallOnlyCnySensitivity": [
+        2.48,
+        14.85
+      ]
+    },
+    {
+      "sessionsPerDay": 2000,
+      "eventsPerMonth": 1800000,
+      "oneBatchPerSessionMonthlyRequestsBeforeRetries": 60000,
+      "monthlyCollectorRequestsWithRetriesRange": [
+        66000,
+        198000
+      ],
+      "monthlyNewPayloadDecimalGB": 3,
+      "annualNewPayloadDecimalGB": 36.5,
+      "hotPayloadDecimalGB": 1.4,
+      "hotSpaceBudgetDecimalGB": 4.2,
+      "workersCpuMsRange": [
+        1320000,
+        3960000
+      ],
+      "scfFunctionOnlyCnyRange": [
+        0.454344,
+        1.363032
+      ],
+      "cosReadWriteOnlyCnyRange": [
+        0.396,
+        1.188
+      ],
+      "cloudbaseAdditionalCallOnlyCnySensitivity": [
+        9.9,
+        59.4
+      ]
+    }
+  ]
+}

@@ -63,6 +63,7 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
       cloud: { callFunction(options) { calls.cloud.push(options); return Promise.resolve({ result: {} }) } }
     },
     require(name) {
+      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('/routeExpiry')) return {
         ...expiry,
         isRouteExpired: (trip, now = clock.now) => expiry.isRouteExpired(trip, now)

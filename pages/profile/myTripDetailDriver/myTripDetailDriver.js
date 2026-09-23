@@ -1,4 +1,5 @@
 // pages/profile/myTripDetailDriver/myTripDetailDriver.js
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const { showDataError } = require("../../../utils/error")
 const {
   callTripManage,
@@ -87,6 +88,21 @@ Page({
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     await this.loadTripDetail(tripId)
+  },
+
+  onShow() {
+    rideTelemetry.pageVisible(this)
+    if (!this.data.loading && !this.data.loadError && this.data.trip) {
+      rideTelemetry.detailViewed(this, this.data.trip, 'carpool', 'history')
+    }
+  },
+
+  onHide() {
+    rideTelemetry.pageHidden(this)
+  },
+
+  onUnload() {
+    rideTelemetry.pageHidden(this)
   },
 
   async onPullDownRefresh() {
@@ -187,7 +203,7 @@ Page({
         kickMode: isTripCompleted ? false : this.data.kickMode,
         showFortLeeCoreTip,
         loading: false
-      })
+      }, () => rideTelemetry.detailViewed(this, trip, 'carpool', 'history'))
 
       if (openids.length === 0) {
         this.setData({ passengersLoading: false })
@@ -244,8 +260,7 @@ Page({
       return
     }
 
-    wx.setClipboardData({
-      data: val,
+    rideTelemetry.copyContact(this, val, e.currentTarget.dataset.channel, e.currentTarget.dataset.targetRole, {
       success: () => wx.showToast({ title: '已复制', icon: 'none' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })

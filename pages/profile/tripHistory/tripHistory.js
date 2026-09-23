@@ -1,7 +1,13 @@
 // pages/profile/tripHistory/tripHistory.js
+const followup = require('../../../utils/researchFollowup')
+const research = require('../../../utils/researchParticipation')
 
 function cleanText(value) {
   return String(value || '').trim()
+}
+
+function historyIdentity() {
+  try { return wx.getStorageSync('isGuest') ? '' : cleanText(wx.getStorageSync('openid')) } catch (_) { return '' }
 }
 
 Page({
@@ -11,10 +17,18 @@ Page({
     statusBarHeight: 80,
     pageTitle: '历史行程',
     ratingTripId: '',
-    ratingPrompted: false
+    ratingPrompted: false,
+    followupVisible: false,
+    followupBusy: false,
+    followupError: '',
+    followupTime: '',
+    followupRoute: '',
+    followupQuestion: ''
   },
 
   async onLoad(options = {}) {
+    this._historyDisposed = false
+    this._historyActive = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight || 80,
@@ -28,8 +42,42 @@ Page({
   },
 
   async onShow() {
+    this._historyActive = true
+    this._historyDataFresh = false
+    if (this._researchUnsubscribe) this._researchUnsubscribe()
+    this._researchUnsubscribe = research.subscribe(() => this._considerFollowup())
     await this.loadHistoryTrips()
   },
+
+  onHide() {
+    this._historyActive = false
+    if (this._researchUnsubscribe) this._researchUnsubscribe()
+    this._researchUnsubscribe = null
+    if (this._ratingTimer) clearTimeout(this._ratingTimer)
+    this._ratingTimer = null
+    followup.hide(this)
+  },
+
+  onUnload() {
+    this.onHide()
+    this._historyDisposed = true
+    followup.dispose(this)
+  },
+
+  _considerFollowup() {
+    if (this._historyLoadedIdentity !== historyIdentity()) { followup.hide(this); return }
+    if (!this._historyActive || this._historyDisposed || this.data.loading || this.data.ratingTripId ||
+      !this._historyDataFresh) return
+    followup.considerTrips(this, this.data.historyTrips)
+  },
+
+  onFollowupAnswer(event) {
+    const outcome = event && event.currentTarget && event.currentTarget.dataset.outcome
+    followup.answer(this, outcome)
+  },
+
+  onFollowupClose() { followup.hide(this) },
+  onFollowupTouch() {},
 
   // =========================
   // 数据格式化（用于新卡片样式）
@@ -103,12 +151,24 @@ Page({
   // =========================
   // 拉取历史行程
   // =========================
-  async loadHistoryTrips() {
+  loadHistoryTrips() {
+    if (this._historyDisposed) return Promise.resolve()
+    const identity = historyIdentity()
+    if (!identity) {
+      this._historyFlight = null
+      this._historyDataFresh = false
+      followup.hide(this)
+      this.setData({ historyTrips: [], loading: false })
+      return Promise.resolve()
+    }
+    if (this._historyFlight && this._historyFlight.identity === identity) return this._historyFlight.promise
+    const entry = { identity, promise: null }
+    this._historyFlight = entry
+    this._historyDataFresh = false
     this.setData({ loading: true })
-
-    try {
-      const res = await wx.cloud.callFunction({ name: 'getMyTripHistory' })
-
+    const current = () => !this._historyDisposed && this._historyFlight === entry && historyIdentity() === identity
+    entry.promise = Promise.resolve().then(() => wx.cloud.callFunction({ name: 'getMyTripHistory' })).then(res => {
+      if (!current()) return
       if (res.result && res.result.ok) {
         const list = Array.isArray(res.result.data) ? res.result.data : []
 
@@ -118,20 +178,27 @@ Page({
         // 生成新卡片需要的一行字段
         const displayList = cleaned.map((t) => this._formatTripForCard(t))
 
-        this.setData({ historyTrips: displayList })
-        this._maybeOpenRatingDetail()
+        this._historyLoadedIdentity = identity
+        this._historyDataFresh = true
+        this.setData({ historyTrips: displayList, loading: false }, () => {
+          this._maybeOpenRatingDetail()
+          this._considerFollowup()
+        })
       } else {
         wx.showToast({
           title: res.result?.errorMsg || '历史行程加载失败',
           icon: 'none'
         })
       }
-    } catch (err) {
-      console.error('加载历史行程失败：', err)
-      wx.showToast({ title: '历史行程加载失败', icon: 'none' })
-    } finally {
-      this.setData({ loading: false })
-    }
+    }).catch(() => {
+      if (current() && this._historyActive) wx.showToast({ title: '历史行程加载失败', icon: 'none' })
+    }).finally(() => {
+      const canUpdate = current()
+      if (this._historyFlight !== entry) return
+      this._historyFlight = null
+      if (canUpdate) this.setData({ loading: false })
+    })
+    return entry.promise
   },
 
   // =========================
@@ -163,13 +230,15 @@ Page({
   },
 
   _maybeOpenRatingDetail() {
+    if (!this._historyActive || this._historyDisposed) return
     const { ratingTripId, ratingPrompted, historyTrips } = this.data
     if (!ratingTripId || ratingPrompted || !Array.isArray(historyTrips) || historyTrips.length === 0) return
     const index = historyTrips.findIndex(item => item && item._id === ratingTripId)
     if (index < 0) return
     this.setData({ ratingPrompted: true })
-    setTimeout(() => {
-      this._openTripDetail(historyTrips[index], ratingTripId)
+    this._ratingTimer = setTimeout(() => {
+      this._ratingTimer = null
+      if (this._historyActive && !this._historyDisposed) this._openTripDetail(historyTrips[index], ratingTripId)
     }, 240)
   }
 })

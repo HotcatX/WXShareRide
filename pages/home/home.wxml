@@ -210,8 +210,8 @@
             hover-class="ride-pressed"
             hover-stay-time="80"
             aria-role="button"
-            aria-label="点击加入拼车群"
-          >{{communityGroupLoading ? '正在加载…' : '点击加入拼车群'}}</view>
+            aria-label="点击加群"
+          >{{communityGroupLoading ? '正在加载…' : '点击加入官方群'}}</view>
           <view
             class="ride-chip home-request-entry"
             bindtap="goRequestTrip"

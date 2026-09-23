@@ -101,12 +101,12 @@
               <view class="ride-info-row">
                 <text class="ride-info-label">微信</text>
                 <text class="ride-info-value">{{p.wechatID || '未填写'}}</text>
-                <view wx:if="{{p.wechatID}}" class="ride-copy" data-text="{{p.wechatID}}" bindtap="onCopyText">复制</view>
+                <view wx:if="{{p.wechatID}}" class="ride-copy" data-text="{{p.wechatID}}" data-channel="wechat" data-target-role="passenger" bindtap="onCopyText">复制</view>
               </view>
               <view class="ride-info-row">
                 <text class="ride-info-label">手机</text>
                 <text class="ride-info-value">{{p.phone || '未填写'}}</text>
-                <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" bindtap="onCopyText">复制</view>
+                <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" data-channel="phone" data-target-role="passenger" bindtap="onCopyText">复制</view>
               </view>
             </view>
 

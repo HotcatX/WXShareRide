@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-09-23T21:51:14.755Z",
+  "today": "2026-09-23",
+  "lowerServiceDate": "2026-06-25",
+  "upperServiceDate": "2026-12-22",
+  "source": "legacy_snapshot",
+  "calls": 9,
+  "collections": [
+    {
+      "collection": "Carpool",
+      "firstTotal": 3659,
+      "rows": 3659,
+      "exported": 987,
+      "totalsConsistent": true
+    },
+    {
+      "collection": "CarpoolRequest",
+      "firstTotal": 186,
+      "rows": 186,
+      "exported": 67,
+      "totalsConsistent": true
+    }
+  ],
+  "skipped": {
+    "outsideWindow": 2791
+  },
+  "events": 1054,
+  "batches": 106,
+  "bytes": 1238874,
+  "limitations": [
+    "Non-atomic paginated read of surviving records; deleted/cancelled history is incomplete.",
+    "Membership is a current snapshot, not a reconstructed history of joins/exits or confirmed travel.",
+    "The observation time is the export time. It must not become historical selection votes or imply earlier circle membership.",
+    "Nested passengers._openid projection omits passenger contact/profile fields. Unknown or invalid identities are excluded.",
+    "Reuse the exact generated files for import retries; regenerate only before any import or after explicitly resetting the version-0 baseline."
+  ]
+}

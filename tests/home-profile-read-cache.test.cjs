@@ -13,11 +13,18 @@ function deferred() {
 
 function harness(kind, existingStorage) {
   const storage = existingStorage || { openid: 'user-a', isGuest: false }
-  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [] }
+  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [], http: [], env: 'release', rollout: { enabled: true, rolloutPercent: { develop: 0, trial: 0, release: 0 } } }
   class Clock extends Date { static now() { return state.now } }
   const wx = {
     getStorageSync: key => storage[key],
     setStorageSync: (key, value) => { storage[key] = value },
+    removeStorageSync: key => { delete storage[key] },
+    getAccountInfoSync: () => ({ miniProgram: { envVersion: state.env } }),
+    request(options) {
+      state.http.push(options)
+      if (!state.deferHttp) options.success({ statusCode: 200, data: state.snapshot })
+      return { abort() {} }
+    },
     navigateTo: value => state.navigations.push(value.url), showToast: value => state.toasts.push(value),
     cloud: {
       callFunction({ name }) {
@@ -25,7 +32,7 @@ function harness(kind, existingStorage) {
         if (state.pending[name]) return state.pending[name]
         const result = name === 'getUserInfo'
           ? { data: [{ _openid: storage.openid, name: storage.openid, rideStats: {} }] }
-          : name === 'getPublicStats' ? { success: true, data: { servedTrips: 42 } }
+          : name === 'statistics' ? { success: true, data: { servedTrips: 42 } }
             : { ok: true, data: {} }
         return Promise.resolve({ result })
       },
@@ -35,11 +42,17 @@ function harness(kind, existingStorage) {
       } }) }) })
     }
   }
+  const pilotModule = { exports: {} }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/publicStatsPilot.js'), 'utf8'), {
+    module: pilotModule, wx, Date: Clock, setTimeout, clearTimeout,
+    require: name => name === '../config/publicStats' ? state.rollout : require(path.join(__dirname, '../utils', name))
+  })
   let definition
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, `../pages/${kind}/${kind}.js`), 'utf8'), {
     Page: value => { definition = value }, wx, Date: Clock, console: { error() {} },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     require(name) {
+      if (name.includes('publicStatsPilot')) return pilotModule.exports
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return {
         getCitySnapshot: () => ({ key: 'ny_nj' }), getCountryTabs: () => [], getCountryGroups: () => []
@@ -65,7 +78,7 @@ test('home reuses ordinary personal reads for 30 seconds, preserves forced refre
   const { page, state } = harness('home')
   const read = () => Promise.all([page.refreshHomeData(), page.loadPublicStats(), page.loadUnreadCount()])
   await Promise.all([read(), read()])
-  assert.deepEqual(state.calls, ['getHomeTripList', 'getPublicStats', 'unread'])
+  assert.deepEqual(state.calls, ['getHomeTripList', 'statistics', 'unread'])
   state.now += 29999
   await read()
   assert.equal(state.calls.length, 3)
@@ -151,7 +164,7 @@ test('public statistics persist for 24 hours and keep their original sync time a
   storage.rideListShouldRefreshAt = 123
   page.syncLoginState()
   await page.loadPublicStats()
-  assert.equal(state.calls.filter(name => name === 'getPublicStats').length, 1)
+  assert.equal(state.calls.filter(name => name === 'statistics').length, 1)
   assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
   assert.equal(page.data.publicStats.servedTripsText, '42')
 
@@ -162,9 +175,98 @@ test('public statistics persist for 24 hours and keep their original sync time a
   assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
   reopened.state.now++
   await reopened.page.loadPublicStats()
-  assert.deepEqual(reopened.state.calls, ['getPublicStats'])
+  assert.deepEqual(reopened.state.calls, ['statistics'])
   await reopened.page.loadPublicStats({ force: true })
   assert.equal(reopened.state.calls.length, 2)
+})
+
+function trialSnapshot(now, servedTrips) {
+  const data = { _id: 'home', servedTrips, coverageText: 'NY / NJ' }
+  return { ok: true, schemaVersion: 1, source: 'cloudbase-snapshot', snapshotAt: now - 1000, expiresAt: now + 60000,
+    revision: require('node:crypto').createHash('sha256').update(JSON.stringify(data)).digest('hex'), data }
+}
+
+test('home rollout retains the shared 24-hour stats cache and force refresh persists server data', async () => {
+  const { page, state, storage } = harness('home')
+  await page.loadPublicStats()
+  const original = storage.homePublicStatsCacheV1
+  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'
+  state.snapshot = trialSnapshot(state.now, 84)
+  await page.loadPublicStats()
+  assert.equal(state.http.length, 0)
+  assert.equal(storage.homePublicStatsCacheV1, original)
+  await page.loadPublicStats({ force: true })
+  assert.equal(state.http.length, 1)
+  assert.equal(page.data.publicStats.servedTripsText, '84')
+  assert.equal(page._publicStatsReadDiagnostic.source, 'lighthouse')
+  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 84)
+  const serverCachedAt = storage.homePublicStatsCacheV1.syncedAt
+  state.rollout.enabled = false
+  state.now += 1000
+  await page.loadPublicStats()
+  assert.equal(page.data.publicStats.servedTripsText, '84')
+  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
+  assert.equal(state.calls.filter(name => name === 'statistics').length, 1)
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, serverCachedAt)
+  state.rollout.enabled = true
+  state.now = serverCachedAt + 24 * 3600000
+  state.snapshot = trialSnapshot(state.now, 85)
+  await page.loadPublicStats()
+  assert.equal(state.http.length, 2)
+  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 85)
+})
+
+test('home ignores a late rollout response after rollback even when CloudBase mode returns from cache', async () => {
+  const { page, state, storage } = harness('home')
+  await page.loadPublicStats()
+  const original = storage.homePublicStatsCacheV1
+  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'; state.deferHttp = true
+  const pending = page.loadPublicStats({ force: true })
+  await tick()
+  state.rollout.enabled = false
+  await page.loadPublicStats()
+  state.http[0].success({ statusCode: 200, data: trialSnapshot(state.now, 999) })
+  await pending
+  assert.equal(page.data.publicStats.servedTripsText, '42')
+  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
+  assert.equal(storage.homePublicStatsCacheV1, original)
+})
+
+test('home rollout fallback refreshes the shared cache and avoids another ordinary network read', async () => {
+  const { page, state, storage } = harness('home')
+  await page.loadPublicStats()
+  state.now += 1000
+  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'; state.snapshot = null
+  await page.loadPublicStats({ force: true })
+  assert.equal(state.http.length, 1)
+  assert.equal(state.calls.filter(name => name === 'statistics').length, 2)
+  assert.equal(page._publicStatsReadDiagnostic.source, 'cloudbase')
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, state.now)
+  await page.loadPublicStats()
+  assert.equal(state.http.length, 1)
+  assert.equal(state.calls.filter(name => name === 'statistics').length, 2)
+})
+
+test('release 100 percent merges forced home reads without creating a bucket and keeps its 24-hour cache and cloud fallback', async () => {
+  const { page, state, storage } = harness('home')
+  state.rollout.rolloutPercent.release = 100
+  state.snapshot = trialSnapshot(state.now, 84)
+  await Promise.all(Array.from({ length: 5 }, () => page.loadPublicStats({ force: true })))
+  assert.equal(state.http.length, 1)
+  assert.equal(state.calls.length, 0)
+  assert.equal(storage.linkxPublicStatsRolloutV1, undefined)
+  assert.equal(page._publicStatsReadDiagnostic.source, 'lighthouse')
+  const syncedAt = storage.homePublicStatsCacheV1.syncedAt
+  await page.loadPublicStats()
+  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
+  assert.equal(state.http.length, 1)
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
+  state.snapshot = null
+  await page.loadPublicStats({ force: true })
+  assert.equal(state.http.length, 2)
+  assert.deepEqual(state.calls, ['statistics'])
+  assert.equal(page._publicStatsReadDiagnostic.source, 'cloudbase')
+  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 42)
 })
 
 test('home request entry opens passenger mode for members and guests without changing the default driver entry', () => {
@@ -197,10 +299,10 @@ test('public statistics reject malformed, expired and future-dated cache entries
   ]) {
     const { page, state, storage } = harness('home')
     storage.homePublicStatsCacheV1 = entry
-    state.pending.getPublicStats = Promise.resolve({ result: { success: false, data: { servedTrips: 0 } } })
+    state.pending.statistics = Promise.resolve({ result: { success: false, data: { servedTrips: 0 } } })
     await page.loadPublicStats()
     assert.equal(storage.homePublicStatsCacheV1, entry)
-    delete state.pending.getPublicStats
+    delete state.pending.statistics
     await page.loadPublicStats()
     assert.equal(state.calls.length, 2)
     assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 42)

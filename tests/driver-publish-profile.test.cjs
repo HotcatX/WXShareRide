@@ -14,6 +14,7 @@ function fixture() {
     Page: value => { definition = value }, console: { log() {}, error() {} },
     setTimeout() {}, clearTimeout() {},
     require(name) {
+      if (name.endsWith('/placePickerTelemetry')) return { closePlacePicker() {} }
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale() {} }
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')

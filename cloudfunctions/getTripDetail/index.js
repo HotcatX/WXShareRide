@@ -349,7 +349,7 @@ exports.main = async (event = {}) => {
     return {
       ok: true,
       success: true,
-      data: sanitizeTripDoc(res.data),
+      data: { ...sanitizeTripDoc(res.data), __dataGeneratedAt: Date.now() },
       ...driverData,
       ...passengerData,
       openid: wxContext.OPENID || '',

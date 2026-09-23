@@ -18,3 +18,17 @@ page{
   align-items: center;
   justify-content: flex-start;
 }
+
+.history-followup-mask{ position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 2200; display: flex; align-items: center; justify-content: center; padding: 40rpx; background: rgba(15,23,42,.38); }
+.history-followup-panel{ width: 100%; max-width: 650rpx; padding: 32rpx; border-radius: 28rpx; background: #fff; box-sizing: border-box; }
+.history-followup-head{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
+.history-followup-title{ font-size: 32rpx; font-weight: 600; color: #172033; }
+.history-followup-close{ width: 64rpx; height: 64rpx; margin: -16rpx -16rpx -16rpx 0; line-height: 64rpx; text-align: center; color: #64748b; font-size: 44rpx; }
+.history-followup-time,.history-followup-route,.history-followup-note{ display: block; color: #64748b; font-size: 25rpx; line-height: 1.7; overflow-wrap: break-word; }
+.history-followup-question{ display: block; margin: 26rpx 0 14rpx; font-size: 32rpx; color: #172033; line-height: 1.65; }
+.history-followup-error{ display: block; margin-top: 14rpx; font-size: 25rpx; color: #b45309; }
+.history-followup-actions{ display: flex; gap: 20rpx; margin-top: 28rpx; }
+.history-followup-actions button{ flex: 1; margin: 0; border-radius: 16rpx; font-size: 30rpx; line-height: 84rpx; }
+.history-followup-actions button::after{ border: none; }
+.history-followup-no{ background: #f1f5f9; color: #334155; }
+.history-followup-yes{ background: #2563eb; color: #fff; }

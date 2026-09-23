@@ -1,0 +1,4 @@
+participation.secret.json
+sync.secret
+node_modules/
+*.log

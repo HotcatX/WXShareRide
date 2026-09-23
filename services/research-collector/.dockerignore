@@ -1,0 +1,11 @@
+node_modules
+data
+backups
+secrets
+.env
+*.db*
+*.sqlite*
+*.pem
+*.token
+*.sock
+.git

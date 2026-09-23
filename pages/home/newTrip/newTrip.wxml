@@ -270,6 +270,6 @@
   </view>
   <template is="ride-calendar" data="{{calendarVisible, calendarMonthTitle, calendarDays, calendarCanPrev, calendarCanConfirm, calendarSelectionLabel, calendarLoading, calendarError, calendarConfirmText}}" />
   <ride-time-picker id="departure-time-picker" visible="{{timePickerVisible}}" value="{{departureTime}}" bindcancel="onCloseTimePicker" bindconfirm="onTimeChange" />
-  <ride-place-picker id="departure-place-picker" visible="{{placePickerVisible}}" title="{{placePickerTitle}}" value="{{placePickerValue}}" options="{{placePickerOptions}}" fixed-options="{{placePickerFixedOptions}}" loading="{{placePickerLoading}}" error="{{placePickerError}}" bindcancel="onClosePlacePicker" bindconfirm="onConfirmPlace" bindretry="onRetryPlaceSuggestions" />
+  <ride-place-picker id="departure-place-picker" visible="{{placePickerVisible}}" title="{{placePickerTitle}}" value="{{placePickerValue}}" options="{{placePickerOptions}}" fixed-options="{{placePickerFixedOptions}}" loading="{{placePickerLoading}}" error="{{placePickerError}}" bindcancel="onClosePlacePicker" bindconfirm="onConfirmPlace" bindretry="onRetryPlaceSuggestions" bindpresentation="onPlacePresentation" bindcustomcancel="onPlaceCustomCancelled" />
 </view>
 </block>

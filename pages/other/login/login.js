@@ -83,6 +83,7 @@ Page({
 
       wx.setStorageSync('openid', openid)
       wx.setStorageSync('isGuest', false)
+      require('../../../utils/researchParticipation').identityChanged()
       if (result.referralCode) referral.setMyReferralCode(result.referralCode)
       await referral.bindPendingReferral()
 
@@ -143,6 +144,7 @@ Page({
   
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
+    require('../../../utils/researchParticipation').identityChanged()
   
     wx.removeStorageSync('postLoginAction')
   

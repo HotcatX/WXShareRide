@@ -9,7 +9,7 @@
     <scroll-view class="place-body" scroll-y enhanced show-scrollbar="{{false}}">
       <text class="place-section-title">常用地点</text>
       <view class="place-fixed">
-        <view wx:for="{{fixedEntries}}" wx:key="key" class="place-chip {{item.selected && !customVisible ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelect" aria-role="button">{{item.label}}</view>
+        <view wx:for="{{fixedEntries}}" wx:key="key" class="place-chip place-observed {{item.selected && !customVisible ? 'is-selected' : ''}}" data-value="{{item.value}}" data-place-id="{{item.placeId}}" data-position="{{item.position}}" data-source="{{item.source}}" bindtap="onSelect" aria-role="button">{{item.label}}</view>
         <view class="place-chip {{customVisible ? 'is-selected' : ''}}" bindtap="onOpenCustom" aria-role="button">自选</view>
       </view>
 
@@ -26,7 +26,7 @@
         </view>
       </view>
 
-      <text class="place-section-title place-suggestions-title">大家正在用的自选地点</text>
+      <text class="place-section-title place-suggestions-title">更多地点</text>
       <view class="place-search">
         <text class="place-search-icon">⌕</text>
         <input class="place-input" value="{{keyword}}" maxlength="200" placeholder="搜索地点" placeholder-class="place-placeholder" bindinput="onSearch" confirm-type="search" aria-label="搜索当前自选地点" />
@@ -34,10 +34,13 @@
       <view wx:if="{{loading}}" class="place-message">正在加载地点…</view>
       <view wx:elif="{{error}}" class="place-error place-retry" bindtap="onRetry" aria-role="button">地点加载失败，点击重试</view>
       <view class="place-suggestions">
-        <view wx:for="{{suggestions}}" wx:key="value" class="place-option {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" bindtap="onSelect" aria-role="button">
-          <text class="place-option-label">{{item.value}}</text>
+        <block wx:for="{{suggestions}}" wx:key="value">
+        <text wx:if="{{item.showGroup}}" class="place-group-label">{{item.groupLabel}}</text>
+        <view class="place-option place-observed {{item.selected ? 'is-selected' : ''}}" data-value="{{item.value}}" data-place-id="{{item.placeId}}" data-position="{{item.position}}" data-source="{{item.source}}" bindtap="onSelect" aria-role="button">
+          <text class="place-option-label">{{item.label}}</text>
           <text wx:if="{{item.selected}}" class="place-check">✓</text>
         </view>
+        </block>
       </view>
       <view wx:if="{{canUseSearch}}" class="place-use-search" bindtap="onUseSearch" aria-role="button">
         <text class="place-use-label">使用“{{keyword}}”</text>

@@ -63,13 +63,19 @@ function harness({ realStatusRefresh = false } = {}) {
     getApp: () => ({ globalData: {} }),
     console: { error() {}, warn() {}, log() {} },
     require(name) {
+      if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
+        if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('researchParticipation'))
+        return context._placeModules(name)
+      }
+      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('researchParticipation'), { wx, Date: Clock })
+      if (name.includes('researchParticipation')) return { recordSearch: () => '', recordResults: () => ({ ok: false }) }
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: () => require('../utils/ridePlaceOptions')
+          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
         })
         return module.exports
       }

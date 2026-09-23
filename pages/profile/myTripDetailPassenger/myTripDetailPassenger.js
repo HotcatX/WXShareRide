@@ -1,4 +1,5 @@
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const { showDataError } = require("../../../utils/error")
 const {
   callTripManage,
@@ -156,6 +157,21 @@ Page({
     await this.loadTripDetail(tripId, sourceType)
   },
 
+  onShow() {
+    rideTelemetry.pageVisible(this)
+    if (!this.data.loading && !this.data.loadError && this.data.trip) {
+      rideTelemetry.detailViewed(this, this.data.trip, this.data.sourceType, 'history')
+    }
+  },
+
+  onHide() {
+    rideTelemetry.pageHidden(this)
+  },
+
+  onUnload() {
+    rideTelemetry.pageHidden(this)
+  },
+
   async onPullDownRefresh() {
     await this.onDetailRefresherRefresh()
   },
@@ -176,8 +192,7 @@ Page({
       wx.showToast({ title: '未填写', icon: 'none' })
       return
     }
-    wx.setClipboardData({
-      data: String(text).trim(),
+    rideTelemetry.copyContact(this, String(text).trim(), e.currentTarget.dataset.channel, e.currentTarget.dataset.targetRole, {
       success: () => wx.showToast({ title: '已复制', icon: 'success' }),
       fail: () => wx.showToast({ title: '复制失败', icon: 'none' })
     })
@@ -287,7 +302,7 @@ Page({
       isTripCompleted,
       loadError: '',
       loading: false
-    })
+    }, () => rideTelemetry.detailViewed(this, trip, 'carpool', 'history'))
   },
 
   // ========== CarpoolRequest 场景：显示司机 + 所有加入乘客（不含自己） ==========
@@ -388,32 +403,32 @@ Page({
       isTripCompleted,
       loadError: '',
       loading: false
-    })
+    }, () => rideTelemetry.detailViewed(this, trip, 'request', 'history'))
   },
 
   // ====== 复制 ======
   copyDriverWechat() {
     const wechatID = (this.data.driverInfo && this.data.driverInfo.wechatID) || ''
     if (!wechatID) return wx.showToast({ title: '暂无微信号可复制', icon: 'none' })
-    wx.setClipboardData({ data: String(wechatID).trim() })
+    rideTelemetry.copyContact(this, String(wechatID).trim(), 'wechat', 'driver')
   },
 
   copyZelleAccount() {
     const zelle = (this.data.driverInfo && this.data.driverInfo.zelleAccount) || ''
     if (!zelle) return wx.showToast({ title: '暂无 Zelle 账号可复制', icon: 'none' })
-    wx.setClipboardData({ data: String(zelle).trim() })
+    rideTelemetry.copyContact(this, String(zelle).trim(), 'zelle', 'driver')
   },
 
   copyPassengerWechat(e) {
     const wechatID = (e.currentTarget.dataset && e.currentTarget.dataset.wechat) || ''
     if (!wechatID) return wx.showToast({ title: '暂无微信号可复制', icon: 'none' })
-    wx.setClipboardData({ data: String(wechatID).trim() })
+    rideTelemetry.copyContact(this, String(wechatID).trim(), 'wechat', 'passenger')
   },
 
   onCallPhone(e) {
     const phone = (e.currentTarget.dataset && e.currentTarget.dataset.phone) || ''
     if (!phone) return wx.showToast({ title: '未填写手机号', icon: 'none' })
-    wx.setClipboardData({ data: String(phone).trim() })
+    rideTelemetry.copyContact(this, String(phone).trim(), 'phone', e.currentTarget.dataset.targetRole || 'unknown')
     wx.showToast({ title: '手机号已复制', icon: 'none' })
   },
 

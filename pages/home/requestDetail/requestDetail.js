@@ -1,3 +1,4 @@
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
 const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
@@ -426,7 +427,7 @@ Page({
       loadError: '',
       routeExpired: false,
       loading: false
-    })
+    }, () => rideTelemetry.detailViewed(this, trip, 'request'))
 
     this._lastDetailLoadedAt = Date.now()
     return true

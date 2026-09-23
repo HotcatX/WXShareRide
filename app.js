@@ -1,6 +1,10 @@
 const referral = require("./utils/referral")
 const timeline = require("./utils/timeline")
 const tabMemory = require("./utils/tabMemory")
+const research = require("./utils/researchParticipation")
+const rideTelemetry = require("./utils/rideTelemetry")
+const rideDiagnostics = require("./utils/rideDiagnostics")
+const researchFollowup = require("./utils/researchFollowup")
 
 function serializeQuery(query = {}) {
   if (!query || typeof query !== "object") return ""
@@ -62,6 +66,25 @@ function installDefaultShare() {
       return { ...share, query: `${query}${query ? "&" : ""}timelineShare=1` }
     }
 
+    const originalShow = config.onShow
+    config.onShow = function (...args) {
+      rideTelemetry.pageVisible(this)
+      const result = typeof originalShow === "function" ? originalShow.apply(this, args) : undefined
+      research.pageShown(getCurrentRoute(this))
+      const route = getCurrentRoute(this)
+      if (route === 'pages/home/tripDetail/tripDetail' || route === 'pages/home/requestDetail/requestDetail') {
+        rideTelemetry.detailViewed(this, this.data && this.data.trip, route.includes('requestDetail') ? 'request' : 'carpool')
+      }
+      return result
+    }
+    ;['onHide', 'onUnload'].forEach(name => {
+      const original = config[name]
+      config[name] = function (...args) {
+        rideTelemetry.pageHidden(this)
+        return typeof original === 'function' ? original.apply(this, args) : undefined
+      }
+    })
+
     timeline.wrapPage(config, {
       getRoute: getCurrentRoute,
       onNormalLoad(page, options) {
@@ -102,6 +125,8 @@ App({
 
     if (timeline.isTimelinePreview()) return
 
+    rideDiagnostics.install(wx, research)
+
     referral.captureReferral(options, "appLaunch")
     referral.ensureReferralCode().then(() => referral.bindPendingReferral())
 
@@ -112,9 +137,21 @@ App({
   onShow(options = {}) {
     timeline.updateLaunchContext(options)
     if (timeline.isTimelinePreview()) return
+    rideDiagnostics.beginForeground()
+    researchFollowup.beginForeground()
+    research.beginForeground()
     referral.captureReferral(options, "appShow")
     referral.ensureReferralCode().then(() => referral.bindPendingReferral())
   },
+
+  onHide() {
+    rideDiagnostics.endForeground()
+    researchFollowup.endForeground()
+    research.endForeground()
+  },
+
+  onError(error) { rideDiagnostics.captureError('runtime', error) },
+  onUnhandledRejection(event) { rideDiagnostics.captureError('unhandled_rejection', event && event.reason) },
 
   withReferralShare(config = {}) {
     return referral.withReferralShare(config)

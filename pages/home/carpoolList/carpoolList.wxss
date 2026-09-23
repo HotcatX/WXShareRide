@@ -1039,3 +1039,5 @@ page{
   background: #0f9b95;
   color: #ffffff;
 }
+
+.list-place-source { display: block; margin-top: 4rpx; color: #8a94a2; font-size: 20rpx; }

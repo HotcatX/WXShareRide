@@ -86,12 +86,12 @@
             <view class="ride-info-row">
               <text class="ride-info-label">微信</text>
               <text class="ride-info-value">{{driverInfo.wechatID || '未填写'}}</text>
-              <view wx:if="{{driverInfo.wechatID}}" class="ride-copy" data-text="{{driverInfo.wechatID}}" bindtap="onCopyText">复制</view>
+              <view wx:if="{{driverInfo.wechatID}}" class="ride-copy" data-text="{{driverInfo.wechatID}}" data-channel="wechat" data-target-role="driver" bindtap="onCopyText">复制</view>
             </view>
             <view class="ride-info-row">
               <text class="ride-info-label">手机</text>
               <text class="ride-info-value">{{driverInfo.phone || '未填写'}}</text>
-              <view wx:if="{{driverInfo.phone}}" class="ride-copy" data-text="{{driverInfo.phone}}" bindtap="onCopyText">复制</view>
+              <view wx:if="{{driverInfo.phone}}" class="ride-copy" data-text="{{driverInfo.phone}}" data-channel="phone" data-target-role="driver" bindtap="onCopyText">复制</view>
             </view>
             <view class="ride-info-row">
               <text class="ride-info-label">车牌</text>
@@ -106,7 +106,7 @@
             <view class="ride-info-row">
               <text class="ride-info-label">Zelle</text>
               <text class="ride-info-value">{{driverInfo.zelleAccount || '未填写'}}</text>
-              <view wx:if="{{driverInfo.zelleAccount}}" class="ride-copy" data-text="{{driverInfo.zelleAccount}}" bindtap="onCopyText">复制</view>
+              <view wx:if="{{driverInfo.zelleAccount}}" class="ride-copy" data-text="{{driverInfo.zelleAccount}}" data-channel="zelle" data-target-role="driver" bindtap="onCopyText">复制</view>
             </view>
           </view>
           <view wx:if="{{!kickMode}}" class="ride-person-actions">
@@ -151,12 +151,12 @@
               <view class="ride-info-row">
                 <text class="ride-info-label">微信</text>
                 <text class="ride-info-value">{{p.wechatID || '未填写'}}</text>
-                <view wx:if="{{p.wechatID}}" class="ride-copy" data-text="{{p.wechatID}}" bindtap="onCopyText">复制</view>
+                <view wx:if="{{p.wechatID}}" class="ride-copy" data-text="{{p.wechatID}}" data-channel="wechat" data-target-role="passenger" bindtap="onCopyText">复制</view>
               </view>
               <view class="ride-info-row">
                 <text class="ride-info-label">手机</text>
                 <text class="ride-info-value">{{p.phone || '未填写'}}</text>
-                <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" bindtap="onCopyText">复制</view>
+                <view wx:if="{{p.phone}}" class="ride-copy" data-text="{{p.phone}}" data-channel="phone" data-target-role="passenger" bindtap="onCopyText">复制</view>
               </view>
             </view>
             <view wx:if="{{!kickMode}}" class="ride-person-actions">

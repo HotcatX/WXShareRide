@@ -16,7 +16,7 @@ function harness(seed = {}, options = {}) {
   let nextId = 0
   let queue = Promise.resolve()
   let failUserWrite = options.failUserWrite
-  const command = { addToSet: value => ({ op: 'addToSet', value }), pull: value => ({ op: 'pull', value }), inc: value => ({ op: 'inc', value }) }
+  const command = { addToSet: value => ({ op: 'addToSet', value }), pull: value => ({ op: 'pull', value }), inc: value => ({ op: 'inc', value }), push: value => ({ op: 'push', value }) }
   const matches = (row, where) => Object.entries(where || {}).every(([key, value]) => row[key] === value)
   function source(tables, changes) {
     const table = name => tables[name] || (tables[name] = new Map())
@@ -32,6 +32,7 @@ function harness(seed = {}, options = {}) {
             if (value && value.op === 'addToSet') row[key] = [...new Set([...(row[key] || []), value.value])]
             else if (value && value.op === 'pull') row[key] = (row[key] || []).filter(entry => entry !== value.value)
             else if (value && value.op === 'inc') row[key] = Number(row[key] || 0) + value.value
+            else if (value && value.op === 'push') row[key] = (row[key] || []).concat(copy(value.value))
             else row[key] = copy(value)
           }
           touch(name, id)
@@ -46,7 +47,7 @@ function harness(seed = {}, options = {}) {
           let limit = Infinity
           return { limit(value) { limit = value; return this }, async get() { return { data: [...table(name).values()].filter(row => matches(row, condition)).slice(0, limit).map(copy) } } }
         },
-        async add({ data }) { const id = data._id || `added-${++nextId}`; table(name).set(id, { ...copy(data), _id: id }); touch(name, id); return { _id: id } }
+        async add({ data }) { if (name === 'TripActions' && options.failLedgerWrite) throw new Error('simulated action log failure'); const id = data._id || `added-${++nextId}`; table(name).set(id, { ...copy(data), _id: id }); touch(name, id); return { _id: id } }
       }
     } }
   }
@@ -69,13 +70,13 @@ function harness(seed = {}, options = {}) {
     const cloud = { DYNAMIC_CURRENT_ENV: 'test', init() {}, database: () => db, getWXContext: () => ({ OPENID: openid }) }
     const helpers = {}
     vm.runInNewContext(fs.readFileSync(path.join(path.dirname(filename), 'requestState.js'), 'utf8'), { module: helpers, Date: ClockDate, Intl, Set, Object, Number, String })
-    vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { exports, Date: ClockDate, console: { error() {} }, require(dependency) { if (dependency === 'wx-server-sdk') return cloud; if (dependency === './requestState') return helpers.exports; throw new Error(dependency) } })
+    vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { exports, Date: ClockDate, console: { error() {} }, require(dependency) { if (dependency === 'wx-server-sdk') return cloud; if (dependency === './requestState') return helpers.exports; if (dependency === './businessLedger') return require('../cloudfunctions/' + name + '/businessLedger'); throw new Error(dependency) } })
     return exports.main
   }
   function loadCreate(openid) {
     const exports = {}
     const cloud = { DYNAMIC_CURRENT_ENV: 'test', init() {}, database: () => db, getWXContext: () => ({ OPENID: openid }) }
-    vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../cloudfunctions/createTrip/index.js'), 'utf8'), { exports, Date: ClockDate, Intl, console: { error() {} }, require() { return cloud } })
+    vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../cloudfunctions/createTrip/index.js'), 'utf8'), { exports, Date: ClockDate, Intl, console: { error() {} }, require(dependency) { if (dependency === 'wx-server-sdk') return cloud; if (dependency === './businessLedger') return require('../cloudfunctions/createTrip/businessLedger'); throw new Error(dependency) } })
     return exports.main
   }
   return { load, loadCreate, operations, row: (name, id) => copy(state[name] && state[name].get(id)), rows: name => [...(state[name] || new Map()).values()].map(copy) }
@@ -215,4 +216,113 @@ test('the independently deployed request state helpers stay identical and use Ne
   assert.equal(state.requestDepartureMs({ departures: [{ date: '2026-12-15', time: '12:00' }] }), Date.parse('2026-12-15T17:00:00Z'))
   assert.equal(state.requestDepartureMs({ departures: [{ date: '2026-11-01', time: '03:00' }] }), Date.parse('2026-11-01T08:00:00Z'))
   assert.equal(state.requestDepartureMs({ departures: [{ date: '2026-03-08', time: '02:30' }] }), 0)
+})
+
+test('successful creation atomically records trusted identity, complete members, addresses and listed price', async () => {
+  const h = harness()
+  const result = await h.loadCreate('creator')({ type: 'request', departures: request().departures,
+    destinations: [{ address: 'EWR 机场' }], passengerCount: 2, referencePrice: '$13.00', actorOpenid: 'forged', synthetic: true })
+  assert.equal(result.success, true)
+  const rows = h.rows('TripActions')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].deliveryState, 'pending')
+  const e = rows[0].event
+  assert.equal(e.actorOpenid, 'creator')
+  assert.equal(e.synthetic, false)
+  assert.equal(e.before, null)
+  assert.equal(e.action, 'publish')
+  assert.equal(e.version, 1)
+  assert.equal(e.tripId, result.id)
+  assert.equal(e.after.referencePriceCents, 1300)
+  assert.equal(e.after.priceKind, 'listed_reference')
+  assert.equal(e.after.departures[0].placeId, 'fort_lee')
+  assert.equal(e.after.destinations[0].placeId, 'ewr')
+  assert.deepEqual(e.after.participantEdges, [{ openid: 'creator', role: 'passenger' }])
+  assert.ok(h.operations.filter(op => op.name === 'TripActions').every(op => op.transaction))
+})
+
+test('outbox insertion failure rolls back request publication, join, acceptance, exit and deletion', async () => {
+  const create = harness({}, { failLedgerWrite: true })
+  assert.equal((await create.loadCreate('creator')({ type: 'request', departures: request().departures })).success, false)
+  assert.equal(create.rows('CarpoolRequest').length + create.rows('userInfo').length + create.rows('TripActions').length, 0)
+  for (const operation of ['join', 'acceptRequest', 'quitTrip', 'deleteTrip']) {
+    const seed = request({ passengerCount: 2, passengerID: ['creator', 'existing'] })
+    const h = harness({ CarpoolRequest: [seed], userInfo: [{ _id: 'existing-user', _openid: 'existing', tripPassenger: ['request-1'] }] }, { failLedgerWrite: true })
+    const result = operation === 'join' ? await h.load('joinTrip', 'new')({ type: 'request', requestId: 'request-1' }) :
+      await h.load('tripManage', operation === 'acceptRequest' ? 'driver' : operation === 'quitTrip' ? 'existing' : 'creator')(action(operation, { reason: 'changed plans' }))
+    assert.equal(result.success, false, operation)
+    assert.deepEqual(h.row('CarpoolRequest', 'request-1'), seed, operation)
+    assert.deepEqual(h.row('userInfo', 'existing-user').tripPassenger, ['request-1'])
+    assert.equal(h.rows('TripActions').length + h.rows('Notifications').length, 0)
+  }
+})
+
+test('concurrent winners and idempotent repeats produce exactly one fact per committed version', async () => {
+  const h = harness({ CarpoolRequest: [request({ passengerCount: 3 })] })
+  const joins = await Promise.all(['p1', 'p2'].map(id => h.load('joinTrip', id)({ type: 'request', requestId: 'request-1' })))
+  assert.equal(joins.filter(result => result.success).length, 1)
+  const passenger = h.row('CarpoolRequest', 'request-1').passengerID.find(id => id !== 'creator')
+  await h.load('joinTrip', passenger)({ type: 'request', requestId: 'request-1' })
+  const driver = h.load('tripManage', 'driver')
+  await driver(action('acceptRequest'))
+  await driver(action('acceptRequest'))
+  const events = h.rows('TripActions').map(row => row.event)
+  assert.deepEqual(events.map(e => [e.action, e.version]), [['join', 1], ['accept', 2]])
+  assert.equal(new Set(events.map(e => e.eventId)).size, 2)
+  assert.equal(events[0].before.availableSeats, 1)
+  assert.equal(events[0].after.availableSeats, 0)
+  assert.equal(events[1].after.driverOpenid, 'driver')
+  assert.equal(h.row('CarpoolRequest', 'request-1').businessVersion, 2)
+})
+
+test('deletion retains the last full membership and route snapshot after the business row is gone', async () => {
+  const h = harness({ CarpoolRequest: [request({ businessVersion: 5, driverOpenid: 'driver', passengerID: ['creator', 'p'], passengerCount: 2, referencePrice: 16 })] })
+  assert.equal((await h.load('tripManage', 'creator')(action('deleteTrip', { reason: 'cancelled' }))).success, true)
+  assert.equal(h.row('CarpoolRequest', 'request-1'), undefined)
+  const event = h.rows('TripActions')[0].event
+  assert.equal(event.version, 6)
+  assert.equal(event.after, null)
+  assert.deepEqual(event.affectedOpenids, ['driver', 'creator', 'p'])
+  assert.equal(event.before.departures[0].address, 'Fort Lee')
+  assert.equal(event.before.referencePriceCents, 1600)
+  await h.load('tripManage', 'creator')(action('deleteTrip', { reason: 'retry' }))
+  assert.equal(h.rows('TripActions').length, 1)
+})
+
+function carpool(overrides = {}) {
+  return { _id: 'carpool-1', _openid: 'driver', status: 'open', passengerCount: 2, availSeatNum: 2,
+    passengers: [], departures: request().departures, destinations: [{ address: '哥大' }], referencePrice: 13, ...overrides }
+}
+test('carpool publication cannot fabricate member identities, counts or closed status from client input', async () => {
+  const h = harness()
+  const result = await h.loadCreate('driver')({ type: 'carpool', passengerCount: 2, availSeatNum: 90, status: 'past',
+    passengers: [{ _openid: 'forged' }], departures: request().departures, destinations: [{ address: '哥大' }] })
+  assert.equal(result.success, true)
+  assert.deepEqual(h.rows('Carpool')[0].passengers, [])
+  assert.equal(h.rows('Carpool')[0].availSeatNum, 2)
+  assert.equal(h.rows('Carpool')[0].status, 'open')
+  assert.deepEqual(h.rows('TripActions')[0].event.after.participantEdges, [{ openid: 'driver', role: 'driver' }])
+})
+test('carpool last-seat race and retry are safe, then concurrent exits retain correct capacity and action versions', async () => {
+  const h = harness({ Carpool: [carpool({ passengerCount: 1, availSeatNum: 1 })] })
+  const results = await Promise.all(['p1', 'p2'].map(id => h.load('joinTrip', id)({ type: 'carpool', tripId: 'carpool-1' })))
+  assert.equal(results.filter(result => result.success).length, 1)
+  const passenger = h.rows('Carpool')[0].passengers[0]._openid
+  assert.equal((await h.load('joinTrip', passenger)({ type: 'carpool', tripId: 'carpool-1' })).alreadyJoined, true)
+  assert.equal(h.rows('TripActions').length, 1)
+  assert.equal((await h.load('tripManage', passenger)({ action: 'quitTrip', tripId: 'carpool-1' })).success, true)
+  assert.equal(h.rows('Carpool')[0].availSeatNum, 1)
+  assert.deepEqual(h.rows('TripActions').map(row => [row.event.action, row.event.version]), [['join', 1], ['quit', 2]])
+  assert.equal(h.rows('TripActions')[1].event.after.passengerOpenids.length, 0)
+})
+test('carpool exit/delete ledger failures roll back trip state and member indexes', async () => {
+  for (const actionName of ['quitTrip', 'kickPassenger', 'deleteTrip']) {
+    const original = carpool({ passengers: [{ _openid: 'p' }], availSeatNum: 1 })
+    const h = harness({ Carpool: [original], userInfo: [{ _id: 'p-user', _openid: 'p', tripPassenger: ['carpool-1'] }] }, { failLedgerWrite: true })
+    const actor = actionName === 'quitTrip' ? 'p' : 'driver'
+    assert.equal((await h.load('tripManage', actor)({ action: actionName, tripId: 'carpool-1', targetOpenid: 'p', reason: 'changed plans' })).success, false)
+    assert.deepEqual(h.row('Carpool', 'carpool-1'), original)
+    assert.deepEqual(h.row('userInfo', 'p-user').tripPassenger, ['carpool-1'])
+    assert.equal(h.rows('TripActions').length, 0)
+  }
 })

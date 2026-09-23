@@ -1,0 +1,7 @@
+{
+  "timeout": 15,
+  "triggers": [
+    { "name": "publicStatsHourly", "type": "timer", "config": "0 25 * * * * *" }
+  ],
+  "permissions": { "openapi": [] }
+}

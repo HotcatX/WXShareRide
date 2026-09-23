@@ -1,0 +1,43 @@
+{$COLLECTOR_DOMAIN:collect.linkx.ink} {
+    @health {
+        method GET
+        path /healthz
+    }
+    @batch {
+        method POST
+        path /v1/batches /v1/place-suggestions
+    }
+    @researchParticipation {
+        method POST
+        path /internal/v1/research/participation /internal/v1/places/business-events
+    }
+    @publicStats {
+        method GET
+        path /v1/public-stats
+    }
+    @statsSync {
+        method POST
+        path /internal/v1/public-stats/sync
+    }
+    request_body {
+        max_size 131072
+    }
+    handle @health {
+        reverse_proxy collector:3000
+    }
+    handle @batch {
+        reverse_proxy collector:3000
+    }
+    handle @researchParticipation {
+        reverse_proxy collector:3000
+    }
+    handle @publicStats {
+        reverse_proxy public-read-pilot:3100
+    }
+    handle @statsSync {
+        reverse_proxy public-read-pilot:3100
+    }
+    handle {
+        respond 404
+    }
+}

@@ -15,16 +15,20 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // Keep these exact aliases and route patterns aligned with utils/ridePlaceOptions.js.
 const PLACE_ALIASES = {
-  ewr: ['ewr', 'ewr机场', 'ewrairport', '纽瓦克', '纽瓦克机场', '纽瓦克国际机场', '纽瓦克自由国际机场', 'newark', 'newarkairport', 'newarkinternationalairport', 'newarklibertyairport', 'newarklibertyinternationalairport'],
+  ewr: ['ewr', 'ewr机场', 'ewrairport', '纽瓦克机场', '纽瓦克国际机场', '纽瓦克自由国际机场', 'newarkairport', 'newarkinternationalairport', 'newarklibertyairport', 'newarklibertyinternationalairport'],
   jfk: ['jfk', 'jfk机场', 'jfk国际机场', 'jfkairport', '肯尼迪', '肯尼迪机场', '肯尼迪国际机场', '纽约肯尼迪机场', 'johnfkennedy', 'johnfkennedyairport', 'johnfkennedyinternationalairport'],
   lga: ['lga', 'lga机场', 'lgaairport', '拉瓜迪亚', '拉瓜迪亚机场', '拉瓜迪亚国际机场', '拉瓜地亚', '拉瓜地亚机场', 'laguardia', 'laguardiaairport', 'laguardiainternationalairport'],
-  flushing: ['法拉盛', 'flushing']
+  flushing: ['法拉盛', 'flushing'],
+  lic: ['lic', 'longislandcity', '长岛市'],
+  jsq: ['jsq', 'journalsquare', 'journalsquarestation', 'journalsquarepath', 'journalsquarepathstation']
 }
 const PLACE_PATTERNS = {
-  ewr: /(?:^|[^a-z])ewr(?:$|[^a-z])|newark|纽瓦克/i,
+  ewr: /(?:^|[^a-z])ewr(?:$|[^a-z])|newark\s+(?:liberty\s+)?(?:international\s+)?airport|纽瓦克(?:自由)?(?:国际)?机场/i,
   jfk: /(?:^|[^a-z])jfk(?:$|[^a-z])|john\s*f\.?\s*kennedy|肯尼迪/i,
   lga: /(?:^|[^a-z])lga(?:$|[^a-z])|la\s*guardia|拉瓜[迪地]亚/i,
-  flushing: /flushing|法拉盛/i
+  flushing: /flushing|法拉盛/i,
+  lic: /(?:^|[^a-z])lic(?:$|[^a-z])|long\s+island\s+city|长岛市/i,
+  jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i
 }
 
 const TYPE_CONFIG = {
@@ -49,6 +53,7 @@ const TYPE_CONFIG = {
       firstDepartureDate: true,
       firstDepartureTime: true,
       createdAt: true,
+      businessVersion: true,
       _openid: true
     }
   },
@@ -72,6 +77,7 @@ const TYPE_CONFIG = {
       firstDepartureDate: true,
       firstDepartureTime: true,
       createdAt: true,
+      businessVersion: true,
       _openid: true,
       driverOpenid: true
     }
@@ -150,9 +156,9 @@ function parseCalendarOptions(event) {
 
 function makeCalendarPlaceMatcher(place) {
   const value = String(place || '').trim()
-  if (/fort\s*lee/i.test(value)) return address => /fort\s*lee/i.test(String(address || ''))
-  if (/哥大|columbia/i.test(value)) return address => /哥大|columbia/i.test(String(address || ''))
   const compact = value.toLowerCase().replace(/\s+/g, '')
+  if (['fort_lee', 'fortlee', 'fortlee核心区', 'fortlee全区域'].includes(compact)) return address => /fort\s*lee/i.test(String(address || ''))
+  if (['columbia', 'columbiauniversity', '哥大', '哥伦比亚大学', '哥大columbia', '哥大/columbia'].includes(compact)) return address => /哥大|columbia/i.test(String(address || ''))
   const aliasKey = Object.keys(PLACE_ALIASES).find(key => PLACE_ALIASES[key].includes(compact))
   if (aliasKey) return address => PLACE_PATTERNS[aliasKey].test(String(address || ''))
   return address => !!address && String(address).toLowerCase().includes(value.toLowerCase())
@@ -285,7 +291,7 @@ function getTripPartyOpenids(type, doc) {
 }
 
 function stripPrivateListFields(item) {
-  const out = Object.assign({}, item)
+  const out = Object.assign({}, item, { __dataGeneratedAt: Date.now() })
   delete out._openid
   delete out.driverOpenid
   delete out.passengerID
@@ -514,13 +520,6 @@ async function readCalendar(event, type, openid) {
   }
 }
 
-const FIXED_PLACE_NAMES = new Set([
-  'fortlee', 'fortlee核心区', 'fortlee全区域',
-  '哥大', 'columbia', '哥大columbia', '哥大/columbia', '哥伦比亚大学', 'columbiauniversity',
-  '其他', '自选', '全部',
-  ...Object.values(PLACE_ALIASES).flat()
-])
-
 function readPlaceSuggestionCity(event) {
   if (typeof event.cityKey !== 'string' || event.cityKey.length > 80 || event.cityKey.trim() !== event.cityKey ||
       event.cityKey.toLowerCase() === 'all' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(event.cityKey)) {
@@ -529,59 +528,12 @@ function readPlaceSuggestionCity(event) {
   return event.cityKey
 }
 
-function normalizeSuggestedPlace(address) {
-  if (typeof address !== 'string' || address.length > 200) return ''
-  const label = normalizeText(address)
-  if (!label || FIXED_PLACE_NAMES.has(label.toLowerCase().replace(/\s+/g, ''))) return ''
-  return label
-}
-
-async function readPlaceSuggestions(event, openid) {
-  const cityKey = readPlaceSuggestionCity(event)
-  const actor = cleanOpenid(openid)
-  const types = ['carpool', 'request']
-  // The timestamp/status conditions discard expired and closed routes on the server.
-  // An unrestricted date cursor also keeps active multi-date routes that began earlier.
-  const page = { startDate: '0001-01-01', endDateExclusive: '9999-12-31' }
-  const minDepartureAtMs = Date.now() - LIST_EXPIRE_GRACE
-  const results = await Promise.all(types.map(type => {
-    const fields = { _id: true, firstDepartureDate: true, _openid: true, departures: true, destinations: true }
-    if (type === 'carpool') fields.passengers = true
-    else Object.assign(fields, { driverOpenid: true, passengerID: true })
-    return readDatePageType(type, { cityKey }, page, minDepartureAtMs, { fields, probeNextDate: false, skipSort: true })
-  }))
-  const typedLists = types.map((type, index) => ({
-    type,
-    items: results[index].data.filter(trip => !actor || cleanOpenid(trip._openid) !== actor)
-  }))
-  const blockContext = await buildBlockContext(actor, typedLists)
-  const from = new Map()
-  const to = new Map()
-  const addRoutePlaces = (counter, stops) => {
-    const routePlaces = new Map()
-    ;(Array.isArray(stops) ? stops : []).forEach(stop => {
-      const label = normalizeSuggestedPlace(stop && stop.address)
-      if (!label) return
-      const key = label.toLowerCase()
-      if (!routePlaces.has(key)) routePlaces.set(key, label)
-    })
-    // Duplicate stops on one route are one recommendation vote, not several.
-    routePlaces.forEach((label, key) => {
-      if (!counter.has(key)) counter.set(key, { label, key, count: 0 })
-      counter.get(key).count += 1
-    })
-  }
-  typedLists.forEach(pair => {
-    applyBlockFilter(pair.type, pair.items, blockContext).forEach(trip => {
-      addRoutePlaces(from, trip.departures)
-      addRoutePlaces(to, trip.destinations)
-    })
-  })
-  const rank = counter => Array.from(counter.values())
-    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
-    .slice(0, 100)
-    .map(item => item.label)
-  return { ok: true, success: true, data: { fromPlaces: rank(from), toPlaces: rank(to) } }
+async function readPlaceSuggestions(event) {
+  readPlaceSuggestionCity(event)
+  // Legacy clients retain their configured fixed choices. Free-text route
+  // addresses are not a public POI directory and must not be redistributed.
+  // Versioned public candidates now come from the authenticated collector API.
+  return { ok: true, success: true, data: { fromPlaces: [], toPlaces: [] } }
 }
 
 async function readDatePage(event, page, type, openid) {

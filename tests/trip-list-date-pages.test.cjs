@@ -181,6 +181,53 @@ test('failed date-page, next-date or block queries return failure instead of par
   }
 })
 
+test('publishers retain their own routes after blocking a participant, without exposing identities or exempting other routes', async () => {
+  const fixtures = {
+    carpool: [
+      trip('own-original', '2026-09-11', { _openid: 'viewer', availSeatNum: 2, passengers: [{ _openid: 'blocked-passenger' }] }),
+      trip('own-republished', '2026-09-11', { _openid: 'viewer', availSeatNum: 2 }),
+      trip('other-blocked', '2026-09-11', { passengers: [{ _openid: 'blocked-passenger' }] }),
+      trip('joined-blocked', '2026-09-11', { passengers: [{ _openid: 'viewer' }, { _openid: 'blocked-passenger' }] })
+    ],
+    request: [
+      trip('own-request', '2026-09-11', { _openid: 'viewer', driverOpenid: 'reverse-blocker', passengerID: ['blocked-passenger'] }),
+      trip('other-request', '2026-09-11', { driverOpenid: 'reverse-blocker' })
+    ],
+    blocks: [
+      { _openid: 'viewer', targetOpenid: 'blocked-passenger', active: true },
+      { _openid: 'reverse-blocker', targetOpenid: 'viewer', active: true }
+    ]
+  }
+  for (const event of [page, { type: 'all', quick: true, fastOnly: true, cityKey: 'ny_nj' }]) {
+    const result = await harness(fixtures).main(event)
+    assert.equal(result.success, true)
+    assert.deepEqual(Array.from(result.data.carpool, row => row._id).sort(), ['own-original', 'own-republished'])
+    assert.deepEqual(Array.from(result.data.request, row => row._id), ['own-request'])
+    for (const row of [...result.data.carpool, ...result.data.request]) {
+      for (const key of ['_openid', 'driverOpenid', 'passengerID', 'passengers']) assert.equal(Object.hasOwn(row, key), false)
+    }
+    const blockedViewer = await harness({ ...fixtures, actor: 'blocked-passenger' }).main(event)
+    assert.ok(!blockedViewer.data.carpool.some(row => row._id.startsWith('own-')))
+    assert.ok(!blockedViewer.data.request.some(row => row._id === 'own-request'))
+  }
+})
+
+test('ownership never bypasses expired, cancelled, past or service-city eligibility', async () => {
+  const rows = [
+    trip('own-active', '2026-09-11', { _openid: 'viewer' }),
+    trip('own-expired', '2026-09-11', { _openid: 'viewer', latestDepartureAtMs: NOW - 31 * 60 * 1000 }),
+    trip('own-cancelled', '2026-09-11', { _openid: 'viewer', status: 'cancelled' }),
+    trip('own-past', '2026-09-11', { _openid: 'viewer', status: 'past' }),
+    trip('own-other-city', '2026-09-11', { _openid: 'viewer', cityKey: 'boston' })
+  ]
+  for (const event of [page, { type: 'all', quick: true, fastOnly: true, cityKey: 'ny_nj' }]) {
+    const result = await harness({ carpool: rows, request: rows }).main(event)
+    assert.equal(result.success, true)
+    assert.deepEqual(Array.from(result.data.carpool, row => row._id), ['own-active'])
+    assert.deepEqual(Array.from(result.data.request, row => row._id), ['own-active'])
+  }
+})
+
 test('legacy callers retain limited all-date results and the existing response shape', async () => {
   const h = harness({ carpool: Array.from({ length: 110 }, (_, i) => trip(`car-${i}`, '2026-09-20')), request: [trip('request', '2026-09-30')] })
   const result = await h.main({ type: 'all', limit: 80, quick: true, fastOnly: true, cityKey: 'ny_nj' })

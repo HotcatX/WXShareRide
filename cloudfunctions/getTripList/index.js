@@ -352,6 +352,9 @@ function applyBlockFilter(type, list, blockContext) {
 
   return (list || [])
     .filter(item => {
+      // Blocking a participant must not hide the publisher's own eligible route.
+      // This only affects list visibility; joining and contact checks stay separate.
+      if (cleanOpenid(item && item._openid) === actor) return true
       const ids = getTripPartyOpenids(type, item).filter(id => id && id !== actor)
       return !ids.some(id => blockContext.blockedByMe.has(id) || blockContext.blockedMe.has(id))
     })

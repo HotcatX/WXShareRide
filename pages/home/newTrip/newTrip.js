@@ -1,6 +1,8 @@
 const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
+const { getDriverRouteDefaultPrice, getDriverRoutePriceKey } = require("../../../utils/driverRideDefaults")
+const { readRecentDriverRoutes, loadRecentDriverRoutes, recordRecentDriverRoute } = require("../../../utils/driverRecentRoutes")
 const { loadRidePlaceOptions, shortRidePlaceLabel, ridePlaceAliasPattern } = require("../../../utils/ridePlaceOptions")
 const { loadRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const {
@@ -42,6 +44,8 @@ Page({
     mode: "driver", // 默认司机
 
     userInfo: null,
+    loadingUserInfo: false,
+    driverProfileReady: false,
     submitting: false,
 
     // 地址列表（两种模式都用）
@@ -64,13 +68,20 @@ Page({
     carBrand: "",
     carModel: "",
 
-    referencePrice: "10",
-    referencePriceHasNumber: true,
+    referencePrice: "",
+    referencePriceHasNumber: false,
     comment: "",
+    commentExpanded: false,
+    templatesExpanded: false,
     showZelle: false,
 
     templates: [],
     loadingTemplates: false,
+    recentRoutes: [],
+    loadingRecentRoutes: false,
+    recentRoutesError: "",
+    publishedDriverTrip: null,
+    preparingReturn: false,
 
     // ====== 乘客模式字段 ======
     // 注意：乘客也用 referencePrice 展示，但不可编辑（WXML 用 readonly view）
@@ -98,9 +109,15 @@ Page({
 
     // 司机默认：加载模板
     this.loadTemplatesIfNeeded()
+    this.loadRecentRoutesIfNeeded()
   },
 
   onShow() {
+    if (this._publishedDriverOpenid && this._publishedDriverOpenid !== (wx.getStorageSync("openid") || "")) {
+      this._publishedDriverOpenid = ""
+      this._returnDepartureTimestamp = null
+      this.setData({ publishedDriverTrip: null, preparingReturn: false })
+    }
     if (this.data.calendarVisible) {
       this.setData(this.getFilterDateData())
       this.renderCalendar()
@@ -115,6 +132,7 @@ Page({
 
     this.loadUserInfo()
     this.loadTemplatesIfNeeded()
+    this.loadRecentRoutesIfNeeded()
   },
 
   onUnload() {
@@ -127,10 +145,15 @@ Page({
   // -------------------------
   setMode(e) {
     const mode = e.currentTarget.dataset.mode
+    if (this.data.submitting || this._driverSubmitInFlight) return
     if (!["driver", "passenger"].includes(mode) || mode === this.data.mode) return
+    this._priceManuallyEdited = false
+    this._returnDepartureTimestamp = null
 
     this.setData({
       mode,
+      preparingReturn: false,
+      publishedDriverTrip: null,
       calendarVisible: false,
       timePickerVisible: false,
       placePickerVisible: false,
@@ -150,6 +173,7 @@ Page({
 
       // 司机模式：加载模板
       this.loadTemplatesIfNeeded()
+      this.loadRecentRoutesIfNeeded()
     })
   },
 
@@ -205,33 +229,73 @@ Page({
   // -------------------------
   // userInfo
   // -------------------------
-  async loadUserInfo() {
+  loadUserInfo() {
     if (!this.isLoggedIn()) {
-      this.setData({ userInfo: null })
-      return
+      this.invalidateUserInfoRead()
+      this.setData({ userInfo: null, loadingUserInfo: false, driverProfileReady: false, carNumber: "", carBrand: "", carModel: "", showZelle: false })
+      return Promise.resolve()
     }
+    if (this._userInfoPromise) return this._userInfoPromise
+    const revision = this._userInfoReadRevision = (this._userInfoReadRevision || 0) + 1
+    this.setData({ loadingUserInfo: true })
+    const pending = this.readUserInfo(revision).finally(() => {
+      if (this._userInfoPromise !== pending) return
+      this._userInfoPromise = null
+      if (!this._calendarDisposed) this.setData({ loadingUserInfo: false })
+    })
+    this._userInfoPromise = pending
+    return pending
+  },
 
+  invalidateUserInfoRead() {
+    this._userInfoReadRevision = (this._userInfoReadRevision || 0) + 1
+    this._userInfoPromise = null
+  },
+
+  async readUserInfo(revision) {
+    const isCurrent = () => !this._calendarDisposed && revision === this._userInfoReadRevision
     try {
       const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      if (!isCurrent()) return
       const list = res?.result?.data || []
-      if (!list.length) {
-        this.setData({ userInfo: null })
-        return
-      }
-
-      const user = list[0]
-      // 司机模式：车信息要预填
+      const user = list[0] || null
+      const carNumber = String(user?.carNumber || "").trim()
+      const carBrand = String(user?.carBrand || "").trim()
+      const carModel = String(user?.carModel || "").trim()
       this.setData({
         userInfo: user,
-        carNumber: user.carNumber || this.data.carNumber || "",
-        carBrand: user.carBrand || this.data.carBrand || "",
-        carModel: user.carModel || this.data.carModel || ""
+        carNumber, carBrand, carModel,
+        driverProfileReady: !!(carNumber && carBrand && carModel),
+        showZelle: user?.defaultShowZelle === true
       })
+      if (this.data.mode === "driver" && !this._priceManuallyEdited) this.updateReferencePrice_driver()
     } catch (e) {
+      if (!isCurrent()) return
+      this.setData({ userInfo: null, driverProfileReady: false, showZelle: false })
       console.error("loadUserInfo error:", e)
       showDataError("资料加载失败", e, "个人资料从数据库加载失败，请稍后重试。")
     }
   },
+
+  onEditDriverProfile() {
+    if (!this.ensureLoginBeforeCreate_driver()) return
+    // A response started before editing must not overwrite the saved profile on return.
+    this.invalidateUserInfoRead()
+    this.setData({ loadingUserInfo: false })
+    wx.navigateTo({ url: "/pages/profile/editInfo/editInfo?from=newTrip" })
+  },
+
+  promptDriverProfile(message) {
+    wx.showModal({
+      title: "完善司机资料",
+      content: message,
+      confirmText: "去完善",
+      success: res => { if (res.confirm) this.onEditDriverProfile() }
+    })
+  },
+
+  onToggleComment() { this.setData({ commentExpanded: !this.data.commentExpanded }) },
+  onToggleTemplates() { this.setData({ templatesExpanded: !this.data.templatesExpanded }) },
 
   // -------------------------
   // 两种发布模式共用云端 Departure / Arrival 地点配置。
@@ -419,23 +483,16 @@ Page({
   },
 
   // -------------------------
-  // 司机：车/价/备注/zelle
+  // 司机：当次价格和备注；车辆与收款偏好统一从个人资料读取。
   // -------------------------
-  onCarNumberInput(e) { this.setData({ carNumber: e.detail.value }) },
-  onCarBrandInput(e) { this.setData({ carBrand: e.detail.value }) },
-  onCarModelInput(e) { this.setData({ carModel: e.detail.value }) },
   onReferencePriceInput(e) {
+    this._priceManuallyEdited = true
     this.setData({
       referencePrice: normalizeRidePriceInput(e.detail.value),
       referencePriceHasNumber: true
     })
   },
   onCommentInput(e) { this.setData({ comment: e.detail.value }) },
-
-  onZelleCheckboxChange(e) {
-    const values = e.detail.value || []
-    this.setData({ showZelle: values.includes("showZelle") })
-  },
 
   // -------------------------
   // 乘客：人数输入（1-4）
@@ -503,36 +560,11 @@ Page({
   // 司机：默认参考价
   // -------------------------
   updateReferencePrice_driver() {
-    const dep = this.data.departureAddress
-    const dest = this.data.destinationAddress
-    if (!dep || !dest) return
-
-    const userInfo = this.data.userInfo || {}
-    const customPrice = userInfo.customPrice || {}
-
-    const COL = "哥大"
-    const FL_CORE = "Fort Lee 核心区"
-    const FL_NONCORE = "Fort Lee 全区域"
-
-    const hasColumbia = dep === COL || dest === COL
-    const hasCore = dep === FL_CORE || dest === FL_CORE
-    const hasNonCore = dep === FL_NONCORE || dest === FL_NONCORE
-
-    if (hasColumbia && hasNonCore) {
-      const val = extractRidePriceNumber(customPrice.fortLeeNonCore)
-        ? extractRidePriceNumber(customPrice.fortLeeNonCore)
-        : "13 USD"
-      this.setData({ referencePrice: extractRidePriceNumber(val) || "13", referencePriceHasNumber: true })
-      return
-    }
-
-    if (hasColumbia && hasCore) {
-      const val = extractRidePriceNumber(customPrice.fortLeeCore)
-        ? extractRidePriceNumber(customPrice.fortLeeCore)
-        : "10 USD"
-      this.setData({ referencePrice: extractRidePriceNumber(val) || "10", referencePriceHasNumber: true })
-      return
-    }
+    this._priceManuallyEdited = false
+    const referencePrice = getDriverRouteDefaultPrice(
+      this.data.departureAddress, this.data.destinationAddress, this.data.userInfo?.customPrice
+    )
+    this.setData({ referencePrice, referencePriceHasNumber: !!referencePrice })
   },
 
   // -------------------------
@@ -540,18 +572,34 @@ Page({
   // -------------------------
   loadTemplatesIfNeeded() {
     if (this.data.mode !== "driver") return
-    this.loadTemplates()
+    return this.loadTemplates()
   },
 
-  async loadTemplates() {
+  loadTemplates() {
     const openid = wx.getStorageSync("openid") || ""
     if (!openid) {
+      this._templateReadRevision = (this._templateReadRevision || 0) + 1
+      this._templatesPromise = null
       this.setData({ templates: [], loadingTemplates: false })
-      return
+      return Promise.resolve()
     }
-
+    if (this._templatesPromise && this._templatesOpenid === openid) return this._templatesPromise
+    if (this._templatesOpenid !== openid) this.setData({ templates: [] })
+    this._templatesOpenid = openid
+    const revision = this._templateReadRevision = (this._templateReadRevision || 0) + 1
     this.setData({ loadingTemplates: true })
+    const pending = this.readTemplates(openid, revision).finally(() => {
+      if (this._templatesPromise !== pending) return
+      this._templatesPromise = null
+      if (!this._calendarDisposed) this.setData({ loadingTemplates: false })
+    })
+    this._templatesPromise = pending
+    return pending
+  },
 
+  async readTemplates(openid, revision) {
+    const isCurrent = () => !this._calendarDisposed && revision === this._templateReadRevision &&
+      openid === (wx.getStorageSync("openid") || "")
     try {
       const db = wx.cloud.database()
       const res = await db.collection("CarpoolTemplate")
@@ -563,46 +611,122 @@ Page({
         ...t,
         departureText: t.departureAddress || "未设置出发地",
         destinationText: t.destinationAddress || "未设置目的地",
-        departureTimeText: `${t.weekdayText || ""} ${t.departureTime || ""}`.trim()
+        departureTimeText: `${t.weekdayText || ""} ${t.departureTime || ""}`.trim(),
+        shortcutTitle: String(t.name || t.title || "").trim() ||
+          (getDriverRoutePriceKey(t.departureAddress, t.destinationAddress)
+            ? (String(t.destinationAddress).trim() === "哥大" ? "去学校" : "回程") : "常用路线")
       }))
-
-      this.setData({ templates })
+      if (isCurrent()) this.setData({ templates })
     } catch (e) {
+      if (!isCurrent()) return
       console.error("[loadTemplates] failed:", e)
       showDataError("模板加载失败", e, "出行模板从数据库加载失败，请稍后重试。")
-    } finally {
-      this.setData({ loadingTemplates: false })
     }
   },
 
+  onManageTemplates() {
+    if (this.data.submitting || this.data.publishedDriverTrip) return
+    if (!this.ensureLoginBeforeCreate_driver()) return
+    this._templateReadRevision = (this._templateReadRevision || 0) + 1
+    this._templatesPromise = null
+    wx.navigateTo({ url: "/pages/home/CarpoolTemplateList/CarpoolTemplateList" })
+  },
+
+  filterRecentRoutes(rows) {
+    const cityKey = getRideCitySnapshot().key || DEFAULT_CITY_KEY
+    return (Array.isArray(rows) ? rows : []).filter(row => (row.cityKey || DEFAULT_CITY_KEY) === cityKey)
+  },
+
+  loadRecentRoutesIfNeeded() {
+    if (this.data.mode !== "driver") return Promise.resolve()
+    const openid = wx.getStorageSync("openid") || ""
+    if (!openid) {
+      this._recentReadRevision = (this._recentReadRevision || 0) + 1
+      this._recentRoutesPromise = null
+      this.setData({ recentRoutes: [], loadingRecentRoutes: false, recentRoutesError: "" })
+      return Promise.resolve()
+    }
+    if (this._recentRoutesPromise && this._recentRoutesOpenid === openid) return this._recentRoutesPromise
+    this._recentRoutesOpenid = openid
+    const revision = this._recentReadRevision = (this._recentReadRevision || 0) + 1
+    this.setData({ recentRoutes: this.filterRecentRoutes(readRecentDriverRoutes(openid)), loadingRecentRoutes: true, recentRoutesError: "" })
+    const isCurrent = () => !this._calendarDisposed && revision === this._recentReadRevision &&
+      openid === (wx.getStorageSync("openid") || "")
+    const pending = Promise.resolve().then(() => loadRecentDriverRoutes(openid)).then(rows => {
+      if (isCurrent()) this.setData({ recentRoutes: this.filterRecentRoutes(rows) })
+    }).catch(() => {
+      if (isCurrent()) this.setData({ recentRoutes: this.filterRecentRoutes(readRecentDriverRoutes(openid)), recentRoutesError: "历史路线暂未同步，点击重试" })
+    }).finally(() => {
+      if (this._recentRoutesPromise !== pending) return
+      this._recentRoutesPromise = null
+      if (!this._calendarDisposed) this.setData({ loadingRecentRoutes: false })
+    })
+    this._recentRoutesPromise = pending
+    return pending
+  },
+
+  onReloadRecentRoutes() { return this.loadRecentRoutesIfNeeded() },
+
+  onRecentRouteTap(e) {
+    if (this.data.submitting || this.data.publishedDriverTrip || this.data.mode !== "driver") return
+    const route = this.filterRecentRoutes(this.data.recentRoutes).find(row => row._id === e.currentTarget.dataset.id)
+    if (!route) return
+    const time = this.normalizeTimeStr(route.departureTime || "")
+    const today = this.getFilterDateData().todayDateStr
+    let date = today
+    // A saved clock time can fall in New York's skipped spring hour. Pick the
+    // next real occurrence instead of filling a date the server would reject.
+    for (let offset = 0; offset <= 2; offset++) {
+      date = rideTime.shiftRideDate(today, offset)
+      const timestamp = rideTime.parseRideDateTime(date, time)
+      if (Number.isFinite(timestamp) && timestamp - Date.now() >= 15 * 60 * 1000) break
+    }
+    this.applyDriverShortcut(route, date, time)
+    wx.showToast({ title: "已填入路线，请确认日期", icon: "none", duration: 1800 })
+  },
+
   onTemplateTap(e) {
+    if (this.data.submitting || this.data.publishedDriverTrip || this.data.mode !== "driver") return
     const id = e.currentTarget.dataset.id
     const tpl = (this.data.templates || []).find(x => x._id === id)
     if (!tpl) return
 
-    const dep = tpl.departureAddress || ""
-    const dest = tpl.destinationAddress || ""
-
-    const seat = this.safeSeat(tpl.passengerCount)
-    const referencePrice = extractRidePriceNumber(tpl.referencePrice) || ""
-    const comment = tpl.comment || ""
     const timeStr = tpl.departureTime ? this.normalizeTimeStr(tpl.departureTime) : ""
-    const nextDateStr = this.getNearestDateByWeekdayIndex_Mon0(tpl.weekdayIndex)
+    const selectedTimestamp = rideTime.parseRideDateTime(this.data.departureDate, timeStr)
+    const now = Date.now()
+    let nextDateStr = Number.isFinite(selectedTimestamp) && selectedTimestamp - now >= 15 * 60 * 1000 &&
+      selectedTimestamp - now <= 30 * 24 * 60 * 60 * 1000 ? this.data.departureDate :
+      this.getNearestDateByWeekdayIndex_Mon0(tpl.weekdayIndex)
+    const candidateTimestamp = rideTime.parseRideDateTime(nextDateStr, timeStr)
+    if (Number.isFinite(candidateTimestamp) && candidateTimestamp - now < 15 * 60 * 1000) {
+      nextDateStr = rideTime.shiftRideDate(nextDateStr, 7)
+    }
+    this.applyDriverShortcut(tpl, nextDateStr || this.getFilterDateData().todayDateStr, timeStr)
+    wx.showToast({ title: "已应用模板", icon: "success", duration: 1000 })
+  },
 
+  applyDriverShortcut(route, date, time) {
+    const seat = this.safeSeat(route.passengerCount)
+    const referencePrice = extractRidePriceNumber(route.referencePrice) || ""
+    const comment = route.comment || ""
+    this._priceManuallyEdited = !!referencePrice
+    this._returnDepartureTimestamp = null
     this.setData({
-      departureAddress: dep,
-      destinationAddress: dest,
+      departureAddress: route.departureAddress || "",
+      destinationAddress: route.destinationAddress || "",
       passengerCount: seat,
       passengerCountInput: String(seat),
       referencePrice,
       referencePriceHasNumber: !!referencePrice,
       comment,
-      departureDate: nextDateStr || this.data.departureDate,
-      departureTime: timeStr || this.data.departureTime,
-      showZelle: tpl.zelle === "yes" || tpl.zelle === true
+      commentExpanded: !!comment,
+      templatesExpanded: false,
+      preparingReturn: false,
+      publishedDriverTrip: null,
+      departureDate: date,
+      departureTime: time
     }, () => {
       if (!referencePrice) this.updateReferencePrice_driver()
-      wx.showToast({ title: "已应用模板", icon: "success", duration: 1000 })
     })
   },
 
@@ -636,6 +760,7 @@ Page({
   // 司机：confirmTrip / submitTrip
   // =========================
   driver_confirmTrip() {
+    if (this.data.submitting || this._driverSubmitInFlight || this.data.publishedDriverTrip) return
     const seat = parseInt(this.data.passengerCountInput, 10)
     if (!seat || isNaN(seat) || seat < 1 || seat > 7) {
       this.showError("载客数量必须为 1-7 的整数")
@@ -645,6 +770,7 @@ Page({
 
     if (!this.ensureLoginBeforeCreate_driver()) return
     if (this.data.submitting) return
+    if (this.data.loadingUserInfo) return this.showError("正在读取司机资料，请稍候")
 
     const {
       userInfo,
@@ -660,15 +786,18 @@ Page({
     } = this.data
 
     if (!userInfo) {
-      wx.showToast({ title: "请先完善个人信息", icon: "none" })
-      wx.setStorageSync("pendingPage", { url: "/pages/home/newTrip/newTrip" })
-      wx.navigateTo({ url: "/pages/profile/addInfo/addInfo?from=login" })
+      this.promptDriverProfile("请先填写个人信息和车辆资料，返回后可继续发布。")
       return
     }
 
     // 微信号校验
     if (!userInfo.wechatID || !String(userInfo.wechatID).trim()) {
-      wx.showToast({ title: "请先在个人中心填写微信号", icon: "none", duration: 2000 })
+      this.promptDriverProfile("请先填写微信号，方便加入的乘客联系你。")
+      return
+    }
+
+    if (!carNumber || !carBrand || !carModel) {
+      this.promptDriverProfile("请先填写车牌号、车辆品牌和型号，返回后会保留已填路线。")
       return
     }
 
@@ -683,8 +812,10 @@ Page({
     const diffMin = (selectedTime.getTime() - now.getTime()) / (1000 * 60)
     if (diffMin < 12) return this.showError("发车时间需晚于当前15分钟")
     if (diffMin > 43200) return this.showError("发车时间不能超过30天")
+    if (this.data.preparingReturn && selectedTime.getTime() <= this._returnDepartureTimestamp) {
+      return this.showError("返程时间需晚于去程时间")
+    }
 
-    if (!carNumber || !carBrand || !carModel) return this.showError("请完整填写车牌号、车辆品牌和型号")
     const referencePriceText = formatRidePricePerPerson(referencePrice)
     if (!referencePriceText) return this.showError("请填写参考价格")
 
@@ -695,25 +826,66 @@ Page({
       `参考价格：${referencePriceText}\n` +
       `公开 Zelle 信息：${this.data.showZelle ? "是" : "否"}`
 
+    const draft = this.captureDriverDraft()
     this.setData({ submitting: true })
-
+    let answered = false
     wx.showModal({
       title: "确认新建路线",
       content: summary,
       success: (res) => {
-        if (res.confirm) this.driver_submitTrip()
+        if (answered || this._calendarDisposed) return
+        answered = true
+        if (res.confirm) this.driver_submitTrip(draft)
         else this.setData({ submitting: false })
       },
       fail: () => this.setData({ submitting: false })
     })
   },
 
-  async driver_submitTrip() {
+  captureDriverDraft() {
+    const { departureAddress, destinationAddress, departureDate, departureTime, passengerCount, referencePrice, comment } = this.data
+    const rideCity = getRideCitySnapshot()
+    return { departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
+      referencePrice: extractRidePriceNumber(referencePrice) || "", comment,
+      showZelle: this.data.showZelle === true, hasUserInfo: !!this.data.userInfo,
+      openid: wx.getStorageSync("openid") || "", cityKey: rideCity.key || DEFAULT_CITY_KEY,
+      cityLabel: rideCity.label || "" }
+  },
+
+  onPrepareReturnTrip() {
+    const trip = this.data.publishedDriverTrip
+    if (!trip || this.data.submitting || this._driverSubmitInFlight) return
+    if (this._publishedDriverOpenid !== (wx.getStorageSync("openid") || "")) return
+    this._returnDepartureTimestamp = rideTime.parseRideDateTime(trip.departureDate, trip.departureTime)
+    this._priceManuallyEdited = true
+    this.setData({
+      departureAddress: trip.destinationAddress,
+      destinationAddress: trip.departureAddress,
+      departureDate: trip.departureDate,
+      departureTime: "",
+      passengerCount: trip.passengerCount,
+      passengerCountInput: String(trip.passengerCount),
+      referencePrice: trip.referencePrice,
+      referencePriceHasNumber: !!trip.referencePrice,
+      comment: trip.comment || "",
+      commentExpanded: !!trip.comment,
+      publishedDriverTrip: null,
+      preparingReturn: true
+    })
+  },
+
+  onReturnHome() {
+    if (this.data.submitting || this._driverSubmitInFlight) return
+    wx.reLaunch({ url: "/pages/home/home" })
+  },
+
+  async driver_submitTrip(draft = this.captureDriverDraft()) {
+    if (this._driverSubmitInFlight || this.data.publishedDriverTrip || this._calendarDisposed) return
+    this._driverSubmitInFlight = true
     if (!this.data.submitting) this.setData({ submitting: true })
 
     try {
       const {
-        userInfo,
         departureAddress,
         destinationAddress,
         departureDate,
@@ -721,25 +893,20 @@ Page({
         passengerCount,
         comment,
         referencePrice,
-        carNumber,
-        carBrand,
-        carModel,
         showZelle
-      } = this.data
+      } = draft
 
-      if (!userInfo) {
+      if (!draft.hasUserInfo || !draft.openid || draft.openid !== (wx.getStorageSync("openid") || "")) {
         this.showError("用户信息缺失，请重新打开页面")
         return
       }
 
       const departures = [{ address: departureAddress, date: departureDate, time: departureTime }]
       const destinations = [{ address: destinationAddress }]
-      const rideCity = getRideCitySnapshot()
-
       const createPayload = {
         type: "carpool",
-        cityKey: rideCity.key || DEFAULT_CITY_KEY,
-        cityLabel: rideCity.label || "",
+        cityKey: draft.cityKey,
+        cityLabel: draft.cityLabel,
         departures,
         destinations,
         passengerCount,
@@ -748,25 +915,7 @@ Page({
         passengers: [],
         referencePrice: formatRidePricePerPerson(referencePrice),
         comment,
-        zelle: showZelle ? "yes" : "no",
-        carNumber,
-        carBrand,
-        carModel
-      }
-
-      const COL = "哥大"
-      const FL_CORE = "Fort Lee 核心区"
-      const FL_NONCORE = "Fort Lee 全区域"
-
-      const hasColumbia = departureAddress === COL || destinationAddress === COL
-      const hasCore = departureAddress === FL_CORE || destinationAddress === FL_CORE
-      const hasNonCore = departureAddress === FL_NONCORE || destinationAddress === FL_NONCORE
-
-      const referencePriceText = formatRidePricePerPerson(referencePrice)
-      if (hasColumbia && hasNonCore && referencePriceText) {
-        createPayload.customPrice = { fortLeeNonCore: referencePriceText }
-      } else if (hasColumbia && hasCore && referencePriceText) {
-        createPayload.customPrice = { fortLeeCore: referencePriceText }
+        zelle: showZelle ? "yes" : "no"
       }
 
       const createRes = await wx.cloud.callFunction({
@@ -780,14 +929,29 @@ Page({
       }
 
       markRideListStale()
-      wx.showToast({ title: "路线创建成功", icon: "success", duration: 2000 })
-      setTimeout(() => wx.reLaunch({ url: "/pages/home/home" }), 1500)
+      const publishedDriverTrip = { id: createRes.result.id, departureAddress, destinationAddress,
+        departureDate, departureTime, passengerCount, referencePrice, comment }
+      if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "")) {
+        this._publishedDriverOpenid = draft.openid
+        this.setData({ publishedDriverTrip, preparingReturn: false })
+      }
+      // Remember only confirmed successful publications. Local history must never
+      // turn an already-created route into a failure that invites another submit.
+      try {
+        const rows = recordRecentDriverRoute(draft.openid, { ...publishedDriverTrip, cityKey: draft.cityKey })
+        if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "")) {
+          this.setData({ recentRoutes: this.filterRecentRoutes(rows) })
+        }
+      } catch (historyError) {
+        console.error("remember published route failed:", historyError)
+      }
 
     } catch (e) {
       console.error("driver_submitTrip error:", e)
       this.showError("路线创建失败，请重试")
     } finally {
-      this.setData({ submitting: false })
+      this._driverSubmitInFlight = false
+      if (!this._calendarDisposed) this.setData({ submitting: false })
     }
   },
 

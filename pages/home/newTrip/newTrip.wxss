@@ -192,80 +192,89 @@ page{
   box-sizing: border-box;
 }
 
-/* Zelle */
-.create-zelle{
-  margin-top: 16rpx;
-}
-
-.create-check{
+/* 车辆摘要与可展开的可选项 */
+.create-profile-summary,
+.create-optional-row{
   display: flex;
   align-items: center;
-  gap: 12rpx;
+  justify-content: space-between;
+  gap: 16rpx;
+  min-height: 68rpx;
+  font-size: 23rpx;
+  line-height: 32rpx;
 }
 
-.create-check-text{
+.create-profile-summary{
+  margin-top: 8rpx;
+  padding: 4rpx 4rpx 0;
+  color: #687580;
+}
+
+.create-profile-text{
   flex: 1;
   min-width: 0;
-  font-size: 26rpx;
-  line-height: 34rpx;
-  font-weight: 800;
-  color: #111418;
-}
-
-/* 常用模板 */
-.create-template-head{
-  margin: 26rpx 4rpx 12rpx;
-}
-
-.create-inline-state{
-  margin: 0;
-}
-
-.create-template-list{
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-
-.create-template-card{
-  padding: 18rpx 20rpx;
-}
-
-.create-template-time{
-  min-width: 0;
-  font-size: 26rpx;
-  line-height: 34rpx;
-  font-weight: 900;
-  color: #111418;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.create-template-route{
-  margin-top: 14rpx;
-  display: grid;
-  grid-template-columns: minmax(0,1fr) 36rpx minmax(0,1fr);
-  align-items: center;
-  gap: 10rpx;
-  font-size: 25rpx;
-  line-height: 34rpx;
-  font-weight: 800;
-  color: #59636f;
+.create-profile-link{
+  flex: none;
+  color: #0e8986;
+  font-size: 23rpx;
 }
 
-.create-template-route text{
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.create-optional-row{
+  padding: 0 4rpx;
+  border-top: 1rpx solid #edf0f2;
+  color: #687580;
 }
 
-.create-template-arrow{
-  text-align: center;
-  color: #111418;
-  font-weight: 900;
+.create-optional-arrow{
+  color: #0e8986;
+  font-size: 28rpx;
 }
+
+/* 最近发布与手动模板共用轻量入口，不占用表单空间。 */
+.create-shortcut-section{ margin: 0 0 20rpx; }
+.create-section-heading{ display: flex; align-items: center; justify-content: space-between; gap: 10rpx; margin: 0 4rpx 12rpx; }
+.create-section-labels{ display: flex; align-items: baseline; gap: 12rpx; min-width: 0; }
+.create-section-title{ color: #111418; font-size: 25rpx; font-weight: 800; }
+.create-section-caption{ color: #7b858e; font-size: 20rpx; }
+.create-manage-link{ flex: none; padding: 12rpx 0 12rpx 8rpx; color: #0e8986; font-size: 21rpx; }
+.create-shortcut-scroll{ width: 100%; white-space: nowrap; }
+.create-shortcut-track{ display: inline-flex; gap: 12rpx; padding: 1rpx 1rpx 4rpx; }
+.create-shortcut-card{ width: 310rpx; padding: 16rpx 18rpx; background: #fff; border: 1rpx solid #dcebea; border-radius: 18rpx; box-sizing: border-box; }
+.create-shortcut-top, .create-shortcut-bottom{ display: flex; align-items: center; justify-content: space-between; gap: 8rpx; }
+.create-shortcut-title{ color: #0d7f7c; font-size: 23rpx; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.create-shortcut-time{ color: #111418; font-size: 27rpx; font-weight: 800; }
+.create-shortcut-route{ display: flex; align-items: center; gap: 10rpx; margin: 10rpx 0; font-size: 23rpx; font-weight: 600; color: #273239; }
+.create-shortcut-route text{ min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.create-shortcut-arrow{ color: #0e8986; flex: none; }
+.create-shortcut-bottom{ color: #869098; font-size: 20rpx; }
+.create-shortcut-use{ color: #0e8986; }
+.create-shortcut-pressed{ background: #e8f5f3; }
+.create-recent-placeholder{ padding: 18rpx; border: 1rpx dashed #d9e2e5; border-radius: 14rpx; color: #7b858e; font-size: 22rpx; }
+.create-recent-retry{ color: #0e8986; }
+.create-saved-scroll{ margin-top: 10rpx; }
+.create-saved-template{ display: inline-flex; align-items: center; gap: 10rpx; min-height: 62rpx; max-width: 520rpx; padding: 0 16rpx; background: #fff; border: 1rpx solid #e1e6e9; border-radius: 12rpx; font-size: 22rpx; color: #59636f; }
+.create-saved-template text{ overflow: hidden; text-overflow: ellipsis; }
+.create-saved-badge{ flex: none; color: #0e8986; font-size: 19rpx; }
+.create-return-hint{ display: flex; align-items: center; gap: 12rpx; margin-bottom: 12rpx; padding: 14rpx 18rpx; background: #e2f2f0; border-radius: 12rpx; color: #0d7f7c; font-size: 23rpx; }
+.create-return-icon{ font-size: 30rpx; }
+.create-published{ padding-top: 56rpx; text-align: center; }
+.create-success-icon{ display: flex; align-items: center; justify-content: center; width: 100rpx; height: 100rpx; margin: 0 auto 24rpx; border-radius: 50%; background: #def2ef; color: #0e8986; font-size: 56rpx; }
+.create-success-title{ display: block; font-size: 36rpx; font-weight: 800; color: #111418; }
+.create-success-subtitle{ display: block; margin: 12rpx 0 36rpx; font-size: 24rpx; color: #7b858e; }
+.create-ride .create-published-card{ padding: 28rpx; text-align: left; }
+.create-published-date{ color: #0e8986; font-size: 25rpx; font-weight: 700; }
+.create-published-route{ display: flex; flex-wrap: wrap; align-items: center; gap: 20rpx; margin: 24rpx 0; color: #111418; font-size: 32rpx; font-weight: 800; }
+.create-published-arrow{ color: #0e8986; }
+.create-published-meta{ color: #687580; font-size: 24rpx; }
+.create-success-hint{ display: block; margin-top: 26rpx; color: #869098; font-size: 22rpx; }
+.create-success-actions{ display: flex; width: 100%; gap: 16rpx; }
+.create-success-actions .ride-btn{ flex: 1; min-width: 0; margin: 0; white-space: nowrap; }
+.create-success-actions .create-return-home{ flex: 0 0 34%; background: #eef1f3; color: #59636f; }
 
 .create-notice-muted{
   margin-top: 14rpx;

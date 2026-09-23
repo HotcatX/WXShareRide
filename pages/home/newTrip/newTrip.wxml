@@ -12,10 +12,10 @@
       >
         <text>‹</text>
       </view>
-      <text class="ride-nav-title">{{pageTitle}}</text>
+      <text class="ride-nav-title">{{publishedDriverTrip ? '发布成功' : pageTitle}}</text>
     </view>
 
-    <view class="ride-segment">
+    <view wx:if="{{!publishedDriverTrip}}" class="ride-segment">
       <view
         class="ride-segment-item {{mode==='driver' ? 'active' : ''}}"
         bindtap="setMode"
@@ -30,10 +30,55 @@
   </view>
 
   <scroll-view class="ride-scroll create-scroll" scroll-y="{{!calendarVisible && !timePickerVisible && !placePickerVisible}}" enhanced="true" show-scrollbar="{{false}}">
-    <block wx:if="{{mode==='driver'}}">
+    <view wx:if="{{publishedDriverTrip}}" class="create-published">
+      <view class="create-success-icon">✓</view>
+      <text class="create-success-title">路线已发布</text>
+      <text class="create-success-subtitle">乘客现在可以查看和加入你的路线</text>
+      <view class="ride-card ride-card-pad create-published-card">
+        <text class="create-published-date">{{publishedDriverTrip.departureDate}} · {{publishedDriverTrip.departureTime}}</text>
+        <view class="create-published-route">
+          <text>{{publishedDriverTrip.departureAddress}}</text>
+          <text class="create-published-arrow">→</text>
+          <text>{{publishedDriverTrip.destinationAddress}}</text>
+        </view>
+        <text class="create-published-meta">{{publishedDriverTrip.passengerCount}} 个座位 · {{publishedDriverTrip.referencePrice}} $/人</text>
+      </view>
+      <text class="create-success-hint">已保存到常用，下次可直接套用</text>
+    </view>
+
+    <block wx:if="{{mode==='driver' && !publishedDriverTrip}}">
+      <view class="create-shortcut-section">
+        <view class="create-section-heading">
+          <view class="create-section-labels">
+            <text class="create-section-title">常用路线</text>
+            <text class="create-section-caption">最近发布，一键填写</text>
+          </view>
+          <view class="create-manage-link" bindtap="onManageTemplates" role="button" aria-label="管理出行模板">模板管理 ›</view>
+        </view>
+        <scroll-view wx:if="{{recentRoutes.length}}" class="create-shortcut-scroll" scroll-x enhanced="true" show-scrollbar="{{false}}">
+          <view class="create-shortcut-track">
+            <view wx:for="{{recentRoutes}}" wx:key="_id" class="create-shortcut-card" data-id="{{item._id}}" bindtap="onRecentRouteTap" hover-class="create-shortcut-pressed" role="button" aria-label="套用最近发布的路线">
+              <view class="create-shortcut-top"><text class="create-shortcut-title">{{item.shortcutTitle}}</text><text class="create-shortcut-time">{{item.departureTime}}</text></view>
+              <view class="create-shortcut-route"><text>{{item.departureAddress}}</text><text class="create-shortcut-arrow">→</text><text>{{item.destinationAddress}}</text></view>
+              <view class="create-shortcut-bottom"><text>{{item.passengerCount}} 个座位</text><text class="create-shortcut-use">再发一次 ↗</text></view>
+            </view>
+          </view>
+        </scroll-view>
+        <view wx:elif="{{loadingRecentRoutes}}" class="create-recent-placeholder">正在读取最近发布的路线…</view>
+        <view wx:elif="{{recentRoutesError}}" class="create-recent-placeholder create-recent-retry" bindtap="onReloadRecentRoutes" role="button">历史暂未加载，点击重试</view>
+        <view wx:else class="create-recent-placeholder">发布过的路线会自动保存在这里</view>
+        <scroll-view wx:if="{{templates.length}}" class="create-shortcut-scroll create-saved-scroll" scroll-x enhanced="true" show-scrollbar="{{false}}">
+          <view class="create-shortcut-track">
+            <view wx:for="{{templates}}" wx:key="_id" class="create-saved-template" data-id="{{item._id}}" bindtap="onTemplateTap" hover-class="create-shortcut-pressed" role="button" aria-label="套用已保存的模板">
+              <text class="create-saved-badge">模板</text><text>{{item.shortcutTitle}} · {{item.weekdayText}} {{item.departureTime}}</text>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
+      <view wx:if="{{preparingReturn}}" class="create-return-hint"><text class="create-return-icon">↩</text><text>方向已反转，请确认返程日期和时间</text></view>
       <view class="ride-card ride-card-pad create-route-card">
         <view class="create-card-head">
-          <text class="ride-section-title">发车信息</text>
+          <text class="ride-section-title">{{preparingReturn ? '返程信息' : '发车信息'}}</text>
         </view>
 
         <view class="ride-form-grid">
@@ -74,58 +119,28 @@
             </view>
           </view>
 
-          <view class="ride-field ride-field-inline ride-field--full">
-            <text class="ride-field-label">载客数量</text>
-            <input
-              class="ride-input ride-input-inline"
-              type="number"
-              value="{{passengerCountInput}}"
-              bindinput="onPassengerInput"
-              placeholder="1-7"
-              placeholder-class="ride-placeholder"
-            />
+          <view class="ride-field ride-field-inline">
+            <text class="ride-field-label">可乘人数</text>
+            <input class="ride-input ride-input-inline" type="number" value="{{passengerCountInput}}" bindinput="onPassengerInput" placeholder="1-7" placeholder-class="ride-placeholder" />
           </view>
-        </view>
-      </view>
-
-      <view class="ride-card ride-card-pad">
-        <view class="create-card-head">
-          <text class="ride-section-title">车辆与价格</text>
-        </view>
-
-        <view class="ride-form-grid">
-          <view class="ride-field ride-field-inline ride-field--full">
-            <text class="ride-field-label">参考价格</text>
+          <view class="ride-field ride-field-inline">
+            <text class="ride-field-label">价格</text>
             <view class="ride-price-input-wrap">
-              <input
-                class="ride-input ride-input-inline create-price-input"
-                type="digit"
-                value="{{referencePrice}}"
-                bindinput="onReferencePriceInput"
-                placeholder="10"
-                placeholder-class="ride-placeholder"
-              />
+              <input class="ride-input ride-input-inline create-price-input" type="digit" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="请填写" placeholder-class="ride-placeholder" />
               <text class="ride-input-suffix">$/人</text>
             </view>
           </view>
+        </view>
 
-          <view class="ride-field ride-field-inline">
-            <text class="ride-field-label">车牌号</text>
-            <input class="ride-input ride-input-inline" value="{{carNumber}}" bindinput="onCarNumberInput" placeholder="请输入" placeholder-class="ride-placeholder" />
-          </view>
-
-          <view class="ride-field ride-field-inline">
-            <text class="ride-field-label">车辆品牌</text>
-            <input class="ride-input ride-input-inline" value="{{carBrand}}" bindinput="onCarBrandInput" placeholder="如 Toyota" placeholder-class="ride-placeholder" />
-          </view>
-
-          <view class="ride-field ride-field-inline ride-field--full">
-            <text class="ride-field-label">车辆型号</text>
-            <input class="ride-input ride-input-inline" value="{{carModel}}" bindinput="onCarModelInput" placeholder="如 RAV4 / Civic" placeholder-class="ride-placeholder" />
-          </view>
-
-          <view class="ride-field ride-field--full create-textarea-field">
-            <text class="ride-field-label">备注</text>
+        <view class="create-profile-summary" bindtap="onEditDriverProfile" role="button" aria-label="修改司机资料">
+          <text class="create-profile-text">{{loadingUserInfo ? '正在读取司机资料' : (driverProfileReady ? carBrand + ' ' + carModel + ' · ' + carNumber : '请完善司机资料')}}</text>
+          <text class="create-profile-link">{{driverProfileReady ? '修改' : '去填写'}} ›</text>
+        </view>
+        <view class="create-optional-row" bindtap="onToggleComment" role="button" aria-label="添加或收起备注">
+          <text>{{commentExpanded ? '备注（选填）' : (comment ? '查看备注' : '添加备注（选填）')}}</text>
+          <text class="create-optional-arrow">{{commentExpanded ? '−' : '＋'}}</text>
+        </view>
+          <view wx:if="{{commentExpanded}}" class="ride-field create-textarea-field">
             <textarea
               class="ride-textarea"
               value="{{comment}}"
@@ -136,49 +151,8 @@
               maxlength="100"
             />
           </view>
-        </view>
       </view>
 
-      <view class="ride-card ride-card-pad create-zelle">
-        <checkbox-group bindchange="onZelleCheckboxChange">
-          <label class="create-check">
-            <checkbox value="showZelle" checked="{{showZelle}}" />
-            <text class="create-check-text">公开 Zelle 信息给加入的乘客</text>
-          </label>
-        </checkbox-group>
-      </view>
-
-      <view class="create-card-head create-template-head">
-        <text class="ride-section-title">常用模板</text>
-        <text class="ride-section-subtitle">点击快速填充路线</text>
-      </view>
-
-      <view wx:if="{{loadingTemplates}}" class="ride-state create-inline-state">模板加载中</view>
-      <view wx:elif="{{templates.length === 0}}" class="ride-state create-inline-state">
-        暂无模板，可在个人中心创建
-      </view>
-
-      <view wx:else class="create-template-list">
-        <view
-          class="ride-card create-template-card"
-          wx:for="{{templates}}"
-          wx:key="_id"
-          bindtap="onTemplateTap"
-          data-id="{{item._id}}"
-          hover-class="ride-card-pressed"
-          hover-stay-time="80"
-        >
-          <view class="ride-row-between">
-            <text class="create-template-time">{{item.weekdayText}} {{item.departureTime}}</text>
-            <text class="ride-chip ride-chip--accent">套用</text>
-          </view>
-          <view class="create-template-route">
-            <text>{{item.departureAddress}}</text>
-            <text class="create-template-arrow">→</text>
-            <text>{{item.destinationAddress}}</text>
-          </view>
-        </view>
-      </view>
     </block>
 
     <block wx:if="{{mode==='passenger'}}">
@@ -268,6 +242,11 @@
   </scroll-view>
 
   <view class="ride-bottom">
+    <view wx:if="{{publishedDriverTrip}}" class="create-success-actions">
+      <button class="ride-btn create-return-home" bindtap="onReturnHome">返回首页</button>
+      <button class="ride-btn ride-btn--primary" bindtap="onPrepareReturnTrip">发布返程</button>
+    </view>
+    <block wx:else>
     <button
       wx:if="{{mode==='driver'}}"
       class="ride-btn ride-btn--primary {{submitting ? 'ride-btn--disabled' : ''}}"
@@ -275,7 +254,7 @@
       disabled="{{submitting}}"
       loading="{{submitting}}"
     >
-      {{ submitting ? '提交中' : '发布司机路线' }}
+      {{ submitting ? '提交中' : (preparingReturn ? '确认发布返程' : '发布司机路线') }}
     </button>
 
     <button
@@ -287,6 +266,7 @@
     >
       {{ submitting ? '提交中' : '发布求车' }}
     </button>
+    </block>
   </view>
   <template is="ride-calendar" data="{{calendarVisible, calendarMonthTitle, calendarDays, calendarCanPrev, calendarCanConfirm, calendarSelectionLabel, calendarLoading, calendarError, calendarConfirmText}}" />
   <ride-time-picker id="departure-time-picker" visible="{{timePickerVisible}}" value="{{departureTime}}" bindcancel="onCloseTimePicker" bindconfirm="onTimeChange" />

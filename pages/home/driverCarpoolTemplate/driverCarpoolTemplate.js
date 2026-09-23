@@ -1,6 +1,7 @@
 // pages/home/driverCarpoolTemplate/driverCarpoolTemplate.js
 const { showDataError } = require("../../../utils/error")
 const { callUpdateUser } = require("../../../utils/userProfileUpdate")
+const { getDriverRouteDefaultPrice } = require("../../../utils/driverRideDefaults")
 
 Page({
   data: {
@@ -255,7 +256,7 @@ Page({
       })
 
       if (res.confirm && res.content) {
-        this.setData({ [fieldName]: res.content, referencePrice: "价格私议" })
+        this.setData({ [fieldName]: res.content.trim() }, () => this.updateReferencePrice())
       }
     } else {
       this.setData({ [fieldName]: selected }, () => this.updateReferencePrice())
@@ -265,34 +266,8 @@ Page({
   updateReferencePrice() {
     const dep = this.data.departureAddress
     const dest = this.data.destinationAddress
-    if (!dep || !dest) return
-
     const userInfo = this.data.userInfo || {}
-    const customPrice = userInfo.customPrice || {}
-
-    const COL = "哥大"
-    const FL_CORE = "Fort Lee 核心区"
-    const FL_NONCORE = "Fort Lee 全区域"
-
-    const hasColumbia = dep === COL || dest === COL
-    const hasCore = dep === FL_CORE || dest === FL_CORE
-    const hasNonCore = dep === FL_NONCORE || dest === FL_NONCORE
-
-    if (hasColumbia && hasNonCore) {
-      const val = customPrice.fortLeeNonCore && customPrice.fortLeeNonCore.trim()
-        ? customPrice.fortLeeNonCore
-        : "13 USD"
-      this.setData({ referencePrice: val })
-      return
-    }
-
-    if (hasColumbia && hasCore) {
-      const val = customPrice.fortLeeCore && customPrice.fortLeeCore.trim()
-        ? customPrice.fortLeeCore
-        : "10 USD"
-      this.setData({ referencePrice: val })
-      return
-    }
+    this.setData({ referencePrice: getDriverRouteDefaultPrice(dep, dest, userInfo.customPrice) })
   },
 
   // ===== 输入事件 =====
@@ -470,20 +445,6 @@ Page({
           carNumber,
           carBrand,
           carModel
-        }
-
-        const COL = "哥大"
-        const FL_CORE = "Fort Lee 核心区"
-        const FL_NONCORE = "Fort Lee 全区域"
-
-        const hasColumbia = departureAddress === COL || destinationAddress === COL
-        const hasCore = departureAddress === FL_CORE || destinationAddress === FL_CORE
-        const hasNonCore = departureAddress === FL_NONCORE || destinationAddress === FL_NONCORE
-
-        if (hasColumbia && hasNonCore && referencePrice && referencePrice.trim()) {
-          updatePayload.customPrice = { fortLeeNonCore: referencePrice }
-        } else if (hasColumbia && hasCore && referencePrice && referencePrice.trim()) {
-          updatePayload.customPrice = { fortLeeCore: referencePrice }
         }
 
         await callUpdateUser(updatePayload)

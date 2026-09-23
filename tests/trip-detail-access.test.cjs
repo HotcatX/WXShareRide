@@ -164,6 +164,40 @@ test('a joined viewer gets driver statistics from the existing contact query wit
   assert.equal(h.reads.filter(read => read.name === 'userInfo').length, 1)
 })
 
+test('carpool Zelle disclosure follows the published route choice rather than the current profile default', async () => {
+  for (const actor of ['p4', 'driver']) {
+    for (const defaultShowZelle of [true, false]) {
+      for (const zelle of ['yes', 'no', undefined, true]) {
+        const h = harness({ actor, trip: { ...carpool(), zelle }, user: {
+          _openid: 'driver', phone: 'fixture', zelleName: 'Payment name',
+          zelleAccount: 'payment-account', defaultShowZelle
+        } })
+        const result = await h.main({ id: 'trip' })
+        assert.equal(result.ok, true)
+        assert.equal(result.driverInfo.phone, 'fixture')
+        assert.equal(result.driverInfo.zelleName, zelle === 'yes' ? 'Payment name' : undefined)
+        assert.equal(result.driverInfo.zelleAccount, zelle === 'yes' ? 'payment-account' : undefined)
+        const reads = h.reads.filter(read => read.name === 'userInfo')
+        assert.equal(reads.length, 1)
+        assert.equal(reads[0].fields.zelleName, zelle === 'yes' ? true : undefined)
+        assert.equal(reads[0].fields.zelleAccount, zelle === 'yes' ? true : undefined)
+      }
+    }
+  }
+})
+
+test('changing carpool disclosure projection does not remove Zelle from a later opted-in route or request', async () => {
+  const trip = { ...carpool(), zelle: 'no' }
+  const h = harness({ actor: 'p1', trip, user: {
+    _openid: 'driver', zelleName: 'Payment name', zelleAccount: 'payment-account', defaultShowZelle: false
+  } })
+  assert.equal((await h.main({ id: 'trip' })).driverInfo.zelleAccount, undefined)
+  trip.zelle = 'yes'
+  assert.equal((await h.main({ id: 'trip' })).driverInfo.zelleAccount, 'payment-account')
+  Object.assign(trip, request(), { zelle: 'no' })
+  assert.equal((await h.main({ type: 'request', id: 'trip' })).driverInfo.zelleAccount, 'payment-account')
+})
+
 test('missing and failed driver statistics do not block route details or invent a zero completion count', async () => {
   for (const options of [{ user: null }, { user: { _openid: 'driver' } }, { failProfile: true }]) {
     const h = harness({ trip: carpool(), ...options })

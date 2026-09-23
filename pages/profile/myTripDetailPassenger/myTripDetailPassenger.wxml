@@ -124,7 +124,7 @@
               </view>
             </view>
 
-            <view class="ride-info-row">
+            <view wx:if="{{sourceType === 'request' || trip.zelle === 'yes'}}" class="ride-info-row">
               <text class="ride-info-label">Zelle</text>
               <text class="ride-info-value">
                 {{driverInfo.zelleAccount || '未填写'}}

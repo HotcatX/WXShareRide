@@ -201,6 +201,14 @@
           bindinput="onInput"
         />
       </view>
+
+      <view class="driver-zelle-setting">
+        <view class="driver-setting-copy">
+          <text class="driver-setting-title">向加入的乘客公开 Zelle</text>
+          <text class="driver-setting-note">仅用于之后发布的路线</text>
+        </view>
+        <switch class="driver-zelle-switch" checked="{{defaultShowZelle}}" color="#0f9b95" bindchange="onDefaultShowZelleChange" />
+      </view>
     </view>
 
     <view class="edit-bottom-space"></view>

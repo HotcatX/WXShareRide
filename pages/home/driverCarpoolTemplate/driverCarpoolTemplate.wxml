@@ -83,7 +83,7 @@
       <view class="ride-form-grid">
         <view class="ride-field ride-field--full">
           <text class="ride-field-label">参考价格</text>
-          <input class="ride-input" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="例如: 10 / 11-13$ / 价格私议" placeholder-class="ride-placeholder" />
+          <input class="ride-input" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="例如: 8 / 11-13$ / 价格私议" placeholder-class="ride-placeholder" />
         </view>
 
         <view class="ride-field">

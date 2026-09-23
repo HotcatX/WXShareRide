@@ -186,9 +186,16 @@ async function getDriverData(type, doc = {}, actorOpenid = '') {
   if (!driverOpenid) return empty
 
   try {
+    const fields = { ...(canExposeInfo ? PUBLIC_DRIVER_FIELDS : DRIVER_STATS_FIELDS) }
+    // A profile preference applies to future publications. Existing carpools
+    // retain the disclosure choice recorded when that route was published.
+    if (type === 'carpool' && doc.zelle !== 'yes') {
+      delete fields.zelleName
+      delete fields.zelleAccount
+    }
     const res = await db.collection('userInfo')
       .where({ _openid: driverOpenid })
-      .field(canExposeInfo ? PUBLIC_DRIVER_FIELDS : DRIVER_STATS_FIELDS)
+      .field(fields)
       .limit(1)
       .get()
 

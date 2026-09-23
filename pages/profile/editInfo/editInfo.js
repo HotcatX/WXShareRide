@@ -193,15 +193,12 @@ Page({
     avatarUrl: defaultAvatarUrl,
     zelleName: '',
     zelleAccount: '',
+    defaultShowZelle: false,
 
     // 车辆信息
     carNumber: '',
     carBrand: '',
     carModel: '',
-
-    // 自定义价格（选填）
-    customPriceNonCore: '',
-    customPriceCore: '',
 
     unsaved: false
   },
@@ -277,8 +274,6 @@ Page({
       const res = await wx.cloud.callFunction({ name: 'getUserInfo' })
       if (res.result && res.result.data && res.result.data.length > 0) {
         const user = res.result.data[0]
-        const cp = user.customPrice || {}
-
         const location = user.location || {}
         const cityKey = inferProfileCityKey(user, location)
         const city = cityKey ? getCitySnapshot(this.data.regionTree || DEFAULT_REGION_TREE, cityKey) : null
@@ -319,11 +314,10 @@ Page({
           avatarUrl: user.avatarUrl || this.data.avatarUrl,
           zelleName: user.zelleName || '',
           zelleAccount: user.zelleAccount || '',
+          defaultShowZelle: user.defaultShowZelle === true,
           carNumber: user.carNumber || '',
           carBrand: user.carBrand || '',
-          carModel: user.carModel || '',
-          customPriceNonCore: cp.fortLeeNonCore || '',
-          customPriceCore: cp.fortLeeCore || ''
+          carModel: user.carModel || ''
         }, () => this.markCurrentAsSaved())
       } else {
         this.markCurrentAsSaved()
@@ -352,6 +346,11 @@ Page({
       return
     }
     this.setData({ [field]: value })
+    this.markDirty()
+  },
+
+  onDefaultShowZelleChange(e) {
+    this.setData({ defaultShowZelle: e.detail.value === true })
     this.markDirty()
   },
 
@@ -748,9 +747,7 @@ Page({
       regionStateKey,
       regionAreaLabel,
       phone,
-      regionIndex,
-      customPriceNonCore,
-      customPriceCore
+      regionIndex
     } = this.data
 
     const region = regionIndex == 0 ? 'US' : 'CN'
@@ -779,13 +776,10 @@ Page({
       avatarUrl: this.data.avatarUrl || '',
       zelleName: this.data.zelleName || '',
       zelleAccount: this.data.zelleAccount || '',
+      defaultShowZelle: this.data.defaultShowZelle === true,
       carNumber: this.data.carNumber || '',
       carBrand: this.data.carBrand || '',
-      carModel: this.data.carModel || '',
-      customPrice: {
-        fortLeeNonCore: customPriceNonCore || '',
-        fortLeeCore: customPriceCore || ''
-      }
+      carModel: this.data.carModel || ''
     }
 
     return updateData

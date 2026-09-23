@@ -98,6 +98,44 @@ page{
   padding-bottom: 6rpx;
 }
 
+.driver-setting-title,
+.driver-setting-note{
+  display: block;
+}
+
+.driver-setting-title{
+  font-size: 24rpx;
+  line-height: 34rpx;
+  font-weight: 800;
+  color: #111418;
+}
+
+.driver-setting-note{
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  line-height: 30rpx;
+  color: #69727d;
+}
+
+.driver-zelle-setting{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 14rpx;
+  padding: 16rpx 14rpx 8rpx;
+  border-top: 1rpx solid #e8ecef;
+}
+
+.driver-setting-copy{
+  min-width: 0;
+  flex: 1;
+}
+
+.driver-zelle-switch{
+  flex: none;
+}
+
 .edit-field{
   min-height: 70rpx;
   display: grid;

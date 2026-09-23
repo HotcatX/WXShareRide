@@ -67,6 +67,7 @@ async function handleNormalUpdate(openid, event) {
     avatarUrl,
     zelleName,
     zelleAccount,
+    defaultShowZelle,
 
     carNumber,
     carBrand,
@@ -90,6 +91,9 @@ async function handleNormalUpdate(openid, event) {
   const normalizedLocation = normalizeLocationForSave(location)
 
   try {
+    if (defaultShowZelle !== undefined && typeof defaultShowZelle !== 'boolean') {
+      return { ok: false, errorMsg: 'Zelle 公开设置格式不正确' }
+    }
     const res = await coll.where({ _openid: openid }).limit(1).get()
 
     // 1）用户不存在 → 新建记录
@@ -102,12 +106,13 @@ async function handleNormalUpdate(openid, event) {
 
           wechatID: wechatID || '',
           phone: phone || '',
-          regionPhone: region || '',
+          regionPhone: regionPhone || '',
           name: name || '',
           avatarUrl: avatarUrl || '',
           zelleName: zelleName || '',
           zelleAccount: zelleAccount || '',
-          Apartment: address || '',
+          defaultShowZelle: defaultShowZelle === true,
+          Apartment: Apartment || '',
           location: normalizedLocation || {},
 
           regionState: normalizedRegionState || '',
@@ -158,6 +163,7 @@ async function handleNormalUpdate(openid, event) {
     if (typeof avatarUrl === 'string')     updateData.avatarUrl = avatarUrl
     if (typeof zelleName === 'string')     updateData.zelleName = zelleName
     if (typeof zelleAccount === 'string')  updateData.zelleAccount = zelleAccount
+    if (typeof defaultShowZelle === 'boolean') updateData.defaultShowZelle = defaultShowZelle
     if (Object.prototype.hasOwnProperty.call(event || {}, 'location')) {
       updateData.location = normalizedLocation || {}
     }
@@ -166,7 +172,7 @@ async function handleNormalUpdate(openid, event) {
     if (typeof carBrand === 'string')  updateData.carBrand  = carBrand
     if (typeof carModel === 'string')  updateData.carModel  = carModel
 
-    // 资料页用整对象覆盖 customPrice（与你原逻辑一致）
+    // 兼容旧客户端提交的常用价格；个人资料页不再写入此字段。
     if (customPrice && typeof customPrice === 'object') {
       updateData.customPrice = customPrice
     }

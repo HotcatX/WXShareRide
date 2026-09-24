@@ -87,6 +87,12 @@
   opacity: 0.45;
 }
 
+.login-guest-button {
+  color: #087e7a;
+  background: #ffffff;
+  border: 2rpx solid #087e7a;
+}
+
 .login-button[disabled] {
   opacity: 0.45;
 }

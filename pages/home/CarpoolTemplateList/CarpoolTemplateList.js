@@ -1,10 +1,26 @@
 // pages/home/CarpoolTemplateList/CarpoolTemplateList.js
 const { showDataError } = require("../../../utils/error")
 
+const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+function templateWeekdayIndex(tpl) {
+  if (Number.isInteger(tpl.weekdayIndex) && tpl.weekdayIndex >= 0 && tpl.weekdayIndex <= 6) {
+    return tpl.weekdayIndex
+  }
+  const match = /^(?:每周|周|星期)([一二三四五六日天])$/.exec(String(tpl.weekdayText || "").trim())
+  if (!match) return -1
+  return "一二三四五六日".indexOf(match[1] === "天" ? "日" : match[1])
+}
+
+function templateTime(time) {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(String(time || "").trim())
+  return match ? `${match[1].padStart(2, "0")}:${match[2]}` : ""
+}
+
 Page({
   data: {
     statusBarHeight: 80,
-    pageTitle: "出行模板",
+    pageTitle: "每周出行模板",
 
     currentRole: "driver",
     loading: false,
@@ -82,9 +98,9 @@ Page({
     await this.loadUserSpots()
   },
 
-  // ===================== 司机：模板列表（原逻辑保留） =====================
+  // ===================== 司机：每周模板列表 =====================
 
-  // ✅ 读取司机本人模板：不再按周几排序/分组
+  // 读取本人模板后按每周课表排序，不修改已有模板数据。
   async loadTemplateList() {
     if (!this.isLoggedIn()) {
       this.setData({ templateList: [], loading: false })
@@ -130,29 +146,34 @@ Page({
   },
 
   decorateTemplateList(list) {
-    return (list || []).map((tpl) => {
-      const weekdayText = String(tpl.weekdayText || "").trim()
-      const weekdayIndex = typeof tpl.weekdayIndex === "number" ? tpl.weekdayIndex : -1
-      const time = this.formatTimeOnly(tpl.departureTime)
-
-      tpl._fromAddress = String(tpl.departureAddress || "").trim()
-      tpl._toAddress = String(tpl.destinationAddress || "").trim()
-      tpl._timeLabel = `${weekdayText || this.weekTextFromIndex(weekdayIndex)} ${time}`.trim()
-
-      return tpl
-    })
+    return (Array.isArray(list) ? list : [])
+      .filter(tpl => tpl && typeof tpl === "object" && !Array.isArray(tpl))
+      .map((tpl, order) => {
+        const weekdayIndex = templateWeekdayIndex(tpl)
+        const time = templateTime(tpl.departureTime)
+        return {
+          order,
+          weekdayOrder: weekdayIndex < 0 ? 7 : weekdayIndex,
+          timeOrder: time || "99:99",
+          template: {
+            ...tpl,
+            _fromAddress: String(tpl.departureAddress || "").trim(),
+            _toAddress: String(tpl.destinationAddress || "").trim(),
+            _timeLabel: `${weekdayIndex < 0 ? "星期待设置" : `每${WEEKDAY_LABELS[weekdayIndex]}`} ${time || "时间待设置"}`
+          }
+        }
+      })
+      .sort((a, b) => a.weekdayOrder - b.weekdayOrder || a.timeOrder.localeCompare(b.timeOrder) || a.order - b.order)
+      .map(item => item.template)
   },
 
   weekTextFromIndex(idx) {
-    const map = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-    if (idx >= 0 && idx <= 6) return map[idx]
+    if (Number.isInteger(idx) && idx >= 0 && idx <= 6) return WEEKDAY_LABELS[idx]
     return ""
   },
 
   formatTimeOnly(timeStr) {
-    if (!timeStr) return ""
-    const s = String(timeStr)
-    return s.length >= 5 ? s.slice(0, 5) : s
+    return templateTime(timeStr)
   },
 
   onTemplateCardTap(e) {

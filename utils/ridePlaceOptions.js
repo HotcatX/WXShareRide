@@ -33,7 +33,11 @@ function makeRidePlaceMatcher(place) {
     lga: /(?:^|[^a-z])lga(?:$|[^a-z])|la\s*guardia|拉瓜[迪地]亚/i,
     flushing: /flushing|法拉盛/i,
     lic: /(?:^|[^a-z])lic(?:$|[^a-z])|long\s+island\s+city|长岛市/i,
-    jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i
+    jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i,
+    inwood: /(?:^|[^a-z])(?:inwood(?:\s*manhattan)?|manhattan\s*inwood)(?:$|[^a-z])/i,
+    midtown: /(?:^|[^a-z])(?:midtown\s*manhattan|manhattan\s*midtown|midtown\s+(?:east|west))(?:$|[^a-z])|中城|^\s*midtown\s*$/i,
+    downtown: /(?:^|[^a-z])(?:lower\s*manhattan|downtown\s*manhattan|manhattan\s*downtown)(?:$|[^a-z])|下城|^\s*downtown\s*$/i,
+    queens: /(?:^|[^a-z])queens(?:$|[^a-z])|皇后[区區]/i
   }
   const id = resolvePlaceId(value)
   if (patterns[id]) return address => patterns[id].test(String(address || ''))

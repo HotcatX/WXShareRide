@@ -53,7 +53,11 @@ test('airport labels and exact alias deduplication retain specific self-selected
     ['EWR 机场', 'EWR Terminal C', 'Newark Broad Street'],
     ['JFK', '肯尼迪机场', 'AJFK'],
     ['拉瓜迪亚', 'La Guardia Airport', 'BLGA'],
-    ['法拉盛', 'Flushing Library', 'Fort Lee']
+    ['法拉盛', 'Flushing Library', 'Fort Lee'],
+    ['Inwood', 'Inwood Park', 'Inwoodman'],
+    ['中城', 'Midtown Manhattan', 'Midtown Jersey City'],
+    ['下城', 'Lower Manhattan', 'Downtown Brooklyn'],
+    ['Queens', '皇后区', 'Queensboro']
   ]) {
     const matches = api.makeRidePlaceMatcher(place)
     assert.equal(matches(matching), true, place)

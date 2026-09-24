@@ -2,7 +2,6 @@ const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { getDriverRouteDefaultPrice, getDriverRoutePriceKey } = require("../../../utils/driverRideDefaults")
-const { readRecentDriverRoutes, loadRecentDriverRoutes, recordRecentDriverRoute } = require("../../../utils/driverRecentRoutes")
 const { shortRidePlaceLabel, ridePlaceAliasPattern, resolvePlaceId } = require("../../../utils/ridePlaceOptions")
 const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const placeRecommendations = require("../../../utils/placeRecommendations")
@@ -79,9 +78,6 @@ Page({
 
     templates: [],
     loadingTemplates: false,
-    recentRoutes: [],
-    loadingRecentRoutes: false,
-    recentRoutesError: "",
     publishedDriverTrip: null,
     preparingReturn: false,
 
@@ -111,7 +107,6 @@ Page({
 
     // 司机默认：加载模板
     this.loadTemplatesIfNeeded()
-    this.loadRecentRoutesIfNeeded()
   },
 
   onShow() {
@@ -134,7 +129,6 @@ Page({
 
     this.loadUserInfo()
     this.loadTemplatesIfNeeded()
-    this.loadRecentRoutesIfNeeded()
   },
 
   onHide() {
@@ -182,7 +176,6 @@ Page({
 
       // 司机模式：加载模板
       this.loadTemplatesIfNeeded()
-      this.loadRecentRoutesIfNeeded()
     })
   },
 
@@ -607,7 +600,7 @@ Page({
         .orderBy("createdAt", "desc")
         .get()
 
-      const templates = (res.data || []).map(t => ({
+      const templates = (res.data || []).map(t => this.decorateWeeklyShortcut({
         ...t,
         departureText: t.departureAddress || "未设置出发地",
         destinationText: t.destinationAddress || "未设置目的地",
@@ -615,7 +608,9 @@ Page({
         shortcutTitle: String(t.name || t.title || "").trim() ||
           (getDriverRoutePriceKey(t.departureAddress, t.destinationAddress)
             ? (String(t.destinationAddress).trim() === "哥大" ? "去学校" : "回程") : "常用路线")
-      }))
+      })).sort((a, b) =>
+        (a.weekdayIndex === null ? 7 : a.weekdayIndex) - (b.weekdayIndex === null ? 7 : b.weekdayIndex) ||
+        (a.departureTime || "99:99").localeCompare(b.departureTime || "99:99"))
       if (isCurrent()) this.setData({ templates })
     } catch (e) {
       if (!isCurrent()) return
@@ -632,57 +627,22 @@ Page({
     wx.navigateTo({ url: "/pages/home/CarpoolTemplateList/CarpoolTemplateList" })
   },
 
-  filterRecentRoutes(rows) {
-    const cityKey = getRideCitySnapshot().key || DEFAULT_CITY_KEY
-    return (Array.isArray(rows) ? rows : []).filter(row => (row.cityKey || DEFAULT_CITY_KEY) === cityKey)
-  },
-
-  loadRecentRoutesIfNeeded() {
-    if (this.data.mode !== "driver") return Promise.resolve()
-    const openid = wx.getStorageSync("openid") || ""
-    if (!openid) {
-      this._recentReadRevision = (this._recentReadRevision || 0) + 1
-      this._recentRoutesPromise = null
-      this.setData({ recentRoutes: [], loadingRecentRoutes: false, recentRoutesError: "" })
-      return Promise.resolve()
+  decorateWeeklyShortcut(route) {
+    let weekdayIndex = Number.isInteger(route.weekdayIndex) && route.weekdayIndex >= 0 && route.weekdayIndex <= 6
+      ? route.weekdayIndex : null
+    if (weekdayIndex === null) {
+      const match = /^(?:每周|周|星期)([一二三四五六日天])$/.exec(String(route.weekdayText || "").trim())
+      if (match) weekdayIndex = "一二三四五六日".indexOf(match[1] === "天" ? "日" : match[1])
     }
-    if (this._recentRoutesPromise && this._recentRoutesOpenid === openid) return this._recentRoutesPromise
-    this._recentRoutesOpenid = openid
-    const revision = this._recentReadRevision = (this._recentReadRevision || 0) + 1
-    this.setData({ recentRoutes: this.filterRecentRoutes(readRecentDriverRoutes(openid)), loadingRecentRoutes: true, recentRoutesError: "" })
-    const isCurrent = () => !this._calendarDisposed && revision === this._recentReadRevision &&
-      openid === (wx.getStorageSync("openid") || "")
-    const pending = Promise.resolve().then(() => loadRecentDriverRoutes(openid)).then(rows => {
-      if (isCurrent()) this.setData({ recentRoutes: this.filterRecentRoutes(rows) })
-    }).catch(() => {
-      if (isCurrent()) this.setData({ recentRoutes: this.filterRecentRoutes(readRecentDriverRoutes(openid)), recentRoutesError: "历史路线暂未同步，点击重试" })
-    }).finally(() => {
-      if (this._recentRoutesPromise !== pending) return
-      this._recentRoutesPromise = null
-      if (!this._calendarDisposed) this.setData({ loadingRecentRoutes: false })
-    })
-    this._recentRoutesPromise = pending
-    return pending
-  },
-
-  onReloadRecentRoutes() { return this.loadRecentRoutesIfNeeded() },
-
-  onRecentRouteTap(e) {
-    if (this.data.submitting || this.data.publishedDriverTrip || this.data.mode !== "driver") return
-    const route = this.filterRecentRoutes(this.data.recentRoutes).find(row => row._id === e.currentTarget.dataset.id)
-    if (!route) return
     const time = this.normalizeTimeStr(route.departureTime || "")
-    const today = this.getFilterDateData().todayDateStr
-    let date = today
-    // A saved clock time can fall in New York's skipped spring hour. Pick the
-    // next real occurrence instead of filling a date the server would reject.
-    for (let offset = 0; offset <= 2; offset++) {
-      date = rideTime.shiftRideDate(today, offset)
-      const timestamp = rideTime.parseRideDateTime(date, time)
-      if (Number.isFinite(timestamp) && timestamp - Date.now() >= 15 * 60 * 1000) break
-    }
-    this.applyDriverShortcut(route, date, time)
-    wx.showToast({ title: "已填入路线，请确认日期", icon: "none", duration: 1800 })
+    const options = { now: Date.now() }
+    const nextDepartureDate = rideTime.getNextWeeklyRideDate(weekdayIndex, time, options)
+    const weekdayText = weekdayIndex === null ? "" : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][weekdayIndex]
+    const nextDepartureLabel = nextDepartureDate
+      ? `${Number(nextDepartureDate.slice(5, 7))}月${Number(nextDepartureDate.slice(8, 10))}日` : "请确认日期时间"
+    return { ...route, weekdayIndex, weekdayText, departureTime: time,
+      weeklyLabel: weekdayText ? `每${weekdayText}` : "星期待设置",
+      nextDepartureDate, nextDepartureLabel }
   },
 
   onTemplateTap(e) {
@@ -691,18 +651,10 @@ Page({
     const tpl = (this.data.templates || []).find(x => x._id === id)
     if (!tpl) return
 
-    const timeStr = tpl.departureTime ? this.normalizeTimeStr(tpl.departureTime) : ""
-    const selectedTimestamp = rideTime.parseRideDateTime(this.data.departureDate, timeStr)
-    const now = Date.now()
-    let nextDateStr = Number.isFinite(selectedTimestamp) && selectedTimestamp - now >= 15 * 60 * 1000 &&
-      selectedTimestamp - now <= 30 * 24 * 60 * 60 * 1000 ? this.data.departureDate :
-      this.getNearestDateByWeekdayIndex_Mon0(tpl.weekdayIndex)
-    const candidateTimestamp = rideTime.parseRideDateTime(nextDateStr, timeStr)
-    if (Number.isFinite(candidateTimestamp) && candidateTimestamp - now < 15 * 60 * 1000) {
-      nextDateStr = rideTime.shiftRideDate(nextDateStr, 7)
-    }
-    this.applyDriverShortcut(tpl, nextDateStr || this.getFilterDateData().todayDateStr, timeStr)
-    wx.showToast({ title: "已应用模板", icon: "success", duration: 1000 })
+    // Recompute on tap: a card may have stayed open past its departure time.
+    const weekly = this.decorateWeeklyShortcut(tpl)
+    this.applyDriverShortcut(tpl, weekly.nextDepartureDate, weekly.departureTime)
+    wx.showToast({ title: weekly.nextDepartureDate ? `已填入${weekly.nextDepartureLabel} ${weekly.weekdayText}` : "模板已填入，请选择日期时间", icon: "none", duration: 1800 })
   },
 
   applyDriverShortcut(route, date, time) {
@@ -732,10 +684,10 @@ Page({
 
   normalizeTimeStr(t) {
     const s = String(t).trim()
-    const m = s.match(/^(\d{1,2}):(\d{1,2})$/)
-    if (!m) return s
-    const hh = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, "0")
-    const mm = String(Math.min(59, Math.max(0, parseInt(m[2], 10)))).padStart(2, "0")
+    const m = s.match(/^([01]?\d|2[0-3]):([0-5]?\d)(?::[0-5]\d)?$/)
+    if (!m) return ""
+    const hh = m[1].padStart(2, "0")
+    const mm = m[2].padStart(2, "0")
     return `${hh}:${mm}`
   },
 
@@ -935,17 +887,6 @@ Page({
         this._publishedDriverOpenid = draft.openid
         this.setData({ publishedDriverTrip, preparingReturn: false })
       }
-      // Remember only confirmed successful publications. Local history must never
-      // turn an already-created route into a failure that invites another submit.
-      try {
-        const rows = recordRecentDriverRoute(draft.openid, { ...publishedDriverTrip, cityKey: draft.cityKey })
-        if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "")) {
-          this.setData({ recentRoutes: this.filterRecentRoutes(rows) })
-        }
-      } catch (historyError) {
-        console.error("remember published route failed:", historyError)
-      }
-
     } catch (e) {
       console.error("driver_submitTrip error:", e)
       this.showError("路线创建失败，请重试")

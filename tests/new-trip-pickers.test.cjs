@@ -138,7 +138,7 @@ test('passenger deep link shares driver address configuration without loading dr
   assert.equal(page.data.referencePrice, '')
   assert.equal(state.templateReads, 0)
   assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
-  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', '其他'])
+  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '其他'])
   assert.deepEqual(page.data.arrivalAddresses, page.data.departureAddresses)
 })
 
@@ -394,7 +394,7 @@ test('address responses after unload cannot modify the page or show an obsolete 
   }
 })
 
-test('both forms show the eight fixed places and keep a completed background response for next opening', async () => {
+test('both forms show the twelve fixed places and keep a completed background response for next opening', async () => {
   for (const mode of ['driver', 'passenger']) {
     const { page, start, state, hold } = harness()
     await start(mode)
@@ -403,7 +403,7 @@ test('both forms show the eight fixed places and keep a completed background res
     const labels = page.data.placePickerFixedOptions.map(item => item.label)
     suggestions.resolve(placeResponse(['公共车站']))
     await opened
-    assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ'])
+    assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens'])
     assert.deepEqual(page.data.placePickerOptions, [])
     page.onClosePlacePicker()
     await page.onOpenPlacePicker(placeEvent('departure'))
@@ -431,7 +431,7 @@ test('expired fixed configuration refreshes underlying data while the open panel
   page.onClosePlacePicker()
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(page.data.placePickerFixedOptions.at(-1).label, '博物馆')
-  assert.equal(page.data.placePickerFixedOptions.length, 9)
+  assert.equal(page.data.placePickerFixedOptions.length, 13)
   assert.equal(state.addressReads.length, 4)
 })
 

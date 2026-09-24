@@ -235,7 +235,7 @@ page{
   font-size: 28rpx;
 }
 
-/* 最近发布与手动模板共用轻量入口，不占用表单空间。 */
+/* 每周固定课表快捷填写。 */
 .create-shortcut-section{ margin: 0 0 20rpx; }
 .create-section-heading{ display: flex; align-items: center; justify-content: space-between; gap: 10rpx; margin: 0 4rpx 12rpx; }
 .create-section-labels{ display: flex; align-items: baseline; gap: 12rpx; min-width: 0; }
@@ -254,12 +254,8 @@ page{
 .create-shortcut-bottom{ color: #869098; font-size: 20rpx; }
 .create-shortcut-use{ color: #0e8986; }
 .create-shortcut-pressed{ background: #e8f5f3; }
-.create-recent-placeholder{ padding: 18rpx; border: 1rpx dashed #d9e2e5; border-radius: 14rpx; color: #7b858e; font-size: 22rpx; }
-.create-recent-retry{ color: #0e8986; }
-.create-saved-scroll{ margin-top: 10rpx; }
-.create-saved-template{ display: inline-flex; align-items: center; gap: 10rpx; min-height: 62rpx; max-width: 520rpx; padding: 0 16rpx; background: #fff; border: 1rpx solid #e1e6e9; border-radius: 12rpx; font-size: 22rpx; color: #59636f; }
-.create-saved-template text{ overflow: hidden; text-overflow: ellipsis; }
-.create-saved-badge{ flex: none; color: #0e8986; font-size: 19rpx; }
+.create-template-placeholder{ padding: 18rpx; border: 1rpx dashed #d9e2e5; border-radius: 14rpx; color: #7b858e; font-size: 22rpx; }
+.create-saved-template{ background: #f0f9f7; border-color: #b9ddd7; }
 .create-return-hint{ display: flex; align-items: center; gap: 12rpx; margin-bottom: 12rpx; padding: 14rpx 18rpx; background: #e2f2f0; border-radius: 12rpx; color: #0d7f7c; font-size: 23rpx; }
 .create-return-icon{ font-size: 30rpx; }
 .create-published{ padding-top: 56rpx; text-align: center; }
@@ -271,7 +267,6 @@ page{
 .create-published-route{ display: flex; flex-wrap: wrap; align-items: center; gap: 20rpx; margin: 24rpx 0; color: #111418; font-size: 32rpx; font-weight: 800; }
 .create-published-arrow{ color: #0e8986; }
 .create-published-meta{ color: #687580; font-size: 24rpx; }
-.create-success-hint{ display: block; margin-top: 26rpx; color: #869098; font-size: 22rpx; }
 .create-success-actions{ display: flex; width: 100%; gap: 16rpx; }
 .create-success-actions .ride-btn{ flex: 1; min-width: 0; margin: 0; white-space: nowrap; }
 .create-success-actions .create-return-home{ flex: 0 0 34%; background: #eef1f3; color: #59636f; }

@@ -8,6 +8,13 @@
 
 <view class="container">
 
+  <view class="profile-browse-option">
+    <button class="profile-skip-btn" bindtap="onSkipProfile" hover-class="profile-skip-btn--pressed">
+      暂不完善，先浏览
+    </button>
+    <text class="profile-browse-hint">加入或发布路线时再完善联系方式</text>
+  </view>
+
   <view class="avatar-section">
     <button
       class="avatar-wrapper"
@@ -103,8 +110,8 @@
   </view>
 
   <view class="buttons">
-    <button class="btn main-btn" type="primary" bindtap="onComplete">
-      完成信息
+    <button class="btn main-btn" type="primary" bindtap="onComplete" loading="{{saving}}" disabled="{{saving}}">
+      {{saving ? '正在保存' : '完成信息'}}
     </button>
   </view>
 </view>

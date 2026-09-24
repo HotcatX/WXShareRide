@@ -293,8 +293,8 @@ test('cloud fixed places lead in the eight-place order while loaded private addr
     route('concert', 'BigBang演唱会', 'Fort Lee 某公寓')
   ])
   await page.onOpenPlacePicker(event('field', 'from'))
-  assert.deepEqual(plain(page.data.fromFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', '其他'])
-  assert.deepEqual(plain(page.data.toFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', '其他'])
+  assert.deepEqual(plain(page.data.fromFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '其他'])
+  assert.deepEqual(plain(page.data.toFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '其他'])
   assert.equal(state.calls.length, 0, 'reusing currently loaded route places needs no new cloud function call')
 })
 
@@ -346,8 +346,8 @@ test('fixed-place config is refreshed at five minutes on opening either picker, 
   state.now += 1
   await page.onOpenPlacePicker(event('field', 'from'))
   assert.equal(state.dbReads.length, 4)
-  assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ'])
-  assert.deepEqual(plain(page.data.toPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ'])
+  assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens'])
+  assert.deepEqual(plain(page.data.toPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens'])
   assert.equal(page.data.selectedFromPlace, '自选演唱会')
   assert.equal(page.data.hideFullTrips, false)
   assert.ok(page.data.fromFilterOptions.includes('自选演唱会'))

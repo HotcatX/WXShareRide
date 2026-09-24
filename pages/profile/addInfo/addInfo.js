@@ -2,6 +2,7 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
 const { callUpdateUser } = require('../../../utils/userProfileUpdate')
+const { returnToPublicPage } = require('../../../utils/loginNavigation')
 
 Page({
   data: {
@@ -17,10 +18,13 @@ Page({
     avatarUrl: defaultAvatarUrl,
     zelleName: '',
     zelleAccount: '',
-    unsaved: false
+    unsaved: false,
+    saving: false
   },
 
-  onLoad(options) {
+  onLoad(options = {}) {
+    this._disposed = false
+    this._exiting = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight
@@ -33,8 +37,33 @@ Page({
     this.loadUserInfo()
   },
 
+  onUnload() {
+    this._disposed = true
+    this.invalidateCompletion()
+  },
+
+  invalidateCompletion() {
+    this._completionVersion = (this._completionVersion || 0) + 1
+    if (this._completionTimer) clearTimeout(this._completionTimer)
+    this._completionTimer = null
+  },
+
+  onSkipProfile() {
+    if (this._exiting || this._disposed) return
+    this._exiting = true
+    this.invalidateCompletion()
+    const pending = wx.getStorageSync('pendingPage') || {}
+    wx.removeStorageSync('pendingPage')
+    wx.removeStorageSync('postLoginAction')
+    wx.removeStorageSync('needLoginToast')
+    // Keep the signed-in identity, but never resume a cancelled booking action.
+    // A save already sent cannot be recalled; its result must not navigate later.
+    returnToPublicPage(typeof pending.url === 'string' ? pending.url : '')
+  },
+
   // 上传头像
   async onChooseAvatar(e) {
+    if (this._exiting || this._disposed) return
     const { avatarUrl } = e.detail || {}
     if (!avatarUrl) return
 
@@ -49,11 +78,14 @@ Page({
         filePath: avatarUrl
       })
 
+      if (this._exiting || this._disposed) return
+
       this.setData({
         avatarUrl: uploadRes.fileID,
         unsaved: true
       })
     } catch (err) {
+      if (this._exiting || this._disposed) return
       console.error('上传头像失败：', err)
       wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
     } finally {
@@ -64,6 +96,7 @@ Page({
   async loadUserInfo() {
     try {
       const res = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      if (this._exiting || this._disposed || this.data.unsaved) return
       if (res.result && res.result.data && res.result.data.length > 0) {
         const user = res.result.data[0]
         this.setData({
@@ -106,20 +139,28 @@ Page({
   },
 
   async onComplete() {
+    if (this._exiting || this._disposed || this.data.saving) return
     const msg = this.validateAll()
     if (msg) {
       wx.showToast({ title: msg, icon: 'none', duration: 2000 })
       return
     }
 
-    const ok = await this.saveToCloud()
+    const version = this._completionVersion = (this._completionVersion || 0) + 1
+    const isCurrent = () => !this._exiting && !this._disposed && this._completionVersion === version
+    this.setData({ saving: true })
+    const ok = await this.saveToCloud(isCurrent)
+    if (!isCurrent()) return
     if (!ok) {
+      this.setData({ saving: false })
       return
     }
 
     wx.showToast({ title: '信息已完善', icon: 'success', duration: 800 })
 
-    setTimeout(() => {
+    this._completionTimer = setTimeout(() => {
+      this._completionTimer = null
+      if (!isCurrent()) return
       const pending = wx.getStorageSync('pendingPage')
       const pages = getCurrentPages()
       const len = pages.length
@@ -158,7 +199,8 @@ Page({
 
   },
 
-  async saveToCloud() {
+  async saveToCloud(isCurrent = () => !this._exiting && !this._disposed) {
+    if (!isCurrent()) return false
     const { wechat, phone, regionIndex } = this.data
     const region = regionIndex === 0 ? 'US' : 'CN'
     const updateData = {}
@@ -193,6 +235,7 @@ Page({
 
     try {
       const res = await callUpdateUser(updateData)
+      if (!isCurrent()) return false
       const result = res.result || {}
       if (!result.ok) {
         wx.showToast({ title: result.errorMsg || '保存失败', icon: 'none' })
@@ -203,6 +246,7 @@ Page({
       return true
 
     } catch (e) {
+      if (!isCurrent()) return false
       console.error('updateUser 调用失败：', e)
       showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')
       return false

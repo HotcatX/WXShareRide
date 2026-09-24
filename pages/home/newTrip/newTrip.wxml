@@ -43,37 +43,28 @@
         </view>
         <text class="create-published-meta">{{publishedDriverTrip.passengerCount}} 个座位 · {{publishedDriverTrip.referencePrice}} $/人</text>
       </view>
-      <text class="create-success-hint">已保存到常用，下次可直接套用</text>
     </view>
 
     <block wx:if="{{mode==='driver' && !publishedDriverTrip}}">
       <view class="create-shortcut-section">
         <view class="create-section-heading">
           <view class="create-section-labels">
-            <text class="create-section-title">常用路线</text>
-            <text class="create-section-caption">最近发布，一键填写</text>
+            <text class="create-section-title">每周固定路线</text>
+            <text class="create-section-caption">纽约时间</text>
           </view>
           <view class="create-manage-link" bindtap="onManageTemplates" role="button" aria-label="管理出行模板">模板管理 ›</view>
         </view>
-        <scroll-view wx:if="{{recentRoutes.length}}" class="create-shortcut-scroll" scroll-x enhanced="true" show-scrollbar="{{false}}">
+        <scroll-view wx:if="{{templates.length}}" class="create-shortcut-scroll" scroll-x enhanced="true" show-scrollbar="{{false}}">
           <view class="create-shortcut-track">
-            <view wx:for="{{recentRoutes}}" wx:key="_id" class="create-shortcut-card" data-id="{{item._id}}" bindtap="onRecentRouteTap" hover-class="create-shortcut-pressed" role="button" aria-label="套用最近发布的路线">
-              <view class="create-shortcut-top"><text class="create-shortcut-title">{{item.shortcutTitle}}</text><text class="create-shortcut-time">{{item.departureTime}}</text></view>
+            <view wx:for="{{templates}}" wx:key="_id" class="create-shortcut-card create-saved-template" data-id="{{item._id}}" bindtap="onTemplateTap" hover-class="create-shortcut-pressed" role="button" aria-label="{{item.weeklyLabel}} {{item.departureTime}} {{item.departureAddress}}到{{item.destinationAddress}}，填写{{item.nextDepartureLabel}}">
+              <view class="create-shortcut-top"><text class="create-shortcut-title">{{item.weeklyLabel}}</text><text class="create-shortcut-time">{{item.departureTime}}</text></view>
               <view class="create-shortcut-route"><text>{{item.departureAddress}}</text><text class="create-shortcut-arrow">→</text><text>{{item.destinationAddress}}</text></view>
-              <view class="create-shortcut-bottom"><text>{{item.passengerCount}} 个座位</text><text class="create-shortcut-use">再发一次 ↗</text></view>
+              <view class="create-shortcut-bottom"><text>{{item.nextDepartureLabel}}</text><text class="create-shortcut-use">填入 ↗</text></view>
             </view>
           </view>
         </scroll-view>
-        <view wx:elif="{{loadingRecentRoutes}}" class="create-recent-placeholder">正在读取最近发布的路线…</view>
-        <view wx:elif="{{recentRoutesError}}" class="create-recent-placeholder create-recent-retry" bindtap="onReloadRecentRoutes" role="button">历史暂未加载，点击重试</view>
-        <view wx:else class="create-recent-placeholder">发布过的路线会自动保存在这里</view>
-        <scroll-view wx:if="{{templates.length}}" class="create-shortcut-scroll create-saved-scroll" scroll-x enhanced="true" show-scrollbar="{{false}}">
-          <view class="create-shortcut-track">
-            <view wx:for="{{templates}}" wx:key="_id" class="create-saved-template" data-id="{{item._id}}" bindtap="onTemplateTap" hover-class="create-shortcut-pressed" role="button" aria-label="套用已保存的模板">
-              <text class="create-saved-badge">模板</text><text>{{item.shortcutTitle}} · {{item.weekdayText}} {{item.departureTime}}</text>
-            </view>
-          </view>
-        </scroll-view>
+        <view wx:elif="{{loadingTemplates}}" class="create-template-placeholder">正在读取每周模板…</view>
+        <view wx:else class="create-template-placeholder">在模板管理中设置每周固定的星期、时间和路线</view>
       </view>
       <view wx:if="{{preparingReturn}}" class="create-return-hint"><text class="create-return-icon">↩</text><text>方向已反转，请确认返程日期和时间</text></view>
       <view class="ride-card ride-card-pad create-route-card">

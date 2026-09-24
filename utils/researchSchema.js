@@ -5,7 +5,7 @@ const id = value => typeof value === 'string' && ID.test(value)
 const recordId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)
 const shortCode = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,80}$/.test(value)
 const tripType = enumeration('carpool', 'request')
-const area = enumeration('fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'other', 'unknown')
+const area = enumeration('fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'inwood', 'midtown', 'downtown', 'queens', 'other', 'unknown')
 const placeId = value => typeof value === 'string' && /^[a-z][a-z0-9_]{1,79}$/.test(value)
 const boolean = value => typeof value === 'boolean'
 

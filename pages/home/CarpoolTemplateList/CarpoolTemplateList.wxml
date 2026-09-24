@@ -19,7 +19,7 @@
         class="ride-segment-item {{currentRole === 'driver' ? 'active' : ''}}"
         bindtap="switchRole"
         data-role="driver"
-      >司机模板</view>
+      >每周路线</view>
       <view
         class="ride-segment-item {{currentRole === 'passenger' ? 'active' : ''}}"
         bindtap="switchRole"
@@ -30,9 +30,10 @@
 
   <scroll-view class="ride-scroll template-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
     <block wx:if="{{currentRole === 'driver'}}">
+      <text class="template-weekly-hint">每周固定上课的路线，存好后发布时直接选用</text>
       <view wx:if="{{loading}}" class="ride-state">正在加载模板</view>
       <view wx:elif="{{!templateList || templateList.length === 0}}" class="ride-state">
-        暂无模板，点击下方添加模板开始创建
+        还没有每周路线，可添加如「每周二 15:00 Fort Lee → 哥大」
       </view>
 
       <block wx:else>

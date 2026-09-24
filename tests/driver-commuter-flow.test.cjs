@@ -10,8 +10,8 @@ class ClockDate extends Date {
   static now() { return now }
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
-const route = extra => ({ _id: 'recent', departureAddress: 'Fort Lee', destinationAddress: '哥大',
-  departureTime: '18:00', passengerCount: 4, referencePrice: '8$/人', comment: 'Meet at campus', cityKey: 'ny_nj', ...extra })
+const route = extra => ({ _id: 'template', departureAddress: 'Fort Lee', destinationAddress: '哥大',
+  departureDate: '2026-09-15', departureTime: '18:00', passengerCount: 4, referencePrice: '8$/人', comment: 'Meet at campus', cityKey: 'ny_nj', ...extra })
 
 function fixture(clock = now) {
   class FixtureDate extends ClockDate {
@@ -19,22 +19,12 @@ function fixture(clock = now) {
     static now() { return clock }
   }
   let definition
-  const state = { openid: 'driver', history: [], historyReads: 0, templateReads: 0, templates: [],
-    createCalls: [], modals: [], toasts: [], navigation: [], recorded: [], timers: [], stale: 0 }
-  const history = {
-    readRecentDriverRoutes: () => state.history,
-    loadRecentDriverRoutes() { state.historyReads++; return state.historyResponse || Promise.resolve(state.history) },
-    recordRecentDriverRoute(openid, snapshot) {
-      state.recorded.push(plain({ openid, snapshot }))
-      if (state.recordError) throw new Error('Storage is full')
-      return [route(snapshot)]
-    }
-  }
+  const state = { openid: 'driver', templateReads: 0, templates: [],
+    createCalls: [], modals: [], toasts: [], navigation: [], timers: [], stale: 0 }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/home/newTrip/newTrip.js'), 'utf8'), {
     Page: value => { definition = value }, Date: FixtureDate,
     console: { log() {}, error() {} }, setTimeout: fn => state.timers.push(fn), clearTimeout() {},
     require(name) {
-      if (name.endsWith('/driverRecentRoutes')) return history
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale: () => state.stale++ }
@@ -70,30 +60,54 @@ function fixture(clock = now) {
   return { page, state }
 }
 
-test('recent route tap fills one future NY trip, never reuses historical dates or auto publishes', () => {
-  for (const [time, expectedDate] of [['18:00', '2026-09-22'], ['12:05', '2026-09-23'], ['08:00', '2026-09-23']]) {
-    const { page, state } = fixture()
-    page.setData({ departureDate: '2020-01-01', recentRoutes: [route({ departureTime: time, departureDate: '2020-01-01' })] })
-    page.onRecentRouteTap({ currentTarget: { dataset: { id: 'recent' } } })
-    assert.equal(page.data.departureDate, expectedDate)
-    assert.equal(page.data.departureTime, time)
-    assert.equal(page.data.referencePrice, '8')
-    assert.equal(page.data.passengerCountInput, '4')
-    assert.equal(page.data.comment, 'Meet at campus')
-    assert.equal(page.data.showZelle, true)
-    assert.equal(state.createCalls.length, 0)
-    assert.equal(state.modals.length, 0)
-  }
-})
-
-test('template keeps an explicitly selected future date and advances elapsed same-weekday time a week', () => {
-  const { page } = fixture()
+test('template replaces a stale draft date with its weekday and advances an elapsed time a whole week', () => {
+  const { page, state } = fixture()
   page.setData({ departureDate: '2026-09-24', templates: [route({ _id: 'template', weekdayIndex: 1, departureTime: '08:00' })] })
   page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
-  assert.equal(page.data.departureDate, '2026-09-24')
+  assert.equal(page.data.departureDate, '2026-09-29')
   page.setData({ departureDate: '' })
   page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
   assert.equal(page.data.departureDate, '2026-09-29')
+  page.setData({ templates: [route({ _id: 'template', weekdayIndex: 1, departureTime: '15:00' })] })
+  page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
+  assert.equal(page.data.departureDate, '2026-09-22')
+  assert.equal(page.data.departureTime, '15:00')
+  assert.equal(page.data.referencePrice, '8')
+  assert.equal(page.data.passengerCountInput, '4')
+  assert.equal(page.data.comment, 'Meet at campus')
+  assert.equal(page.data.showZelle, true)
+  assert.equal(state.createCalls.length, 0)
+  assert.equal(state.modals.length, 0)
+})
+
+test('unknown template weekday or invalid clock asks for dates instead of guessing today or retaining the old draft', () => {
+  for (const entry of [route(), route({ weekdayIndex: 1, departureTime: '99:99' })]) {
+    const { page, state } = fixture()
+    page.setData({ templates: [entry] })
+    page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
+    assert.equal(page.data.departureDate, '') // A template's old date does not define its weekly schedule.
+    assert.equal(page.data.departureAddress, 'Fort Lee')
+    assert.match(state.toasts.at(-1).title, /选择日期时间/)
+    assert.equal(state.createCalls.length, 0)
+  }
+})
+
+test('weekly previews and tap agree, with legacy weekday labels supported and templates sorted like a timetable', async () => {
+  const { page, state } = fixture()
+  state.templates = [
+    route({ _id: 'thu', weekdayIndex: 3 }),
+    route({ _id: 'tue-evening', weekdayText: '星期二' }),
+    route({ _id: 'unknown' }),
+    route({ _id: 'tue-class', weekdayIndex: 1, weekdayText: '周四', departureTime: '15:00' })
+  ]
+  await page.loadTemplates()
+  assert.deepEqual(plain(page.data.templates.map(row => row._id)), ['tue-class', 'tue-evening', 'thu', 'unknown'])
+  const template = page.data.templates[0]
+  assert.equal(template.weeklyLabel, '每周二')
+  assert.equal(template.nextDepartureLabel, '9月22日')
+  page.onTemplateTap({ currentTarget: { dataset: { id: template._id } } })
+  assert.equal(page.data.departureDate, template.nextDepartureDate)
+
 })
 
 test('template reads coalesce and managing templates preserves the draft and refreshes stale reads', async () => {
@@ -114,31 +128,6 @@ test('template reads coalesce and managing templates preserves the draft and ref
   assert.equal(page.data.templates[0].shortcutTitle, '去学校')
 })
 
-test('history loads coalesce, retain cached rows on failure, and discard another account/city results', async () => {
-  const { page, state } = fixture()
-  state.history = [route(), route({ _id: 'other-city', cityKey: 'other' })]
-  const read = deferred()
-  state.historyResponse = read.promise
-  const pending = page.loadRecentRoutesIfNeeded()
-  assert.equal(page.loadRecentRoutesIfNeeded(), pending)
-  await Promise.resolve()
-  assert.equal(state.historyReads, 1)
-  assert.equal(page.data.recentRoutes.length, 1)
-  read.reject(new Error('Offline'))
-  await pending
-  assert.equal(page.data.recentRoutes[0]._id, 'recent')
-  assert.match(page.data.recentRoutesError, /重试/)
-  const late = deferred()
-  state.historyResponse = late.promise
-  const previousAccount = page.onReloadRecentRoutes()
-  state.openid = ''
-  await page.loadRecentRoutesIfNeeded()
-  late.resolve([route()])
-  await previousAccount
-  assert.equal(page.data.recentRoutes.length, 0)
-  assert.equal(page.data.loadingRecentRoutes, false)
-})
-
 test('confirmed snapshot cannot change during the modal/request and successful publication cannot duplicate', async () => {
   const { page, state } = fixture()
   const response = deferred()
@@ -157,8 +146,6 @@ test('confirmed snapshot cannot change during the modal/request and successful p
   assert.equal(page.data.publishedDriverTrip.id, 'published')
   assert.equal(page.data.publishedDriverTrip.destinationAddress, '哥大')
   assert.equal(page.data.publishedDriverTrip.referencePrice, '8')
-  assert.equal(state.recorded.length, 1)
-  assert.equal(state.recorded[0].snapshot.destinationAddress, '哥大')
   assert.equal(state.timers.length, 0)
   assert.equal(state.navigation.length, 0)
   page.driver_confirmTrip()
@@ -194,14 +181,13 @@ test('return trip swaps snapshot, clears time, requires a later departure, and p
   assert.equal(page.data.preparingReturn, false)
 })
 
-test('failed publication does not add history; cache failure cannot turn success into a retry', async () => {
+test('failed publication can retry while successful publication prevents a duplicate retry', async () => {
   const { page, state } = fixture()
   state.createResponse = Promise.resolve({ result: { success: false } })
   await page.driver_submitTrip()
-  assert.equal(state.recorded.length, 0)
+  assert.equal(state.createCalls.length, 1)
   assert.equal(page.data.publishedDriverTrip, null)
   state.createResponse = Promise.resolve({ result: { success: true, id: 'retry-success' } })
-  state.recordError = true
   await page.driver_submitTrip()
   assert.equal(page.data.publishedDriverTrip.id, 'retry-success')
   assert.equal(page.data.submitting, false)
@@ -213,18 +199,18 @@ test('choosing another shortcut clears the return constraint without changing pr
   const { page } = fixture()
   await page.driver_submitTrip()
   page.onPrepareReturnTrip()
-  page.setData({ recentRoutes: [route({ departureTime: '13:00' })] })
-  page.onRecentRouteTap({ currentTarget: { dataset: { id: 'recent' } } })
+  page.setData({ templates: [route({ weekdayIndex: 1, departureTime: '13:00' })] })
+  page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
   assert.equal(page.data.preparingReturn, false)
   assert.equal(page._returnDepartureTimestamp, null)
   assert.equal(page.data.showZelle, true)
 })
 
-test('historical early-morning time skips an invalid New York spring-forward occurrence', () => {
+test('weekly template skips an invalid New York spring-forward occurrence without changing its clock', () => {
   const { page } = fixture(Date.parse('2027-03-14T04:00:00Z')) // March 13, 23:00 NY.
-  page.setData({ recentRoutes: [route({ departureTime: '02:30' })] })
-  page.onRecentRouteTap({ currentTarget: { dataset: { id: 'recent' } } })
-  assert.equal(page.data.departureDate, '2027-03-15')
+  page.setData({ templates: [route({ weekdayIndex: 6, departureTime: '02:30' })] })
+  page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
+  assert.equal(page.data.departureDate, '2027-03-21')
   assert.equal(page.data.departureTime, '02:30')
 })
 
@@ -237,6 +223,6 @@ test('a successful publication from a previous account never shows the next acco
   response.resolve({ result: { success: true, id: 'old-account-trip' } })
   await pending
   assert.equal(page.data.publishedDriverTrip, null)
-  assert.equal(state.recorded[0].openid, 'driver')
-  assert.equal(page.data.recentRoutes.length, 0)
+  assert.equal(state.createCalls.length, 1)
+  assert.equal(page.data.preparingReturn, false)
 })

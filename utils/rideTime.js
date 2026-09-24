@@ -69,4 +69,34 @@ function parseRideDateTime(date, time) {
   return NaN
 }
 
-module.exports = { RIDE_TIME_ZONE, getRideDateTime, getRideDateData, parseRideDateTime, shiftRideDate, isValidRideDate, getRideWeekday }
+// Weekly schedules keep their New York wall clock, including across DST. A
+// history shortcut starts at least one calendar week after its source trip;
+// a saved template (no afterDate) uses the next available weekly occurrence.
+function getNextWeeklyRideDate(weekdayIndex, time, options = {}) {
+  if (!Number.isInteger(weekdayIndex) || weekdayIndex < 0 || weekdayIndex > 6 ||
+      typeof time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) return ''
+  const now = options.now === undefined ? Date.now() : options.now
+  if (!Number.isFinite(now)) return ''
+  const today = getRideDateData(now).todayDateStr
+  if (!isValidRideDate(today)) return ''
+  const targetDay = (weekdayIndex + 1) % 7
+  let candidate = shiftRideDate(today, (targetDay - getRideWeekday(today) + 7) % 7)
+  if (options.afterDate !== undefined) {
+    if (!isValidRideDate(options.afterDate)) return ''
+    const earliest = shiftRideDate(options.afterDate, 7)
+    if (!isValidRideDate(earliest)) return ''
+    if (candidate < earliest) {
+      const days = (Date.parse(`${earliest}T00:00:00Z`) - Date.parse(`${candidate}T00:00:00Z`)) / DAY_MS
+      candidate = shiftRideDate(candidate, Math.ceil(days / 7) * 7)
+    }
+  }
+  const lastDate = shiftRideDate(today, 30)
+  while (isValidRideDate(candidate) && candidate <= lastDate) {
+    const timestamp = parseRideDateTime(candidate, time)
+    if (Number.isFinite(timestamp) && timestamp >= now + 15 * 60 * 1000 && timestamp <= now + 30 * DAY_MS) return candidate
+    candidate = shiftRideDate(candidate, 7)
+  }
+  return ''
+}
+
+module.exports = { RIDE_TIME_ZONE, getRideDateTime, getRideDateData, parseRideDateTime, shiftRideDate, isValidRideDate, getRideWeekday, getNextWeeklyRideDate }

@@ -5,6 +5,39 @@
   box-sizing: border-box;
 }
 
+.profile-browse-option {
+  margin: 0 0 28rpx;
+  text-align: center;
+}
+
+.profile-skip-btn {
+  width: 100%;
+  margin: 0;
+  padding: 18rpx 24rpx;
+  border: 2rpx solid #087f7b;
+  border-radius: 16rpx;
+  background: #fff;
+  color: #086e6a;
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.profile-skip-btn::after {
+  border: none;
+}
+
+.profile-skip-btn--pressed {
+  background: #e4f4f2;
+}
+
+.profile-browse-hint {
+  display: block;
+  margin-top: 16rpx;
+  color: #555;
+  font-size: 25rpx;
+}
+
 .form-card {
   background-color: #ffffff;
   border-radius: 16rpx;
@@ -185,4 +218,3 @@
   font-weight: 600;
   color: #111;
 }
-

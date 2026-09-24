@@ -9,7 +9,7 @@ const shortCode = v => typeof v === 'string' && /^[A-Za-z0-9_.:-]{1,80}$/.test(v
 const integer = (min, max) => v => Number.isSafeInteger(v) && v >= min && v <= max;
 const values = (...allowed) => v => allowed.includes(v);
 const bool = v => typeof v === 'boolean';
-const area = values('fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'other', 'unknown');
+const area = values('fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'inwood', 'midtown', 'downtown', 'queens', 'other', 'unknown');
 const tripType = values('carpool', 'request');
 const page = values('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile');
 const serviceDate = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v)

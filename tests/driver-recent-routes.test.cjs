@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const { execFileSync } = require('node:child_process')
 
 const SOURCE_PATH = path.join(__dirname, '../utils/driverRecentRoutes.js')
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -54,7 +55,7 @@ function trip(overrides = {}) {
   }
 }
 
-test('loads only own published driver routes with bounded query, no old dates or participant details', async () => {
+test('loads only own published driver routes with bounded query and keeps service dates without participant details', async () => {
   const { api, state, storage } = harness()
   state.rows = [trip({ passengers: ['passenger'], phone: 'private', zelle: 'yes', carNumber: 'ABC' }), trip({ _openid: 'someone-else' })]
   const rows = plain(await api.loadRecentDriverRoutes('driver-a'))
@@ -65,13 +66,17 @@ test('loads only own published driver routes with bounded query, no old dates or
       referencePrice: true, comment: true, createdAt: true, cityKey: true },
     orderBy: ['createdAt', 'desc'], limit: 20
   })
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['_id', 'departureAddress', 'destinationAddress', 'departureTime',
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['_id', 'departureAddress', 'destinationAddress', 'departureDate', 'departureTime', 'weekdayIndex', 'weekdayText',
     'passengerCount', 'referencePrice', 'comment', 'cityKey', 'shortcutTitle', 'lastPublishedAt'].sort())
   assert.equal(rows[0].shortcutTitle, '去学校')
   assert.equal(rows[0].lastPublishedAt, BASE_NOW - DAY_MS)
   assert.equal(rows[0].referencePrice, '8$/人')
+  assert.equal(rows[0].departureDate, '2026-09-20')
+  assert.equal(rows[0].weekdayIndex, 6)
+  assert.equal(rows[0].weekdayText, '周日')
+  assert.equal(storage.get(CACHE_PREFIX + 'driver-a').version, 2)
   const saved = JSON.stringify(storage.get(CACHE_PREFIX + 'driver-a'))
-  for (const privateText of ['someone-else', 'private', 'passengers', 'carNumber', 'zelle', '2026-09-20']) {
+  for (const privateText of ['someone-else', 'private', 'passengers', 'carNumber', 'zelle']) {
     assert.equal(saved.includes(privateText), false)
   }
 })
@@ -207,4 +212,139 @@ test('database dates retain their creation time across Date and cloud JSON repre
   ]
   const rows = await api.loadRecentDriverRoutes('driver-a')
   assert.deepEqual(plain(rows.map(row => row.lastPublishedAt)), [createdAt, createdAt - 1, createdAt - 2])
+})
+
+test('deduplicates the same weekday across weeks but keeps different class weekdays separate', async () => {
+  const { api, state } = harness()
+  state.rows = [
+    trip({ departures: [{ address: 'Fort Lee', date: '2026-09-15', time: '15:00' }], createdAt: BASE_NOW - 5000 }),
+    trip({ departures: [{ address: 'Fort Lee', date: '2026-09-22', time: '15:00' }],
+      referencePrice: '10', passengerCount: 2, comment: '周二最近发布', createdAt: BASE_NOW - 1000 }),
+    trip({ departures: [{ address: 'Fort Lee', date: '2026-09-24', time: '15:00' }], createdAt: BASE_NOW - 2000 })
+  ]
+  const rows = plain(await api.loadRecentDriverRoutes('driver-a'))
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows.map(row => row.weekdayIndex), [1, 3])
+  assert.deepEqual(rows.map(row => row.weekdayText), ['周二', '周四'])
+  assert.equal(rows[0].departureDate, '2026-09-22')
+  assert.equal(rows[0].referencePrice, '10')
+  assert.equal(rows[0].passengerCount, 2)
+  assert.equal(rows[0].comment, '周二最近发布')
+  assert.notEqual(rows[0]._id, rows[1]._id)
+})
+
+test('service calendar weekday is the same in New York, Los Angeles and Shanghai device timezones', () => {
+  const script = `
+    global.wx = { getStorageSync: () => undefined, setStorageSync: () => {} };
+    const api = require(${JSON.stringify(SOURCE_PATH)});
+    const rows = api.recordRecentDriverRoute('driver-a', {
+      departureAddress: 'Fort Lee', destinationAddress: '哥大', departureDate: '2026-09-22',
+      departureTime: '00:15', passengerCount: 4,
+      createdAt: ${BASE_NOW}
+    });
+    process.stdout.write(JSON.stringify({ date: rows[0].departureDate, weekday: rows[0].weekdayIndex, label: rows[0].weekdayText }));
+  `
+  for (const timezone of ['America/New_York', 'America/Los_Angeles', 'Asia/Shanghai']) {
+    const result = JSON.parse(execFileSync(process.execPath, ['-e', script], {
+      env: { ...process.env, TZ: timezone }, encoding: 'utf8'
+    }))
+    assert.deepEqual(result, { date: '2026-09-22', weekday: 1, label: '周二' })
+  }
+})
+
+test('v1 cache refreshes despite a recent sync, replaces obsolete undated shortcut, then caches for a day', async () => {
+  const storage = new Map([
+    ['openid', 'driver-a'],
+    [CACHE_PREFIX + 'driver-a', { version: 1, syncedAt: BASE_NOW - 1000, routes: [
+      { departureAddress: 'Fort Lee', destinationAddress: '哥大', departureTime: '15:00',
+        passengerCount: 4, lastPublishedAt: BASE_NOW - 2000 }
+    ] }]
+  ])
+  const { api, state } = harness({ storage })
+  const fallback = api.readRecentDriverRoutes('driver-a')
+  assert.equal(fallback[0].weekdayIndex, null)
+  assert.equal(fallback[0].departureDate, '')
+  state.rows = [trip({ departures: [{ address: 'Fort Lee', date: '2026-09-22', time: '15:00' }] })]
+  const upgraded = plain(await api.loadRecentDriverRoutes('driver-a'))
+  assert.equal(state.queries.length, 1)
+  assert.equal(upgraded.length, 1)
+  assert.equal(upgraded[0].weekdayIndex, 1)
+  assert.equal(storage.get(CACHE_PREFIX + 'driver-a').version, 2)
+  await api.loadRecentDriverRoutes('driver-a')
+  assert.equal(state.queries.length, 1)
+  const reopened = harness({ storage })
+  assert.deepEqual(plain(await reopened.api.loadRecentDriverRoutes('driver-a')), upgraded)
+  assert.equal(reopened.state.queries.length, 0)
+})
+
+test('offline v1 migration keeps undated fallback and never infers weekday from publication timestamp', async () => {
+  const storage = new Map([
+    ['openid', 'driver-a'],
+    [CACHE_PREFIX + 'driver-a', { version: 1, syncedAt: BASE_NOW - 1000, routes: [
+      { departureAddress: 'Fort Lee', destinationAddress: '哥大', departureTime: '15:00', passengerCount: 4,
+        createdAt: BASE_NOW, lastPublishedAt: BASE_NOW }
+    ] }]
+  ])
+  const { api, state } = harness({ storage, state: { failRead: true } })
+  await assert.rejects(api.loadRecentDriverRoutes('driver-a'), /offline/)
+  let rows = api.readRecentDriverRoutes('driver-a')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].weekdayIndex, null)
+  assert.equal(rows[0].weekdayText, '')
+  assert.equal(rows[0].departureDate, '')
+  assert.equal(storage.get(CACHE_PREFIX + 'driver-a').version, 1)
+  state.failRead = false
+  await api.loadRecentDriverRoutes('driver-a')
+  assert.equal(state.queries.length, 2)
+  rows = api.readRecentDriverRoutes('driver-a')
+  assert.equal(rows[0].weekdayIndex, null)
+})
+
+test('offline legacy shortcuts recover distinct Tuesday and Thursday schedules on reconnect without guessing unrelated weekdays', async () => {
+  const undated = { departureAddress: 'Fort Lee', destinationAddress: '哥大', departureTime: '15:00',
+    passengerCount: 4, lastPublishedAt: BASE_NOW - 1000 }
+  const storage = new Map([
+    ['openid', 'driver-a'],
+    [CACHE_PREFIX + 'driver-a', { version: 1, syncedAt: BASE_NOW - 500, routes: [
+      undated,
+      { ...undated, departureTime: '19:00' },
+      { ...undated, cityKey: 'other-city' }
+    ] }]
+  ])
+  const { api, state } = harness({ storage, state: { failRead: true } })
+  await assert.rejects(api.loadRecentDriverRoutes('driver-a'), /offline/)
+  assert.equal(api.readRecentDriverRoutes('driver-a').length, 3)
+  assert.ok(api.readRecentDriverRoutes('driver-a').every(row => row.weekdayIndex === null))
+  state.failRead = false
+  state.rows = [
+    trip({ departures: [{ address: 'Fort Lee', date: '2026-09-22', time: '15:00' }] }),
+    trip({ departures: [{ address: 'Fort Lee', date: '2026-09-24', time: '15:00' }] })
+  ]
+  const rows = plain(await api.loadRecentDriverRoutes('driver-a'))
+  assert.equal(rows.length, 4)
+  assert.deepEqual(rows.filter(row => row.cityKey === 'ny_nj' && row.departureTime === '15:00')
+    .map(row => row.weekdayIndex).sort(), [1, 3])
+  assert.equal(rows.find(row => row.departureTime === '19:00').weekdayIndex, null)
+  assert.equal(rows.find(row => row.cityKey === 'other-city').weekdayIndex, null)
+  assert.equal(storage.get(CACHE_PREFIX + 'driver-a').version, 2)
+  await api.loadRecentDriverRoutes('driver-a')
+  assert.equal(state.queries.length, 2)
+})
+
+test('accepts explicit valid weekday without date, ignores invalid weekdays, and prefers service date', () => {
+  const { api, state } = harness()
+  const base = { departureAddress: 'Fort Lee', destinationAddress: '哥大', departureTime: '15:00', passengerCount: 4 }
+  let rows = api.recordRecentDriverRoute('driver-a', { ...base, weekdayIndex: 1 })
+  assert.equal(rows[0].weekdayIndex, 1)
+  assert.equal(rows[0].weekdayText, '周二')
+  assert.equal(rows[0].departureDate, '')
+  for (const invalid of ['1', -1, 7, 1.5, true, null]) {
+    state.now++
+    rows = api.recordRecentDriverRoute('driver-a', { ...base, weekdayIndex: invalid })
+    assert.equal(rows[0].weekdayIndex, null)
+  }
+  state.now++
+  rows = api.recordRecentDriverRoute('driver-a', { ...base, weekdayIndex: 4, departureDate: '2026-09-22' })
+  assert.equal(rows[0].weekdayIndex, 1)
+  assert.equal(rows[0].departureDate, '2026-09-22')
 })

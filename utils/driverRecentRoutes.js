@@ -1,9 +1,11 @@
-const { isValidRideDate } = require('./rideTime')
+const { isValidRideDate, getRideWeekday } = require('./rideTime')
 const { getDriverRoutePriceKey } = require('./driverRideDefaults')
 
 const STORAGE_PREFIX = 'driver_recent_routes_v1:'
 const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000
 const MAX_ROUTES = 12
+const CACHE_VERSION = 2
+const WEEKDAY_TEXT = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const accounts = new Map()
 const pendingLoads = new Map()
 
@@ -49,13 +51,21 @@ function normalizeRoute(source) {
       !Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 7) return null
 
   const cityKey = text(source.cityKey, 80) || 'ny_nj'
-  const routeParts = [cityKey, placeKey(departureAddress), placeKey(destinationAddress), departureTime]
+  // A service date is already a New York calendar date, not a timestamp to
+  // convert through the phone's local timezone. Never infer it from createdAt.
+  const departureDate = isValidRideDate(sourceDate) ? sourceDate : ''
+  const weekdayIndex = departureDate ? (getRideWeekday(departureDate) + 6) % 7
+    : Number.isInteger(source.weekdayIndex) && source.weekdayIndex >= 0 && source.weekdayIndex <= 6
+      ? source.weekdayIndex : null
+  const routeParts = [cityKey, placeKey(departureAddress), placeKey(destinationAddress),
+    weekdayIndex === null ? 'unknown-day' : String(weekdayIndex), departureTime]
   const _id = 'recent:' + routeParts.map(encodeURIComponent).join(':')
   const referencePrice = typeof source.referencePrice === 'number' && Number.isFinite(source.referencePrice)
     ? String(source.referencePrice) : text(source.referencePrice, 40)
   const isCampusRoute = !!getDriverRoutePriceKey(departureAddress, destinationAddress)
   return {
-    _id, departureAddress, destinationAddress, departureTime, passengerCount,
+    _id, departureAddress, destinationAddress, departureDate, departureTime, weekdayIndex,
+    weekdayText: weekdayIndex === null ? '' : WEEKDAY_TEXT[weekdayIndex], passengerCount,
     referencePrice, comment: text(source.comment, 100), cityKey,
     shortcutTitle: isCampusRoute ? (destinationAddress === '哥大' ? '去学校' : '回程') : '常用路线',
     lastPublishedAt: timestamp(source.lastPublishedAt || source.createdAt)
@@ -79,10 +89,13 @@ function cacheFor(openid) {
   if (accounts.has(openid)) return accounts.get(openid)
   let saved
   try { saved = wx.getStorageSync(STORAGE_PREFIX + encodeURIComponent(openid)) } catch (e) {}
+  const hasSavedRoutes = saved && (saved.version === 1 || saved.version === CACHE_VERSION)
   const cache = {
-    version: 1,
-    syncedAt: saved && saved.version === 1 ? timestamp(saved.syncedAt) : 0,
-    routes: mergeRoutes(saved && saved.version === 1 ? saved.routes : [])
+    version: CACHE_VERSION,
+    // v1 discarded service dates, so even a fresh legacy cache needs one read
+    // to recover weekdays. Retain its routes as an offline fallback meanwhile.
+    syncedAt: saved && saved.version === CACHE_VERSION ? timestamp(saved.syncedAt) : 0,
+    routes: mergeRoutes(hasSavedRoutes ? saved.routes : [])
   }
   accounts.set(openid, cache)
   return cache
@@ -134,8 +147,18 @@ function loadRecentDriverRoutes(openid) {
       const ownRows = result.data.filter(row => row && row._openid === key)
       // Re-read memory here: a successful publication may have added a newer row during the request.
       const latest = cacheFor(key)
-      const routes = mergeRoutes(latest.routes, ownRows)
-      saveCache(key, { version: 1, syncedAt: Date.now(), routes })
+      const knownRows = ownRows.map(normalizeRoute).filter(route => route && route.weekdayIndex !== null)
+      const routes = mergeRoutes(latest.routes.filter(route => {
+        if (route.weekdayIndex !== null) return true
+        // The old cache may contain the same weekly route without its weekday.
+        // Once actual history supplies it, remove only that obsolete shortcut;
+        // do not assign a guessed weekday to other cached routes.
+        return !knownRows.some(known => known.cityKey === route.cityKey &&
+          placeKey(known.departureAddress) === placeKey(route.departureAddress) &&
+          placeKey(known.destinationAddress) === placeKey(route.destinationAddress) &&
+          known.departureTime === route.departureTime)
+      }), ownRows)
+      saveCache(key, { version: CACHE_VERSION, syncedAt: Date.now(), routes })
       return mergeRoutes(routes)
     } catch (e) {
       if (accountAtStart && currentAccount() !== accountAtStart) return []

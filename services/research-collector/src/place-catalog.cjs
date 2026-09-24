@@ -1,4 +1,4 @@
-const CATALOG_VERSION = 'places-v1'
+const CATALOG_VERSION = 'places-v2'
 const FIXED_PLACES = [
   { placeId: 'fort_lee', label: 'Fort Lee', value: 'Fort Lee', aliases: ['fortlee', 'fortlee核心区'], airport: false },
   { placeId: 'columbia', label: '哥大', value: '哥大', aliases: ['哥大', '哥伦比亚大学', 'columbia', 'columbiauniversity', '哥大columbia', '哥大/columbia'], airport: false },
@@ -7,7 +7,11 @@ const FIXED_PLACES = [
   { placeId: 'ewr', label: 'EWR 纽瓦克机场', value: 'EWR 机场', aliases: ['ewr', 'ewr机场', 'ewrairport', '纽瓦克机场', '纽瓦克国际机场', '纽瓦克自由国际机场', 'newarkairport', 'newarkinternationalairport', 'newarklibertyairport', 'newarklibertyinternationalairport'], airport: true },
   { placeId: 'lga', label: 'LGA 拉瓜迪亚', value: 'LGA 机场', aliases: ['lga', 'lga机场', 'lgaairport', '拉瓜迪亚', '拉瓜迪亚机场', '拉瓜迪亚国际机场', '拉瓜地亚', '拉瓜地亚机场', 'laguardia', 'laguardiaairport', 'laguardiainternationalairport'], airport: true },
   { placeId: 'lic', label: 'LIC', value: 'LIC', aliases: ['lic', 'longislandcity', '长岛市'], airport: false },
-  { placeId: 'jsq', label: 'JSQ', value: 'JSQ', aliases: ['jsq', 'journalsquare', 'journalsquarestation', 'journalsquarepath', 'journalsquarepathstation'], airport: false }
+  { placeId: 'jsq', label: 'JSQ', value: 'JSQ', aliases: ['jsq', 'journalsquare', 'journalsquarestation', 'journalsquarepath', 'journalsquarepathstation'], airport: false },
+  { placeId: 'inwood', label: 'Inwood', value: 'Inwood', aliases: ['inwood', 'inwoodmanhattan', 'manhattaninwood', '曼哈顿inwood'], airport: false },
+  { placeId: 'midtown', label: '中城', value: '中城', aliases: ['中城', '曼哈顿中城', 'midtown', 'midtownmanhattan', 'manhattanmidtown'], airport: false },
+  { placeId: 'downtown', label: '下城', value: '下城', aliases: ['下城', '曼哈顿下城', 'downtown', 'lowermanhattan', 'downtownmanhattan', 'manhattandowntown'], airport: false },
+  { placeId: 'queens', label: 'Queens', value: 'Queens', aliases: ['queens', '皇后区', '皇后區'], airport: false }
 ]
 function normalizeText(value) { return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '' }
 function resolvePlaceId(value) {

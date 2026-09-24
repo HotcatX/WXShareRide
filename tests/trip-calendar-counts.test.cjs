@@ -239,6 +239,47 @@ test('calendar Other excludes the new configured fixed groups using their histor
   ])
 })
 
+test('calendar new neighborhood choices accept canonical IDs and aliases without merging neighboring place names', async () => {
+  const groups = [
+    ['inwood', ['Inwood', 'Inwood Manhattan', 'Manhattan Inwood', '曼哈顿 Inwood', 'Inwood Park entrance']],
+    ['midtown', ['中城', '曼哈顿中城', 'Midtown', 'Midtown Manhattan', 'Manhattan Midtown', 'Midtown West', '中城 Bryant Park']],
+    ['downtown', ['下城', '曼哈顿下城', 'Downtown', 'Lower Manhattan', 'Downtown Manhattan', 'Manhattan Downtown', '下城 Battery Park']],
+    ['queens', ['Queens', '皇后区', '皇后區', 'Queens Center entrance']]
+  ]
+  const row = (address, i) => trip(`new-place-${i}`, '2026-09-11', {
+    departures: [{ date: '2026-09-11', time: '15:00', address }], destinations: [{ address }]
+  })
+  const h = harness({ carpool: [
+    ...groups.flatMap(([, aliases]) => aliases).map(row),
+    ...['Inwoodman', 'Queensboro Plaza', 'Midtown Jersey City', 'Downtown Brooklyn', 'Downtown Jersey City', 'LIC', 'Flushing', '法拉盛']
+      .map((address, i) => row(address, `separate-${i}`))
+  ] })
+  for (const [id, aliases] of groups) {
+    // Full addresses remain custom selections; only the configured short aliases
+    // should expand into the corresponding neighborhood family.
+    for (const selected of [id, ...aliases.slice(0, id === 'midtown' ? -2 : -1)]) {
+      assert.deepEqual(days(await h.main({ ...calendar, fromPlace: selected, toPlace: selected })), [
+        { date: '2026-09-11', carpoolCount: aliases.length, requestCount: 0 }
+      ], `${selected} must keep the new neighborhood boundary`)
+    }
+  }
+  for (const selected of ['Inwood Park entrance', 'Queens Center entrance', 'Midtown West', '中城 Bryant Park', '下城 Battery Park']) {
+    assert.deepEqual(days(await h.main({ ...calendar, fromPlace: selected })), [
+      { date: '2026-09-11', carpoolCount: 1, requestCount: 0 }
+    ], `${selected} must remain a specific custom address`)
+  }
+})
+
+test('calendar Other excludes all four new fixed neighborhoods but retains unrelated addresses', async () => {
+  const addresses = ['曼哈顿 Inwood', 'Midtown Manhattan', 'Lower Manhattan', '皇后区', 'Queensboro Plaza', 'Downtown Brooklyn']
+  const h = harness({ carpool: addresses.map((address, i) => trip(`other-neighborhood-${i}`, '2026-09-11', {
+    departures: [{ date: '2026-09-11', time: '15:00', address }], destinations: [{ address: '哥大' }]
+  })) })
+  assert.deepEqual(days(await h.main({
+    ...calendar, fromPlace: '其他', fromPresets: ['Inwood', '中城', '下城', 'Queens']
+  })), [{ date: '2026-09-11', carpoolCount: 2, requestCount: 0 }])
+})
+
 test('calendar excludes both blocking directions for owners and participants without exposing their records', async () => {
   const h = harness({ carpool: [
     trip('blocked-owner', '2026-09-11', { _openid: 'blocked-owner' }),

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomUUID, randomBytes, generateKeyPairSync, createHmac, sign } from 'node:crypto';
 import { openStore } from '../src/store.mjs';
 import { createCollector } from '../src/server.mjs';
-import { BUSINESS_ROUTE, PLACE_ROUTE, validateBusinessEvents, STANDARD_PLACES } from '../src/places.mjs';
+import { BUSINESS_ROUTE, PLACE_ROUTE, validateBusinessEvents, STANDARD_PLACES, CATALOG_VERSION } from '../src/places.mjs';
 const DAY=86400000, A='synthetic_place_account_A', B='synthetic_place_account_B', now=Date.now();
 const dateAt=ms=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(ms));
 const point=address=>({address,placeId:'',date:dateAt(now),time:'09:00'});
@@ -23,9 +23,11 @@ const selected=(extra={})=>({pickerSessionId:randomUUID(),field:'departure',mode
 const seed=s=>s.places.seed({label:'Flushing Library',aliases:['flushing library'],cityKey:'ny_nj',parentRegionId:'flushing',verificationReference:'https://www.queenslibrary.org/about-us/locations/flushing'},now-40*DAY).placeId;
 
 test('server/client standard catalog parity; ambiguous city, island and private labels stay unknown',t=>{const s=fixture(t);try{assert.equal(readFileSync(new URL('../../../utils/placeCatalog.js',import.meta.url),'utf8'),readFileSync(new URL('../src/place-catalog.cjs',import.meta.url),'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
- assert.deepEqual(STANDARD_PLACES.map(p=>p.placeId),['fort_lee','columbia','flushing','jfk','ewr','lga','lic','jsq']);
+ assert.deepEqual(STANDARD_PLACES.map(p=>p.placeId),['fort_lee','columbia','flushing','jfk','ewr','lga','lic','jsq','inwood','midtown','downtown','queens']);
+ assert.equal(CATALOG_VERSION,'places-v2');
+ assert.equal(s.placeSuggestions(enroll(s),req(),now).catalogVersion,CATALOG_VERSION);
  for(const p of STANDARD_PLACES)for(const label of[p.value,p.label,...p.aliases])assert.equal(s.places.resolve(label,'ny_nj').place_id,p.placeId);
- for(const label of['Newark','纽瓦克','Long Island','Jersey City','Fort Lee apt 2'])assert.equal(s.places.resolve(label,'ny_nj'),undefined);
+ for(const label of['Newark','纽瓦克','Long Island','Jersey City','Fort Lee apt 2','Downtown Jersey City','Inwood Road','Queens Plaza'])assert.equal(s.places.resolve(label,'ny_nj'),undefined);
 });
 test('business retries deduplicate and a conflict rolls back the whole batch',t=>{const s=fixture(t),e=business();assert.deepEqual(s.places.ingestBusiness(envelope(e),now).acceptedEventIds,[e.eventId]);assert.deepEqual(s.places.ingestBusiness(envelope(e),now).duplicateEventIds,[e.eventId]);assert.throws(()=>s.places.ingestBusiness(envelope({...e,action:'delete'}),now),{code:'BUSINESS_EVENT_CONFLICT'});assert.throws(()=>s.places.ingestBusiness(envelope(business(),{...e,eventId:randomUUID()}),now),{code:'BUSINESS_VERSION_CONFLICT'});assert.equal(s.db.prepare('SELECT COUNT(*) n FROM place_business_events').get().n,1);assert.throws(()=>validateBusinessEvents(envelope({...e,actorOpenid:''})),{code:'INVALID_BUSINESS_EVENTS'});assert.doesNotThrow(()=>validateBusinessEvents(envelope({...e,actorOpenid:'',action:'status'})));});
 test('circle stability, as-of withdrawal, service-city isolation and no airport graph bridging',t=>{const s=fixture(t),first=business({eventAtMs:now-4*DAY,after:snap({day:now-3*DAY})}),back=business({eventAtMs:now-3*DAY,after:snap({from:'哥大',to:'Fort Lee',day:now-2*DAY})});s.places.ingestBusiness(envelope(first,back,business({eventAtMs:now-2*DAY,after:snap({from:'LIC',to:'JFK'})})),now);assert.equal(s.places.circles(A,true,'ny_nj',now-3.5*DAY).circles[0].stable,false);assert.deepEqual(s.places.circles(A,true,'ny_nj',now).circles.map(c=>[c.circleId,c.stable]),[['columbia:fort_lee',true]]);assert.equal(s.places.circles(A,false,'ny_nj',now).circles.length,0);assert.equal(s.places.circles(A,true,'boston',now).circles.length,0);s.places.ingestBusiness(envelope({...back,eventId:randomUUID(),version:2,action:'delete',eventAtMs:now-DAY,before:back.after,after:null}),now);assert.equal(s.places.circles(A,true,'ny_nj',now).circles[0].stable,false);assert.equal(s.places.circles(A,true,'ny_nj',now-1.5*DAY).circles[0].stable,true);});

@@ -136,10 +136,20 @@ test('place picker contract agrees on both sides and rejects raw user addresses'
 })
 
 test('new regions and ordered stable stops are accepted, without forging acquisition metadata', () => {
+  const telemetry = require('./helpers/load-ride-telemetry.cjs')()
   const event = fixture('detail_viewed')
   const data = { ...event.data, originPlaceIds: ['lic', 'custom', 'unknown'], destinationPlaceIds: ['ewr'],
     tripVersion: 7, dataGeneratedAt: NOW - 10000, dataTimeSource: 'server' }
-  for (const originArea of ['fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq']) parity({ ...event, data: { ...data, originArea } }, true)
+  for (const originArea of ['fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'inwood', 'midtown', 'downtown', 'queens']) {
+    parity({ ...event, data: { ...data, originArea, destinationArea: originArea } }, true)
+  }
+  for (const [address, area] of [['Inwood', 'inwood'], ['中城', 'midtown'], ['Midtown Manhattan', 'midtown'],
+    ['下城', 'downtown'], ['Lower Manhattan', 'downtown'], ['Queens', 'queens'], ['皇后区', 'queens'],
+    ['LIC, Queens', 'lic'], ['Flushing, Queens', 'flushing'], ['Downtown Jersey City', 'other'], ['Inwood Road', 'other']]) {
+    assert.equal(telemetry.coarseArea(address), area, address)
+    const snapshot = telemetry.snapshot({ departures: [{ address, date: '2026-09-24', time: '15:00' }], destinations: [{ address }] }, NOW)
+    parity({ ...event, data: { ...event.data, ...snapshot } }, true, `snapshot: ${address}`)
+  }
   parity({ ...event, data: { ...data, originPlaceIds: ['123 Private Street'] } }, false)
   parity({ ...event, data: { ...data, originPlaceIds: Array(11).fill('lic') } }, false)
   parity({ ...event, data: { ...data, dataTimeSource: 'guessed' } }, false)

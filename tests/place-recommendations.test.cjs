@@ -20,9 +20,9 @@ function harness() {
 const context = { cityKey: 'ny_nj', field: 'departure', mode: 'driver', counterpartPlaceId: 'columbia' }
 
 test('standard IDs and aliases do not conflate Newark city, Jersey City or Long Island with airports/neighborhoods', () => {
-  assert.deepEqual(FIXED_PLACES.map(place => place.placeId), ['fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq'])
-  for (const value of ['Newark', '纽瓦克', 'Newark Broad Street', 'Long Island', 'Jersey City', 'LIC apt 8', 'EWR Terminal C']) assert.equal(resolvePlaceId(value), 'unknown', value)
-  for (const [value, id] of [['Long Island City', 'lic'], ['Journal Square', 'jsq'], ['Newark Airport', 'ewr'], ['哥伦比亚大学', 'columbia']]) assert.equal(resolvePlaceId(value), id)
+  assert.deepEqual(FIXED_PLACES.map(place => place.placeId), ['fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'inwood', 'midtown', 'downtown', 'queens'])
+  for (const value of ['Newark', '纽瓦克', 'Newark Broad Street', 'Long Island', 'Jersey City', 'LIC apt 8', 'EWR Terminal C', 'Inwood Park', 'Midtown West', 'Downtown Brooklyn', 'Queens Center']) assert.equal(resolvePlaceId(value), 'unknown', value)
+  for (const [value, id] of [['Long Island City', 'lic'], ['Journal Square', 'jsq'], ['Newark Airport', 'ewr'], ['哥伦比亚大学', 'columbia'], ['Inwood', 'inwood'], ['Manhattan Inwood', 'inwood'], ['中城', 'midtown'], ['Midtown Manhattan', 'midtown'], ['下城', 'downtown'], ['Lower Manhattan', 'downtown'], ['queens', 'queens'], ['皇后区', 'queens']]) assert.equal(resolvePlaceId(value), id)
   assert.equal(makeRidePlaceMatcher('Fort Lee 某公寓')('Fort Lee 另一公寓'), false)
   assert.equal(makeRidePlaceMatcher('哥大图书馆门口')('哥大其他接送点'), false)
   assert.equal(makeRidePlaceMatcher('EWR')('Newark Penn Station'), false)

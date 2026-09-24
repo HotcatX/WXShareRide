@@ -1,10 +1,16 @@
 // pages/other/login/login.js
 const referral = require("../../../utils/referral")
+const { returnToPublicPage } = require('../../../utils/loginNavigation')
 
 Page({
   data: {
     logging: false,
     privacyAgreed: false
+  },
+
+  onUnload() {
+    this._leaving = true
+    this._loginAttempt = (this._loginAttempt || 0) + 1
   },
 
   togglePrivacyAgreement() {
@@ -61,7 +67,7 @@ Page({
   },
 
   async onLoginTap() {
-    if (this.data.logging) return
+    if (this.data.logging || this._leaving) return
   
     if (!this.data.privacyAgreed) {
       wx.showToast({
@@ -71,10 +77,13 @@ Page({
       return
     }
   
+    const attempt = this._loginAttempt = (this._loginAttempt || 0) + 1
+    const isCurrent = () => !this._leaving && this._loginAttempt === attempt
     this.setData({ logging: true })
 
     try {
       const cloudRes = await wx.cloud.callFunction({ name: 'login', data: {} })
+      if (!isCurrent()) return
       const result = cloudRes.result || {}
       if (!result.ok) throw new Error(result.errorMsg || '登录失败')
 
@@ -86,6 +95,7 @@ Page({
       require('../../../utils/researchParticipation').identityChanged()
       if (result.referralCode) referral.setMyReferralCode(result.referralCode)
       await referral.bindPendingReferral()
+      if (!isCurrent()) return
 
       const action = wx.getStorageSync('postLoginAction') || {}
       const pending = wx.getStorageSync('pendingPage') || {}
@@ -100,6 +110,7 @@ Page({
       } catch (e) {
         completed = false
       }
+      if (!isCurrent()) return
 
       if (!completed) {
         // 保留 pendingPage 和 postLoginAction，资料保存后还要返回原路线并继续加入。
@@ -127,32 +138,30 @@ Page({
       }
       wx.reLaunch({ url: '/pages/home/home' })
     } catch (e) {
-      wx.showToast({ title: e.message || '登录失败', icon: 'none' })
+      if (isCurrent()) wx.showToast({ title: e.message || '登录失败', icon: 'none' })
     } finally {
-      this.setData({ logging: false })
+      if (isCurrent()) this.setData({ logging: false })
     }
   },
 
   onGuestTap() {
-    if (!this.data.privacyAgreed) {
-      wx.showToast({
-        title: '请先阅读并同意《隐私政策》',
-        icon: 'none'
-      })
-      return
-    }
-  
+    if (this._leaving) return
+    this._leaving = true
+    this._loginAttempt = (this._loginAttempt || 0) + 1
+    this.setData({ logging: false })
+
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
     require('../../../utils/researchParticipation').identityChanged()
   
     wx.removeStorageSync('postLoginAction')
+    wx.removeStorageSync('needLoginToast')
   
     const pending = wx.getStorageSync('pendingPage') || {}
     const pendingUrl = (pending && pending.url) ? String(pending.url) : ''
     wx.removeStorageSync('pendingPage')
   
-    this.backToPending(pendingUrl)
+    returnToPublicPage(pendingUrl)
   },
 
   goPrivacy() {

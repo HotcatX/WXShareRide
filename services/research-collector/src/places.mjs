@@ -5,7 +5,7 @@ import placeCatalog from './place-catalog.cjs';
 
 export const PLACE_ROUTE = '/v1/place-suggestions';
 export const BUSINESS_ROUTE = '/internal/v1/places/business-events';
-export const CATALOG_VERSION = 'places-v1';
+export const CATALOG_VERSION = placeCatalog.CATALOG_VERSION;
 export const RANKING_VERSION = 'circle-selection-v1';
 const DAY = 86_400_000;
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -228,7 +228,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     requireThat(account, 403, 'PLACE_IDENTITY_REQUIRED');
     const context = circles(account, participant.synthetic, body.cityKey, now, body.counterpartPlaceId);
     const preferenceVersion = hash(JSON.stringify(context)).slice(0, 24);
-    const cacheKey = hash(JSON.stringify([body, preferenceVersion]));
+    const cacheKey = hash(JSON.stringify([body, preferenceVersion, CATALOG_VERSION, RANKING_VERSION]));
     const previous = db.prepare('SELECT * FROM place_rank_snapshots WHERE participant_key=? AND cache_key=? ORDER BY generated_at DESC LIMIT 1').get(participant.participant_key, cacheKey);
     if (previous && previous.generated_at > now - 300_000) return JSON.parse(previous.response);
     const candidates = db.prepare(`SELECT DISTINCT c.* FROM place_catalog c JOIN place_public_usage u ON u.place_id=c.place_id

@@ -20,7 +20,11 @@ const PLACE_ALIASES = {
   lga: ['lga', 'lga机场', 'lgaairport', '拉瓜迪亚', '拉瓜迪亚机场', '拉瓜迪亚国际机场', '拉瓜地亚', '拉瓜地亚机场', 'laguardia', 'laguardiaairport', 'laguardiainternationalairport'],
   flushing: ['法拉盛', 'flushing'],
   lic: ['lic', 'longislandcity', '长岛市'],
-  jsq: ['jsq', 'journalsquare', 'journalsquarestation', 'journalsquarepath', 'journalsquarepathstation']
+  jsq: ['jsq', 'journalsquare', 'journalsquarestation', 'journalsquarepath', 'journalsquarepathstation'],
+  inwood: ['inwood', 'inwoodmanhattan', 'manhattaninwood', '曼哈顿inwood'],
+  midtown: ['中城', '曼哈顿中城', 'midtown', 'midtownmanhattan', 'manhattanmidtown'],
+  downtown: ['下城', '曼哈顿下城', 'downtown', 'lowermanhattan', 'downtownmanhattan', 'manhattandowntown'],
+  queens: ['queens', '皇后区', '皇后區']
 }
 const PLACE_PATTERNS = {
   ewr: /(?:^|[^a-z])ewr(?:$|[^a-z])|newark\s+(?:liberty\s+)?(?:international\s+)?airport|纽瓦克(?:自由)?(?:国际)?机场/i,
@@ -28,7 +32,11 @@ const PLACE_PATTERNS = {
   lga: /(?:^|[^a-z])lga(?:$|[^a-z])|la\s*guardia|拉瓜[迪地]亚/i,
   flushing: /flushing|法拉盛/i,
   lic: /(?:^|[^a-z])lic(?:$|[^a-z])|long\s+island\s+city|长岛市/i,
-  jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i
+  jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i,
+  inwood: /(?:^|[^a-z])(?:inwood(?:\s*manhattan)?|manhattan\s*inwood)(?:$|[^a-z])/i,
+  midtown: /(?:^|[^a-z])(?:midtown\s*manhattan|manhattan\s*midtown|midtown\s+(?:east|west))(?:$|[^a-z])|中城|^\s*midtown\s*$/i,
+  downtown: /(?:^|[^a-z])(?:lower\s*manhattan|downtown\s*manhattan|manhattan\s*downtown)(?:$|[^a-z])|下城|^\s*downtown\s*$/i,
+  queens: /(?:^|[^a-z])queens(?:$|[^a-z])|皇后[区區]/i
 }
 
 const TYPE_CONFIG = {

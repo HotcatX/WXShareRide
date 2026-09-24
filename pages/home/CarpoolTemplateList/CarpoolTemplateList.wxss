@@ -10,6 +10,14 @@ page{
   padding-top: 14rpx;
 }
 
+.template-weekly-hint{
+  display: block;
+  margin: 4rpx 4rpx 18rpx;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  color: #69727d;
+}
+
 .template-card{
   margin-bottom: 14rpx;
 }

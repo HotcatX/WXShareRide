@@ -43,8 +43,9 @@ function getTimeZoneOffsetMs(date) {
 }
 
 function parseTripTimeMs(dateStr, timeStr) {
-  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim())
-  const timeMatch = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || '').trim())
+  if (typeof dateStr !== 'string' || typeof timeStr !== 'string') return null
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim())
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim())
   if (!dateMatch || !timeMatch) return null
 
   const y = Number(dateMatch[1])
@@ -57,7 +58,11 @@ function parseTripTimeMs(dateStr, timeStr) {
   const localAsUtcMs = Date.UTC(y, m - 1, d, hh, mm, 0)
   let utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(localAsUtcMs))
   utcMs = localAsUtcMs - getTimeZoneOffsetMs(new Date(utcMs))
-  return Number.isFinite(utcMs) ? utcMs : null
+  if (!Number.isFinite(utcMs)) return null
+  const local = getZonedParts(new Date(utcMs))
+  // Reject impossible dates and New York's skipped spring hour.
+  return local.year === y && local.month === m && local.day === d &&
+    local.hour === hh && local.minute === mm ? utcMs : null
 }
 
 function buildDepartureMeta(departures) {
@@ -88,6 +93,20 @@ function normalizeType(value) {
   const type = String(value || '').toLowerCase()
   if (type === 'request') return 'request'
   return 'carpool'
+}
+
+function validateRoute(event) {
+  const validAddresses = points => Array.isArray(points) && points.length > 0 && points.every(point =>
+    point && typeof point === 'object' && !Array.isArray(point) &&
+    typeof point.address === 'string' && point.address.trim().length > 0)
+  if (!validAddresses(event.departures) || !validAddresses(event.destinations)) {
+    return '请填写有效的出发地和目的地'
+  }
+  if (!event.departures.every(point => Number.isFinite(parseTripTimeMs(point.date, point.time))) ||
+    buildDepartureMeta(event.departures).latestDepartureAtMs <= Date.now()) {
+    return '请选择有效的未来出发时间'
+  }
+  return ''
 }
 
 function cleanText(value) {
@@ -253,19 +272,6 @@ async function createRequest(event, openid, synthetic) {
     return { ok: false, success: false, errorMsg: '求车人数必须为 1 至 4 人' }
   }
   const departureMeta = buildDepartureMeta(event.departures)
-  const validDepartures = Array.isArray(event.departures) && event.departures.length > 0 && event.departures.every(point => {
-    const ms = parseTripTimeMs(point && point.date, point && point.time)
-    if (!Number.isFinite(ms)) return false
-    const local = getZonedParts(new Date(ms))
-    const date = String(point.date || '').trim().split('-').map(Number)
-    const time = String(point.time || '').trim().slice(0, 5).split(':').map(Number)
-    // Reject impossible calendar dates and New York's skipped spring hour.
-    return local.year === date[0] && local.month === date[1] && local.day === date[2] &&
-      local.hour === time[0] && local.minute === time[1]
-  })
-  if (!validDepartures || !Number.isFinite(departureMeta.latestDepartureAtMs) || departureMeta.latestDepartureAtMs <= Date.now()) {
-    return { ok: false, success: false, errorMsg: '请选择有效的未来出发时间' }
-  }
   const transaction = await db.startTransaction()
 
   try {
@@ -304,6 +310,8 @@ exports.main = async (event = {}, context = {}) => {
   if (!openid) return { ok: false, success: false, errorMsg: '未获取到 openid' }
 
   try {
+    const routeError = validateRoute(event)
+    if (routeError) return { ok: false, success: false, errorMsg: routeError }
     const type = normalizeType(event.type)
     return type === 'request'
       ? await createRequest(event, openid, isSyntheticContext(context))

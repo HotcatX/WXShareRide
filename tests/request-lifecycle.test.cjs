@@ -178,16 +178,17 @@ test('request deletion and a racing driver acceptance cannot leave dangling memb
 test('new requests validate seats and departure time and derive full status without trusting client status', async () => {
   for (const seats of [0, -1, 5, 1.5, null, true, {}, 'bad']) {
     const h = harness()
-    assert.equal((await h.loadCreate('creator')({ type: 'request', passengerCount: seats, departures: request().departures })).success, false)
+    assert.equal((await h.loadCreate('creator')({ type: 'request', passengerCount: seats, departures: request().departures, destinations: request().destinations })).success, false)
     assert.equal(h.rows('CarpoolRequest').length, 0)
   }
   for (const departure of [[], [{ date: '2026-09-14', time: '12:00' }],
     [{ date: '2027-02-30', time: '12:00' }], [{ date: '2027-03-14', time: '02:30' }],
     [{ date: '2027-04-01', time: '08:00' }, { date: '2027-04-02', time: 'bad' }]]) {
-    assert.equal((await harness().loadCreate('creator')({ type: 'request', passengerCount: 1, departures: departure })).success, false)
+    assert.equal((await harness().loadCreate('creator')({ type: 'request', passengerCount: 1,
+      departures: departure.map(point => ({ address: 'Fort Lee', ...point })), destinations: request().destinations })).success, false)
   }
   const h = harness()
-  assert.equal((await h.loadCreate('creator')({ type: 'request', passengerCount: 4, status: 'open', departures: request().departures })).success, true)
+  assert.equal((await h.loadCreate('creator')({ type: 'request', passengerCount: 4, status: 'open', departures: request().departures, destinations: request().destinations })).success, true)
   assert.equal(h.rows('CarpoolRequest')[0].status, 'full')
   assert.equal(h.rows('CarpoolRequest')[0].passengerCount, 4)
 })
@@ -197,7 +198,7 @@ test('request creation, joining and acceptance preserve existing profiles and ap
     _id: `user-${id}`, _openid: id, name: `${id} profile`, phone: 'private-contact',
     tripPassenger: ['older-request'], tripPassengerCreate: ['older-created'], tripDriverJoin: ['older-accepted']
   })) })
-  const created = await h.loadCreate('creator')({ type: 'request', passengerCount: 1, departures: request().departures })
+  const created = await h.loadCreate('creator')({ type: 'request', passengerCount: 1, departures: request().departures, destinations: request().destinations })
   assert.equal(created.success, true)
   assert.equal((await h.load('joinTrip', 'passenger')({ type: 'request', requestId: 'request-1' })).success, true)
   assert.equal((await h.load('tripManage', 'driver')(action('acceptRequest'))).success, true)
@@ -243,7 +244,7 @@ test('successful creation atomically records trusted identity, complete members,
 
 test('outbox insertion failure rolls back request publication, join, acceptance, exit and deletion', async () => {
   const create = harness({}, { failLedgerWrite: true })
-  assert.equal((await create.loadCreate('creator')({ type: 'request', departures: request().departures })).success, false)
+  assert.equal((await create.loadCreate('creator')({ type: 'request', departures: request().departures, destinations: request().destinations })).success, false)
   assert.equal(create.rows('CarpoolRequest').length + create.rows('userInfo').length + create.rows('TripActions').length, 0)
   for (const operation of ['join', 'acceptRequest', 'quitTrip', 'deleteTrip']) {
     const seed = request({ passengerCount: 2, passengerID: ['creator', 'existing'] })

@@ -28,7 +28,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   collector:
     build: .
-    image: linkx-research-collector:20260923-places
+    image: linkx-research-collector:20260925-d835491-placesv2
     restart: unless-stopped
     init: true
     read_only: true

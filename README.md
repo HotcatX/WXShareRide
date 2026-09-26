@@ -12,7 +12,7 @@ WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX**. It br
 
 ## Architecture
 
-The Mini Program uses **JavaScript, WXML, and WXSS**. Its **Node.js cloud functions** run on **Tencent CloudBase**, using cloud database and storage services.
+The Mini Program uses **JavaScript, WXML, and WXSS**. Production bookings and marketplace operations still use **Tencent CloudBase**. Analytics and public statistics reads use the Tencent Cloud server. A Node.js 24/PostgreSQL business backend is being built alongside production; its current internal deployment has not taken over booking writes.
 
 | Location | Contents |
 | --- | --- |
@@ -20,6 +20,9 @@ The Mini Program uses **JavaScript, WXML, and WXSS**. Its **Node.js cloud functi
 | [`components/`](components/) | Shared calendar, time picker, announcement, and other UI components |
 | [`utils/`](utils/) | Time-zone handling, caching, location choices, and client helpers |
 | [`cloudfunctions/`](cloudfunctions/) | Cloud functions for rides, accounts, and marketplace operations |
+| [`services/backend/`](services/backend/) | New business backend, canonical schema and isolated PostgreSQL tests |
+| [`services/analytics-collector/`](services/analytics-collector/) | Deployed telemetry receiver, local operations and backup tools |
+| [`services/public-read-pilot/`](services/public-read-pilot/) | Deployed public-statistics replica; existing host name retained for compatibility |
 | [`styles/`](styles/) and [`templates/`](templates/) | Shared presentation and templates |
 | [`tests/`](tests/) | Automated regression tests |
 | [`docs/`](docs/) | Architecture notes, maintenance records, and feature documentation |
@@ -31,6 +34,11 @@ Useful starting points:
 - [Shared ride calendars and form pickers](docs/ride-form-pickers-2026-09-11.md)
 - [Community announcements and remote configuration](docs/community-hot-update.md)
 - [Ride completion statistics](docs/ride-completion-stats.md)
+- [Current backend deployment boundary](docs/backend-foundation-deployment-2026-09-25.md)
+- [Public statistics operation and fallback](docs/public-statistics.md)
+- [Canonical backend data contract](services/backend/SCHEMA.md)
+
+Historical one-off experiment reports and retired duplicate notes are kept in Git history. Keep deploy/recovery tools and regression tests that cover current code; a legacy name alone does not prove an entry point is unused.
 
 Some documentation is in Chinese.
 

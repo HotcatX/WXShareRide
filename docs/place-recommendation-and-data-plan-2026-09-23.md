@@ -1,6 +1,12 @@
 # 地点自动浮现与研究数据基础 v2
 
-2026-09-23 设计稿，后续已按用户指示进入实施；实时完成范围以[升级验收记录](place-upgrade-validation-2026-09-23.md)为准。对应小程序 `/Users/cat/Documents/Github/wx`，CloudBase 环境 `cloud1-7gmtcu4s3aebce27`。本方案沿用现有地点选择器、OpenID 关联和独立采集服务器，不增加金额输入、采集按钮或隐私同意弹窗。
+2026-09-23 设计稿，后续已按用户指示进入实施；完成范围及历史验证以[升级验收记录](place-upgrade-validation-2026-09-23.md)为准，当前部署状态看[后端部署记录](backend-foundation-deployment-2026-09-25.md)。对应小程序 `/Users/cat/Documents/Github/wx`，CloudBase 环境 `cloud1-7gmtcu4s3aebce27`。本方案沿用现有地点选择器、OpenID 关联和独立采集服务器，不增加金额输入、采集按钮或隐私同意弹窗。
+
+## 固定地点配置维护
+
+CloudBase `Departure` 文档 `b4498fc86903a813018505643bc4ca31` 与 `Arrival` 文档 `cd349d8f6903a85901817428411cfbff` 保持单文档字符串映射，业务键和值均是地点名称。增删使用局部set/remove，不能整文档覆盖或改_id；不要加入时间戳、说明、数组等元字段，旧模板也读取字段值。固定配置共享五分钟缓存，无持续轮询。旧 `Departure_Request` / `Arrival_Request` 和参考价格配置仍有兼容用途。
+
+现行已知地点及顺序以唯一 `utils/placeCatalog.js` 为准，不再维护早期六地点排序说明。机场具体点（例如 EWR Terminal C）可兼容机场筛选，但乘客参考价必须精确匹配地点键，不能将整个机场报价套给自选航站楼。旧 Fort Lee 核心区/全区域价格键继续保留，不批量改写历史地址。
 
 ## 历史依据
 

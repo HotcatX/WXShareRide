@@ -56,7 +56,6 @@ const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
 const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
 const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内视为新缓存；仍会后台刷新保证进入/切换有新数据
 const MARKET_AD_CACHE_FRESH_MS = 10 * 60 * 1000
-const REFRESH_DEBOUNCE_MS = 30 * 1000             // 30 sec
 const FIRST_PAGE_FETCH_COOLDOWN_MS = 30 * 1000     // 普通返回页面最多沿用 30 秒内成功读取的数据
 const MARKET_AD_MIN_GOODS = 3
 const MARKET_AD_INSERT_MIN_INDEX = 2
@@ -368,37 +367,6 @@ function buildAreaUiPatch(tree, cityKey = "", activeGroupKey = "", activeAreaKey
     activeAreaGroupKey: selectedGroupKey,
     activeAreaGroupLabel: selectedGroup ? (selectedGroup.label || selectedGroup.key) : "",
     areaOptions: areas
-  }
-}
-
-function getAreaSelectionMeta(tree, cityKey = "", groupKey = "", areaKey = "") {
-  if (!cityKey || cityKey === "ALL") {
-    return {
-      cityKey: "ALL",
-      cityLabel: "全部",
-      groupKey: "",
-      groupLabel: "",
-      areaKey: ALL_AREA_KEY,
-      areaLabel: ALL_AREA_LABEL,
-      filterRegionKeys: []
-    }
-  }
-
-  const city = getCitySnapshot(tree, cityKey)
-  const cityLabel = city?.label || cityKey
-  const patch = buildAreaUiPatch(tree, cityKey, groupKey, areaKey)
-  const groupLabel = patch.activeAreaGroupLabel || groupKey || ""
-  const area = (patch.areaOptions || []).find(item => item.key === areaKey)
-  const areaLabel = area?.label || ""
-
-  return {
-    cityKey,
-    cityLabel,
-    groupKey: patch.activeAreaGroupKey || groupKey || "",
-    groupLabel,
-    areaKey: areaKey || ALL_AREA_KEY,
-    areaLabel: areaLabel || ALL_AREA_LABEL,
-    filterRegionKeys: areaKey ? [areaKey] : []
   }
 }
 
@@ -843,10 +811,6 @@ Page({
       this._activeGoodsRequestContext === getMarketRequestContext()
   },
 
-  _isCurrentListQuery(requestKey) {
-    return this._getCurrentListQueryKey() === requestKey
-  },
-
   _buildListSort() {
     if (!this.data.distanceSortActive) return {}
     const lat = toFiniteNumber(this.data.myLocation?.lat ?? this.data.myLocation?.latitude)
@@ -1042,7 +1006,6 @@ Page({
     } catch (e) {
       this._thumbUrlCache = {}
     }
-    this._lastRefreshAt = 0
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._marketViewerKey = getMarketViewerKey()
     this._marketBootstrapped = false
@@ -1090,7 +1053,6 @@ Page({
     const changedAt = getMarketGoodsChangedAt()
     if (changedAt && changedAt !== this._lastHandledGoodsChangeAt) {
       this._lastHandledGoodsChangeAt = changedAt
-      this._lastRefreshAt = 0
       this._fetchFirstPage({ force: true, reason: "changed" })
       return
     }
@@ -1344,18 +1306,6 @@ Page({
   },
 
   stopTouchMove() {},
-
-  // ====== 分类初始化 ======
-  initCategoriesFromGoods() {
-    const config = getListingTypeConfig(this.data.activeListingType)
-    const categories = ["全部", ...config.categories]
-    const activeCategory = categories.includes(this.data.activeCategory) ? this.data.activeCategory : "全部"
-    this.setData({
-      categories,
-      activeCategory,
-      categoryTabs: buildCategoryTabs(categories, activeCategory)
-    })
-  },
 
   initRegionsFromGoods() {
     const set = new Set((this.data.allGoods || []).map(g => g.region).filter(Boolean))
@@ -2428,12 +2378,5 @@ Page({
         hasMore: typeof meta.hasMore === "boolean" ? meta.hasMore : true
       })
     } catch (e) {}
-  },
-
-  _maybeRefreshGoods(force) {
-    const now = Date.now()
-    if (!force && now - (this._lastRefreshAt || 0) < REFRESH_DEBOUNCE_MS) return
-    this._lastRefreshAt = now
-    this._fetchFirstPage({ force: !!force, reason: force ? "forceRefresh" : "backgroundRefresh" })
   }
 })

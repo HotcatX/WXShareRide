@@ -31,7 +31,7 @@
 
 以上是**源码级执行/数据库操作估算，不是腾讯云最终计费次数**；平台的调用次数、数据库读写与函数执行资源需分别从用量明细对账。不能直接把它们相加当作同一个套餐指标。
 
-证据：[授权客户端](../utils/analyticsSession.js:122)、[过期刷新](../utils/analyticsSession.js:178)、[令牌默认期限](../services/analytics-collector/src/config.mjs:27)、[事务内台账](../cloudfunctions/createTrip/businessLedger.js:61)、[定时器配置](../cloudfunctions/statistics/config.json:1)、[读队列与 ACK](../cloudfunctions/statistics/businessOutbox.js:1)、[公共统计迁移执行成本](public-stats-migration-2026-09-23.md:21)。
+证据：[授权客户端](../utils/analyticsSession.js:122)、[过期刷新](../utils/analyticsSession.js:178)、[令牌默认期限](../services/analytics-collector/src/config.mjs:27)、[事务内台账](../cloudfunctions/createTrip/businessLedger.js:61)、[定时器配置](../cloudfunctions/statistics/config.json:1)、[读队列与 ACK](../cloudfunctions/statistics/businessOutbox.js:1)、[公共统计迁移执行成本](public-statistics.md)。
 
 ## 2. 多久能测出来，怎样才算准确
 

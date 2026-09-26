@@ -10,13 +10,6 @@ const MARKET_PROFILE_REGION_HANDOFF_KEY = "market_profile_region_handoff_v1"
 const MARKET_PROFILE_REGION_HANDOFF_MAX_AGE_MS = 10 * 60 * 1000
 const { showDataError } = require("../../../utils/error")
 const {
-  ALL_CITY_KEY,
-  DEFAULT_CITY_KEY,
-  MARKET_CITY_STORAGE_KEY,
-  getCitySnapshot,
-  getStoredCitySnapshot
-} = require("../../../utils/cityTree")
-const {
   normalizeUserRegion
 } = require("../../../utils/regionTree")
 
@@ -83,18 +76,6 @@ const LISTING_TYPE_CONFIG = {
 
 function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
-}
-
-function getPostCitySnapshot(regionState = "", regionCounty = "", regionArea = "") {
-  const stateKey = normalizeLocationText(regionState).toUpperCase()
-  if (stateKey === "NY" || stateKey === "NJ" || stateKey === "NY_NJ") {
-    return getCitySnapshot(null, DEFAULT_CITY_KEY)
-  }
-
-  const city = getStoredCitySnapshot(MARKET_CITY_STORAGE_KEY, null, DEFAULT_CITY_KEY)
-  if (city.key !== ALL_CITY_KEY) return city
-  const label = normalizeLocationText(regionArea)
-  return label ? { ...getCitySnapshot(null, DEFAULT_CITY_KEY), aliases: [label] } : getCitySnapshot(null, DEFAULT_CITY_KEY)
 }
 
 function normalizeSubletCategory(value) {

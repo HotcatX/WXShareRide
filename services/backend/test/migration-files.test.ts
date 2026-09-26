@@ -138,7 +138,12 @@ test('web files require the trusted account-owner mapping and exact authenticate
   for (const patch of [{ _openid: user.openid }, { ownerKey: 'other' }, { adminAccountId: 'unknown' }, { adminAccountId: null }]) {
     rejects([{ ...source, ...patch }], [], 'INVALID_MARKET_FILE_ADMIN_OWNER');
   }
-  rejects([source], [listing({ images: [{ fileId: source.fileID as string }], sharedAdminManagement: true })], 'MARKET_FILE_REFERENCE_OWNER_MISMATCH');
+  const sharedListing = listing({ images: [{ fileId: source.fileID as string }], sharedAdminManagement: true });
+  const retained = convert([source], [sharedListing]);
+  assert.deepEqual(retained.errors, []); assert.equal(retained.references.length, 1);
+  assert.equal(retained.files[0]!.adminOwnerKey, admin.ownerKey);
+  assert.equal(sharedListing.ownerUserId, user.id, 'existing reference does not transfer listing ownership');
+  rejects([source], [{ ...sharedListing, sharedAdminManagement: false }], 'MARKET_FILE_REFERENCE_OWNER_MISMATCH');
   const secondAccount = { accountId: 'second-admin', ownerKey: admin.ownerKey };
   const sharedKey = convert([source], [webListing], { ...context, adminOwners: [admin, secondAccount] });
   assert.deepEqual(sharedKey.errors, [], 'multiple trusted accounts may share one owner key');

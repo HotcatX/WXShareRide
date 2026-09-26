@@ -9,11 +9,11 @@ export type FileRow = {
   id: string; appId: string; provider: 'cloudbase'; locator: string;
   ownerUserId: string | null; adminOwnerKey: string | null; uploadedByAdminId: string | null; legacyReadonly: true;
   status: 'pending' | 'ready'; sizeBytes: null; mediaType: null; sha256: null; verifiedAt: null;
-  createdAt: string; updatedAt: string;
+  createdAt: string | null; updatedAt: string | null;
 };
 export type FileReferenceRow = {
-  appId: string; resourceKind: 'listing'; resourceId: string;
-  slot: `image.${number}` | `thumbnail.${number}`; fileId: string;
+  appId: string; resourceKind: 'listing' | 'ad' | 'community'; resourceId: string;
+  slot: string; fileId: string;
 };
 type Context = {
   appId: string; users: readonly UserRow[];
@@ -27,7 +27,7 @@ const identity = (value: unknown): value is string => typeof value === 'string' 
 const resourceId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(value);
 const ownerKey = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 
-function fileId(appId: string, locator: string): string {
+export function stableFileId(appId: string, locator: string): string {
   // UUIDv8: file-only namespace and unambiguous components. The exact provider
   // locator is identity; never decode, trim, normalize or use only its basename.
   const bytes = createHash('sha256').update('linkx-file-v1\0').update(JSON.stringify([appId, 'cloudbase', locator])).digest().subarray(0, 16);
@@ -143,7 +143,7 @@ export function normalizeMarketFiles(
     }
     if (raw.goodsId !== undefined || raw.deletedGoodsId !== undefined) notice('MARKET_FILE_LAST_ATTACHMENT_INDEX_ARCHIVED', 'metadata');
     if (valid && createdAt && updatedAt && status && (type === 'image' || type === 'thumb')) {
-      const file: FileRow = { id: fileId(context.appId, locator), appId: context.appId, provider: 'cloudbase', locator,
+      const file: FileRow = { id: stableFileId(context.appId, locator), appId: context.appId, provider: 'cloudbase', locator,
         ownerUserId, adminOwnerKey, uploadedByAdminId: adminOwnerKey ? raw.adminAccountId as string : null,
         legacyReadonly: true, status, sizeBytes: null, mediaType: null, sha256: null, verifiedAt: null,
         createdAt, updatedAt };
@@ -172,9 +172,13 @@ export function normalizeMarketFiles(
         const entry = ledger.get(locator);
         if (!entry) { error('MISSING_MARKET_FILE_LEDGER', 'references'); return; }
         if (entry.type !== type) { error('MARKET_FILE_REFERENCE_TYPE_MISMATCH', 'references'); return; }
-        // Shared admin management is authority over this listing only. It is
-        // not evidence that another user's file belongs to its owner.
-        if (entry.file.ownerUserId !== listing.ownerUserId || entry.file.adminOwnerKey !== listing.adminOwnerKey) {
+        const sameOwner = entry.file.ownerUserId === listing.ownerUserId && entry.file.adminOwnerKey === listing.adminOwnerKey;
+        // The old administrator editor may attach its own uploaded file to a
+        // shared, user-owned listing. Retain only this existing reference; do
+        // not transfer ownership or extend the rule to another user's file.
+        const sharedAdminFile = listing.sharedAdminManagement && listing.ownerUserId !== null &&
+          entry.file.adminOwnerKey !== null && adminKeys.has(entry.file.adminOwnerKey);
+        if (!sameOwner && !sharedAdminFile) {
           error('MARKET_FILE_REFERENCE_OWNER_MISMATCH', 'references'); return;
         }
         if (entry.file.status !== 'ready') { error('MARKET_FILE_PENDING_REFERENCED', 'references'); return; }

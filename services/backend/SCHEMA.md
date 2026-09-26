@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `018` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计、邀请关系、管理员认证、文件事务及商品写入基础；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `020` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口及广告/社区存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -31,6 +31,9 @@
 | `files`（015–016、018） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
 | `file_references`（015） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community；有序slot如image.0、thumbnail.0。引用事实是唯一依据，不另存refCount或attached状态。 |
 | `market_listings`（017） | `(app_id,id)`、两类owner恰一、`shared_admin_management`、`status`、`expires_at`、`version`、`content`、创建/更新时间 | content无images，图片只存引用。status允许online/offline/sold/deleted；删除留墓碑和永久幂等结果。version为0至JS安全整数上限。 |
+| `ads` / `ad_clicks`（019） | 广告 `(app_id,id)`、展示内容、contact目标、窗口及权重；点击 `(app_id,id)`、ad_id、位置、商品类型、可空actor/time | 点击不等于曝光或成功联系。ad_id无外键，保留已删除广告的历史。 |
+| `community_configs` / `community_revisions`（019） | 每app一份当前配置；修订 `(app_id,id)`、唯一version、previous_version、before/after、可空actor/time | 图片只存file_references。连续历史和内容一致由转换器校验，运行更新须锁当前配置并同事务写修订与引用；历史不自动发布。 |
+| `market_views`（020） | `(app_id,id)`、listing_id、可空actor_user_id、纽约day、count、可空创建/更新时间 | 每日累计桶，不是一条一次浏览；已删除商品保留原标识，未知用户不造账号。已知用户同商品同日唯一，页面浏览总数由sum(count)派生。 |
 
 009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
@@ -98,7 +101,7 @@ runner 使用单个连接、数据库 advisory lock、每文件事务。每个�
 }
 ```
 
-必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks、TripRatings、PublicStats；其他额外非空集合报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。用户非零评分汇总与实际明细必须对账，缺少TripRatings不能假装完整。
+必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。核心集合和下述市场/内容集合已支持；其他额外非空集合报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。用户非零评分汇总与实际明细必须对账，缺少TripRatings不能假装完整。
 
 ```ts
 const { plan, report } = normalizeCloudBaseExport(source, {
@@ -129,13 +132,19 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 内部 `importSnapshot(pool,source,expectedAppId,observation?)` 仅用于空目标首次导入：必须显式提供上述8个已支持集合，重新审计原始source，不能提交调用方自制plan。全局事务锁和表写锁包住空库检查、全部模型、来源归档、读回数量和回执；中途失败全部回滚。事务内以数据库时钟拒绝未来观测时间。目标任何业务/会话/事件/回执数据非空就拒绝，不支持合并、清空或增量覆盖。同app/source只在转换指纹一致时重放原回执，成功后的业务变化不被重试覆盖；转换结果变更需显式迁移。原始输入在首个await前深拷贝，防止校验后被调用方修改。
 
+该内部函数保留核心数据隔离演练能力：整个市场集合组都未提供时仍可导入核心数据。因此 `report.ready`、导入成功或空数组不能作为全量切主门槛。最终生产入口还须独立核验完整清单、必需域、源集合数量/哈希、增量和附件；当前没有完成或开放这一切主入口。
+
+市场组一旦提供任一相关集合，必须同时显式提供 `market_goods/MarketFiles/market_view_events/WebAdminAccounts`。`houseShare` 若提供，须与同ID商品除浏览字段外完全一致，才仅归档。广告/社区/网站上传组一旦提供，必须同时具备该市场组及 `WebAdminUploads/market_ads/market_ad_events/community_config/CommunityConfigHistory`。`WebAdminSettings` 仅转换精确HTTPS管理来源；旧HTTP规则不会默默丢弃或自动扩大授权。未迁旧登录会话。
+
 空目标保护与SQL runner共用schema advisory lock，在锁内从PG目录发现并锁定当前schema全部数据表（仅排除schema_migrations）。不维护会随新增功能遗漏的表名清单；目录标识符由PG quote_ident引用。目标须是专用应用schema，新增的管理员/文件表或其他非空表同样阻止首导。这不代表新表已经支持业务导入。
 
 ## 管理员与文件基础（014–016、018）
 
 管理员账号不伪造OpenID，也不进入users。登录使用现有账户算法的异步scrypt（N=16384、r=8、p=1、32字节salt、64字节hash）；事务外计算后再次锁账号核对凭据。业务事务按账号→会话顺序锁定，并在等待后读取数据库clock_timestamp核验过期。凭据、归属或停用操作永久撤销原会话，重新启用不恢复旧token。无公开开户/重设密码/临时口令API；旧sessions不导入。
 
-`normalizeAdminAccounts` 验证完整WebAdminAccounts、原规范化账号名/role/版本/所有权和摘要算法。只含元数据的投影会因缺密码摘要阻断；合法原salt/hash在私有JSON候选保留准确小写hex，写bytea时解码，不重哈希、不打印到报告或测试夹具。该转换尚未接中央导入器。
+`normalizeAdminAccounts` 验证完整WebAdminAccounts、原规范化账号名/role/版本/所有权和摘要算法。只含元数据的投影会因缺密码摘要阻断；合法原salt/hash在私有JSON候选保留准确小写hex，中央导入写bytea时解码，不重哈希、不打印真实凭据到报告或测试夹具。
+
+`normalizeAdminAudit`按旧writeAudit动作验证固定字段，原32位或request_编号按app/source ID稳定映射UUIDv8，全部原ID留来源归档；上传审计同样保留。旧账号不要求当前仍存在，历史日志不能创建身份。已无运行消费者的market_admins、MarketAdminSettings仅验证后归档，旧code/role不进入新认证体系。旧批次和永久发布回执仍待迁移，不能仅归档后宣称管理端已迁完。
 
 管理接口仅接受admin_origins中的完整HTTPS来源，parser/鉴权错误也带private,no-store。Origin白名单不是身份认证，仍必须带管理员token。永久幂等作用域为app+owner+operation+key，读取回执前仍重新鉴权；原微信用户幂等锁键不变，不混用两类身份。
 
@@ -147,12 +156,12 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 删除先锁文件、检查零引用、提交deleting，再调用存储；失败保留deleting可重试，NotFound视作成功。数据库提交回执丢失后再次读取deleted即可返回，不重复删除。legacy_readonly文件尚未全量引用核对，不进入删除；pending文件须先有真实上传截止/关闭协议，当前不自动清理。没有refCount、平行outbox、实际存储删除适配器或定时器。
 
-`normalizeMarketFiles`仅将旧MarketFiles与已转换listing图片生成文件/引用候选，仍未接主导入器。goodsId只代表最后附加索引，不能覆盖商品有序images或证明唯一引用；旧deleted/removed/cleanup是删除意图，不等于存储成功。所有候选legacy_readonly，未验证的内容元数据保持null，按原createdAtMs/updatedAtMs保存台账时钟；独立服务端时间完整归档。遇到错误不返回部分可导入结果。广告/社区图片和实际对象存在性仍需另外核对。
+`normalizeMarketFiles`将旧MarketFiles与已转换listing图片生成文件/引用候选，已接主导入器。goodsId只代表最后附加索引，不能覆盖商品有序images或证明唯一引用；旧deleted/removed/cleanup是删除意图，不等于存储成功。所有候选legacy_readonly，未验证的内容元数据保持null，按原createdAtMs/updatedAtMs保存台账时钟；独立服务端时间完整归档。遇到错误不返回部分可导入结果。广告/社区引用由normalizeContentFiles归并，实际对象存在性仍需另外核对。
 
 ## 市场模型、事务与旧数据转换（017）
 
 `src/market/schemas.ts` 统一商品与转租的内容字段，`src/migration/market.ts`
-只生成私有转换候选；已有市场 SQL 表和用户事务核心，尚无市场 HTTP 接口或中央市场导入功能。
+私有转换候选已接中央首次导入；市场 SQL、用户事务核心及 HTTP 路由已实现，客户端及最终切主仍未完成。
 主审计仍拒绝未支持的非空市场集合，不能把这部分转换通过当成整库迁移通过。
 
 - 内容只保留 `listingType`、`title`、`description`、整数 `priceCents`、`category`、
@@ -197,7 +206,19 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 无变化的状态操作不加版本；正文、图片和状态修改保留原expiresAt，真实日期/类型变化才重新校验日期窗。
 网站管理员批量发布、部分失败重试、批次与单行两层去重、管理模板和编辑权限仍需接入；不可据此增加管理员删商品权限。
 
-`normalizeAds` 和 `normalizeCommunity` 目前也只是私有候选：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。两域尚未建表、接中央导入或开放HTTP。
+`normalizeAds` 和 `normalizeCommunity` 已接中央原子导入：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。两域尚无运行HTTP或管理写入服务。
+
+`normalizeContentFiles` 验证网站上传的request/file两份完整回执、原hash键、账户归属、路径、用途、MIME、尺寸和时钟，再与市场文件及内容引用按精确locator归并。旧文件保持legacyReadonly；上传元数据留原始来源，不冒充重新核验过的二进制。未知owner/time保持null，旧市场台账时钟不被独立上传时钟覆盖。共享管理的用户所有商品可保留可信管理员图片；不转移商品或文件所有权。
+
+`normalizeMarketViews` 保留每日累计桶和原ID，逐商品对账viewCount；缺失商品和未知用户仍保留历史计数。服务器时间、函数毫秒时间、商品lastViewAt是不同写入事实，不强行校成相同。视图聚合不复制进商品content。
+
+## 市场读取与用户写入
+
+`GET /api/v1/market/listings`、`GET /api/v1/market/listings/:id` 和 `GET /api/v1/market/sellers/:sellerId/listings`：游客只得原预览范围的脱敏文案、粗地区、报价和图片UUID；有效会话可读已发布商品及实际UI使用的有限卖家资料。无效Bearer返回401，不能用查询参数伪造身份。公开仅online且未过期，本人详情和 `GET /api/v1/me/market/listings` 可看自己的offline/sold/过期记录，deleted不可见。
+
+分类、地区、关键词、商品类型、时间/距离排序及offset分页均服务端处理；精确地区/关键词/距离筛选要求登录。图片仅返回有序fileId/thumbFileId，不公开存储locator；UUID至可用URL及旧客户端格式适配仍待接入。浏览数从market_views求和，GET不会增加计数；浏览写入尚待接入。卖家资料随item返回，空卖家列表不提供独立资料查询。
+
+`POST /api/v1/market/listings`、`PATCH /api/v1/market/listings/:id`、`POST /api/v1/market/listings/:id/status`、`DELETE /api/v1/market/listings/:id` 复用已实现的用户事务服务；要求可信会话、幂等键，修改带expectedVersion。路由已接应用，尚未成为生产主写入口或适配管理端。
 
 ## 已验证
 

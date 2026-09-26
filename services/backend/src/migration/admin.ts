@@ -8,6 +8,7 @@ export type AdminAccountRow = {
   id: string; appId: string; ownerKey: string; enabled: boolean; credentialVersion: number;
   passwordSalt: string; passwordHash: string; createdAt: string; updatedAt: string | null;
 };
+export type AdminOriginRow = { appId: string; origin: string };
 const fields = new Set(['_id', 'username', 'enabled', 'role', 'ownerKey', 'passwordVersion', 'passwordDigest', 'createdAtMs', 'updatedAtMs']);
 const digestFields = new Set(['algorithm', 'salt', 'hash']);
 const canonicalUsername = (value: unknown): value is string => typeof value === 'string' &&
@@ -76,4 +77,32 @@ export function normalizeAdminAccounts(documents: unknown, appId: string, issue:
     }
   }
   return failed ? [] : rows.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/** Exact trusted website allowlist only. Unsupported old local HTTP origins
+ * block conversion rather than silently widen or shrink an authorization rule. */
+export function normalizeAdminOrigins(documents: unknown, appId: string, issue: IssueReporter): AdminOriginRow[] {
+  let failed = false;
+  const report = (code: string) => { failed = true; issue('other', code, 'WebAdminSettings'); };
+  if (typeof appId !== 'string' || !appId || appId !== appId.trim() || /[\u0000-\u001f\u007f-\u009f\ud800-\udfff]/u.test(appId)) report('INVALID_APP_ID');
+  if (!Array.isArray(documents) || documents.length > 1) { report('INVALID_ADMIN_SETTINGS'); return []; }
+  const origins = new Set<string>();
+  for (const raw of documents) {
+    try { serializeSource(raw); } catch { report('INVALID_SOURCE_JSON'); continue; }
+    if (!object(raw) || raw._id !== 'main' || Object.keys(raw).some(key => !['_id','allowedOrigins','updatedAtMs'].includes(key)) ||
+      !Array.isArray(raw.allowedOrigins) || !milliseconds(raw.updatedAtMs)) { report('INVALID_ADMIN_SETTINGS'); continue; }
+    for (const origin of raw.allowedOrigins) {
+      let valid = false;
+      if (typeof origin === 'string' && origin.length <= 300) {
+        try {
+          const url = new URL(origin);
+          valid = url.protocol === 'https:' && !url.username && !url.password && url.origin === origin;
+        } catch { /* Report a fixed code, never an origin value. */ }
+      }
+      if (!valid) report('UNSUPPORTED_ADMIN_ORIGIN');
+      else if (origins.has(origin as string)) report('DUPLICATE_ADMIN_ORIGIN');
+      else origins.add(origin as string);
+    }
+  }
+  return failed ? [] : [...origins].sort().map(origin => ({ appId, origin }));
 }

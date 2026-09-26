@@ -106,11 +106,40 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
       plan.completions.map(row => [row.rideId,row.userId,row.role,row.countedAt,row.eventId]));
     await insertRows(client, 'public_statistics', ['app_id','served_count','coverage_text','updated_at'],
       plan.publicStatistics.map(row => [row.appId,row.servedCount,row.coverageText,row.updatedAt]));
+    await insertRows(client, 'admin_accounts', ['app_id','id','owner_key','enabled','credential_version','password_salt','password_hash','created_at','updated_at'],
+      plan.adminAccounts.map(row => [row.appId,row.id,row.ownerKey,row.enabled,row.credentialVersion,
+        Buffer.from(row.passwordSalt, 'hex'),Buffer.from(row.passwordHash, 'hex'),row.createdAt,row.updatedAt]));
+    await insertRows(client, 'admin_origins', ['app_id','origin'], plan.adminOrigins.map(row => [row.appId,row.origin]));
+    await insertRows(client, 'admin_audit', ['id','app_id','account_id','action','details','created_at'],
+      plan.adminAudit.map(row => [row.id,row.appId,row.accountId,row.action,row.details,row.createdAt]));
+    await insertRows(client, 'market_listings', ['app_id','id','owner_user_id','admin_owner_key','shared_admin_management','status','expires_at','version','content','created_at','updated_at'],
+      plan.listings.map(row => {
+        const { appId,id,ownerUserId,adminOwnerKey,sharedAdminManagement,status,expiresAt,version,createdAt,updatedAt,images: _images,...content } = row;
+        return [appId,id,ownerUserId,adminOwnerKey,sharedAdminManagement,status,expiresAt,version,content,createdAt,updatedAt];
+      }));
+    await insertRows(client, 'files', ['id','app_id','provider','locator','owner_user_id','admin_owner_key','uploaded_by_admin_id','legacy_readonly','status','size_bytes','media_type','sha256','verified_at','created_at','updated_at'],
+      plan.files.map(row => [row.id,row.appId,row.provider,row.locator,row.ownerUserId,row.adminOwnerKey,row.uploadedByAdminId,row.legacyReadonly,
+        row.status,row.sizeBytes,row.mediaType,row.sha256,row.verifiedAt,row.createdAt,row.updatedAt]));
+    await insertRows(client, 'file_references', ['app_id','resource_kind','resource_id','slot','file_id'],
+      plan.fileReferences.map(row => [row.appId,row.resourceKind,row.resourceId,row.slot,row.fileId]));
+    await insertRows(client, 'market_views', ['app_id','id','listing_id','actor_user_id','day','count','created_at','updated_at'],
+      plan.marketViews.map(row => [row.appId,row.id,row.listingId,row.actorUserId,row.day,row.count,row.createdAt,row.updatedAt]));
+    await insertRows(client, 'ads', ['app_id','id','status','placement','title','subtitle','badge_text','cta_text','weight','priority','start_at','end_at','target','created_at','updated_at'],
+      plan.ads.map(row => [row.appId,row.id,row.status,row.placement,row.title,row.subtitle,row.badgeText,row.ctaText,row.weight,row.priority,
+        row.startAt,row.endAt,row.target,row.createdAt,row.updatedAt]));
+    await insertRows(client, 'ad_clicks', ['app_id','id','ad_id','placement','listing_type','actor_user_id','created_at'],
+      plan.adClicks.map(row => [row.appId,row.id,row.adId,row.placement,row.listingType,row.actorUserId,row.createdAt]));
+    await insertRows(client, 'community_configs', ['app_id','version','content','updated_by_admin_id','updated_at'],
+      plan.communityConfigs.map(row => [row.appId,row.version,{ group: row.group, announcement: row.announcement },row.updatedByAdminId,row.updatedAt]));
+    await insertRows(client, 'community_revisions', ['app_id','id','version','previous_version','before_content','after_content','updated_by_admin_id','updated_at'],
+      plan.communityRevisions.map(row => [row.appId,row.id,row.version,row.previousVersion,row.before,row.after,row.updatedByAdminId,row.updatedAt]));
     await insertRows(client, 'migration_sources', ['batch_id','collection','source_id','document_json','sha256'],
       plan.sources.map(row => [batchId,row.collection,row.sourceId,row.documentJson,row.sha256]));
     // Read counts back inside the transaction, not from the intended input only.
     const modelTables = { users:'users', rides:'rides', members:'ride_members', stops:'ride_stops', templates:'ride_templates',
-      notifications:'notifications', blocks:'user_blocks', ratings:'ride_ratings', completions:'ride_completions', publicStatistics:'public_statistics', referralCodes:'referral_codes' } as const;
+      notifications:'notifications', blocks:'user_blocks', ratings:'ride_ratings', completions:'ride_completions', publicStatistics:'public_statistics', referralCodes:'referral_codes',
+      adminAccounts:'admin_accounts', adminOrigins:'admin_origins', adminAudit:'admin_audit', listings:'market_listings', files:'files', fileReferences:'file_references', marketViews:'market_views',
+      ads:'ads', adClicks:'ad_clicks', communityConfigs:'community_configs', communityRevisions:'community_revisions' } as const;
     for (const [name, table] of Object.entries(modelTables)) {
       const actual = (await client.query(`SELECT count(*)::integer AS count FROM ${table}`)).rows[0].count;
       if (actual !== counts[name as keyof typeof modelTables]) throw new AppError(500, 'IMPORT_COUNT_MISMATCH', '导入数量核对失败');

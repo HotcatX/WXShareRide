@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { scryptSync } from 'node:crypto';
-import { normalizeAdminAccounts } from '../src/migration/admin.ts';
+import { normalizeAdminAccounts, normalizeAdminOrigins } from '../src/migration/admin.ts';
 import type { MigrationIssue } from '../src/migration/types.ts';
 import { serializeSource } from '../src/migration/source.ts';
 
@@ -23,6 +23,23 @@ function convert(documents: unknown, application = appId) {
 }
 const has = (result: ReturnType<typeof convert>, code: string, field?: string) =>
   result.issues.some(issue => issue.code === code && (!field || issue.field === `WebAdminAccounts.${field}`));
+
+test('admin origins preserve exact HTTPS allowlists and block unsupported authorization changes', () => {
+  const settings = { _id: 'main', allowedOrigins: ['https://admin.example.test'], updatedAtMs };
+  assert.deepEqual(normalizeAdminOrigins([settings], appId, () => assert.fail('valid settings')), [{ appId, origin: settings.allowedOrigins[0] }]);
+  assert.deepEqual(normalizeAdminOrigins([], appId, () => assert.fail('no settings means deny all')), []);
+  for (const origin of ['*', 'http://localhost:3000', 'https://admin.example.test/', 'https://user:pass@example.test',
+    'https://admin.example.test/path', 'https://ADMIN.example.test', 'https://admin.example.test\n']) {
+    const issues: string[] = [];
+    assert.deepEqual(normalizeAdminOrigins([{ ...settings, allowedOrigins: [origin] }], appId, (_c, code) => issues.push(code)), []);
+    assert.ok(issues.length);
+    assert.equal(JSON.stringify(issues).includes(origin), false);
+  }
+  for (const source of [[settings, settings], [{ ...settings, extra: true }], [{ ...settings, allowedOrigins: [settings.allowedOrigins[0], settings.allowedOrigins[0]] }]]) {
+    let rejected = false;
+    assert.deepEqual(normalizeAdminOrigins(source, appId, () => { rejected = true; }), []); assert.equal(rejected, true);
+  }
+});
 
 test('admin migration preserves canonical identity, exact digest and times in JSON-only private rows', () => {
   const original = account();

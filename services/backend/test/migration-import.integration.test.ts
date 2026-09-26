@@ -110,7 +110,9 @@ test('snapshot import stores all preserved facts and exact source evidence in on
   assert.equal(serializeSource(source), original, 'the importer must not mutate its source');
   assert.equal(receipt.sourceSha256, sourceSha256);
   assert.deepEqual(receipt.counts, { users: 2, rides: 2, members: 4, stops: 4, templates: 1,
-    notifications: 1, blocks: 1, ratings: 1, completions: 4, publicStatistics: 1, referralCodes: 1 });
+    notifications: 1, blocks: 1, ratings: 1, completions: 4, publicStatistics: 1, referralCodes: 1,
+    adminAccounts: 0, adminOrigins: 0, adminAudit: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0,
+    ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 });
   const batch = (await pool.query('SELECT source_sha256, plan_sha256, imported_counts, observed_before FROM migration_batches WHERE id=$1', [receipt.batchId])).rows[0];
   assert.equal(batch.source_sha256, sourceSha256);
   assert.match(batch.plan_sha256, /^[a-f0-9]{64}$/);

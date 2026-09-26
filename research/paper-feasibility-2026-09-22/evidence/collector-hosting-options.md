@@ -2,6 +2,8 @@
 
 核验日期：2026-09-22。本文是方案，不代表已部署、已开通付费或已测得真实访问量。仅核对官方文档，没有访问云账号用量或读取密钥。
 
+> 历史选型证据：下文Cloudflare推荐早于用户确定全腾讯云部署，已不再是实施方案。保留原报价、限制与假设以解释当时比较；不作为当前价格或购买建议。现行工程入口见[目录README](../README.md)，腾讯云历史比较已合并到[调用模型](../independent-collector-and-call-model.md)。
+
 ## 建议
 
 首选 **Cloudflare Workers Paid + D1 短期批次表 + R2 Standard 归档**。保留 CloudBase 的预约、成员权限、行程状态和问卷资格逻辑；新增独立 HTTPS 采集域名，小程序用 `wx.request` 批量直传。这样原始行为研究数据不经过 CloudBase，但独立平台仍有自己的调用、计算和存储成本。不要再通过现有 CloudBase 网站接口中转，否则并未卸载 CloudBase。

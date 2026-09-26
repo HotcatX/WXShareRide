@@ -92,7 +92,7 @@ test('yes/no use role-specific meanings, capture only listed reference price, an
       const item = trip({ historyRole: role === 'driver' ? 'driver_create' : 'passenger' })
       if (role === 'passenger') h.store.openid = 'passenger-a'
       assert.equal(h.controller.considerTrips(h.page, [item]), true)
-      assert.match(h.page.data.followupQuestion, role === 'driver' ? /接送/ : /预订/)
+      assert.equal(h.page.data.followupQuestion, role === 'driver' ? '您接到乘客了吗？' : '您坐上车了吗？')
       assert.equal(h.controller.answer(h.page, outcome).ok, true)
       assert.equal(h.page.data.followupVisible, false)
       const answer = h.state.events[1]

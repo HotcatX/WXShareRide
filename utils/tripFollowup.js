@@ -126,7 +126,7 @@ function createFollowupController(options = {}) {
     setView(page, { followupVisible: true, followupBusy: false, followupError: '',
       followupTime: local.date + ' ' + local.time,
       followupRoute: [text(trip._fromAddress || departure.address).slice(0, 50), text(trip._toAddress || destination.address).slice(0, 50)].filter(Boolean).join(' → '),
-      followupQuestion: item.role === 'driver' ? '这趟行程，您是否实际接送过至少1位乘客？' : '您本次预订是否至少有1人实际乘车？' })
+      followupQuestion: item.role === 'driver' ? '您接到乘客了吗？' : '您坐上车了吗？' })
     return true
   }
   function answer(page, outcome) {

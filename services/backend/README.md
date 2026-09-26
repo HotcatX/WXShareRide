@@ -37,6 +37,10 @@ before each PUT; the credential should allow GetObject, GetBucketVersioning and
 PutObject only under the application's new image prefix, with no delete/ACL or
 bucket-management permissions. Existing objects need read permission only.
 No bucket creation, public ACL change or automatic cleanup runs at startup.
+Compose keeps optional storage settings in `/etc/linkx-backend/images/config.env`
+and mounts that directory read-only at `/run/secrets/images`. Create the directory
+before deployment even when storage is unconfigured; keep credentials readable
+only by the service UID. This server-only directory survives source replacements.
 
 ## Contract
 

@@ -39,6 +39,9 @@ services:
     cpus: 1.0
     depends_on:
       database: { condition: service_healthy }
+    env_file:
+      - path: /etc/linkx-backend/images/config.env
+        required: false
     environment:
       HOST: 0.0.0.0
       PORT: 3100
@@ -48,6 +51,11 @@ services:
     ports: ["127.0.0.1:3101:3100"]
     volumes:
       - /etc/linkx-backend/database.url:/run/secrets/database_url:ro
+      - type: bind
+        source: /etc/linkx-backend/images
+        target: /run/secrets/images
+        read_only: true
+        bind: { create_host_path: false }
     tmpfs: ["/tmp:size=8m,mode=1777"]
     logging:
       driver: json-file

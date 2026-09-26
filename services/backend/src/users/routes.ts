@@ -35,12 +35,14 @@ function mergeProfile(base: Record<string, unknown>, patch: Record<string, unkno
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: { pool: Pool; requireUser: (request: FastifyRequest) => Promise<Identity> }) {
-  app.get('/api/v1/me', async request => {
+  app.get('/api/v1/me', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
     const identity = await deps.requireUser(request);
     const result = await deps.pool.query('SELECT id,openid,name,avatar_url AS "avatarUrl",profile,updated_at AS "updatedAt" FROM users WHERE id=$1', [identity.id]);
     return { ok: true, data: result.rows[0], requestId: request.id };
   });
   app.patch('/api/v1/me', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
     const identity = await deps.requireUser(request);
     const patch = updateSchema.parse(request.body);
     const result = await withIdempotency(deps.pool, identity.id, 'users.update', request.headers['idempotency-key'], patch, async client => {
@@ -48,7 +50,7 @@ export async function registerUserRoutes(app: FastifyInstance, deps: { pool: Poo
       if (!current.rows.length) throw new AppError(404, 'USER_NOT_FOUND', '账号不存在');
       const previous = current.rows[0];
       const updated = await client.query(
-        `UPDATE users SET name=$2,avatar_url=$3,profile=$4,updated_at=now() WHERE id=$1
+        `UPDATE users SET name=$2,avatar_url=$3,profile=$4,updated_at=clock_timestamp() WHERE id=$1
          RETURNING id,openid,name,avatar_url AS "avatarUrl",profile,updated_at AS "updatedAt"`,
         [identity.id, patch.name ?? previous.name, patch.avatarUrl ?? previous.avatar_url, mergeProfile(previous.profile, patch.profile ?? {})]
       );

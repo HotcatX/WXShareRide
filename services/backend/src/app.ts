@@ -9,6 +9,7 @@ import { wechatCodeExchange } from './auth/wechat.ts';
 import type { CodeExchange } from './auth/wechat.ts';
 import { registerUserRoutes } from './users/routes.ts';
 import { registerRideRoutes } from './rides/routes.ts';
+import { registerPrivateRideRoutes } from './rides/private-routes.ts';
 import { createLoginAdmission } from './auth/admission.ts';
 import { registerTemplateRoutes } from './templates/routes.ts';
 import { registerNotificationRoutes } from './notifications/routes.ts';
@@ -46,6 +47,7 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   });
   await registerUserRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   await registerRideRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
+  registerPrivateRideRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   await registerTemplateRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerNotificationRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerBlockRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });

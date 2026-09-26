@@ -9,7 +9,8 @@ import { createRide, joinRide, leaveRide } from '../src/rides/service.ts';
 
 const code = (expected: string) => (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === expected;
 const tripId = (result: { data: object }) => (result.data as { rideId: string }).rideId;
-const passenger = { role: 'passenger', seatCount: 1 };
+const requestPassenger = { role: 'passenger', seatCount: 1 };
+const passenger = { ...requestPassenger, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' };
 
 async function account(pool: Pool, appId = 'blocks-fixture') {
   return (await pool.query<{ id: string; openid: string }>(`INSERT INTO users(app_id, openid, name, avatar_url, profile)
@@ -21,8 +22,8 @@ async function account(pool: Pool, appId = 'blocks-fixture') {
 async function ride(pool: Pool, creatorId: string, kind = 'offer') {
   return tripId(await createRide(pool, creatorId, randomUUID(), {
     kind, cityKey: 'ny_nj', timeZone: 'America/New_York',
-    departureAt: new Date(Date.now() + 86400000).toISOString(),
-    origin: { address: 'Synthetic origin' }, destination: { address: 'Synthetic destination' },
+    stops: [{ kind: 'departure', address: 'Synthetic origin', departureAt: new Date(Date.now() + 86400000).toISOString() },
+      { kind: 'destination', address: 'Synthetic destination' }],
     listedPriceCents: 1200, ...(kind === 'offer' ? { seatCapacity: 4 } : { partySize: 1 }),
   }));
 }
@@ -129,7 +130,7 @@ test('user blocks preserve relationship semantics and serialize with ride joins'
       for (const kind of ['offer', 'request']) {
         const [creator, existing, newcomer] = await Promise.all([account(pool), account(pool), account(pool)]);
         const id = await ride(pool, creator.id, kind);
-        await joinRide(pool, existing.id, 'existing-join', id, passenger);
+        await joinRide(pool, existing.id, 'existing-join', id, kind === 'offer' ? passenger : requestPassenger);
         await blockUser(pool, existing.id, 'member-block', { targetUserId: newcomer.id });
         const role = kind === 'offer' ? passenger : { role: 'driver' };
         await assert.rejects(joinRide(pool, newcomer.id, 'newcomer-join', id, role), code('USER_BLOCKED'));
@@ -155,9 +156,9 @@ test('user blocks preserve relationship semantics and serialize with ride joins'
       const id = await ride(pool, creator.id, 'request');
       await joinRide(pool, driver.id, 'accept-fixture', id, { role: 'driver' });
       await blockUser(pool, driver.id, 'driver-block-fixture', { targetUserId: rider.id });
-      await assert.rejects(joinRide(pool, rider.id, 'request-passenger', id, passenger), code('USER_BLOCKED'));
+      await assert.rejects(joinRide(pool, rider.id, 'request-passenger', id, requestPassenger), code('USER_BLOCKED'));
       await leaveRide(pool, driver.id, 'driver-leave-fixture', id, {});
-      assert.equal((await joinRide(pool, rider.id, 'request-passenger', id, passenger)).data.changed, true);
+      assert.equal((await joinRide(pool, rider.id, 'request-passenger', id, requestPassenger)).data.changed, true);
     });
 
     await t.test('a block that locks first commits before a waiting join checks the pair', async () => {

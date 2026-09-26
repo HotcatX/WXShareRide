@@ -8,9 +8,10 @@ import { cancelRide, createRide, getRide, joinRide, leaveRide, listRides } from 
 function offer(overrides = {}) {
   return {
     kind: 'offer', cityKey: 'ny_nj', timeZone: 'America/New_York',
-    departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    origin: { address: 'Fort Lee', placeId: 'fort_lee' },
-    destination: { address: 'Columbia', placeId: 'columbia' },
+    stops: [
+      { kind: 'departure', address: 'Fort Lee', placeId: 'fort_lee', departureAt: new Date(Date.now() + 86400000).toISOString() },
+      { kind: 'destination', address: 'Columbia', placeId: 'columbia' },
+    ],
     listedPriceCents: 1200, note: 'Test fixture', seatCapacity: 1, ...overrides,
   };
 }
@@ -30,6 +31,7 @@ async function account(pool: Pool) {
 
 const code = (expected: string) => (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === expected;
 const rideId = (result: { data: object }) => (result.data as { rideId: string }).rideId;
+const offerPassenger = (seatCount = 1) => ({ role: 'passenger', seatCount, pickupAddress: 'Private pickup fixture', dropoffAddress: 'Private dropoff fixture' });
 
 test('ride service integrates against isolated PostgreSQL', { skip: !process.env.BACKEND_TEST_DATABASE_URL }, async t => {
   const database = await createTestDatabase();
@@ -56,8 +58,8 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
     const [creator, passengerA, passengerB] = await Promise.all([account(pool), account(pool), account(pool)]);
     const id = rideId(await createRide(pool, creator.id, 'create-fixture', offer()));
     const results = await Promise.allSettled([
-      joinRide(pool, passengerA.id, 'join-fixture', id, { role: 'passenger', seatCount: 1 }),
-      joinRide(pool, passengerB.id, 'join-fixture', id, { role: 'passenger', seatCount: 1 }),
+      joinRide(pool, passengerA.id, 'join-fixture', id, offerPassenger()),
+      joinRide(pool, passengerB.id, 'join-fixture', id, offerPassenger()),
     ]);
     assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
     const rejection = results.find(result => result.status === 'rejected');
@@ -99,14 +101,14 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
   await t.test('repeated membership operations are no-ops and a rejoin reserves seats once', async () => {
     const [creator, passenger] = await Promise.all([account(pool), account(pool)]);
     const id = rideId(await createRide(pool, creator.id, 'create-fixture', offer({ seatCapacity: 2 })));
-    const joined = await joinRide(pool, passenger.id, 'join-fixture', id, { role: 'passenger', seatCount: 2 });
-    assert.deepEqual(await joinRide(pool, passenger.id, 'join-fixture', id, { role: 'passenger', seatCount: 2 }), joined);
-    assert.equal((await joinRide(pool, passenger.id, 'join-again', id, { role: 'passenger', seatCount: 2 })).data.changed, false);
-    await assert.rejects(joinRide(pool, passenger.id, 'change-seats', id, { role: 'passenger', seatCount: 1 }), code('MEMBERSHIP_EXISTS'));
+    const joined = await joinRide(pool, passenger.id, 'join-fixture', id, offerPassenger(2));
+    assert.deepEqual(await joinRide(pool, passenger.id, 'join-fixture', id, offerPassenger(2)), joined);
+    assert.equal((await joinRide(pool, passenger.id, 'join-again', id, offerPassenger(2))).data.changed, false);
+    await assert.rejects(joinRide(pool, passenger.id, 'change-seats', id, offerPassenger()), code('MEMBERSHIP_EXISTS'));
     await leaveRide(pool, passenger.id, 'leave-fixture', id, {});
     assert.equal((await leaveRide(pool, passenger.id, 'leave-again', id, {})).data.changed, false);
     assert.equal((await getRide(pool, id)).availableSeats, 2);
-    await joinRide(pool, passenger.id, 'rejoin-fixture', id, { role: 'passenger', seatCount: 1 });
+    await joinRide(pool, passenger.id, 'rejoin-fixture', id, offerPassenger());
     assert.equal((await getRide(pool, id)).availableSeats, 1);
     const versions = (await pool.query('SELECT ride_version FROM business_events WHERE ride_id = $1 ORDER BY ride_version', [id])).rows.map(row => row.ride_version);
     assert.deepEqual(versions, [1, 2, 3, 4]);
@@ -117,7 +119,7 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
     const id = rideId(await createRide(pool, creator.id, 'create-fixture', offer()));
     await assert.rejects(cancelRide(pool, outsider.id, 'cancel-fixture', id, { reason: 'Not my ride' }), code('NOT_RIDE_CREATOR'));
     await assert.rejects(leaveRide(pool, creator.id, 'leave-fixture', id, {}), code('CREATOR_MUST_CANCEL'));
-    await assert.rejects(joinRide(pool, creator.id, 'join-fixture', id, { role: 'passenger', seatCount: 1 }), code('CREATOR_ALREADY_MEMBER'));
+    await assert.rejects(joinRide(pool, creator.id, 'join-fixture', id, offerPassenger()), code('CREATOR_ALREADY_MEMBER'));
     await assert.rejects(joinRide(pool, outsider.id, 'driver-fixture', id, { role: 'driver' }), code('INVALID_ROLE'));
     await assert.rejects(leaveRide(pool, outsider.id, 'leave-fixture', id, {}), code('NOT_A_MEMBER'));
     await cancelRide(pool, creator.id, 'cancel-fixture', id, { reason: 'Plans changed' });
@@ -132,14 +134,14 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
       BEGIN IF NEW.action = 'joined' THEN RAISE EXCEPTION 'injected ledger failure'; END IF; RETURN NEW; END; $$;
       CREATE TRIGGER reject_test_join BEFORE INSERT ON business_events FOR EACH ROW EXECUTE FUNCTION reject_test_join()`);
     try {
-      await assert.rejects(joinRide(pool, passenger.id, 'join-retry', id, { role: 'passenger', seatCount: 1 }), /injected ledger failure/);
+      await assert.rejects(joinRide(pool, passenger.id, 'join-retry', id, offerPassenger()), /injected ledger failure/);
       assert.equal((await getRide(pool, id)).version, 1);
       assert.equal((await getRide(pool, id)).availableSeats, 1);
       assert.equal((await pool.query('SELECT count(*)::integer AS count FROM idempotency_requests WHERE user_id = $1', [passenger.id])).rows[0].count, 0);
     } finally {
       await pool.query('DROP TRIGGER reject_test_join ON business_events; DROP FUNCTION reject_test_join()');
     }
-    await joinRide(pool, passenger.id, 'join-retry', id, { role: 'passenger', seatCount: 1 });
+    await joinRide(pool, passenger.id, 'join-retry', id, offerPassenger());
     assert.equal((await getRide(pool, id)).version, 2);
   });
 
@@ -148,7 +150,7 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
     const id = rideId(await createRide(pool, creator.id, 'create-fixture', offer()));
     const results = await Promise.allSettled([
       cancelRide(pool, creator.id, 'cancel-fixture', id, { reason: 'Plans changed' }),
-      joinRide(pool, passenger.id, 'join-fixture', id, { role: 'passenger', seatCount: 1 }),
+      joinRide(pool, passenger.id, 'join-fixture', id, offerPassenger()),
     ]);
     assert.equal(results[0].status, 'fulfilled', results[0].status === 'rejected' ? String(results[0].reason) : '');
     if (results[1].status === 'rejected') assert.ok(code('RIDE_NOT_OPEN')(results[1].reason));
@@ -184,7 +186,7 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
     } } as unknown as Pool;
     const cancellation = cancelRide(delayedPool, creator.id, 'cancel-fixture', id, { reason: 'Plans changed' });
     await began;
-    try { await joinRide(pool, passenger.id, 'join-fixture', id, { role: 'passenger', seatCount: 1 }); }
+    try { await joinRide(pool, passenger.id, 'join-fixture', id, offerPassenger()); }
     finally { resume(); }
     await cancellation;
     const result = await pool.query(`SELECT count(*)::integer AS count FROM ride_members
@@ -211,12 +213,12 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
 
   await t.test('expired departures and unsupported legacy aliases never enter a new booking', async () => {
     const [creator, passenger] = await Promise.all([account(pool), account(pool)]);
-    await assert.rejects(createRide(pool, creator.id, 'past-fixture', offer({ departureAt: '2020-01-01T00:00:00.000Z' })), code('INVALID_DEPARTURE'));
+    await assert.rejects(createRide(pool, creator.id, 'past-fixture', offer({ stops: [{ kind: 'departure', address: 'Synthetic departure', departureAt: '2020-01-01T00:00:00.000Z' }, { kind: 'destination', address: 'Synthetic destination' }] })), code('INVALID_DEPARTURE'));
     await assert.rejects(createRide(pool, creator.id, 'alias-fixture', { ...offer(), passengerCount: 3 }));
     await assert.rejects(createRide(pool, creator.id, 'bad-price', offer({ listedPriceCents: 12.5 })));
     const id = rideId(await createRide(pool, creator.id, 'create-fixture', offer()));
     await pool.query(`UPDATE rides SET departure_at = now() - interval '1 hour' WHERE id = $1`, [id]);
-    await assert.rejects(joinRide(pool, passenger.id, 'join-past', id, { role: 'passenger', seatCount: 1 }), code('RIDE_NOT_OPEN'));
+    await assert.rejects(joinRide(pool, passenger.id, 'join-past', id, offerPassenger()), code('RIDE_NOT_OPEN'));
     assert.equal((await listRides(pool, {})).rides.some(row => row.id === id), false);
   });
 

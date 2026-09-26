@@ -11,7 +11,8 @@ type Ride = {
   status: 'open' | 'cancelled' | 'closed'; seat_capacity: number;
   departure_at: Date; version: number;
 };
-type Member = { user_id: string; role: 'driver' | 'passenger'; seat_count: number; state: 'active' | 'left' };
+type Member = { user_id: string; role: 'driver' | 'passenger'; seat_count: number; state: 'active' | 'left';
+  details: { pickupAddress?: string; dropoffAddress?: string } };
 
 async function lockedRide(client: PoolClient, rideId: string): Promise<Ride> {
   const result = await client.query<Ride>(`SELECT id, kind, creator_id, status, seat_capacity, departure_at, version
@@ -49,7 +50,21 @@ const writeResult = (ride: Ride, changed = true) => ({
 export async function createRide(pool: Pool, userId: string, key: unknown, body: unknown) {
   const input = createRideSchema.parse(body);
   return withIdempotency(pool, userId, 'rides.create', key, input, async client => {
-    if (Date.parse(input.departureAt) <= Date.now()) throw new AppError(400, 'INVALID_DEPARTURE', '请选择未来出发时间');
+    // Stop order and nondecreasing times were validated once at the boundary.
+    // The first departure is the whole-ride booking deadline and list index.
+    const departureAt = input.stops.find(stop => stop.kind === 'departure')!.departureAt;
+    const details: Record<string, unknown> = { note: input.note };
+    if (input.kind === 'offer') {
+      // Freeze this ride's disclosure choice. Profile edits can change the
+      // default for future rides, but cannot change an already published choice.
+      const profile = await client.query<{ zelle_display: boolean }>(`SELECT
+        COALESCE(profile #> '{zelle,public}' = 'true'::jsonb, false) AS zelle_display
+        FROM users WHERE id = $1 FOR SHARE`, [userId]);
+      if (!profile.rows[0]) throw new AppError(404, 'USER_NOT_FOUND', '用户不存在');
+      details.zelleDisplay = profile.rows[0].zelle_display;
+    } else details.largeLuggageCount = input.largeLuggageCount;
+    // A profile lock may have waited beyond the requested first departure.
+    if (Date.parse(departureAt) <= Date.now()) throw new AppError(400, 'INVALID_DEPARTURE', '请选择未来出发时间');
     const rideId = randomUUID();
     // A request creator can reserve several passenger seats. Request capacity
     // remains four, matching the existing request business rule.
@@ -58,13 +73,14 @@ export async function createRide(pool: Pool, userId: string, key: unknown, body:
       (id, kind, creator_id, city_key, status, seat_capacity, departure_at, time_zone, listed_price_cents, details)
       VALUES ($1, $2, $3, $4, 'open', $5, $6, $7, $8, $9::jsonb)
       RETURNING id, kind, creator_id, status, seat_capacity, departure_at, version`,
-    [rideId, input.kind, userId, input.cityKey, capacity, input.departureAt, input.timeZone,
-      input.listedPriceCents, JSON.stringify({ note: input.note })]);
+    [rideId, input.kind, userId, input.cityKey, capacity, departureAt, input.timeZone,
+      input.listedPriceCents, JSON.stringify(details)]);
     const ride = result.rows[0];
     await client.query(`INSERT INTO ride_stops(ride_id, position, kind, address, place_id, departure_at)
-      VALUES ($1, 0, 'departure', $2, $3, $4), ($1, 1, 'destination', $5, $6, NULL)`,
-    [rideId, input.origin.address, input.origin.placeId || null, input.departureAt,
-      input.destination.address, input.destination.placeId || null]);
+      SELECT $1, position - 1, stop->>'kind', stop->>'address', stop->>'placeId',
+        (stop->>'departureAt')::timestamptz
+      FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS item(stop, position)`,
+    [rideId, JSON.stringify(input.stops)]);
     await client.query(`INSERT INTO ride_members(ride_id, user_id, role, seat_count, state, joined_at)
       VALUES ($1, $2, $3, $4, 'active', clock_timestamp())`,
     [rideId, userId, input.kind === 'offer' ? 'driver' : 'passenger', input.kind === 'offer' ? 0 : input.partySize]);
@@ -83,26 +99,41 @@ export async function joinRide(pool: Pool, userId: string, key: unknown, id: unk
     assertJoinable(ride);
     if (ride.creator_id === userId) throw new AppError(403, 'CREATOR_ALREADY_MEMBER', '不能加入自己发布的行程');
     if (ride.kind === 'offer' && input.role !== 'passenger') throw new AppError(400, 'INVALID_ROLE', '供车行程只能以乘客身份加入');
-    const members = (await client.query<Member>(`SELECT user_id, role, seat_count, state FROM ride_members
+    let details: Member['details'] = {};
+    if (input.role === 'passenger') {
+      if (ride.kind === 'offer') {
+        if (!input.pickupAddress || !input.dropoffAddress) throw new AppError(400, 'PICKUP_DROPOFF_REQUIRED', '请填写上下车说明');
+        details = { pickupAddress: input.pickupAddress, dropoffAddress: input.dropoffAddress };
+      } else if (input.pickupAddress !== undefined || input.dropoffAddress !== undefined) {
+        throw new AppError(400, 'INVALID_JOIN_DETAILS', '求车加入不接受个人接送说明');
+      }
+    }
+    const members = (await client.query<Member>(`SELECT user_id, role, seat_count, state, details FROM ride_members
       WHERE ride_id = $1 AND state = 'active'`, [rideId])).rows;
     const current = members.find(member => member.user_id === userId);
     const seatCount = input.role === 'passenger' ? input.seatCount : 0;
     if (current) {
-      if (current.role !== input.role || current.seat_count !== seatCount) throw new AppError(409, 'MEMBERSHIP_EXISTS', '已加入该行程，请先退出后再调整');
+      if (current.role !== input.role || current.seat_count !== seatCount ||
+        current.details.pickupAddress !== details.pickupAddress || current.details.dropoffAddress !== details.dropoffAddress) {
+        throw new AppError(409, 'MEMBERSHIP_EXISTS', '已加入该行程，请先退出后再调整');
+      }
       return writeResult(ride, false);
     }
     // Blocking prevents new relationships, never retroactively removes an
     // existing member. Pair locks serialize this check with block/unblock.
     await assertNoBlockedMembers(client, userId, [ride.creator_id, ...members.map(member => member.user_id)]);
+    // Pair-lock waits can cross the first-departure deadline as well.
+    assertJoinable(ride);
     if (input.role === 'driver' && members.some(member => member.role === 'driver')) {
       throw new AppError(409, 'DRIVER_ALREADY_ASSIGNED', '该求车已被其他司机接单');
     }
     const occupied = members.reduce((sum, member) => sum + member.seat_count, 0);
     if (occupied + seatCount > ride.seat_capacity) throw new AppError(409, 'INSUFFICIENT_SEATS', '行程剩余座位不足');
-    await client.query(`INSERT INTO ride_members(ride_id, user_id, role, seat_count, state, joined_at)
-      VALUES ($1, $2, $3, $4, 'active', clock_timestamp()) ON CONFLICT (ride_id, user_id) DO UPDATE
+    await client.query(`INSERT INTO ride_members(ride_id, user_id, role, seat_count, state, joined_at, details)
+      VALUES ($1, $2, $3, $4, 'active', clock_timestamp(), $5::jsonb) ON CONFLICT (ride_id, user_id) DO UPDATE
       SET role = EXCLUDED.role, seat_count = EXCLUDED.seat_count, state = 'active',
-        joined_at = EXCLUDED.joined_at, left_at = NULL, details = '{}'::jsonb`, [rideId, userId, input.role, seatCount]);
+        joined_at = EXCLUDED.joined_at, left_at = NULL, details = EXCLUDED.details`,
+    [rideId, userId, input.role, seatCount, JSON.stringify(details)]);
     const changed = await advanceVersion(client, ride);
     await recordEvent(client, changed, userId, 'joined', { role: input.role, seatCount });
     return writeResult(changed);
@@ -151,7 +182,7 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
 
 // Explicit public projection: never serialize users, memberships, OpenID,
 // arbitrary imported details, contact information or business event payloads.
-const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status,
+export const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status,
   r.seat_capacity AS "seatCapacity", r.departure_at AS "departureAt", r.time_zone AS "timeZone",
   r.listed_price_cents AS "listedPriceCents", r.listed_price_label AS "listedPriceLabel", r.version,
   COALESCE(r.details->>'note', '') AS note,

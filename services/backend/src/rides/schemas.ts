@@ -1,27 +1,63 @@
 import { z } from 'zod';
 
-const place = z.object({
+export const placeSchema = z.object({
   address: z.string().trim().min(1).max(300),
   placeId: z.string().trim().min(1).max(100).optional(),
 }).strict();
 
-const base = z.object({
+const commonFieldsSchema = z.object({
   cityKey: z.literal('ny_nj'),
-  departureAt: z.string().datetime(),
-  timeZone: z.literal('America/New_York'),
-  origin: place,
-  destination: place,
   listedPriceCents: z.number().int().min(0).max(100_000_000).nullable(),
   note: z.string().trim().max(1000).default(''),
+}).strict();
+
+// Used by both concrete rides and weekly templates. Timing belongs to their
+// respective stop schemas; these are the shared offer business fields only.
+export const offerFieldsSchema = commonFieldsSchema.extend({
+  kind: z.literal('offer'), seatCapacity: z.number().int().min(1).max(8),
 });
 
+export function orderedStopsSchema<T extends z.ZodType<{ kind: 'departure' | 'destination' }>>(stopSchema: T) {
+  return z.array(stopSchema).min(2).max(20).superRefine((stops, context) => {
+    const departures = stops.filter(stop => stop.kind === 'departure').length;
+    const destinations = stops.length - departures;
+    if (departures < 1 || departures > 10 || destinations < 1 || destinations > 10) {
+      context.addIssue({ code: 'custom', message: '路线必须包含 1–10 个出发站和 1–10 个到达站' });
+    }
+    let destinationSeen = false;
+    stops.forEach((stop, index) => {
+      if (stop.kind === 'destination') destinationSeen = true;
+      else if (destinationSeen) context.addIssue({ code: 'custom', path: [index, 'kind'], message: '出发站必须全部位于到达站之前' });
+    });
+  });
+}
+
+export const rideStopSchema = z.discriminatedUnion('kind', [
+  placeSchema.extend({ kind: z.literal('departure'), departureAt: z.string().datetime() }),
+  placeSchema.extend({ kind: z.literal('destination') }),
+]);
+export const rideStopsSchema = orderedStopsSchema(rideStopSchema).superRefine((stops, context) => {
+  let previous = -Infinity;
+  stops.forEach((stop, index) => {
+    if (stop.kind !== 'departure') return;
+    const at = Date.parse(stop.departureAt);
+    if (at < previous) context.addIssue({ code: 'custom', path: [index, 'departureAt'], message: '出发站时间不能早于前一站' });
+    previous = at;
+  });
+});
+
+const routeFields = { stops: rideStopsSchema, timeZone: z.literal('America/New_York') };
+
 export const createRideSchema = z.discriminatedUnion('kind', [
-  base.extend({ kind: z.literal('offer'), seatCapacity: z.number().int().min(1).max(8) }).strict(),
-  base.extend({ kind: z.literal('request'), partySize: z.number().int().min(1).max(4) }).strict(),
+  offerFieldsSchema.extend(routeFields),
+  commonFieldsSchema.extend({ ...routeFields, kind: z.literal('request'),
+    partySize: z.number().int().min(1).max(4), largeLuggageCount: z.number().int().min(0).max(20).default(0) }),
 ]);
 
 export const joinRideSchema = z.discriminatedUnion('role', [
-  z.object({ role: z.literal('passenger'), seatCount: z.number().int().min(1).max(8) }).strict(),
+  z.object({ role: z.literal('passenger'), seatCount: z.number().int().min(1).max(8),
+    pickupAddress: z.string().trim().min(1).max(60).optional(),
+    dropoffAddress: z.string().trim().min(1).max(60).optional() }).strict(),
   z.object({ role: z.literal('driver') }).strict(),
 ]);
 

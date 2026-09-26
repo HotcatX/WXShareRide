@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto';
 import { parseLegacyListedPrice } from './legacy-price.ts';
+import { migrationSource, serializeSource, sourceHash } from './source.ts';
+import type { MigrationSource } from './source.ts';
 
 type Document = Record<string, unknown>;
 type Collection = 'userInfo' | 'Carpool' | 'CarpoolRequest' | 'other';
 export type MigrationIssue = {
   collection: Collection; code: string; field: string; severity: 'error' | 'notice'; count: number;
 };
-export type UserRow = { id: string; appId: string; openid: string; name: string; avatarUrl: string; profile: Document; createdAt: string; updatedAt: string };
-export type RideRow = { id: string; kind: 'offer' | 'request'; creatorId: string; cityKey: string; status: 'open' | 'cancelled' | 'closed'; seatCapacity: number; departureAt: string; timeZone: string; listedPriceCents: number | null; listedPriceLabel: string | null; details: Document; version: number; createdAt: string; updatedAt: string };
-export type MemberRow = { rideId: string; userId: string; role: 'driver' | 'passenger'; seatCount: number; state: 'active'; joinedAt: string; leftAt: null; details: Document };
+export type UserRow = { id: string; appId: string; openid: string; name: string; avatarUrl: string; profile: Document; createdAt: string; updatedAt: string | null };
+export type RideRow = { id: string; kind: 'offer' | 'request'; creatorId: string; cityKey: string | null; status: 'open' | 'cancelled' | 'closed'; seatCapacity: number | null; departureAt: string; timeZone: string; listedPriceCents: number | null; listedPriceLabel: string | null; details: Document; version: number; createdAt: string; updatedAt: string | null };
+export type MemberRow = { rideId: string; userId: string; role: 'driver' | 'passenger'; seatCount: number; state: 'active'; joinedAt: string | null; leftAt: null; details: Document };
 export type StopRow = { rideId: string; position: number; kind: 'departure' | 'destination'; address: string; placeId: string | null; departureAt: string | null };
-export type MigrationPlan = { users: UserRow[]; rides: RideRow[]; members: MemberRow[]; stops: StopRow[] };
+export type MigrationPlan = { sourceSha256: string; sources: MigrationSource[]; users: UserRow[]; rides: RideRow[]; members: MemberRow[]; stops: StopRow[] };
 export type MigrationReport = {
   sourceKind: 'cloudbase-full-export' | 'rejected'; ready: boolean;
   inputCounts: Record<Collection, number>; candidateCounts: { users: number; rides: number; members: number; stops: number };
@@ -21,7 +23,7 @@ export type CloudBaseExport = { kind: 'cloudbase-full-export'; appId: string; co
 const collections: Collection[] = ['userInfo', 'Carpool', 'CarpoolRequest'];
 const indexFields = ['tripDriver', 'tripDriverHistory', 'tripDriverJoin', 'tripDriverJoinHistory', 'tripPassenger', 'tripPassengerHistory', 'tripPassengerCreate', 'tripPassengerCreateHistory'];
 const userFields = new Set([
-  '_id', '_openid', 'openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'createdAt', 'createdTime', 'createTime', 'updatedAt', 'updateTime',
+  '_id', '_openid', 'openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'createdAt', 'createdTime', 'createTime', 'updatedAt', 'updateTime', 'bigregionUpdatedAt',
   'phone', 'regionPhone', 'wechatID', 'wechatId', 'wechat', 'bio', 'carNumber', 'carPlate', 'plateNumber', 'carBrand', 'carModel',
   'zelleName', 'zelleAccount', 'defaultShowZelle', 'regionState', 'regionCounty', 'regionArea', 'regionKey', 'regionDisplay', 'location',
   'commonPickupAddresses', 'commonDropoffAddresses', 'commonComments', 'profileCompleted', 'status', 'role', ...indexFields,
@@ -90,7 +92,7 @@ export function localDepartureCandidates(date: unknown, time: unknown, timeZone 
 
 /** Read-only candidate normalization. The plan contains private data: print only report. */
 export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York' }): { plan: MigrationPlan | null; report: MigrationReport } {
-  const plan: MigrationPlan = { users: [], rides: [], members: [], stops: [] };
+  const plan: MigrationPlan = { sourceSha256: '', sources: [], users: [], rides: [], members: [], stops: [] };
   const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0 }, issues: [] };
   const issue = (collection: Collection, code: string, field = '-', severity: 'error' | 'notice' = 'error') => {
     const previous = report.issues.find(item => item.collection === collection && item.code === code && item.field === field && item.severity === severity);
@@ -99,6 +101,8 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   if (options.timeZone !== 'America/New_York' || !object(input) || input.kind !== 'cloudbase-full-export' || !text(input.appId) || !object(input.collections)) {
     issue('other', 'FULL_EXPORT_REQUIRED'); return { plan: null, report };
   }
+  try { plan.sourceSha256 = sourceHash(serializeSource(input)); }
+  catch { issue('other', 'INVALID_SOURCE_JSON'); return { plan: null, report }; }
   const appId = input.appId;
   const docs = input.collections;
   report.sourceKind = 'cloudbase-full-export';
@@ -107,6 +111,15 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     const collection: Collection = collections.includes(name as Collection) ? name as Collection : 'other';
     if (!Array.isArray(values)) { issue(collection, 'INVALID_COLLECTION'); continue; }
     report.inputCounts[collection] += values.length;
+    const sourceIds = new Set<string>();
+    for (const raw of values) {
+      if (!object(raw)) { issue(collection, 'INVALID_DOCUMENT'); continue; }
+      try {
+        const source = migrationSource(name, raw);
+        if (sourceIds.has(source.sourceId)) issue(collection, 'DUPLICATE_SOURCE_ID');
+        else { sourceIds.add(source.sourceId); plan.sources.push(source); }
+      } catch { issue(collection, 'MISSING_SOURCE_ID'); }
+    }
     if (collection === 'other' && values.length) issue('other', 'UNMAPPED_COLLECTION');
   }
   const unknownFields = (doc: Document, allowed: Set<string>, collection: Collection, field = '-') => {
@@ -123,6 +136,18 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     if (!normalized.length || normalized.some(value => !value)) { issue(collection, 'MISSING_OR_INVALID_TIMESTAMP', field); return ''; }
     if (normalized.some(value => value !== normalized[0])) issue(collection, 'CONFLICTING_ALIASES', field);
     return normalized[0]!;
+  };
+  // These clocks are independent old write paths, not competing aliases or field winners.
+  const recordedUpdate = (doc: Document, keys: string[], collection: Collection): string | null => {
+    const values = keys.map(key => doc[key]).filter(present);
+    if (!values.length) { issue(collection, 'UNKNOWN_UPDATED_AT', 'updatedAt', 'notice'); return null; }
+    const normalized = values.map(parseExportTimestamp);
+    if (normalized.some(value => !value)) { issue(collection, 'MISSING_OR_INVALID_TIMESTAMP', 'updatedAt'); return null; }
+    return normalized.filter((value): value is string => value !== null).sort().at(-1)!;
+  };
+  const joinedStamp = (doc: Document, collection: Collection): string | null => {
+    if (!present(doc.joinedAt)) { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'joinedAt', 'notice'); return null; }
+    return stamp(doc, ['joinedAt'], collection, 'joinedAt');
   };
   const userByOpenid = new Map<string, UserRow>();
   const sourceUsers: Document[] = [];
@@ -186,7 +211,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     const name = alias(raw, ['name', 'nickName', 'nickname'], 'userInfo', 'name');
     if (name !== undefined && typeof name !== 'string') issue('userInfo', 'INVALID_PROFILE_VALUE', 'name');
     if (raw.avatarUrl !== undefined && typeof raw.avatarUrl !== 'string') issue('userInfo', 'INVALID_PROFILE_VALUE', 'avatarUrl');
-    const user: UserRow = { id: migrationUserId(appId, openid), appId, openid, name: typeof name === 'string' ? name : '', avatarUrl: typeof raw.avatarUrl === 'string' ? raw.avatarUrl : '', profile, createdAt: stamp(raw, ['createdAt', 'createdTime', 'createTime'], 'userInfo', 'createdAt'), updatedAt: stamp(raw, ['updatedAt', 'updateTime'], 'userInfo', 'updatedAt') };
+    const user: UserRow = { id: migrationUserId(appId, openid), appId, openid, name: typeof name === 'string' ? name : '', avatarUrl: typeof raw.avatarUrl === 'string' ? raw.avatarUrl : '', profile, createdAt: stamp(raw, ['createdAt', 'createdTime', 'createTime'], 'userInfo', 'createdAt'), updatedAt: recordedUpdate(raw, ['updatedAt', 'updateTime', 'bigregionUpdatedAt'], 'userInfo') };
     if (user.createdAt && user.updatedAt && user.updatedAt < user.createdAt) issue('userInfo', 'INVALID_TIMESTAMP_ORDER');
     userByOpenid.set(openid, user); plan.users.push(user);
   }
@@ -196,6 +221,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       if (!object(raw)) { issue(collection, 'INVALID_DOCUMENT'); continue; }
       unknownFields(raw, rideFields, collection);
       if (!text(raw._id)) { issue(collection, 'MISSING_RIDE_ID'); continue; }
+      if (raw._id.length > 160 || !/^[a-zA-Z0-9:_-]+$/.test(raw._id)) issue(collection, 'INVALID_RIDE_ID');
       if (rideIds.has(raw._id)) { issue(collection, 'DUPLICATE_RIDE_ID'); continue; }
       rideIds.add(raw._id);
       if (raw.businessSynthetic === true) issue(collection, 'SYNTHETIC_RECORD_REQUIRES_SEPARATE_IMPORT');
@@ -207,7 +233,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       }
       if (raw.businessSynthetic !== undefined && typeof raw.businessSynthetic !== 'boolean') issue(collection, 'INVALID_SYNTHETIC_FLAG', 'businessSynthetic');
       const createdAt = stamp(raw, ['createdAt'], collection, 'createdAt');
-      const updatedAt = stamp(raw, ['updatedAt'], collection, 'updatedAt');
+      const updatedAt = recordedUpdate(raw, ['updatedAt'], collection);
       if (createdAt && updatedAt && updatedAt < createdAt) issue(collection, 'INVALID_TIMESTAMP_ORDER');
       const stops: StopRow[] = [];
       for (const [field, stopKind] of [['departures', 'departure'], ['destinations', 'destination']] as const) {
@@ -226,6 +252,11 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         }
       }
       const times = stops.filter(stop => stop.kind === 'departure' && stop.departureAt).map(stop => stop.departureAt!).sort();
+      const departures = stops.filter(stop => stop.kind === 'departure');
+      if (departures.some((stop, index) => index > 0 && stop.departureAt && departures[index - 1]!.departureAt && stop.departureAt < departures[index - 1]!.departureAt!)) {
+        issue(collection, 'UNORDERED_DEPARTURE_TIMES', 'departures');
+      }
+      if (departures.length > 10 || stops.length - departures.length > 10) issue(collection, 'TOO_MANY_STOPS');
       if (present(raw.firstDepartureDate) || present(raw.firstDepartureTime)) {
         const cached = localDepartureCandidates(raw.firstDepartureDate, raw.firstDepartureTime, options.timeZone);
         if (cached.length !== 1 || cached[0] !== times[0]) issue(collection, 'CONFLICTING_DEPARTURE_TIME', 'firstDeparture');
@@ -234,7 +265,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         if (present(raw[field]) && parseExportTimestamp(raw[field]) !== time) issue(collection, 'CONFLICTING_DEPARTURE_TIME', field);
       }
       const statuses: Record<string, RideRow['status']> = { open: 'open', full: 'open', past: 'closed', closed: 'closed', cancelled: 'cancelled', canceled: 'cancelled' };
-      const status = typeof raw.status === 'string' ? statuses[raw.status] : undefined;
+      const status = typeof raw.status === 'string' && Object.hasOwn(statuses, raw.status) ? statuses[raw.status] : undefined;
       if (!status) issue(collection, 'UNMAPPED_RIDE_STATUS', 'status');
       const price = parseLegacyListedPrice(raw.referencePrice);
       if (price.classification === 'unresolved') {
@@ -244,23 +275,29 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
           'referencePrice', typeof raw.referencePrice === 'string' ? 'notice' : 'error');
       }
       const seatCount = typeof raw.passengerCount === 'number' ? raw.passengerCount : NaN;
-      if (!Number.isInteger(seatCount) || seatCount < 1 || seatCount > (kind === 'offer' ? 8 : 4)) issue(collection, 'INVALID_SEAT_COUNT', 'passengerCount');
+      const validSeatCount = Number.isInteger(seatCount) && seatCount >= 1 && seatCount <= (kind === 'offer' ? 8 : 4);
+      if (!validSeatCount) issue(collection, 'INVALID_SEAT_COUNT', 'passengerCount', status === 'closed' && kind === 'offer' ? 'notice' : 'error');
       const version = raw.businessVersion === undefined ? 1 : raw.businessVersion;
       if (raw.businessVersion === undefined) issue(collection, 'INITIAL_VERSION_ASSIGNED', 'businessVersion', 'notice');
-      if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) issue(collection, 'INVALID_VERSION', 'businessVersion');
+      if (typeof version !== 'number' || !Number.isInteger(version) || version < 1 || version > 2_147_483_647) issue(collection, 'INVALID_VERSION', 'businessVersion');
       const details: Document = {};
-      for (const key of ['comment', 'zelle'] as const) if (raw[key] !== undefined) {
-        if (typeof raw[key] !== 'string') issue(collection, 'INVALID_RIDE_DETAIL', key); else details[key === 'zelle' ? 'zelleDisplay' : 'note'] = raw[key];
+      if (raw.comment !== undefined) {
+        if (typeof raw.comment !== 'string') issue(collection, 'INVALID_RIDE_DETAIL', 'comment'); else details.note = raw.comment;
+      }
+      if (kind === 'offer' && raw.zelle !== undefined) {
+        if (raw.zelle !== undefined && raw.zelle !== 'yes' && raw.zelle !== 'no') issue(collection, 'INVALID_RIDE_DETAIL', 'zelle');
+        else details.zelleDisplay = raw.zelle === 'yes';
       }
       if (raw.largeLuggageCount !== undefined) {
-        if (typeof raw.largeLuggageCount !== 'number' || !Number.isInteger(raw.largeLuggageCount) || raw.largeLuggageCount < 0) issue(collection, 'INVALID_RIDE_DETAIL', 'largeLuggageCount'); else details.largeLuggageCount = raw.largeLuggageCount;
+        if (typeof raw.largeLuggageCount !== 'number' || !Number.isInteger(raw.largeLuggageCount) || raw.largeLuggageCount < 0 || raw.largeLuggageCount > 20) issue(collection, 'INVALID_RIDE_DETAIL', 'largeLuggageCount'); else details.largeLuggageCount = raw.largeLuggageCount;
       }
-      if (raw.cityKey !== 'ny_nj' && raw.cityKey !== 'ny' && raw.cityKey !== 'nj') issue(collection, 'UNMAPPED_CITY', 'cityKey');
+      const knownCity = raw.cityKey === 'ny_nj' || raw.cityKey === 'ny' || raw.cityKey === 'nj';
+      if (!knownCity) issue(collection, !present(raw.cityKey) && status === 'closed' ? 'UNKNOWN_HISTORICAL_CITY' : 'UNMAPPED_CITY', 'cityKey', !present(raw.cityKey) && status === 'closed' ? 'notice' : 'error');
       if (raw.cityKey === 'ny' || raw.cityKey === 'nj') issue(collection, 'CITY_ALIAS_NORMALIZED', 'cityKey', 'notice');
-      const ride: RideRow = { id: raw._id, kind, creatorId: creator.id, cityKey: 'ny_nj', status: status || 'open', seatCapacity: kind === 'offer' ? seatCount : 4, departureAt: times[0] || '', timeZone: options.timeZone, listedPriceCents: price.cents, listedPriceLabel: price.label, details, version: typeof version === 'number' ? version : 1, createdAt, updatedAt };
+      const ride: RideRow = { id: raw._id, kind, creatorId: creator.id, cityKey: knownCity ? 'ny_nj' : null, status: status || 'open', seatCapacity: kind === 'offer' ? validSeatCount ? seatCount : null : 4, departureAt: times[0] || '', timeZone: options.timeZone, listedPriceCents: price.cents, listedPriceLabel: price.label, details, version: typeof version === 'number' ? version : 1, createdAt, updatedAt };
       plan.rides.push(ride); plan.stops.push(...stops);
       const members: MemberRow[] = [];
-      const addMember = (openid: unknown, role: MemberRow['role'], seats: number, joinedAt: string, memberDetails: Document = {}) => {
+      const addMember = (openid: unknown, role: MemberRow['role'], seats: number, joinedAt: string | null, memberDetails: Document = {}) => {
         const user = typeof openid === 'string' ? userByOpenid.get(openid) : undefined;
         if (!user) { issue(collection, 'UNKNOWN_USER', 'member'); return; }
         if (members.some(member => member.userId === user.id)) { issue(collection, 'DUPLICATE_MEMBER', 'member'); return; }
@@ -271,18 +308,21 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         addMember(creator.openid, 'driver', 0, createdAt);
         if (!Array.isArray(raw.passengers)) issue(collection, 'INVALID_MEMBER_LIST', 'passengers');
         else for (const passenger of raw.passengers) {
-          if (typeof passenger === 'string') { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'passengers'); addMember(passenger, 'passenger', 1, ''); continue; }
+          if (typeof passenger === 'string') { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'joinedAt', 'notice'); addMember(passenger, 'passenger', 1, null); continue; }
           if (!object(passenger)) { issue(collection, 'INVALID_MEMBER', 'passengers'); continue; }
           unknownFields(passenger, passengerFields, collection, 'passengers');
           const memberDetails: Document = {};
           const name = alias(passenger, ['name', 'nickName', 'nickname'], collection, 'passengerName');
-          if (name !== undefined) { if (typeof name !== 'string') issue(collection, 'INVALID_MEMBER_DETAIL', 'passengers'); else memberDetails.name = name; }
+          if (name !== undefined) { if (typeof name !== 'string') issue(collection, 'INVALID_MEMBER_DETAIL', 'passengers');  }
           for (const key of ['avatarUrl', 'pickupAddress', 'dropoffAddress']) if (passenger[key] !== undefined) {
-            if (typeof passenger[key] !== 'string') issue(collection, 'INVALID_MEMBER_DETAIL', 'passengers'); else memberDetails[key] = passenger[key];
+            if (typeof passenger[key] !== 'string') issue(collection, 'INVALID_MEMBER_DETAIL', 'passengers'); else if (key !== 'avatarUrl') memberDetails[key] = passenger[key];
           }
-          addMember(passenger._openid, 'passenger', 1, stamp(passenger, ['joinedAt'], collection, 'joinedAt'), memberDetails);
+          addMember(passenger._openid, 'passenger', 1, joinedStamp(passenger, collection), memberDetails);
         }
-        if (typeof raw.availSeatNum !== 'number' || raw.availSeatNum !== seatCount - members.filter(member => member.role === 'passenger').length) issue(collection, 'SEAT_BALANCE_MISMATCH', 'availSeatNum');
+        if (typeof raw.availSeatNum !== 'number' || raw.availSeatNum !== seatCount - members.filter(member => member.role === 'passenger').length) {
+          issue(collection, 'SEAT_BALANCE_MISMATCH', 'availSeatNum', status === 'closed' ? 'notice' : 'error');
+          if (status === 'closed') ride.seatCapacity = null;
+        }
       } else {
         if (!Array.isArray(raw.passengerID) || raw.passengerID.some(id => !text(id))) issue(collection, 'INVALID_MEMBER_LIST', 'passengerID');
         const ids: string[] = Array.isArray(raw.passengerID) ? raw.passengerID.filter(text) : [];
@@ -293,12 +333,15 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         if (!Number.isInteger(creatorSeats) || creatorSeats < 1) issue(collection, 'SEAT_BALANCE_MISMATCH', 'passengerCount');
         // Existing joinTrip adds exactly one seat per additional account. Extra seats belong to the creator's original group.
         addMember(creator.openid, 'passenger', creatorSeats, createdAt);
-        for (const id of others) { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'passengerID'); addMember(id, 'passenger', 1, ''); }
-        if (present(raw.driverOpenid)) { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'driverOpenid'); addMember(raw.driverOpenid, 'driver', 0, ''); }
+        for (const id of others) { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'joinedAt', 'notice'); addMember(id, 'passenger', 1, null); }
+        if (present(raw.driverOpenid)) { issue(collection, 'MISSING_MEMBERSHIP_TIMESTAMP', 'joinedAt', 'notice'); addMember(raw.driverOpenid, 'driver', 0, null); }
       }
-      if (members.filter(member => member.role === 'passenger').reduce((sum, member) => sum + member.seatCount, 0) > ride.seatCapacity) issue(collection, 'SEAT_CAPACITY_EXCEEDED');
       const occupied = members.filter(member => member.role === 'passenger').reduce((sum, member) => sum + member.seatCount, 0);
-      if ((raw.status === 'full' && occupied !== ride.seatCapacity) || (raw.status === 'open' && occupied >= ride.seatCapacity)) issue(collection, 'SEAT_STATUS_MISMATCH', 'status');
+      if (ride.seatCapacity !== null && occupied > ride.seatCapacity) {
+        issue(collection, 'SEAT_CAPACITY_EXCEEDED', '-', status === 'closed' ? 'notice' : 'error');
+        if (status === 'closed') ride.seatCapacity = null;
+      }
+      if (ride.seatCapacity !== null && ((raw.status === 'full' && occupied !== ride.seatCapacity) || (raw.status === 'open' && occupied >= ride.seatCapacity))) issue(collection, 'SEAT_STATUS_MISMATCH', 'status');
       plan.members.push(...members);
     }
   }
@@ -322,6 +365,6 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   report.candidateCounts = { users: plan.users.length, rides: plan.rides.length, members: plan.members.length, stops: plan.stops.length };
   report.issues.sort((a, b) => `${a.collection}:${a.code}:${a.field}`.localeCompare(`${b.collection}:${b.code}:${b.field}`));
   report.ready = !report.issues.some(item => item.severity === 'error');
-  // Never expose a partially valid import plan, invented fallback status, or unresolved timestamps.
+  // Never expose a partially valid import plan, invented fallback status, or unresolved required facts.
   return { plan: report.ready ? plan : null, report };
 }

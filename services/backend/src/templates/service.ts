@@ -20,7 +20,7 @@ export async function listTemplates(pool: Pool, userId: string, query: unknown, 
   const result = await pool.query<TemplateRow>(`SELECT ${columns} FROM ride_templates WHERE user_id=$1
     ORDER BY ((weekday + 6) % 7), local_time, id LIMIT $2 OFFSET $3`, [userId, limit + 1, (page - 1) * limit]);
   return {
-    items: result.rows.slice(0, limit).map(row => ({ ...asDto(row), nextOccurrence: nextWeeklyOccurrence(row, now) })),
+    items: result.rows.slice(0, limit).map(row => ({ ...asDto(row), nextOccurrence: nextWeeklyOccurrence(row, row.definition.stops, now) })),
     page, limit, hasMore: result.rows.length > limit,
   };
 }
@@ -44,7 +44,9 @@ export async function updateTemplate(pool: Pool, userId: string, key: unknown, i
     const next = createTemplateSchema.parse({ name: current.name, weekday: current.weekday, localTime: current.localTime,
       timeZone: current.timeZone, definition: current.definition, ...patch });
     // Definition replaces as one validated value; no nested partial merge or old aliases.
-    const updated = await client.query<TemplateRow>(`UPDATE ride_templates SET name=$3,weekday=$4,local_time=$5,time_zone=$6,definition=$7,updated_at=now()
+    // The transaction may have waited for an earlier edit; now() would record
+    // its older start time instead of the time this edit actually takes effect.
+    const updated = await client.query<TemplateRow>(`UPDATE ride_templates SET name=$3,weekday=$4,local_time=$5,time_zone=$6,definition=$7,updated_at=clock_timestamp()
       WHERE id=$1 AND user_id=$2 RETURNING ${columns}`, [templateId, userId, next.name, next.weekday, next.localTime, next.timeZone, next.definition]);
     return { status: 200, data: asDto(updated.rows[0]) };
   });

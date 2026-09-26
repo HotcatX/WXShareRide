@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeCloudBaseExport, localDepartureCandidates, parseExportTimestamp, migrationUserId } from '../src/migration/normalize.ts';
+import { migrationSource, serializeSource, sourceHash } from '../src/migration/source.ts';
 
 const options = { timeZone: 'America/New_York' } as const;
 const now = '2026-09-25T03:00:00.000Z';
@@ -136,6 +137,129 @@ test('request group size is distinct from capacity and an accepted driver has no
   assert.equal(result.plan!.members[0]!.seatCount, 3);
   input.collections.CarpoolRequest[0]!.driverOpenid = 'private-driver';
   assert.ok(issues(input).includes('MISSING_MEMBERSHIP_TIMESTAMP'));
+  const withDriver = normalizeCloudBaseExport(input, options);
+  assert.equal(withDriver.report.ready, true);
+  assert.equal(withDriver.plan!.members.find(member => member.role === 'driver')!.joinedAt, null);
+});
+
+test('closed inconsistent capacity and absent city remain unknown, without dropping participants or source evidence', () => {
+  const input = fixture();
+  const ride = input.collections.Carpool[0]!;
+  Object.assign(ride, { status: 'past', passengerCount: 0, availSeatNum: 3 });
+  delete ride.cityKey; delete ride.updatedAt;
+  const result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.rides[0]!.seatCapacity, null);
+  assert.equal(result.plan!.rides[0]!.cityKey, null);
+  assert.equal(result.plan!.rides[0]!.updatedAt, null);
+  assert.equal(result.plan!.members.length, 2);
+  assert.deepEqual(JSON.parse(result.plan!.sources.find(source => source.collection === 'Carpool')!.documentJson), ride);
+  assert.doesNotMatch(JSON.stringify(result.report), /Private|private-|Campus/);
+  ride.status = 'open';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+  ride.status = 'past'; ride.cityKey = 'unrecognized-city';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+});
+
+test('historical over-capacity relations stay intact and missing membership clocks are never fabricated', () => {
+  const input = fixture();
+  Object.assign(input.collections.Carpool[0]!, { status: 'closed', passengerCount: 1, availSeatNum: -1 });
+  input.collections.userInfo.push({ _id: 'user-doc-3', _openid: 'second-passenger', createdAt: now });
+  (input.collections.Carpool[0]!.passengers as unknown[]).push('second-passenger');
+  const result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.rides[0]!.seatCapacity, null);
+  assert.equal(result.plan!.members.length, 3);
+  const second = result.plan!.users.find(user => user.openid === 'second-passenger')!;
+  assert.equal(second.updatedAt, null);
+  assert.equal(result.plan!.members.find(member => member.userId === second.id)!.joinedAt, null);
+  (input.collections.Carpool[0]!.passengers as unknown[])[1] = { _openid: 'second-passenger', joinedAt: 'bad-time' };
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+});
+
+test('independent profile write clocks produce only the last recorded update; absence stays unknown', () => {
+  const input = fixture();
+  const user = input.collections.userInfo[0]!;
+  Object.assign(user, { updateTime: '2026-09-25T04:00:00.000Z', bigregionUpdatedAt: '2026-09-25T05:00:00.000Z' });
+  assert.equal(normalizeCloudBaseExport(input, options).plan!.users[0]!.updatedAt, '2026-09-25T05:00:00.000Z');
+  user.updateTime = 'bad-time';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+});
+
+test('old payment visibility is boolean and contact snapshots remain only in private source evidence', () => {
+  const input = fixture();
+  Object.assign(input.collections.Carpool[0]!, { zelle: 'yes' });
+  const passenger = (input.collections.Carpool[0]!.passengers as Record<string, unknown>[])[0]!;
+  Object.assign(passenger, { name: 'Stale private name', avatarUrl: 'https://old.invalid/avatar' });
+  const result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.plan!.rides[0]!.details.zelleDisplay, true);
+  assert.deepEqual(result.plan!.members.find(member => member.role === 'passenger')!.details, { pickupAddress: 'Private Pickup', dropoffAddress: 'Campus' });
+  assert.equal(JSON.parse(result.plan!.sources.find(source => source.collection === 'Carpool')!.documentJson).passengers[0].name, passenger.name);
+  input.collections.Carpool[0]!.zelle = 'no';
+  assert.equal(normalizeCloudBaseExport(input, options).plan!.rides[0]!.details.zelleDisplay, false);
+  input.collections.Carpool[0]!.zelle = 'maybe';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+});
+
+test('source IDs and lossless JSON are required even when core business mapping otherwise passes', () => {
+  const input = fixture();
+  const initial = normalizeCloudBaseExport(input, options).plan!;
+  assert.equal(initial.sources.length, 3);
+  assert.match(initial.sourceSha256, /^[a-f0-9]{64}$/);
+  const rerun = normalizeCloudBaseExport(JSON.parse(JSON.stringify(input)), options).plan!;
+  assert.deepEqual(rerun.sources, initial.sources);
+  assert.equal(rerun.sourceSha256, initial.sourceSha256);
+  input.collections.userInfo[1]!._id = input.collections.userInfo[0]!._id;
+  assert.ok(issues(input).includes('DUPLICATE_SOURCE_ID'));
+  delete input.collections.userInfo[1]!._id;
+  assert.ok(issues(input).includes('MISSING_SOURCE_ID'));
+  input.collections.userInfo[1]!.name = undefined;
+  assert.ok(issues(input).includes('INVALID_SOURCE_JSON'));
+});
+
+test('invalid database version and reversed or excessive source stops cannot produce an import plan', () => {
+  const input = fixture();
+  input.collections.Carpool[0]!.businessVersion = 2_147_483_648;
+  assert.ok(issues(input).includes('INVALID_VERSION'));
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+  input.collections.Carpool[0]!.businessVersion = 2_147_483_647;
+  assert.equal(normalizeCloudBaseExport(input, options).report.ready, true);
+  input.collections.Carpool[0]!.departures = [
+    { address: 'First', date: '2026-09-29', time: '15:00' },
+    { address: 'Second', date: '2026-09-29', time: '14:00' },
+  ];
+  assert.ok(issues(input).includes('UNORDERED_DEPARTURE_TIMES'));
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+  input.collections.Carpool[0]!.departures = Array.from({ length: 11 }, () => ({ address: 'Place', date: '2026-09-29', time: '15:00' }));
+  assert.ok(issues(input).includes('TOO_MANY_STOPS'));
+});
+
+test('inherited object names are never statuses and imported ride IDs remain routable', () => {
+  for (const status of ['constructor', 'toString', '__proto__']) {
+    const input = fixture(); input.collections.Carpool[0]!.status = status;
+    assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+    assert.ok(issues(input).includes('UNMAPPED_RIDE_STATUS'));
+  }
+  for (const id of ['spaces inside', 'slash/id', 'x'.repeat(161)]) {
+    const input = fixture(); input.collections.Carpool[0]!._id = id;
+    assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+    assert.ok(issues(input).includes('INVALID_RIDE_ID'));
+  }
+});
+
+test('source serialization does not invoke custom conversion or silently discard non-JSON fields', () => {
+  let calls = 0;
+  const converted = Object.defineProperty({ _id: 'original' }, 'toJSON', { value() { calls++; return { _id: 'changed' }; } });
+  const getter = Object.defineProperty({ _id: 'original' }, 'value', { enumerable: true, get() { calls++; return 1; } });
+  for (const value of [converted, getter, { _id: 'x', [Symbol('hidden')]: 1 }, { _id: 'x', value: NaN }, { _id: 'x', value: new Date(now) }, { _id: 'x', value: '\u0000' }, { _id: 'x', value: '\ud800' }]) {
+    assert.throws(() => migrationSource('collection', value), /Invalid source JSON/);
+  }
+  assert.equal(calls, 0);
+  assert.throws(() => serializeSource([, 1]), /Invalid source JSON/);
+  const original = { _id: 'x', valid: '中文🚗', nested: { array: [null, true, 0, 'a'] } };
+  const source = migrationSource('collection', original);
+  assert.deepEqual(JSON.parse(source.documentJson), original);
+  assert.equal(source.sha256, sourceHash(source.documentJson));
 });
 
 test('legacy and synthetic business facts are never silently mixed into a new production import', () => {

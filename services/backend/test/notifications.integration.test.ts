@@ -11,14 +11,14 @@ test('notifications preserve ownership, transaction atomicity, recipient rules a
   const user = async (openid: string) => (await db.pool.query("INSERT INTO users(app_id,openid) VALUES ('fixture',$1) RETURNING id", [openid])).rows[0].id as string;
   const owner = await user('owner'), passenger = await user('passenger'), other = await user('other'), driver = await user('driver');
   const body = { kind: 'offer', cityKey: 'ny_nj', timeZone: 'America/New_York',
-    departureAt: new Date(Date.now() + 86400000).toISOString(),
-    origin: { address: 'Fort Lee' }, destination: { address: 'Columbia' }, seatCapacity: 3, listedPriceCents: 1000 };
+    stops: [{ kind: 'departure', address: 'Fort Lee', departureAt: new Date(Date.now() + 86400000).toISOString() },
+      { kind: 'destination', address: 'Columbia' }], seatCapacity: 3, listedPriceCents: 1000 };
   const created = await createRide(db.pool, owner, 'notify.create.offer', body);
   const rideId = created.data.rideId as string;
   await t.test('join generates only a creator notice and replay does not duplicate it', async () => {
-    await joinRide(db.pool, passenger, 'notify.join.passenger', rideId, { role: 'passenger', seatCount: 1 });
-    await joinRide(db.pool, passenger, 'notify.join.passenger', rideId, { role: 'passenger', seatCount: 1 });
-    await joinRide(db.pool, passenger, 'notify.join.noop', rideId, { role: 'passenger', seatCount: 1 });
+    await joinRide(db.pool, passenger, 'notify.join.passenger', rideId, { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' });
+    await joinRide(db.pool, passenger, 'notify.join.passenger', rideId, { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' });
+    await joinRide(db.pool, passenger, 'notify.join.noop', rideId, { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' });
     const result = await listNotifications(db.pool, owner, {});
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0].type, 'passenger_joined');
@@ -31,7 +31,7 @@ test('notifications preserve ownership, transaction atomicity, recipient rules a
     await db.pool.query(`CREATE FUNCTION reject_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic notification failure'; END $$;
       CREATE TRIGGER reject_notice BEFORE INSERT ON notifications FOR EACH ROW EXECUTE FUNCTION reject_notice()`);
     const before = (await db.pool.query('SELECT version FROM rides WHERE id=$1', [rideId])).rows[0].version;
-    await assert.rejects(joinRide(db.pool, other, 'notify.join.rollback', rideId, { role: 'passenger', seatCount: 1 }));
+    await assert.rejects(joinRide(db.pool, other, 'notify.join.rollback', rideId, { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' }));
     assert.equal((await db.pool.query('SELECT version FROM rides WHERE id=$1', [rideId])).rows[0].version, before);
     assert.equal((await db.pool.query('SELECT 1 FROM ride_members WHERE ride_id=$1 AND user_id=$2', [rideId, other])).rowCount, 0);
     assert.equal((await db.pool.query("SELECT 1 FROM idempotency_requests WHERE request_key='notify.join.rollback'")).rowCount, 0);
@@ -39,7 +39,7 @@ test('notifications preserve ownership, transaction atomicity, recipient rules a
     await db.pool.query('DROP TRIGGER reject_notice ON notifications; DROP FUNCTION reject_notice()');
   });
   await t.test('cancel reaches active members but not users who already left', async () => {
-    await joinRide(db.pool, other, 'notify.join.rollback', rideId, { role: 'passenger', seatCount: 1 });
+    await joinRide(db.pool, other, 'notify.join.rollback', rideId, { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' });
     await leaveRide(db.pool, other, 'notify.other.leave', rideId, { reason: '测试退出' });
     await cancelRide(db.pool, owner, 'notify.owner.cancel', rideId, { reason: '测试取消' });
     assert.equal((await listNotifications(db.pool, passenger, {})).items[0].type, 'ride_cancelled');

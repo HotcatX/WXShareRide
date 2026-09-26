@@ -16,8 +16,8 @@ test('ride HTTP routes use sessions, one idempotency contract and public project
   t.after(async () => { await app.close(); await database.close(); });
   const input = {
     kind: 'offer', cityKey: 'ny_nj', timeZone: 'America/New_York',
-    departureAt: new Date(Date.now() + 86400000).toISOString(),
-    origin: { address: 'Fort Lee' }, destination: { address: 'Columbia' },
+    stops: [{ kind: 'departure', address: 'Fort Lee', departureAt: new Date(Date.now() + 86400000).toISOString() },
+      { kind: 'destination', address: 'Columbia' }],
     listedPriceCents: 1200, seatCapacity: 1,
   };
   const ownerLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { code: 'owner' } });
@@ -55,9 +55,28 @@ test('ride HTTP routes use sessions, one idempotency contract and public project
     assert.equal(forged.json().error.code, 'INVALID_INPUT');
   });
 
+  await t.test('HTTP rejects legacy route fields, invalid stop order and missing offer instructions without writing', async () => {
+    for (const payload of [
+      { ...input, origin: { address: 'Legacy origin' } },
+      { ...input, departureAt: input.stops[0].departureAt },
+      { ...input, stops: [...input.stops].reverse() },
+    ]) {
+      const result = await app.inject({ method: 'POST', url: '/api/v1/rides',
+        headers: { ...ownerHeaders, 'idempotency-key': 'http.invalid.route' }, payload });
+      assert.equal(result.statusCode, 400);
+      assert.equal(result.json().error.code, 'INVALID_INPUT');
+    }
+    const missing = await app.inject({ method: 'POST', url: `/api/v1/rides/${id}/join`,
+      headers: { ...passengerHeaders, 'idempotency-key': 'http.missing.instructions' }, payload: { role: 'passenger', seatCount: 1 } });
+    assert.equal(missing.statusCode, 400);
+    assert.equal(missing.json().error.code, 'PICKUP_DROPOFF_REQUIRED');
+    assert.equal((await database.pool.query('SELECT count(*)::integer AS count FROM rides')).rows[0].count, 1);
+    assert.equal((await database.pool.query('SELECT count(*)::integer AS count FROM ride_members')).rows[0].count, 1);
+  });
+
   await t.test('public reading and member writes use the documented envelopes without exposing identities', async () => {
     const joined = await app.inject({ method: 'POST', url: `/api/v1/rides/${id}/join`,
-      headers: { ...passengerHeaders, 'idempotency-key': 'http.join.fixture' }, payload: { role: 'passenger', seatCount: 1 } });
+      headers: { ...passengerHeaders, 'idempotency-key': 'http.join.fixture' }, payload: { role: 'passenger', seatCount: 1, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' } });
     assert.equal(joined.statusCode, 200);
     assert.equal(joined.json().data.changed, true);
     const detail = await app.inject({ method: 'GET', url: `/api/v1/rides/${id}` });

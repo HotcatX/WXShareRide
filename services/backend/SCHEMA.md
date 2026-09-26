@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `009` 的字段契约。它是维护文档；本轮阶段、权限与发布决策仍以根目录临时 `BACKEND_MIGRATION_WORK.md` 为准。已有账号、核心行程、模板、拉黑、通知、评分和完成计数；这不代表市场及旧数据已经全部迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `013` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计和邀请关系；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -17,11 +17,13 @@
 | `business_events` | `id`，`ride_id`，`ride_version`，`action`，`actor_id`，`payload`，`created_at` | `(ride_id,ride_version)` 唯一。每次已提交业务变化记录一个事实事件，同事务写入。不是点击/曝光明细。 |
 | `ride_templates`（002） | UUID `id`，`user_id`，`name`，`weekday`，`local_time`，`time_zone`，`definition`，创建/更新时间 | 本人私有的每周司机模板，weekday=0周日…6周六，HH:mm，纽约时区。绝对时间不存于模板。 |
 | `user_blocks`（003） | `(blocker_id,target_id)`，`active`，`reason`，`blocked_at`，`updated_at` | 每方向一个事实；重新启用复用原行。双向任意有效记录阻止新加入，不移除已有参与关系。 |
-| `migration_batches` / `migration_sources`（006） | 批次UUID/AppID/来源hash；每批次 `(collection,source_id)` 和完整序列化JSON/hash | 私有迁移证据，不提供客户端API，不参与业务权限判断。 |
+| `migration_batches` / `migration_sources`（006、011、013） | 批次UUID/AppID/来源hash、`plan_sha256`、`imported_counts`、可空 `observed_before`；每批次 `(collection,source_id)` 和完整序列化JSON/hash | 私有迁移证据；转换指纹和数量回执成对保存。重复导入不覆盖运行态；不提供客户端API或授予业务权限。 |
 | `notifications`（004） | 旧ID兼容 `id`，`user_id`，`event_id`，`ride_id`，`type`，`title`，`content`，`read`，`created_at` | 仅收件人可读/改/删；`event_id,user_id` 唯一。旧通知无事件ID可为null；read保留布尔，不伪造旧阅读时刻。 |
 | `ride_ratings`（008） | 原文本ID、`ride_id`、`rater_id`、`target_id`、双方角色、1–5整数 `score`、`created_at`、可空 `event_id` | `(ride_id,rater_id,target_id)` 唯一，不自评，双方角色相反；旧记录保留时间和分数，不复制汇总到profile。 |
 | `ride_completions`（009） | `(ride_id,user_id)`、首次 `role`、可空 `counted_at/event_id` | 旧收据的时间/事件未知则同时为空；不依赖当前成员关系，不授予成员权限。 |
-| `public_statistics`（009） | `app_id`、`served_count`、`updated_at` | 显式导入核验过的旧累计值，之后与关闭事件同事务增加；不从现存行程重算旧总数。 |
+| `public_statistics`（009–010） | `app_id`、`served_count`、可空 `coverage_text`、`updated_at` | 显式导入旧累计值和覆盖文案；缺失文案为未知，不猜默认地区。关闭事件同事务增加人次，不从现存行程重算旧总数。 |
+| `referral_codes`（012） | `user_id` 主键、全局唯一 `code` | 每账号一个 `ref_` 加12位小写十六进制码，保留已发布旧码。 |
+| `referral_bindings`（012） | `referred_user_id` 主键、`referrer_user_id`、`bound_at` | 首次有效绑定不可更换，不可自邀；人数由事实关系查询，不另建计数表。 |
 
 009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
@@ -89,7 +91,7 @@ runner 使用单个连接、数据库 advisory lock、每文件事务。每个�
 }
 ```
 
-必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks、TripRatings；其他额外非空集合在当前切片中报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。用户非零评分汇总与实际明细必须对账，缺少TripRatings不能假装完整。
+必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks、TripRatings、PublicStats；其他额外非空集合报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。用户非零评分汇总与实际明细必须对账，缺少TripRatings不能假装完整。
 
 ```ts
 const { plan, report } = normalizeCloudBaseExport(source, {
@@ -106,6 +108,9 @@ const { plan, report } = normalizeCloudBaseExport(source, {
 - 价格统一由 `src/prices.ts` 按完整字符串识别已核验USD格式，使用整数分转换；明确免费才为0。无报价和复杂文案都保留原始label、金额为null。复杂文本在报告中记 `PRICE_TEXT_PRESERVED` 提示而不阻断保真导入；不可保真的非标量/无效数字仍阻断。金额单位未被原文确认时，不能仅凭解析成功用于人均价分析。
 - 旧求车成员列表及接单司机没有独立加入时间，保留joinedAt=null并记提示；显式无效时间仍阻断。独立旧资料写路径的更新时间取有效记录中最大值，仅指最后已记录写入，不用于决定哪个资料字段正确；全部缺失保留null。
 - 仅已closed历史行程可将缺失城市、冲突容量置null；原C/A/N完整留来源，不删成员、不声称实际超卖或成行。非空未知城市、open行程冲突、用户/关系未映射仍阻断。
+- 已审计旧计数标记、完成checkpoint、driverID、城市别名和手动完成信息由 `ride-metadata.ts` 验证后仅归档。checkpoint与原个人收据核对，不用当前成员重写历史。已关闭但无checkpoint的行程不补算。旧driver文档悬空只作提示，不能变成身份来源。
+- 唯一过期缺城市的旧open类别可提供 `observation:{sourceSha256,at}`：调用方须核验导出清单和文件hash，at为相关集合开始读取前已成立的时刻，绑定同一原始来源hash。所有出发站严格早于at、无公开计数/个人完成标记和实际收据，才可归closed；不补城市、不计数、不生成事件，原status完整归档。有效城市的open行程仍留给正常关闭任务处理；非空未知城市不会修正。默认不推断，不用当前时间或分页结束时间冒充观测证据。`observed_before`不表示原子快照。
+- `PublicStats/home` 必须是唯一有效基线，累计数为非负安全整数，原覆盖文案和更新时间保真；最后一次增量元数据只校验归档，不重新执行。原邀请码只保留经过可信账号核对的唯一旧码，不在转换时给缺码用户补码。旧 `blockedUsers` 只有空数组可归档，非空关系必须显式对账。
 
 命令行只输出 report；成功退出码 0，有待处理问题 1，读文件/JSON 错误 2：
 
@@ -113,7 +118,9 @@ const { plan, report } = normalizeCloudBaseExport(source, {
 node src/migration/analyze.ts /absolute/path/full-export.json
 ```
 
-当前没有生产数据写入/切主命令。`report.ready=true` 仅表示本切片结构审计通过，不表示整个产品迁移、权限投影、旧客户端兼容、备份恢复或最终增量验证已完成。
+当前没有生产数据写入/切主命令。`report.ready=true` 仅表示本切片结构审计通过，不表示整个产品迁移、旧客户端兼容、备份恢复或最终增量验证已完成。
+
+内部 `importSnapshot(pool,source,expectedAppId,observation?)` 仅用于空目标首次导入：必须显式提供上述8个已支持集合，重新审计原始source，不能提交调用方自制plan。全局事务锁和表写锁包住空库检查、全部模型、来源归档、读回数量和回执；中途失败全部回滚。事务内以数据库时钟拒绝未来观测时间。目标任何业务/会话/事件/回执数据非空就拒绝，不支持合并、清空或增量覆盖。同app/source只在转换指纹一致时重放原回执，成功后的业务变化不被重试覆盖；转换结果变更需显式迁移。原始输入在首个await前深拷贝，防止校验后被调用方修改。
 
 ## 已验证
 
@@ -210,4 +217,12 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 迁移rating保留原ID/分数/时间，核对身份、行程类型、双方角色和唯一关系。已发生的历史提前评分保留并记LEGACY_EARLY_RATING_PRESERVED提示，不改时间，也不放宽新写入权限。所有旧用户role/all评分sum/count/avg/weightedAvg与明细对账后仅归档；加权均分继续使用prior 4.7、weight 3、一位小数。_rideCompletionV1去重收据与三项completed计数必须一致；已退出或当前未匹配者的旧收据仍保留，但不恢复成员。缺失/矛盾/未知业务字段阻断整个导入计划。
 
-评分与完成次数的客户端显示投影、公共统计基线导入和最终调度仍需接入；当前没有将这些本地模块切换为生产权威写库。
+## 统计显示与邀请关系（010–012）
+
+`GET /api/v1/me/statistics` 返回本人all/driver/passenger的 `completedTrips/ratingCount/averageRating/weightedRating`。从评分和完成收据直接查询，不维护另一份个人汇总。未评分的均分为null；沿用JavaScript一位小数toFixed及4.7×3先验，不用SQL不同的舍入规则。退出当前行程不扣除历史完成次数。
+
+公开行程投影含当前司机的 `driverStatistics`，无司机为null；私有participants投影只在原有授权SQL快照内附加成员当前角色的 `statistics`。内部ratingSum转换后移除，不新增任意用户ID查询接口。`GET /api/v1/statistics/public` 只读配置AppID的 `servedCount/coverageText`，缺失基线503，不伪造0。统计接口均no-store，拒绝额外查询字段。
+
+登录事务和 `GET /api/v1/referrals/me` 保留或签发本人邀请码；接口只返回码和推荐人数。新码优先沿用原OpenID派生格式，唯一冲突时生成随机码，不覆盖归属。`POST /api/v1/referrals/bind {code}` 要求会话与幂等键，同账号锁串行首次绑定；同码重复为no-op，其他码409，自邀/跨应用/不存在拒绝。已有用户也可首次绑定，不额外推断新客、奖励或首次访问归因。访问明细留给既有分析采集，不再建平行日志表。
+
+公共基线和原邀请码已接首次导入，显示接口已接应用；客户端消费者、生产调度和最终单写切换仍需完成。当前没有将本地模块切换为生产权威写库。

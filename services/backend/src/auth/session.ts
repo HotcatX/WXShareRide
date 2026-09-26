@@ -5,6 +5,7 @@ import type { Config } from '../config.ts';
 import { transaction } from '../db.ts';
 import { AppError } from '../errors.ts';
 import type { CodeExchange } from './wechat.ts';
+import { ensureReferralCode } from '../referrals/service.ts';
 
 export type Identity = { id: string; openid: string };
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -28,7 +29,8 @@ export function sessionService(pool: Pool, config: Config, exchange: CodeExchang
         );
         await client.query('DELETE FROM sessions WHERE user_id=$1 AND expires_at<=now()', [result.rows[0].id]);
         await client.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)', [tokenHash(token), result.rows[0].id, expiresAt]);
-        return result.rows[0];
+        const referralCode = await ensureReferralCode(client, result.rows[0].id);
+        return { ...result.rows[0], referralCode };
       });
       return { token, expiresAt: expiresAt.toISOString(), user };
     },

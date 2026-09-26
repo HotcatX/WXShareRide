@@ -5,6 +5,7 @@ import { withIdempotency } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { assertNoBlockedMembers } from '../blocks/service.ts';
 import { advanceRideVersion, recordRideEvent } from './events.ts';
+import { formatDriverStatistics, statisticsProjection } from '../statistics/service.ts';
 import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, listRidesSchema, rideIdSchema } from './schemas.ts';
 
 type Ride = {
@@ -205,6 +206,9 @@ export const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status
     WHERE m.ride_id = r.id AND m.state = 'active'), 0)::integer AS "availableSeats",
   EXISTS(SELECT 1 FROM ride_members m WHERE m.ride_id = r.id AND m.role = 'driver'
     AND m.state = 'active') AS "hasDriver",
+  (SELECT ${statisticsProjection('currentDriver')} FROM ride_members statistics_driver
+    WHERE statistics_driver.ride_id=r.id AND statistics_driver.role='driver'
+      AND statistics_driver.state='active') AS "driverStatistics",
   COALESCE((SELECT jsonb_agg(jsonb_build_object('position', s.position, 'kind', s.kind,
     'address', s.address, 'placeId', s.place_id, 'departureAt', s.departure_at) ORDER BY s.position)
     FROM ride_stops s WHERE s.ride_id = r.id), '[]'::jsonb) AS stops`;
@@ -216,7 +220,7 @@ export async function listRides(pool: Pool, query: unknown) {
       AND ($2::text IS NULL OR r.kind = $2)
     ORDER BY r.departure_at, r.id LIMIT $3 OFFSET $4`,
   [input.cityKey, input.kind || null, input.limit + 1, (input.page - 1) * input.limit]);
-  return { rides: result.rows.slice(0, input.limit), nextPage: input.page < 1000 && result.rows.length > input.limit ? input.page + 1 : null };
+  return { rides: result.rows.slice(0, input.limit).map(formatDriverStatistics), nextPage: input.page < 1000 && result.rows.length > input.limit ? input.page + 1 : null };
 }
 
 export async function getRide(pool: Pool, id: unknown) {
@@ -224,5 +228,5 @@ export async function getRide(pool: Pool, id: unknown) {
   const result = await pool.query(`SELECT ${publicProjection} FROM rides r
     WHERE r.id = $1 AND r.status <> 'cancelled'`, [rideId]);
   if (!result.rows[0]) throw new AppError(404, 'RIDE_NOT_FOUND', '行程不存在');
-  return result.rows[0];
+  return formatDriverStatistics(result.rows[0]);
 }

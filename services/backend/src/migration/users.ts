@@ -9,7 +9,7 @@ const userFields = new Set([
   'updatedAt', 'updateTime', 'bigregionUpdatedAt', 'status', 'role', 'userInfo', ...indexFields, ...profileSourceFields,
   // Central completion/score converters validate and reconcile these facts;
   // none of their redundant aggregates enter the editable profile.
-  'rideStats', '_rideCompletionV1',
+  'rideStats', '_rideCompletionV1', 'referralCode', 'blockedUsers',
 ]);
 /** Deterministic UUID for a verified app/OpenID pair; not an authentication mechanism. */
 export function migrationUserId(appId: string, openid: string): string {
@@ -53,6 +53,12 @@ export function normalizeUsers(documents: unknown[], appId: string, issue: Issue
       issue('userInfo', 'CONFLICTING_IDENTITY_CONTEXT', 'userInfo');
     }
     const profile = normalizeProfile(raw, issue);
+    // Current block behavior reads UserBlocks. The only observed obsolete
+    // arrays are empty; a future nonempty legacy relation must be reconciled.
+    if (raw.blockedUsers !== undefined) {
+      if (!Array.isArray(raw.blockedUsers) || raw.blockedUsers.length) issue('userInfo', 'UNRESOLVED_LEGACY_BLOCKS', 'blockedUsers');
+      else issue('userInfo', 'EMPTY_LEGACY_BLOCKS_ARCHIVED', 'blockedUsers', 'notice');
+    }
     if (present(raw.status) && raw.status !== 'normal') issue('userInfo', 'UNMAPPED_ACCOUNT_STATUS', 'status');
     if (present(raw.role)) issue('userInfo', 'LEGACY_ROLE_NOT_MEMBERSHIP', 'role', 'notice');
     const name = alias(raw, ['name', 'nickName', 'nickname'], 'userInfo', 'name');

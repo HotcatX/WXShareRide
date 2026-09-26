@@ -60,6 +60,7 @@ test('private ride projections enforce current relationships and field boundarie
         id: users['passenger-a'], name: 'passenger-a', avatarUrl: 'https://example.invalid/passenger-a.png',
         role: 'passenger', seatCount: 1, phone: 'phone-passenger-a', phoneRegion: 'US', wechatId: 'wechat-passenger-a',
         pickupAddress: 'pickup-passenger-a', dropoffAddress: 'dropoff-passenger-a',
+        statistics: { completedTrips: 0, ratingCount: 0, averageRating: null, weightedRating: null },
       });
       assert.equal(participant(data, 'driver').pickupAddress, undefined);
       assert.equal(participant(data, 'driver').zelle, undefined);

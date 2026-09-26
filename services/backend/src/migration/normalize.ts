@@ -1,6 +1,6 @@
 import { parseListedPrice } from '../prices.ts';
 import { migrationSource, serializeSource, sourceHash } from './source.ts';
-import type { Document, Collection, MigrationIssue, MigrationPlan, MigrationReport, RideRow, MemberRow, StopRow } from './types.ts';
+import type { Document, Collection, ExportObservation, MigrationIssue, MigrationPlan, MigrationReport, RideRow, MemberRow, StopRow } from './types.ts';
 import { object, text, present, migrationReaders, parseExportTimestamp, localDepartureCandidates } from './values.ts';
 import { indexFields, normalizeUsers } from './users.ts';
 import { normalizeTemplates } from './templates.ts';
@@ -9,23 +9,27 @@ import { normalizeLegacyBlocks } from './blocks.ts';
 import { normalizeRatings } from './ratings.ts';
 import { normalizeCompletions } from './completions.ts';
 import { validateRatingSummaries } from './rating-summaries.ts';
+import { normalizePublicStatistics } from './public-statistics.ts';
+import { normalizeReferralCodes } from './referrals.ts';
+import { rideMetadataFields, validateRideMetadata } from './ride-metadata.ts';
 export type { MigrationIssue, UserRow, RideRow, MemberRow, StopRow, MigrationPlan, MigrationReport, CloudBaseExport } from './types.ts';
 export { parseExportTimestamp, localDepartureCandidates } from './values.ts';
 export { migrationUserId } from './users.ts';
 
 const collections: Collection[] = ['userInfo', 'Carpool', 'CarpoolRequest'];
-const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings']);
+const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings', 'PublicStats']);
 const rideFields = new Set([
   '_id', '_openid', 'cityKey', 'cityLabel', 'departures', 'destinations', 'passengerCount', 'availSeatNum', 'passengers', 'passengerID',
   'driverOpenid', 'status', 'referencePrice', 'comment', 'zelle', 'largeLuggageCount', 'createdAt', 'updatedAt',
   'departureAtMs', 'latestDepartureAtMs', 'firstDepartureDate', 'firstDepartureTime', 'businessVersion', 'businessSynthetic',
+  ...rideMetadataFields,
 ]);
 const pointFields = new Set(['address', 'date', 'time', 'placeId']);
 const passengerFields = new Set(['_openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'joinedAt', 'pickupAddress', 'dropoffAddress']);
 /** Read-only candidate normalization. The plan contains private data: print only report. */
-export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York' }): { plan: MigrationPlan | null; report: MigrationReport } {
-  const plan: MigrationPlan = { sourceSha256: '', sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [] };
-  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0 }, issues: [] };
+export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York'; observation?: ExportObservation }): { plan: MigrationPlan | null; report: MigrationReport } {
+  const plan: MigrationPlan = { sourceSha256: '', observedBefore: null, sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [], publicStatistics: [], referralCodes: [] };
+  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0, publicStatistics: 0, referralCodes: 0 }, issues: [] };
   const issue = (collection: Collection, code: string, field = '-', severity: 'error' | 'notice' = 'error', count = 1) => {
     const previous = report.issues.find(item => item.collection === collection && item.code === code && item.field === field && item.severity === severity);
     if (previous) previous.count += count; else report.issues.push({ collection, code, field, severity, count });
@@ -38,6 +42,13 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   }
   try { plan.sourceSha256 = sourceHash(serializeSource(input)); }
   catch { issue('other', 'INVALID_SOURCE_JSON'); return { plan: null, report }; }
+  if (options.observation !== undefined) {
+    const observation = options.observation;
+    const at = object(observation) && typeof observation.at === 'string' ? parseExportTimestamp(observation.at) : null;
+    if (!object(observation) || Object.keys(observation).some(key => key !== 'sourceSha256' && key !== 'at') ||
+      observation.sourceSha256 !== plan.sourceSha256 || !at) issue('other', 'INVALID_EXPORT_OBSERVATION');
+    else plan.observedBefore = at;
+  }
   const appId = input.appId;
   const docs = input.collections;
   report.sourceKind = 'cloudbase-full-export';
@@ -58,8 +69,10 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     if (collection === 'other' && !optionalCollections.has(name) && values.length) issue('other', 'UNMAPPED_COLLECTION');
   }
   const { unknownFields, alias, stamp, recordedUpdate, joinedStamp } = migrationReaders(issue);
+  if (docs.PublicStats !== undefined) plan.publicStatistics = normalizePublicStatistics(docs.PublicStats, appId, issue);
   const sourceUsers = (Array.isArray(docs.userInfo) ? docs.userInfo : []).filter(object);
   plan.users = normalizeUsers(sourceUsers, appId, issue);
+  plan.referralCodes = normalizeReferralCodes(sourceUsers, plan.users, appId, issue);
   const userByOpenid = new Map(plan.users.map(user => [user.openid, user]));
   if (docs.CarpoolTemplate !== undefined) plan.templates = normalizeTemplates(docs.CarpoolTemplate, plan.users, issue);
   if (docs.Notifications !== undefined) {
@@ -73,6 +86,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     mergeIssues(converted.issues);
   }
   const rideIds = new Set<string>();
+  const expiredUnlocatedRides = new Set<string>();
   const historicalDrivers = new Map<string, string>();
   for (const collection of ['Carpool', 'CarpoolRequest'] as const) {
     for (const raw of Array.isArray(docs[collection]) ? docs[collection] : []) {
@@ -123,8 +137,19 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         if (present(raw[field]) && parseExportTimestamp(raw[field]) !== time) issue(collection, 'CONFLICTING_DEPARTURE_TIME', field);
       }
       const statuses: Record<string, RideRow['status']> = { open: 'open', full: 'open', past: 'closed', closed: 'closed', cancelled: 'cancelled', canceled: 'cancelled' };
-      const status = typeof raw.status === 'string' && Object.hasOwn(statuses, raw.status) ? statuses[raw.status] : undefined;
+      let status = typeof raw.status === 'string' && Object.hasOwn(statuses, raw.status) ? statuses[raw.status] : undefined;
       if (!status) issue(collection, 'UNMAPPED_RIDE_STATUS', 'status');
+      // One known legacy class is an already-expired open ride with no city.
+      // Only a source-hash-bound observation can establish it was historical.
+      // Do not close otherwise complete open bookings here: their pending
+      // accounting belongs to the normal close job after the actual cutover.
+      if (status === 'open' && !present(raw.cityKey) && plan.observedBefore && times.length &&
+        times.at(-1)! < plan.observedBefore && raw.servedStatsCounted !== true &&
+        raw.statsDriverCounted !== true && raw._rideCompletionSettled !== true) {
+        status = 'closed';
+        expiredUnlocatedRides.add(raw._id);
+        issue(collection, 'EXPIRED_UNLOCATED_RIDE_ARCHIVED', 'status', 'notice');
+      }
       const price = parseListedPrice(raw.referencePrice);
       if (price.classification === 'unresolved') {
         // Free-text quotes can be preserved without claiming a scalar amount.
@@ -223,6 +248,24 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   const completions = normalizeCompletions(sourceUsers, plan.users, plan.rides, appId);
   mergeIssues(completions.issues);
   plan.completions = completions.rows ?? [];
+  for (const rideId of expiredUnlocatedRides) {
+    if (plan.completions.some(row => row.rideId === rideId)) issue('other', 'EXPIRED_RIDE_HAS_COMPLETION_RECEIPTS');
+  }
+  const normalizedRides = new Map(plan.rides.map(ride => [ride.id, ride]));
+  const lastDepartures = new Map<string, string>();
+  for (const stop of plan.stops) {
+    if (stop.kind === 'departure' && stop.departureAt && stop.departureAt > (lastDepartures.get(stop.rideId) ?? '')) {
+      lastDepartures.set(stop.rideId, stop.departureAt);
+    }
+  }
+  for (const collection of ['Carpool', 'CarpoolRequest'] as const) {
+    for (const raw of Array.isArray(docs[collection]) ? docs[collection] : []) {
+      if (!object(raw) || typeof raw._id !== 'string') continue;
+      const ride = normalizedRides.get(raw._id);
+      if (ride) validateRideMetadata(raw, collection, { sourceUsers, ride, completions: plan.completions,
+        lastDepartureAt: lastDepartures.get(ride.id) ?? '' }, issue);
+    }
+  }
   validateRatingSummaries(sourceUsers, plan.users, plan.ratings, appId, issue);
   // Old user arrays are indexes, not membership facts. Report disagreements instead of importing a second truth.
   for (const user of sourceUsers) {
@@ -248,7 +291,8 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   }
   report.candidateCounts = { users: plan.users.length, rides: plan.rides.length, members: plan.members.length, stops: plan.stops.length,
     templates: plan.templates.length, notifications: plan.notifications.length, blocks: plan.blocks.length,
-    ratings: plan.ratings.length, completions: plan.completions.length };
+    ratings: plan.ratings.length, completions: plan.completions.length, publicStatistics: plan.publicStatistics.length,
+    referralCodes: plan.referralCodes.length };
   report.issues.sort((a, b) => `${a.collection}:${a.code}:${a.field}`.localeCompare(`${b.collection}:${b.code}:${b.field}`));
   report.ready = !report.issues.some(item => item.severity === 'error');
   // Never expose a partially valid import plan, invented fallback status, or unresolved required facts.

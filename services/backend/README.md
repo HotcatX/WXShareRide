@@ -43,6 +43,12 @@ is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
 - `/api/v1/rides/:rideId/ratings`: authenticated `POST {targetId,score}` and
   `GET` of the caller's own submitted scores. One rating per counterpart;
   database constraints and the ride transaction prevent duplicate scoring.
+- `/api/v1/me/statistics`: private role-specific completion and rating summaries.
+  `/api/v1/statistics/public`: configured-app cumulative served count and coverage.
+  Both read existing facts; no second editable personal aggregate is stored.
+- `/api/v1/referrals/me`: private code and referral count. Login retains or issues
+  the same code. `POST /api/v1/referrals/bind {code}` records the first valid
+  binding with idempotency; an existing binding cannot be reassigned.
 - `/healthz`: readiness against the database; exposes no account/configuration.
 
 Responses use `{ok:true,data,requestId}` or
@@ -63,6 +69,11 @@ only by the import normalizer. A complete CloudBase export is required; the
 analytics snapshot is not sufficient. Audit unknown values rather than silently
 dropping them or guessing timestamps. The dry-run CLI prints aggregate issue
 codes and counts only; it does not import or transmit personal data.
+The internal `importSnapshot` function supports an empty, separately configured
+target only. It verifies the original source, inserts all supported core models
+and their private source archive in one transaction, and reads counts back.
+An identical completed import replays its receipt without overwriting later
+business changes. It is not a merge, incremental synchronizer or cutover command.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 Keep the current mini-program on CloudBase until missing feature compatibility,

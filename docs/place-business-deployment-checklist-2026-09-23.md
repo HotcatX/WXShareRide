@@ -13,7 +13,7 @@
 ## 已核验的代码约束
 
 - `createTrip`、`joinTrip`、`tripManage`、`syncTripStatus`、`syncMyTripStatus` 均在业务事务内写 `TripActions`。账本失败使业务事务回滚；退出、剔除、删除与成员索引同步提交。状态转为过往时，平台服务数量与状态、账本一同提交。
-- 五处 `businessLedger.js` 字节相同；五处 `placeCatalog.js` 与 `utils/placeCatalog.js` 字节相同。`statistics/businessOutbox.js` 与 `tripManage/businessOutbox.js` 字节相同。
+- 五处 `businessLedger.js` 字节相同；五处 `placeCatalog.js` 与 `utils/placeCatalog.js` 字节相同。投递消费器使用唯一的 `statistics/businessOutbox.js`，回归测试直接验证该实现。
 - 消费器只读取 `deliveryState=pending` 的不可变事实，按 `createdAt` 排序，单次最多 10 条。没有时间水位，因此迟提交且时间更早的事件不会丢失。
 - 数据库批次上限为 **112 KiB**；HTTPS 发送器、业务接收路由与 Caddy 请求体上限为 **128 KiB**。普通 `/v1/batches` 仍保持 **64 KiB**。历史导出文件仍为最多 10 条、56 KiB。
 - 发送器总网络期限为 **6.5 秒**；回复最多 8 KiB。超时、非 200、无效 JSON 或 `ok!==true` 均不确认消息。新一次重试使用新 HMAC nonce，但相同事件 ID 和事件字节。
@@ -64,7 +64,7 @@
 | `syncTripStatus` | 状态变化与对应快照 |
 | `syncMyTripStatus` | 用户相关行程状态变化与对应快照 |
 
-五个函数之间无需依赖调用；一次只切一个入口并读回 Active、15 秒。旧行程没有 businessVersion 时首次事实从版本 1 开始。`tripManage/businessOutbox.js` 是共享源码副本，业务入口并不引用它，生产消费器使用的是 `statistics/businessOutbox.js`。
+五个函数之间无需依赖调用；一次只切一个入口并读回 Active、15 秒。旧行程没有 businessVersion 时首次事实从版本 1 开始。生产消费器使用 `statistics/businessOutbox.js`；`tripManage` 仅写入事务台账，不包含投递消费器副本。
 
 全部入口切换完成前是覆盖不完整的过渡窗口，应记录切换时间，研究统计不要声称该窗口已有完整生命周期。当前没有行程修改价格/路线的云端接口，本次不能宣称捕获了不存在的修改行为。
 

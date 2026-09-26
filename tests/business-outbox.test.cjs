@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const { readPendingBusinessEvents, acknowledgeBusinessEvents } = require('../cloudfunctions/tripManage/businessOutbox')
+const { readPendingBusinessEvents, acknowledgeBusinessEvents } = require('../cloudfunctions/statistics/businessOutbox')
 const ledger = require('../cloudfunctions/tripManage/businessLedger')
 const catalog = require('../utils/placeCatalog')
 

@@ -118,14 +118,85 @@ test('price text and notes survive migration without invented prices or duplicat
   assert.ok(issues(invalid).includes('INVALID_PRICE_VALUE'));
 });
 
-test('unknown member, overbooking, and stale user membership arrays are visible blockers', () => {
+test('unknown members and overbooking block; stale indexes stay archived without granting membership', () => {
   const input = fixture(); input.collections.userInfo[0]!.tripDriver = ['missing-ride'];
   input.collections.Carpool[0]!.passengers = [{ _openid: 'unknown', joinedAt: now }];
   input.collections.Carpool[0]!.availSeatNum = -1;
   const codes = issues(input);
   assert.ok(codes.includes('UNKNOWN_USER'));
   assert.ok(codes.includes('SEAT_BALANCE_MISMATCH'));
-  assert.ok(codes.includes('UNRESOLVED_LEGACY_MEMBERSHIP'));
+  assert.ok(codes.includes('ORPHAN_INDEX_ARCHIVED'));
+});
+
+test('canonical identity selection is independent of export order and sparse aliases never overwrite a profile', () => {
+  for (const aliasesFirst of [true, false]) {
+    const input = fixture();
+    const sparse = { _id: 'sparse-old', openid: 'private-driver', createdAt: '2020-01-01T00:00:00.000Z', tripDriverJoin: ['deleted-ride'] };
+    if (aliasesFirst) input.collections.userInfo.unshift(sparse); else input.collections.userInfo.push(sparse);
+    const result = normalizeCloudBaseExport(input, options);
+    assert.equal(result.report.ready, true);
+    assert.equal(result.plan!.users.length, 2);
+    const driver = result.plan!.users.find(user => user.openid === 'private-driver')!;
+    assert.equal(driver.name, 'Private Driver');
+    assert.equal(driver.createdAt, now);
+    assert.equal(result.plan!.members.filter(member => member.userId === driver.id).length, 1);
+    assert.equal(result.plan!.sources.filter(source => source.collection === 'userInfo').length, 3);
+    assert.ok(result.report.issues.some(issue => issue.code === 'ALIAS_SOURCE_ARCHIVED' && issue.severity === 'notice'));
+  }
+});
+
+test('an unowned stale index remains source evidence, while alias-only identity or alias profile changes block', () => {
+  const input = fixture();
+  input.collections.userInfo.push({ _id: 'unowned-old', role: 'passenger', createdAt: now, tripPassenger: ['deleted-ride'] });
+  const result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.users.length, 2);
+  assert.equal(result.plan!.sources.length, 4);
+  assert.ok(result.report.issues.some(issue => issue.code === 'UNATTRIBUTED_SOURCE_ARCHIVED'));
+  input.collections.userInfo.push({ _id: 'unverified', openid: 'not-a-primary-account', createdAt: now });
+  assert.ok(issues(input).includes('UNVERIFIED_ALIAS_IDENTITY'));
+  input.collections.userInfo.pop();
+  input.collections.userInfo.push({ _id: 'alias-with-profile', openid: 'private-driver', name: 'Different profile', createdAt: now });
+  assert.ok(issues(input).includes('UNVERIFIED_ALIAS_PROFILE'));
+});
+
+test('nested identity context must match the trusted primary row and target app exactly', () => {
+  const input = fixture();
+  const driver = input.collections.userInfo[0]!;
+  driver.userInfo = { appId: input.appId, openId: driver._openid };
+  assert.equal(normalizeCloudBaseExport(input, options).report.ready, true);
+  for (const nested of [{ appId: 'different-app', openId: driver._openid }, { appId: input.appId, openId: 'other-user' }, { appId: input.appId, openId: driver._openid, name: 'Extra' }]) {
+    driver.userInfo = nested;
+    assert.ok(issues(input).includes('CONFLICTING_IDENTITY_CONTEXT'));
+    assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+  }
+});
+
+test('templates, notifications and independent block history enter one all-or-nothing plan', () => {
+  const input = fixture();
+  const source = { ...input, collections: { ...input.collections,
+    CarpoolTemplate: [{ _id: 'legacy-template', _openid: 'private-driver', templateName: 'Tuesday', weekdayIndex: 1,
+      departureTime: '15:00', departureAddress: 'Start', destinationAddress: 'End', passengerCount: '', referencePrice: '另议', createdAt: now }],
+    Notifications: [{ _id: 'legacy-notice', _openid: 'private-passenger', carpoolId: 'deleted-ride',
+      title: 'Fixture', content: 'Private notice text', type: 'trip_cancelled', read: true, createdAt: now }],
+    UserBlocks: [{ _id: 'legacy-block', _openid: 'private-driver', blockerOpenid: 'private-driver', targetOpenid: 'private-passenger',
+      active: true, reason: 'Private reason', createdAt: now, updatedAt: now }],
+  } };
+  const result = normalizeCloudBaseExport(source, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.templates[0]!.definition.seatCapacity, 1);
+  assert.equal(result.plan!.templates[0]!.updatedAt, null);
+  assert.equal(result.plan!.templates[0]!.definition.listedPriceLabel, '另议');
+  assert.equal(result.plan!.notifications[0]!.rideId, 'deleted-ride');
+  assert.equal(result.plan!.notifications[0]!.read, true);
+  assert.equal(result.plan!.blocks[0]!.active, true);
+  assert.equal(result.plan!.sources.length, 6);
+  assert.doesNotMatch(JSON.stringify(result.report), /private-|Private|deleted-ride/);
+  source.collections.Notifications[0]!._openid = 'unknown-recipient';
+  const invalid = normalizeCloudBaseExport(source, options);
+  assert.equal(invalid.plan, null);
+  assert.equal(invalid.report.ready, false);
+  assert.equal(invalid.report.candidateCounts.templates, 1);
 });
 
 test('request group size is distinct from capacity and an accepted driver has no invented join time', () => {
@@ -140,6 +211,31 @@ test('request group size is distinct from capacity and an accepted driver has no
   const withDriver = normalizeCloudBaseExport(input, options);
   assert.equal(withDriver.report.ready, true);
   assert.equal(withDriver.plan!.members.find(member => member.role === 'driver')!.joinedAt, null);
+});
+
+test('request creator membership is implicit, while a closed conflicting driver does not inherit passenger seats', () => {
+  const input = fixture(); input.collections.Carpool = [];
+  const request: Record<string, unknown> = { _id: 'historical-request', _openid: 'private-passenger', cityKey: 'ny_nj', status: 'past',
+    passengerCount: 2, passengerID: [], departures: [{ address: 'Start', date: '2026-09-29', time: '15:00' }], destinations: [{ address: 'End' }], createdAt: now };
+  input.collections.CarpoolRequest = [request];
+  let result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.members.length, 1);
+  assert.equal(result.plan!.members[0]!.seatCount, 2);
+  Object.assign(request, { passengerCount: 3, passengerID: ['private-passenger', 'private-driver'], driverOpenid: 'private-driver' });
+  input.collections.userInfo[0]!.tripPassengerHistory = ['historical-request'];
+  result = normalizeCloudBaseExport(input, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.members.length, 2);
+  assert.equal(result.plan!.members.find(member => member.role === 'driver')!.seatCount, 0);
+  assert.equal(result.plan!.members.find(member => member.role === 'passenger')!.seatCount, 2);
+  assert.equal(result.plan!.rides[0]!.seatCapacity, null);
+  assert.ok(result.report.issues.some(issue => issue.code === 'HISTORICAL_ROLE_CONFLICT_ARCHIVED'));
+  assert.ok(result.report.issues.some(issue => issue.code === 'HISTORICAL_ROLE_INDEX_ARCHIVED'));
+  request.status = 'open';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
+  request.status = 'past'; request.driverOpenid = 'private-passenger';
+  assert.equal(normalizeCloudBaseExport(input, options).plan, null);
 });
 
 test('closed inconsistent capacity and absent city remain unknown, without dropping participants or source evidence', () => {

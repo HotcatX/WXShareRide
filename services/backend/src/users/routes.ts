@@ -13,8 +13,11 @@ export const profileSchema = z.strictObject({
   vehicle: z.strictObject({ plate: shortText.optional(), brand: shortText.optional(), model: shortText.optional() }).optional(),
   zelle: z.strictObject({ name: shortText.optional(), account: shortText.optional(), public: z.boolean().optional() }).optional(),
   region: z.strictObject({ state: shortText.optional(), county: shortText.optional(), area: shortText.optional(), key: shortText.optional(), label: shortText.optional() }).optional(),
-  location: z.strictObject({ label: shortText.optional(), address: z.string().max(300).optional(), latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional() }).optional(),
-  preferences: z.strictObject({ pickupAddresses: addressList.optional(), dropoffAddresses: addressList.optional(), comments: z.array(shortText).max(20).optional() }).optional(),
+  location: z.strictObject({ label: shortText.optional(), address: z.string().max(300).optional(), residence: z.string().max(300).optional(), latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional() }).optional(),
+  preferences: z.strictObject({
+    pickupAddresses: addressList.optional(), dropoffAddresses: addressList.optional(), comments: z.array(shortText).max(20).optional(),
+    routePrices: z.strictObject({ fortLeeNonCore: z.string().max(1000).optional() }).optional()
+  }).optional(),
   profileCompleted: z.boolean().optional()
 });
 const updateSchema = z.strictObject({

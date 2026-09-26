@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `006` 的字段契约。它是维护文档；本轮阶段、权限与发布决策仍以根目录临时 `BACKEND_MIGRATION_WORK.md` 为准。已有账号、核心行程、模板、拉黑与通知；这不代表评分、市场及旧数据已经全部迁出，也不代表所有本地迁移文件已部署。
+本文件描述 `migrations/001` 至 `007` 的字段契约。它是维护文档；本轮阶段、权限与发布决策仍以根目录临时 `BACKEND_MIGRATION_WORK.md` 为准。已有账号、核心行程、模板、拉黑与通知；这不代表评分、市场及旧数据已经全部迁出，也不代表所有本地迁移文件已部署。
 
 ## 唯一模型
 
@@ -20,6 +20,8 @@
 | `migration_batches` / `migration_sources`（006） | 批次UUID/AppID/来源hash；每批次 `(collection,source_id)` 和完整序列化JSON/hash | 私有迁移证据，不提供客户端API，不参与业务权限判断。 |
 | `notifications`（004） | 旧ID兼容 `id`，`user_id`，`event_id`，`ride_id`，`type`，`title`，`content`，`read`，`created_at` | 仅收件人可读/改/删；`event_id,user_id` 唯一。旧通知无事件ID可为null；read保留布尔，不伪造旧阅读时刻。 |
 
+007 允许旧模板updated_at=null；列表不把未知时间改成现在。
+
 006 允许旧资料的 updated_at 和成员 joined_at 为 null，表示未知；仅 closed 行程可缺城市或可信容量。新建/加入仍由服务端写真实时间，open/cancelled 必须有城市和容量。来源归档保留全量原字段，单条 SHA-256 由数据库与所存 JSON 文本核对；hash 对应序列化后的 JSON，不冒充原导出文件字节hash。
 
 005 为 rides 增加唯一 `listed_price_label`（API `listedPriceLabel`）原始报价文本。它与金额的职责不同，不建立 `referencePrice/displayPrice/price` 等兼容别名。通知 ride_id 是可失效导航目标而非外键，因为旧版取消会物理删除行程；这不能成为复活被删除行程的依据。
@@ -32,7 +34,7 @@
 - 剩余座位等于容量减 active passenger 的 seat_count 总和；历史容量未知时返回null，不补0、不推算新容量。关系跨行求和不能由单行 CHECK 保证，业务写必须锁定行程行并在事务内校验。
 - `open` 仍需结合出发时间、座位和司机接单状态判断可操作性。旧 `full` 归入 open，是否满员从成员计算；旧 `past` 归入 closed。closed 只表示业务生命周期已关闭，**不表示用户确认实际成行**。
 - `departure_at` 是最早出发站的绝对 UTC 时刻，`time_zone` 当前固定 `America/New_York`；其他出发时间保留在 stops。周模板不在此表，把下周同一星期/本地钟点实例化后才生成 UTC。
-- `listed_price_cents` 是可确认的牌面 USD 金额，空值代表未明确数值。新建API采用现有每人报价约定；历史原文没有标明单位时不能自动当人均价。`listed_price_label` 原样保留原报价文字及条件，复杂/多金额文案保留文本和null金额，不抽取首数字。它们不是已支付或实际成交金额。
+- `listed_price_cents` 是可确认的牌面 USD 金额，空值代表未明确数值。新建API采用现有每人报价约定；历史原文没有标明单位时不能自动当人均价。`listed_price_label` 原样保留原报价文字及条件，复杂/多金额文案保留文本和null金额，不抽取首数字。它们不是已支付或实际成交金额。新建/模板可带listedPriceLabel原文；提供文本时其解析金额必须与listedPriceCents一致，复杂文字须金额null，避免显示与数值矛盾。
 - 回访“是/否/未答”、评分是独立事实，不将这些事实塞进 `closed` 状态或任意 JSON。通知、拉黑已使用各自关系表。
 
 ## JSON 的受控用途
@@ -43,8 +45,10 @@
 
 - `phone`、`phoneRegion`、`wechatId`、`bio`；
 - `vehicle: {plate,brand,model}`；`zelle: {name,account,public}`；
-- `region: {state,county,area,key,label}`；`location: {label,address,latitude,longitude}`；
-- `preferences: {pickupAddresses,dropoffAddresses,comments}`；`profileCompleted`。
+- `region: {state,county,area,key,label}`；`location: {label,address,residence,latitude,longitude}`；
+- `preferences: {pickupAddresses,dropoffAddresses,comments,routePrices:{fortLeeNonCore}}`；`profileCompleted`。
+
+`location.residence` 保留手填处所，与地图提供的 `location.address` 分开；`fortLeeNonCore` 保留默认报价原文，不另存可能矛盾的金额副本。迁移联系电话区号优先 regionPhone 后 region，处所优先 Apartment、address、buildingName；地区使用当前编辑器消费的顶层字段及嵌套 location 补缺，差异留下受控提示和完整来源。地图 provider/精度等元数据只归档。常用接送点以当前 pickupSpot/dropoffSpot 为准，旧别名仅补缺，不能合并后复活已删除选项。
 
 这些字段都可缺省。电话、微信联系号、住址、车辆和收款资料不能随着 users 行直接公开。用户是司机还是乘客来自每条 ride_members，不由用户资料里的全局 role 判断。
 
@@ -80,7 +84,7 @@ runner 使用单个连接、数据库 advisory lock、每文件事务。每个�
 }
 ```
 
-必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。额外非空集合在当前切片中报告 UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。
+必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks；其他额外非空集合在当前切片中报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。
 
 ```ts
 const { plan, report } = normalizeCloudBaseExport(source, {
@@ -90,11 +94,11 @@ const { plan, report } = normalizeCloudBaseExport(source, {
 
 - `report` 只有受控集合分类、问题码、已知字段名、计数；不含 ID、OpenID、地址、联系方式、原始值，未知字段/集合名称也不会直接输出。
 - `plan` 包含账号、完整受控行程资料、sourceSha256和所有原文sources，仅供可信进程内部使用。来源须有非重复_id、无损JSON；原文归档不意味着未知业务字段已完成映射。任何 error 都使 `plan=null`；不能拿部分有效候选做生产导入。`candidateCounts` 仅表示审计过程中识别到的数量。
-- 账号使用 `(appId,openid)` 确定性 UUID，保持重跑一致；这只是迁移 ID 映射，不提供登录能力。
-- 同 OpenID 多资料、旧别名冲突、未知用户/字段/集合、账号异常状态、open行程未知城市或座位对不上、缺失必需地址/时间、ID 冲突、测试数据混入都会阻断。
-- 用户的 8 组旧行程数组只做关系对账；它们不再导入第二套索引。孤立或角色不符引用先报告问题，不能直接删除。
+- 账号使用 `(appId,openid)` 确定性UUID。先按身份分组，唯一_openid主资料为canonical来源；仅有openid且只含旧索引/时间/role的重复稀疏文档只归档，不覆盖资料或较早创建时间。无主资料的openid-only身份仍阻断；无身份且仅含已识别旧索引元数据的文档归档而不创建账号。嵌套userInfo仅在appId/openId一致且没有额外字段时视为重复上下文。此映射不提供登录能力。
+- 同 OpenID 多主身份资料、旧别名冲突、未知用户/字段/集合、账号异常状态、open行程未知城市或座位对不上、缺失必需地址/时间、ID 冲突、测试数据混入都会阻断。
+- 用户的8组旧行程数组只做关系对账；已不存在行程的悬空引用归档+notice，不建幽灵行程或成员。求车创建者按旧详情、权限和完成统计的实际语义固有地是乘客，不依赖其是否遗漏在 passengerID 中。仅已关闭求车中，非创建者的接单司机若也残留在乘客数组，按旧角色判断保留司机角色，原座位分配不转给创建者，冲突容量置未知；对应旧乘客历史索引只归档。其他已存在行程的成员/角色矛盾仍阻断；索引格式错误也阻断。
 - 时间只接受明确 UTC/offset、毫秒和 CloudBase `$date`。纽约春季缺失小时及秋季重复小时需要明确解决；不会选择一个看似合理的时刻。缓存 UTC 与本地时间冲突也会阻断。
-- 价格统一由 `legacy-price.ts` 按完整字符串识别已核验USD格式，使用整数分转换；明确免费才为0。无报价和复杂文案都保留原始label、金额为null。复杂文本在报告中记 `PRICE_TEXT_PRESERVED` 提示而不阻断保真导入；不可保真的非标量/无效数字仍阻断。金额单位未被原文确认时，不能仅凭解析成功用于人均价分析。
+- 价格统一由 `src/prices.ts` 按完整字符串识别已核验USD格式，使用整数分转换；明确免费才为0。无报价和复杂文案都保留原始label、金额为null。复杂文本在报告中记 `PRICE_TEXT_PRESERVED` 提示而不阻断保真导入；不可保真的非标量/无效数字仍阻断。金额单位未被原文确认时，不能仅凭解析成功用于人均价分析。
 - 旧求车成员列表及接单司机没有独立加入时间，保留joinedAt=null并记提示；显式无效时间仍阻断。独立旧资料写路径的更新时间取有效记录中最大值，仅指最后已记录写入，不用于决定哪个资料字段正确；全部缺失保留null。
 - 仅已closed历史行程可将缺失城市、冲突容量置null；原C/A/N完整留来源，不删成员、不声称实际超卖或成行。非空未知城市、open行程冲突、用户/关系未映射仍阻断。
 
@@ -161,7 +165,7 @@ definition 复用offerFieldsSchema和共同站点验证；只替换出发时间�
 - 秋季重复钟点显式选较早一次。若较早一次已过提前量，不临时改用较晚一次，而顺延整周。这是已有产品规则，与历史数据导入“不能猜歧义时间”不同。
 - canonical weekday=0周日。旧模板 weekdayIndex=0周一只能在迁移边界用 `(oldIndex+1)%7` 转换；主 API 不接受旧别名。
 
-nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板offset，不重复存departureAt/localDate。模板车辆/Zelle副本不是旧发布路径的资料来源，因此不进入新definition；历史原文留来源归档。旧CarpoolTemplate仍未导入，新接口尚未接替线上直写CloudBase。
+nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板offset，不重复存departureAt/localDate。模板车辆/Zelle副本不是旧发布路径的资料来源，因此不进入新definition；历史原文留来源归档。旧CarpoolTemplate已有纯转换（尚未写入服务器）：weekdayIndex周一0转一次、保留sourceId、非UUID确定性转换。仅空座位字符串按旧模板编辑/应用的明确默认设1并记notice，发布前仍可编辑并确认；其他无效人数阻断。旧更新时间缺失为null，原priceLabel保真。新接口尚未接替线上直写CloudBase。
 
 新增测试 `templates-time.test.ts` 与 `templates.integration.test.ts` 覆盖 UTC/上海/洛杉矶/檀香山/纽约机器时区、DST 两类边界、15 分钟门槛、年末和闰日、owner 隔离、并发幂等、并发修改、删除重试、分页、严格字段拒绝和真实 PostgreSQL CHECK。
 
@@ -169,7 +173,7 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 拉黑API只接收同AppID的内部用户ID，身份仍由会话确定。每次加入先锁行程，再按确定顺序取得加入者与现有参与者的无向用户对锁；拉黑/解除只取用户对锁，不反向锁行程。先完成的事务确定结果：拉黑先提交则加入失败，加入先提交则关系保留。无关用户对可并行，错误不暴露由谁拉黑或私人理由。重复加入先按已有成员事实返回，不被之后的拉黑变成失败。
 
-通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。创建、无变化重放不重复发通知。当前只接入 joined/left/cancelled；评分邀请、移除成员等须随对应业务补齐，不能声称全部旧通知已迁入。
+通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。移除仅通知被移除者，包含必要理由。创建、无变化重放不重复发通知。当前接入 joined/left/cancelled/removed；评分及完成邀请须随对应业务补齐，旧通知仅完成转换，尚未实际导入。
 
 列表按 created_at/id 倒序游标分页，保留数据库微秒精度，默认50最多100条，独立返回真实未读总数。单条已读、全部已读和清空均要求幂等键及收件人条件。重放清空/全部已读的旧请求不会作用于之后新增通知。没有公开发送通知接口，也不接受客户端指定收件人。
 
@@ -180,3 +184,13 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 `GET /api/v1/rides/:rideId/participants` 用单条SQL同时核对active关系并投影，防止授权后成员变更导致越权。无权限/退出/取消/不存在统一404。供车司机看active乘客，供车乘客只看自己与司机；求车成员保留同组联系能力。只返回白名单联系字段和允许的当前车辆/收款资料，不返回OpenID、整份profile、住址或任意JSON。
 
 `GET /api/v1/me/rides?scope=current|history&role=driver|passenger&page=1&limit=20` 只看本人未退出、未取消关系，复用公共行程投影并加本人role/seatCount。current为open且未出发，history为closed或已出发，不能解释为实际成行。两接口成功与错误都设private,no-store。
+
+`POST /api/v1/rides/:rideId/members/:memberId/remove` 要求本人会话、幂等键和非空 reason；memberId 是内部用户 UUID。仅行程创建者可以移除其他成员，求车接单司机没有此权限，不能移除创建者。仅首站未出发的 open 行程可修改；保留原成员行和历史，仅更新 state/left_at。事件、通知和回执同时提交；同一键重放不会移除后来重新加入的关系，成员仍可用新键再次加入。
+
+## 迁移模块
+
+`normalize.ts` 统一来源归档和全有或全无的plan；`types.ts` 是迁移行类型，`values.ts` 统一时间/字段/用户索引校验，`users.ts`负责身份选择、profile.ts负责资料转换，templates/notifications/blocks各处理自己的旧文档。共用报价解析在业务层prices.ts，避免新业务依赖旧导入器。
+
+旧通知保留原ID/read/title/content/type/createdAt，eventId=null，多个导航别名必须一致；已物理删除的ride仍可保留导航目标，不从文字重建业务事件或成员权限。旧extra逐字段验证后仅在来源归档保留。
+
+旧拉黑按blocker→target归并：最多一个active；存在active时，它的创建必须不早于旧inactive的解除时间。全部inactive取最新有据更新时间，若同刻内容冲突则阻断。dedupedAt只作维护来源，不能覆盖实际状态。源62条即使运行态归并为52对，原文仍逐条归档，不删除源库。

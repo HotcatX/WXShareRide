@@ -7,11 +7,11 @@ import { nextWeeklyOccurrence } from './time.ts';
 
 type TemplateRow = {
   id: string; name: string; weekday: number; localTime: string;
-  timeZone: 'America/New_York'; definition: TemplateDefinition; createdAt: Date; updatedAt: Date;
+  timeZone: 'America/New_York'; definition: TemplateDefinition; createdAt: Date; updatedAt: Date | null;
 };
 const columns = 'id,name,weekday,local_time AS "localTime",time_zone AS "timeZone",definition,created_at AS "createdAt",updated_at AS "updatedAt"';
 function asDto(row: TemplateRow) {
-  return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+  return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt?.toISOString() ?? null };
 }
 const notFound = () => new AppError(404, 'TEMPLATE_NOT_FOUND', '未找到出行模板');
 

@@ -20,7 +20,7 @@ export const templateStopsSchema = orderedStopsSchema(templateStopSchema).superR
 
 // Only fields actually used to publish an offer belong to a template. Vehicle
 // and payment preferences stay in the owner's profile, not editable copies here.
-export const templateDefinitionSchema = offerFieldsSchema.extend({ stops: templateStopsSchema });
+export const templateDefinitionSchema = offerFieldsSchema.safeExtend({ stops: templateStopsSchema });
 export const weeklyScheduleSchema = z.strictObject({
   weekday: z.number().int().min(0).max(6),
   localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),

@@ -61,6 +61,21 @@ test('multi-stop rides, per-ride disclosure and pickup instructions persist atom
     const { pool } = database;
     t.after(database.close);
 
+    await t.test('listed quote text survives template publishing and cannot contradict its numeric amount', async () => {
+      const creator = await user(pool);
+      for (const [label, cents] of [[' 12 USD ', 1200], ['两人共30，另议', null], ['', null]] as const) {
+        const created = await createRide(pool, creator, `quote-${randomUUID()}`, { ...offer(), listedPriceCents: cents, listedPriceLabel: label });
+        const visible = await getRide(pool, rideId(created));
+        assert.equal(visible.listedPriceCents, cents);
+        assert.equal(visible.listedPriceLabel, label);
+      }
+      const before = (await pool.query('SELECT count(*) FROM rides')).rows[0].count;
+      for (const [label, cents] of [['20 USD', 1200], ['两人共30，另议', 3000], ['12 USD', null]] as const) {
+        await assert.rejects(createRide(pool, creator, `bad-quote-${randomUUID()}`, { ...offer(), listedPriceCents: cents, listedPriceLabel: label }));
+      }
+      assert.equal((await pool.query('SELECT count(*) FROM rides')).rows[0].count, before);
+    });
+
     await t.test('every stop and its sequence survives, including identical addresses and equal departure times', async () => {
       const creator = await user(pool), at = start();
       const stops = [departure(at), { ...departure(at), placeId: 'fixture-place' }, departure(at + 3600000), destination(), destination('Second destination')];

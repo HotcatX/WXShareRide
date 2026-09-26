@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseListedPrice } from '../prices.ts';
 
 export const placeSchema = z.object({
   address: z.string().trim().min(1).max(300),
@@ -8,12 +9,15 @@ export const placeSchema = z.object({
 const commonFieldsSchema = z.object({
   cityKey: z.literal('ny_nj'),
   listedPriceCents: z.number().int().min(0).max(100_000_000).nullable(),
+  listedPriceLabel: z.string().max(1000).nullable().optional(),
   note: z.string().trim().max(1000).default(''),
-}).strict();
+}).strict().refine(value => value.listedPriceLabel == null ||
+  parseListedPrice(value.listedPriceLabel).cents === value.listedPriceCents,
+{ path: ['listedPriceCents'], message: '报价金额与文字不一致' });
 
 // Used by both concrete rides and weekly templates. Timing belongs to their
 // respective stop schemas; these are the shared offer business fields only.
-export const offerFieldsSchema = commonFieldsSchema.extend({
+export const offerFieldsSchema = commonFieldsSchema.safeExtend({
   kind: z.literal('offer'), seatCapacity: z.number().int().min(1).max(8),
 });
 
@@ -49,8 +53,8 @@ export const rideStopsSchema = orderedStopsSchema(rideStopSchema).superRefine((s
 const routeFields = { stops: rideStopsSchema, timeZone: z.literal('America/New_York') };
 
 export const createRideSchema = z.discriminatedUnion('kind', [
-  offerFieldsSchema.extend(routeFields),
-  commonFieldsSchema.extend({ ...routeFields, kind: z.literal('request'),
+  offerFieldsSchema.safeExtend(routeFields),
+  commonFieldsSchema.safeExtend({ ...routeFields, kind: z.literal('request'),
     partySize: z.number().int().min(1).max(4), largeLuggageCount: z.number().int().min(0).max(20).default(0) }),
 ]);
 

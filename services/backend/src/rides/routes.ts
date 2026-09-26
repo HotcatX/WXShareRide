@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
-import { cancelRide, createRide, getRide, joinRide, leaveRide, listRides } from './service.ts';
+import { cancelRide, createRide, getRide, joinRide, leaveRide, listRides, removeRideMember } from './service.ts';
 
 type Dependencies = {
   pool: Pool;
@@ -24,4 +24,9 @@ export function registerRideRoutes(app: FastifyInstance, { pool, requireUser }: 
       return reply.code(result.status).send({ ok: true, data: result.data, requestId: request.id });
     });
   }
+  app.post<{ Params: { rideId: string; memberId: string } }>('/api/v1/rides/:rideId/members/:memberId/remove', async (request, reply) => {
+    const user = await requireUser(request);
+    const result = await removeRideMember(pool, user.id, request.headers['idempotency-key'], request.params.rideId, request.params.memberId, request.body);
+    return reply.code(result.status).send({ ok: true, data: result.data, requestId: request.id });
+  });
 }

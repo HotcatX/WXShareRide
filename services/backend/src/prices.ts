@@ -1,4 +1,4 @@
-export type LegacyListedPrice =
+export type ListedPrice =
   | { classification: 'priced'; cents: number; label: string }
   | { classification: 'unpriced' | 'unresolved'; cents: null; label: string | null };
 
@@ -7,8 +7,8 @@ const amount = '(\\d{1,8})(?:\\.(\\d{1,2}))?';
 const space = '[^\\S\\r\\n]*';
 const perPerson = `(?:${space}/${space}人)?`;
 // These whole-label forms were audited in the legacy US ride data. Bare numbers
-// retain the existing USD convention; “刀” is only accepted in this migration
-// context. Other currencies, conditions and unspecified currency + /人 do not match.
+// retain the existing US service convention, including “刀”. Other currencies,
+// conditions and unspecified currency + /人 do not match.
 const pricedForms = [
   new RegExp(`^${amount}$`),
   new RegExp(`^\\$${space}${amount}${perPerson}$`),
@@ -28,7 +28,7 @@ const numericNotation = /[\p{N}零〇一二两兩三四五六七八九十百千�
  * unsupported non-scalar have label=null. Results can contain private free text:
  * callers must not log them; audit reports should count classifications only.
  */
-export function parseLegacyListedPrice(value: unknown): LegacyListedPrice {
+export function parseListedPrice(value: unknown): ListedPrice {
   if (value === null || value === undefined) return { classification: 'unpriced', cents: null, label: null };
   if (typeof value !== 'string' && typeof value !== 'number') return { classification: 'unresolved', cents: null, label: null };
   const label = String(value);

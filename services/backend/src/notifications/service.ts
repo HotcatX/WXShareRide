@@ -65,20 +65,23 @@ type RideEvent = { eventId: string; rideId: string; kind: 'offer' | 'request'; c
 
 /** Called inside the ride mutation transaction, never through a public send endpoint. */
 export async function notifyRideEvent(client: PoolClient, event: RideEvent) {
-  if (!['joined', 'left', 'cancelled'].includes(event.action)) return;
-  const members = (await client.query<{ user_id: string; role: string }>(
+  if (!['joined', 'left', 'cancelled', 'removed'].includes(event.action)) return;
+  const members = event.action === 'removed' ? [] : (await client.query<{ user_id: string; role: string }>(
     "SELECT user_id,role FROM ride_members WHERE ride_id=$1 AND state='active'", [event.rideId])).rows;
   const driver = members.find(member => member.role === 'driver');
   const passengerChange = event.payload.role === 'passenger';
-  const targets = event.action === 'cancelled' || (event.kind === 'request' && !passengerChange)
+  // Removal is sent only to its former member, who is already inactive. The
+  // target comes from the authorized mutation's event, never a public send API.
+  const targets = event.action === 'removed' ? [z.uuid().parse(event.payload.memberId)]
+    : event.action === 'cancelled' || (event.kind === 'request' && !passengerChange)
     ? members.map(member => member.user_id)
     : [event.creatorId, driver?.user_id];
   const recipients = [...new Set(targets.filter((id): id is string => !!id && id !== event.actorId))];
   if (!recipients.length) return;
-  const type = event.action === 'cancelled' ? 'ride_cancelled'
+  const type = event.action === 'removed' ? 'member_removed' : event.action === 'cancelled' ? 'ride_cancelled'
     : event.action === 'joined' ? (passengerChange ? 'passenger_joined' : 'driver_assigned')
       : (passengerChange ? 'passenger_left' : 'driver_left');
-  const title = { ride_cancelled: '行程已取消', passenger_joined: '有乘客加入行程',
+  const title = { member_removed: '你已被移出行程', ride_cancelled: '行程已取消', passenger_joined: '有乘客加入行程',
     driver_assigned: '已有司机接单', passenger_left: '有乘客退出行程', driver_left: '司机已退出行程' }[type];
   const route = (await client.query<{ address: string }>(
     'SELECT address FROM ride_stops WHERE ride_id=$1 ORDER BY position', [event.rideId])).rows;

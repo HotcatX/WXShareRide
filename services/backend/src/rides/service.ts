@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import { z } from 'zod';
 import { withIdempotency } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { assertNoBlockedMembers } from '../blocks/service.ts';
@@ -8,7 +9,7 @@ import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, li
 
 type Ride = {
   id: string; kind: 'offer' | 'request'; creator_id: string;
-  status: 'open' | 'cancelled' | 'closed'; seat_capacity: number;
+  status: 'open' | 'cancelled' | 'closed'; seat_capacity: number | null;
   departure_at: Date; version: number;
 };
 type Member = { user_id: string; role: 'driver' | 'passenger'; seat_count: number; state: 'active' | 'left';
@@ -21,8 +22,8 @@ async function lockedRide(client: PoolClient, rideId: string): Promise<Ride> {
   return result.rows[0];
 }
 
-function assertJoinable(ride: Ride) {
-  if (ride.status !== 'open' || new Date(ride.departure_at).getTime() <= Date.now()) {
+function assertJoinable(ride: Ride): asserts ride is Ride & { seat_capacity: number } {
+  if (ride.status !== 'open' || ride.seat_capacity === null || new Date(ride.departure_at).getTime() <= Date.now()) {
     throw new AppError(409, 'RIDE_NOT_OPEN', '行程已结束或取消');
   }
 }
@@ -70,11 +71,11 @@ export async function createRide(pool: Pool, userId: string, key: unknown, body:
     // remains four, matching the existing request business rule.
     const capacity = input.kind === 'offer' ? input.seatCapacity : 4;
     const result = await client.query<Ride>(`INSERT INTO rides
-      (id, kind, creator_id, city_key, status, seat_capacity, departure_at, time_zone, listed_price_cents, details)
-      VALUES ($1, $2, $3, $4, 'open', $5, $6, $7, $8, $9::jsonb)
+      (id, kind, creator_id, city_key, status, seat_capacity, departure_at, time_zone, listed_price_cents, details, listed_price_label)
+      VALUES ($1, $2, $3, $4, 'open', $5, $6, $7, $8, $9::jsonb, $10)
       RETURNING id, kind, creator_id, status, seat_capacity, departure_at, version`,
     [rideId, input.kind, userId, input.cityKey, capacity, departureAt, input.timeZone,
-      input.listedPriceCents, JSON.stringify(details)]);
+      input.listedPriceCents, JSON.stringify(details), input.listedPriceLabel ?? null]);
     const ride = result.rows[0];
     await client.query(`INSERT INTO ride_stops(ride_id, position, kind, address, place_id, departure_at)
       SELECT $1, position - 1, stop->>'kind', stop->>'address', stop->>'placeId',
@@ -158,6 +159,35 @@ export async function leaveRide(pool: Pool, userId: string, key: unknown, id: un
       WHERE ride_id = $1 AND user_id = $2`, [rideId, userId]);
     const changed = await advanceVersion(client, ride);
     await recordEvent(client, changed, userId, 'left', { role: member.role, seatCount: member.seat_count, reason: input.reason });
+    return writeResult(changed);
+  });
+}
+
+export async function removeRideMember(pool: Pool, userId: string, key: unknown, id: unknown, target: unknown, body: unknown) {
+  const rideId = rideIdSchema.parse(id);
+  const memberId = z.uuid().parse(target).toLowerCase();
+  // Removal and cancellation both require one explicit, bounded reason.
+  const input = cancelRideSchema.parse(body);
+  return withIdempotency(pool, userId, 'rides.removeMember', key, { rideId, memberId, ...input }, async client => {
+    const ride = await lockedRide(client, rideId);
+    // The legacy offer driver is its creator. For requests, only the passenger
+    // creator can remove a passenger or the accepted driver; acceptance never
+    // grants a driver management authority over the passenger's request.
+    if (ride.creator_id !== userId) throw new AppError(403, 'NOT_RIDE_CREATOR', '只有创建者可以移除行程成员');
+    assertJoinable(ride);
+    if (memberId === ride.creator_id) throw new AppError(403, 'CREATOR_MUST_CANCEL', '创建者请取消行程，不能移除自己');
+    const member = (await client.query<Member>(`SELECT user_id, role, seat_count, state FROM ride_members
+      WHERE ride_id = $1 AND user_id = $2`, [rideId, memberId])).rows[0];
+    if (!member) throw new AppError(404, 'MEMBER_NOT_FOUND', '该成员不在行程中');
+    if (ride.kind === 'offer' && member.role !== 'passenger') throw new AppError(400, 'INVALID_ROLE', '供车行程只能移除乘客');
+    if (member.state === 'left') return writeResult(ride, false);
+    // Keep the existing relationship and its private details as evidence.
+    // All membership writes share the ride lock; seats are still derived from
+    // active memberships, and removal does not create a separate counter/block.
+    await client.query(`UPDATE ride_members SET state = 'left', left_at = GREATEST(clock_timestamp(), joined_at)
+      WHERE ride_id = $1 AND user_id = $2`, [rideId, memberId]);
+    const changed = await advanceVersion(client, ride);
+    await recordEvent(client, changed, userId, 'removed', { memberId, role: member.role, seatCount: member.seat_count, reason: input.reason });
     return writeResult(changed);
   });
 }

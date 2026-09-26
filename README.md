@@ -32,6 +32,7 @@ The Mini Program uses **JavaScript, WXML, and WXSS**. Production bookings and ma
 Useful starting points:
 
 - [Shared ride calendars and form pickers](docs/ride-form-pickers-2026-09-11.md)
+- [Place recommendation design and catalog maintenance](docs/place-recommendation-and-data-plan-2026-09-23.md)
 - [Community announcements and remote configuration](docs/community-hot-update.md)
 - [Ride completion statistics](docs/ride-completion-stats.md)
 - [Current backend deployment boundary](docs/backend-foundation-deployment-2026-09-25.md)

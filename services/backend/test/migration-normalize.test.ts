@@ -27,6 +27,35 @@ function fixture() {
 }
 const issues = (input: unknown) => normalizeCloudBaseExport(input, options).report.issues.map(issue => issue.code);
 
+test('rating and completion facts replace reconciled user aggregates without copying them into profiles', () => {
+  const input = fixture();
+  input.collections.Carpool[0]!.status = 'past';
+  const at = '2026-09-30T00:00:00.000Z';
+  const driver = input.collections.userInfo[0]!, passenger = input.collections.userInfo[1]!;
+  Object.assign(driver, { updatedAt: at, _rideCompletionV1: { version: 1, driverKeys: ['Carpool|ride-legacy-1'], passengerKeys: [] },
+    rideStats: { completedTrips: 1, completedDriverTrips: 1, completedPassengerTrips: 0,
+      ratingSum: 5, ratingCount: 1, ratingAvg: 5, ratingWeightedAvg: 4.8,
+      driverRatingSum: 5, driverRatingCount: 1, driverRatingAvg: 5, driverRatingWeightedAvg: 4.8, lastRatedAt: at } });
+  Object.assign(passenger, { updatedAt: at, _rideCompletionV1: { version: 1, driverKeys: [], passengerKeys: ['Carpool|ride-legacy-1'] },
+    rideStats: { completedTrips: 1, completedDriverTrips: 0, completedPassengerTrips: 1 } });
+  const collections = { ...input.collections, TripRatings: [{ _id: 'legacy-rating', _openid: 'private-passenger',
+    raterOpenid: 'private-passenger', targetOpenid: 'private-driver', tripId: 'ride-legacy-1', type: 'carpool', collection: 'Carpool',
+    raterRole: 'passenger', targetRole: 'driver', score: 5, comment: '', createdAt: at, updatedAt: at }] };
+  const result = normalizeCloudBaseExport({ ...input, collections }, options);
+  assert.equal(result.report.ready, true);
+  assert.equal(result.plan!.ratings.length, 1);
+  assert.equal(result.plan!.completions.length, 2);
+  assert.ok(result.plan!.completions.every(row => row.countedAt === null && row.eventId === null));
+  assert.ok(result.plan!.users.every(user => !Object.hasOwn(user.profile, 'rideStats')));
+  assert.equal(result.plan!.sources.length, 4, 'full original user summaries remain in private evidence');
+  const missingRatings = normalizeCloudBaseExport(input, options);
+  assert.equal(missingRatings.plan, null, 'nonzero old summaries cannot pass a partial export without rating facts');
+  (driver.rideStats as Record<string, unknown>)['private-unknown-stat'] = 0;
+  const invalid = normalizeCloudBaseExport({ ...input, collections }, options);
+  assert.equal(invalid.plan, null);
+  assert.doesNotMatch(JSON.stringify(invalid.report), /private-/);
+});
+
 test('complete offer export keeps legacy ride ID and trusted account relation, not user arrays', () => {
   const input = fixture(); input.collections.userInfo[0]!.tripDriver = ['ride-legacy-1'];
   const before = JSON.stringify(input);

@@ -40,6 +40,9 @@ is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
 - `/api/v1/notifications`: private cursor-paginated list and idempotent clear;
   `GET /unread`, `POST /read-all` and `POST /:id/read`. Ride changes and their
   recipient notifications commit together, with one notification per event/user.
+- `/api/v1/rides/:rideId/ratings`: authenticated `POST {targetId,score}` and
+  `GET` of the caller's own submitted scores. One rating per counterpart;
+  database constraints and the ride transaction prevent duplicate scoring.
 - `/healthz`: readiness against the database; exposes no account/configuration.
 
 Responses use `{ok:true,data,requestId}` or

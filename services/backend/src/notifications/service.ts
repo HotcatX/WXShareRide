@@ -61,33 +61,40 @@ export async function clearNotifications(pool: Pool, userId: string, key: unknow
 }
 
 type RideEvent = { eventId: string; rideId: string; kind: 'offer' | 'request'; creatorId: string;
-  actorId: string; action: string; payload: Record<string, unknown> };
+  actorId: string | null; action: string; payload: Record<string, unknown> };
 
 /** Called inside the ride mutation transaction, never through a public send endpoint. */
 export async function notifyRideEvent(client: PoolClient, event: RideEvent) {
-  if (!['joined', 'left', 'cancelled', 'removed'].includes(event.action)) return;
-  const members = event.action === 'removed' ? [] : (await client.query<{ user_id: string; role: string }>(
+  if (!['joined', 'left', 'cancelled', 'removed', 'rated', 'closed'].includes(event.action)) return;
+  const members = ['removed', 'rated'].includes(event.action) ? [] : (await client.query<{ user_id: string; role: string }>(
     "SELECT user_id,role FROM ride_members WHERE ride_id=$1 AND state='active'", [event.rideId])).rows;
   const driver = members.find(member => member.role === 'driver');
   const passengerChange = event.payload.role === 'passenger';
   // Removal is sent only to its former member, who is already inactive. The
   // target comes from the authorized mutation's event, never a public send API.
-  const targets = event.action === 'removed' ? [z.uuid().parse(event.payload.memberId)]
+  // A closure only invites ratings when there is an actual driver/passenger pair.
+  if (event.action === 'closed' && (!driver || !members.some(member => member.role === 'passenger'))) return;
+  const targets = event.action === 'rated' ? [z.uuid().parse(event.payload.targetId)]
+    : event.action === 'closed' ? members.map(member => member.user_id)
+    : event.action === 'removed' ? [z.uuid().parse(event.payload.memberId)]
     : event.action === 'cancelled' || (event.kind === 'request' && !passengerChange)
     ? members.map(member => member.user_id)
     : [event.creatorId, driver?.user_id];
   const recipients = [...new Set(targets.filter((id): id is string => !!id && id !== event.actorId))];
   if (!recipients.length) return;
-  const type = event.action === 'removed' ? 'member_removed' : event.action === 'cancelled' ? 'ride_cancelled'
+  const type = event.action === 'rated' ? 'ride_rating' : event.action === 'closed' ? 'rating_invitation'
+    : event.action === 'removed' ? 'member_removed' : event.action === 'cancelled' ? 'ride_cancelled'
     : event.action === 'joined' ? (passengerChange ? 'passenger_joined' : 'driver_assigned')
       : (passengerChange ? 'passenger_left' : 'driver_left');
-  const title = { member_removed: '你已被移出行程', ride_cancelled: '行程已取消', passenger_joined: '有乘客加入行程',
+  const title = { ride_rating: '你收到一条行程评价', rating_invitation: '行程已结束，可以评价同行成员',
+    member_removed: '你已被移出行程', ride_cancelled: '行程已取消', passenger_joined: '有乘客加入行程',
     driver_assigned: '已有司机接单', passenger_left: '有乘客退出行程', driver_left: '司机已退出行程' }[type];
   const route = (await client.query<{ address: string }>(
     'SELECT address FROM ride_stops WHERE ride_id=$1 ORDER BY position', [event.rideId])).rows;
   const description = route.length ? `${route[0]!.address} → ${route.at(-1)!.address}` : '本次行程';
   const reason = typeof event.payload.reason === 'string' ? event.payload.reason : '';
-  const content = `${description}：${title}${reason ? `。理由：${reason}` : ''}`;
+  const score = event.action === 'rated' ? z.number().int().min(1).max(5).parse(event.payload.score) : null;
+  const content = `${description}：${title}${score !== null ? `（${score} 分）` : ''}${reason ? `。理由：${reason}` : ''}`;
   for (const recipient of recipients) {
     await client.query(`INSERT INTO notifications(id,user_id,event_id,ride_id,type,title,content)
       VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(event_id,user_id) DO NOTHING`,

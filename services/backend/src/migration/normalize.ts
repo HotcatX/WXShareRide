@@ -1,17 +1,20 @@
 import { parseListedPrice } from '../prices.ts';
 import { migrationSource, serializeSource, sourceHash } from './source.ts';
-import type { Document, Collection, MigrationPlan, MigrationReport, RideRow, MemberRow, StopRow } from './types.ts';
+import type { Document, Collection, MigrationIssue, MigrationPlan, MigrationReport, RideRow, MemberRow, StopRow } from './types.ts';
 import { object, text, present, migrationReaders, parseExportTimestamp, localDepartureCandidates } from './values.ts';
 import { indexFields, normalizeUsers } from './users.ts';
 import { normalizeTemplates } from './templates.ts';
 import { normalizeLegacyNotifications } from './notifications.ts';
 import { normalizeLegacyBlocks } from './blocks.ts';
+import { normalizeRatings } from './ratings.ts';
+import { normalizeCompletions } from './completions.ts';
+import { validateRatingSummaries } from './rating-summaries.ts';
 export type { MigrationIssue, UserRow, RideRow, MemberRow, StopRow, MigrationPlan, MigrationReport, CloudBaseExport } from './types.ts';
 export { parseExportTimestamp, localDepartureCandidates } from './values.ts';
 export { migrationUserId } from './users.ts';
 
 const collections: Collection[] = ['userInfo', 'Carpool', 'CarpoolRequest'];
-const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks']);
+const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings']);
 const rideFields = new Set([
   '_id', '_openid', 'cityKey', 'cityLabel', 'departures', 'destinations', 'passengerCount', 'availSeatNum', 'passengers', 'passengerID',
   'driverOpenid', 'status', 'referencePrice', 'comment', 'zelle', 'largeLuggageCount', 'createdAt', 'updatedAt',
@@ -21,11 +24,14 @@ const pointFields = new Set(['address', 'date', 'time', 'placeId']);
 const passengerFields = new Set(['_openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'joinedAt', 'pickupAddress', 'dropoffAddress']);
 /** Read-only candidate normalization. The plan contains private data: print only report. */
 export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York' }): { plan: MigrationPlan | null; report: MigrationReport } {
-  const plan: MigrationPlan = { sourceSha256: '', sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [] };
-  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0 }, issues: [] };
+  const plan: MigrationPlan = { sourceSha256: '', sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [] };
+  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0 }, issues: [] };
   const issue = (collection: Collection, code: string, field = '-', severity: 'error' | 'notice' = 'error', count = 1) => {
     const previous = report.issues.find(item => item.collection === collection && item.code === code && item.field === field && item.severity === severity);
     if (previous) previous.count += count; else report.issues.push({ collection, code, field, severity, count });
+  };
+  const mergeIssues = (issues: MigrationIssue[]) => {
+    for (const item of issues) issue(item.collection, item.code, item.field, item.severity, item.count);
   };
   if (options.timeZone !== 'America/New_York' || !object(input) || input.kind !== 'cloudbase-full-export' || !text(input.appId) || !object(input.collections)) {
     issue('other', 'FULL_EXPORT_REQUIRED'); return { plan: null, report };
@@ -59,12 +65,12 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   if (docs.Notifications !== undefined) {
     const converted = normalizeLegacyNotifications(docs.Notifications, plan.users, appId);
     plan.notifications = converted.rows ?? [];
-    for (const item of converted.issues) issue(item.collection, item.code, item.field, item.severity, item.count);
+    mergeIssues(converted.issues);
   }
   if (docs.UserBlocks !== undefined) {
     const converted = normalizeLegacyBlocks(docs.UserBlocks, plan.users, appId);
     plan.blocks = converted.rows ?? [];
-    for (const item of converted.issues) issue(item.collection, item.code, item.field, item.severity, item.count);
+    mergeIssues(converted.issues);
   }
   const rideIds = new Set<string>();
   const historicalDrivers = new Map<string, string>();
@@ -211,6 +217,13 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       plan.members.push(...members);
     }
   }
+  const ratings = normalizeRatings(docs.TripRatings ?? [], plan.users, plan.rides, plan.members, appId);
+  mergeIssues(ratings.issues);
+  plan.ratings = ratings.rows ?? [];
+  const completions = normalizeCompletions(sourceUsers, plan.users, plan.rides, appId);
+  mergeIssues(completions.issues);
+  plan.completions = completions.rows ?? [];
+  validateRatingSummaries(sourceUsers, plan.users, plan.ratings, appId, issue);
   // Old user arrays are indexes, not membership facts. Report disagreements instead of importing a second truth.
   for (const user of sourceUsers) {
     const openid = typeof user._openid === 'string' ? user._openid : user.openid;
@@ -234,7 +247,8 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     }
   }
   report.candidateCounts = { users: plan.users.length, rides: plan.rides.length, members: plan.members.length, stops: plan.stops.length,
-    templates: plan.templates.length, notifications: plan.notifications.length, blocks: plan.blocks.length };
+    templates: plan.templates.length, notifications: plan.notifications.length, blocks: plan.blocks.length,
+    ratings: plan.ratings.length, completions: plan.completions.length };
   report.issues.sort((a, b) => `${a.collection}:${a.code}:${a.field}`.localeCompare(`${b.collection}:${b.code}:${b.field}`));
   report.ready = !report.issues.some(item => item.severity === 'error');
   // Never expose a partially valid import plan, invented fallback status, or unresolved required facts.

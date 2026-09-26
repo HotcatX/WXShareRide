@@ -7,6 +7,9 @@ export const indexFields = ['tripDriver', 'tripDriverHistory', 'tripDriverJoin',
 const userFields = new Set([
   '_id', '_openid', 'openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'createdAt', 'createdTime', 'createTime',
   'updatedAt', 'updateTime', 'bigregionUpdatedAt', 'status', 'role', 'userInfo', ...indexFields, ...profileSourceFields,
+  // Central completion/score converters validate and reconcile these facts;
+  // none of their redundant aggregates enter the editable profile.
+  'rideStats', '_rideCompletionV1',
 ]);
 /** Deterministic UUID for a verified app/OpenID pair; not an authentication mechanism. */
 export function migrationUserId(appId: string, openid: string): string {

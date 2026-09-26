@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `007` 的字段契约。它是维护文档；本轮阶段、权限与发布决策仍以根目录临时 `BACKEND_MIGRATION_WORK.md` 为准。已有账号、核心行程、模板、拉黑与通知；这不代表评分、市场及旧数据已经全部迁出，也不代表所有本地迁移文件已部署。
+本文件描述 `migrations/001` 至 `009` 的字段契约。它是维护文档；本轮阶段、权限与发布决策仍以根目录临时 `BACKEND_MIGRATION_WORK.md` 为准。已有账号、核心行程、模板、拉黑、通知、评分和完成计数；这不代表市场及旧数据已经全部迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -19,6 +19,11 @@
 | `user_blocks`（003） | `(blocker_id,target_id)`，`active`，`reason`，`blocked_at`，`updated_at` | 每方向一个事实；重新启用复用原行。双向任意有效记录阻止新加入，不移除已有参与关系。 |
 | `migration_batches` / `migration_sources`（006） | 批次UUID/AppID/来源hash；每批次 `(collection,source_id)` 和完整序列化JSON/hash | 私有迁移证据，不提供客户端API，不参与业务权限判断。 |
 | `notifications`（004） | 旧ID兼容 `id`，`user_id`，`event_id`，`ride_id`，`type`，`title`，`content`，`read`，`created_at` | 仅收件人可读/改/删；`event_id,user_id` 唯一。旧通知无事件ID可为null；read保留布尔，不伪造旧阅读时刻。 |
+| `ride_ratings`（008） | 原文本ID、`ride_id`、`rater_id`、`target_id`、双方角色、1–5整数 `score`、`created_at`、可空 `event_id` | `(ride_id,rater_id,target_id)` 唯一，不自评，双方角色相反；旧记录保留时间和分数，不复制汇总到profile。 |
+| `ride_completions`（009） | `(ride_id,user_id)`、首次 `role`、可空 `counted_at/event_id` | 旧收据的时间/事件未知则同时为空；不依赖当前成员关系，不授予成员权限。 |
+| `public_statistics`（009） | `app_id`、`served_count`、`updated_at` | 显式导入核验过的旧累计值，之后与关闭事件同事务增加；不从现存行程重算旧总数。 |
+
+009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
 007 允许旧模板updated_at=null；列表不把未知时间改成现在。
 
@@ -84,7 +89,7 @@ runner 使用单个连接、数据库 advisory lock、每文件事务。每个�
 }
 ```
 
-必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks；其他额外非空集合在当前切片中报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。
+必须使用完整、未裁剪业务文档。该 kind 是调用方明确的来源声明，**不是导出完整性证明**：生产迁移前仍须按云端集合数量、分页、最终增量和附件另行对账。现有 analytics/地点同步快照缺少资料、成员、模板等事实，不能改个 kind 冒充完整导出。已支持CarpoolTemplate、Notifications、UserBlocks、TripRatings；其他额外非空集合在当前切片中报告UNMAPPED_COLLECTION，不会被丢弃后宣称全部迁移成功。用户非零评分汇总与实际明细必须对账，缺少TripRatings不能假装完整。
 
 ```ts
 const { plan, report } = normalizeCloudBaseExport(source, {
@@ -173,7 +178,7 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 拉黑API只接收同AppID的内部用户ID，身份仍由会话确定。每次加入先锁行程，再按确定顺序取得加入者与现有参与者的无向用户对锁；拉黑/解除只取用户对锁，不反向锁行程。先完成的事务确定结果：拉黑先提交则加入失败，加入先提交则关系保留。无关用户对可并行，错误不暴露由谁拉黑或私人理由。重复加入先按已有成员事实返回，不被之后的拉黑变成失败。
 
-通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。移除仅通知被移除者，包含必要理由。创建、无变化重放不重复发通知。当前接入 joined/left/cancelled/removed；评分及完成邀请须随对应业务补齐，旧通知仅完成转换，尚未实际导入。
+通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。移除仅通知被移除者，包含必要理由；评分仅通知被评价者；关闭只为有司机和乘客的组发送评价邀请。创建、无变化重放不重复发通知。旧通知仅完成转换，尚未实际导入。
 
 列表按 created_at/id 倒序游标分页，保留数据库微秒精度，默认50最多100条，独立返回真实未读总数。单条已读、全部已读和清空均要求幂等键及收件人条件。重放清空/全部已读的旧请求不会作用于之后新增通知。没有公开发送通知接口，也不接受客户端指定收件人。
 
@@ -194,3 +199,15 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 旧通知保留原ID/read/title/content/type/createdAt，eventId=null，多个导航别名必须一致；已物理删除的ride仍可保留导航目标，不从文字重建业务事件或成员权限。旧extra逐字段验证后仅在来源归档保留。
 
 旧拉黑按blocker→target归并：最多一个active；存在active时，它的创建必须不早于旧inactive的解除时间。全部inactive取最新有据更新时间，若同刻内容冲突则阻断。dedupedAt只作维护来源，不能覆盖实际状态。源62条即使运行态归并为52对，原文仍逐条归档，不删除源库。
+
+## 评分与完成计数（008–009）
+
+`POST /api/v1/rides/:rideId/ratings` 接收 `{targetId,score}`，targetId是内部用户UUID；会话确定评价者。锁行程后以数据库当前时间核对closed且最后出发站严格已过，双方须仍是active成员且司机/乘客角色相反。禁止自评、改分；同幂等键重放原成功，不同键重复评价返回409 ALREADY_RATED。评分、版本事件、目标通知、回执同时提交。没有回访、双方先互评或拉黑前置条件。
+
+`GET /api/v1/rides/:rideId/ratings` 仅向有效成员返回其本人已评价的targetId/score，不提供他人的逐条评分。鉴权与投影使用同一SQL快照；成功、失败均private,no-store。
+
+`closeDueRides(pool,appId,batchSize)` 是内部有界任务函数，不提供客户端触发接口；当前尚未安装生产调度。以最后出发站严格过期为条件，按行程锁并发SKIP LOCKED，仅open→closed一次。个人完成收据、公开增量、系统事件、评价邀请同事务提交。旧closed行程不会重算；旧收据冲突保留首次角色和未知时间。个人次数按每个匹配账户一次，至少一司机、一真实乘客；不按同行座位数。公开人次保留旧口径：有司机时 `min(5,1+active乘客seat_count之和)`，无司机求车0，供车司机独行1。两项均不表示用户回访已确认实际成行。public_statistics缺少该AppID基线时整个关闭批次回滚，不偷偷从0开始。
+
+迁移rating保留原ID/分数/时间，核对身份、行程类型、双方角色和唯一关系。已发生的历史提前评分保留并记LEGACY_EARLY_RATING_PRESERVED提示，不改时间，也不放宽新写入权限。所有旧用户role/all评分sum/count/avg/weightedAvg与明细对账后仅归档；加权均分继续使用prior 4.7、weight 3、一位小数。_rideCompletionV1去重收据与三项completed计数必须一致；已退出或当前未匹配者的旧收据仍保留，但不恢复成员。缺失/矛盾/未知业务字段阻断整个导入计划。
+
+评分与完成次数的客户端显示投影、公共统计基线导入和最终调度仍需接入；当前没有将这些本地模块切换为生产权威写库。

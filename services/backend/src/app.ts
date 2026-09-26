@@ -14,6 +14,7 @@ import { createLoginAdmission } from './auth/admission.ts';
 import { registerTemplateRoutes } from './templates/routes.ts';
 import { registerNotificationRoutes } from './notifications/routes.ts';
 import { registerBlockRoutes } from './blocks/routes.ts';
+import { registerRatingRoutes } from './ratings/routes.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
@@ -51,5 +52,6 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   await registerTemplateRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerNotificationRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerBlockRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
+  registerRatingRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   return app;
 }

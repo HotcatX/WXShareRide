@@ -27,6 +27,17 @@ alternative for a mounted secret; configure exactly one of it and `DATABASE_URL`
 login returns `503 LOGIN_UNAVAILABLE`; no simulated or client-supplied identity
 is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
 
+Image storage is optional until provisioned: set all of `COS_BUCKET`,
+`COS_REGION`, and `COS_CREDENTIALS_FILE`. The mounted JSON secret contains only
+`secretId` and `secretKey`; never commit it or put it into the mini program.
+`CLOUDBASE_STORAGE_ENV` optionally enables existing `cloud://` references in
+that exact same bucket. Keep the bucket private and never enable versioning
+while this create-only upload adapter is active. The server checks the bucket
+before each PUT; the credential should allow GetObject, GetBucketVersioning and
+PutObject only under the application's new image prefix, with no delete/ACL or
+bucket-management permissions. Existing objects need read permission only.
+No bucket creation, public ACL change or automatic cleanup runs at startup.
+
 ## Contract
 
 - `/api/v1/auth/login`: `POST {code}` from a fresh `wx.login` call.
@@ -54,6 +65,24 @@ is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
   origins recorded in `admin_origins` are accepted; an empty allowlist denies
   access. An admin token cannot authenticate a mini-program user, or vice versa.
 - `/healthz`: readiness against the database; exposes no account/configuration.
+- `/api/v1/market/listings`: public filtered reads and authenticated creates;
+  detail/update/status/delete, own/seller lists and counted detail views are
+  separate routes. Reads never increment views. Images use ordered file UUIDs.
+- `/api/v1/admin/market/listings`, `/batches`, `/templates`: management publishing,
+  version-checked edits, resumable bulk imports and shared reusable templates.
+- `/api/v1/community`: public display configuration; `/api/v1/admin/community`
+  reads/updates it with version checks and an attachment-preserving history.
+- `/api/v1/ads`: public active contact ads. Authenticated `POST /:id/clicks`
+  records a tap with permanent idempotency; a tap is not a successful contact.
+- `/api/v1/files/images`: authenticated `POST application/octet-stream` with
+  actual image bytes and an idempotency key. JPEG/PNG/WebP, at most 2MiB and
+  12 million decoded pixels; clients must resize unsupported/oversized originals.
+  At most two uploads are admitted per server process, including body reception.
+  Overload returns 503 plus Retry-After; retry the same bytes/key, not a cloud write.
+- `/api/v1/files/urls`: `POST {fileIds:[...]}` for 1–50 UUIDs, optionally authenticated.
+  The entire batch must be readable by that viewer. Returns five-minute signed
+  HTTPS URLs; never persist those URLs as file identity. The same two endpoints
+  under `/api/v1/admin/files/` use management authentication and origin checks.
 
 Responses use `{ok:true,data,requestId}` or
 `{ok:false,error:{code,message},requestId}`. Each business write requires an
@@ -83,13 +112,17 @@ as the SQL migration runner, the importer discovers and locks every application
 table and refuses any nonempty target. New tables automatically participate in
 that guard; they do not automatically become supported import models.
 
-Market schemas, a listing table and owner-scoped user write transactions are
-implemented; ordered image UUIDs live only in the file-reference table. Private
-legacy converters cover listings, admins, file ledgers, contact ads and community
-revisions. They preserve historical expiry and unknown metadata. Market HTTP,
-trusted uploads, complete reference import, website administration and analytics
-must still be integrated before that domain can move. No storage deletion timer
-or real provider adapter is installed by the file module. See `SCHEMA.md`.
+Market HTTP, management publishing/templates, community configuration, counted
+views, ads, trusted image uploads and file URL authorization are implemented.
+Private converters and the bootstrap importer cover their supported historical
+models, preserving expiry and unknown metadata. The COS adapter signs only
+authorized references, bounds downloads and verifies uploaded bytes before a
+file becomes ready. Existing cloud references can keep their original objects;
+only their exact configured bucket/environment may resolve. Credentials, real
+provider checks and mini-program/website DTO adaptation remain deployment gates.
+Avatars still use the separate legacy profile path; this file module does not
+yet authorize profile-avatar references. No storage deletion timer is enabled.
+See `SCHEMA.md`.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 Keep the current mini-program on CloudBase until missing feature compatibility,

@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260926-admin-content
+    image: linkx-backend:20260926-files-ads
     restart: unless-stopped
     init: true
     read_only: true
@@ -35,7 +35,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 96
-    mem_limit: 256m
+    mem_limit: 384m
     cpus: 1.0
     depends_on:
       database: { condition: service_healthy }

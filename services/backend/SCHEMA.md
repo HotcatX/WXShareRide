@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `022` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口、管理发布/模板、社区读写及广告存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `023` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口、管理发布/模板、社区读写及广告存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -28,7 +28,7 @@
 | `admin_sessions`（014） | `token_hash`、`app_id/account_id`、`credential_version`、`expires_at/created_at` | token只存hash，有效期8小时；停用、改凭据或归属变化永久删除旧会话。 |
 | `admin_login_attempts` / `admin_origins`（014） | `(app_id,scope)` 和窗口/次数；`(app_id,origin)` | 原子15分钟窗口，每账号10次、每应用120次；scope为账号hash或global。来源必须精确HTTPS匹配，默认无授权来源。 |
 | `admin_audit` / `admin_requests`（014、021） | 审计UUID、app/account/action/details/time；幂等主键 `(app_id,owner_key,operation,request_key)`；payload_format | 管理写入、审计和永久回执同事务；旧审计actor不强制有账号，不由日志创造权限。canonical-v1与legacy-web-v1摘要不能互比。 |
-| `files`（015–016、018） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
+| `files`（015–016、018、023） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
 | `file_references`（015） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community；有序slot如image.0、thumbnail.0。引用事实是唯一依据，不另存refCount或attached状态。 |
 | `market_listings`（017） | `(app_id,id)`、两类owner恰一、`shared_admin_management`、`status`、`expires_at`、`version`、`content`、创建/更新时间 | content无images，图片只存引用。status允许online/offline/sold/deleted；删除留墓碑和永久幂等结果。version为0至JS安全整数上限。 |
 | `ads` / `ad_clicks`（019） | 广告 `(app_id,id)`、展示内容、contact目标、窗口及权重；点击 `(app_id,id)`、ad_id、位置、商品类型、可空actor/time | 点击不等于曝光或成功联系。ad_id无外键，保留已删除广告的历史。 |
@@ -338,3 +338,14 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 登录事务和 `GET /api/v1/referrals/me` 保留或签发本人邀请码；接口只返回码和推荐人数。新码优先沿用原OpenID派生格式，唯一冲突时生成随机码，不覆盖归属。`POST /api/v1/referrals/bind {code}` 要求会话与幂等键，同账号锁串行首次绑定；同码重复为no-op，其他码409，自邀/跨应用/不存在拒绝。已有用户也可首次绑定，不额外推断新客、奖励或首次访问归因。访问明细留给既有分析采集，不再建平行日志表。
 
 公共基线和原邀请码已接首次导入，显示接口已接应用；客户端消费者、生产调度和最终单写切换仍需完成。当前没有将本地模块切换为生产权威写库。
+
+
+## 图片上传与读取（023）
+
+`files.upload_request_key` 是一次上传的永久身份，按 app/user 或 app/原管理上传者唯一。首次 pending 预约同时固定原有 size_bytes/media_type/sha256，verified_at 仍为空；同请求不同内容冲突，预约路径、归属、预期内容不可改。不新增第二套上传任务或回执表。上传只允许真实解码后的 JPEG/PNG/WebP，≤2MiB、≤1200万像素。
+
+同请求连接级 advisory lock 跨存储 I/O，前后两个短事务复用该连接；I/O 期间没有打开的数据库事务。重试先回读同一对象，create-only PUT 后核对长度/类型/SHA-256，成功才 ready。ready 重试不重新 PUT；deleting/deleted 不复活。管理员在前后事务重新鉴权，confirm 和审计同事务。HTTP 在正文解析前完成身份/请求编号检查并限制每进程同时最多两次上传；存储每个请求与响应流均有10秒硬超时。
+
+图片 UUID 只标识对象，不授予权限。读取按同一应用、ready 状态、原上传者或当前可见业务引用授权，1–50个整批校验，不能返回部分越权结果。管理员共享范围继承实际 listing 管理权限；社区历史引用必须存在实际修订。成功才提供最长300秒的签名URL，短链可能在授权撤销后保持有效直至到期；不永久存为业务字段。
+
+COS adapter 的桶、地域及服务器密钥在唯一配置入口；客户端不传 provider/locator/owner。配置同桶旧 CloudBase 环境后可读取原 cloud:// 对象，无需重写不可变 locator 或复制、删除原图。新上传只写本应用 linkx/images 前缀，PUT 前确认桶从未启用版本控制，关闭重定向/隐式重试，读回严格限量。物理删除 worker 仍未接 provider、未启用。头像仍由 profile 的旧路径处理，不能把图片UUID或短期URL误写入 avatar_url。

@@ -22,8 +22,11 @@ import { registerMarketRoutes } from './market/routes.ts';
 import { registerCommunityRoutes } from './community/routes.ts';
 import { registerAdminMarketRoutes } from './admin/market-routes.ts';
 import { registerAdminMarketTemplateRoutes } from './admin/market-template-routes.ts';
+import { registerAdRoutes } from './ads/routes.ts';
+import { registerFileRoutes } from './files/routes.ts';
+import type { FileStorage } from './files/routes.ts';
 
-export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange }) {
+export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
   const sessions = sessionService(deps.pool, deps.config, deps.exchange ?? wechatCodeExchange(deps.config.appId, deps.config.appSecret));
   const loginAdmission = createLoginAdmission();
@@ -72,5 +75,7 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerCommunityRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerAdminMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerAdminMarketTemplateRoutes(app, { pool: deps.pool, appId: deps.config.appId });
+  registerAdRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
+  registerFileRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser, storage: deps.storage });
   return app;
 }

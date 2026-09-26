@@ -1,11 +1,13 @@
 import { loadConfig } from './config.ts';
 import { createPool } from './db.ts';
 import { createApp } from './app.ts';
+import { createCosStorage } from './files/cos.ts';
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
 pool.on('error', () => process.stderr.write('{"level":"error","code":"DATABASE_CONNECTION"}\n'));
-const app = await createApp({ config, pool });
+const storage = config.cos ? createCosStorage(config.cos) : undefined;
+const app = await createApp({ config, pool, storage });
 let stopping = false;
 async function stop() {
   if (stopping) return;

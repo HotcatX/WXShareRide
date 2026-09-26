@@ -19,6 +19,20 @@ async function user(pool: Pool, application = appId): Promise<FileOwner> {
   const row = (await pool.query<{ id: string }>('INSERT INTO users(app_id,openid) VALUES($1,$2) RETURNING id', [application, randomUUID()])).rows[0];
   return { userId: row.id };
 }
+async function administrators(pool: Pool) {
+  const adminOwnerKey = randomUUID();
+  const owners = [0, 1].map(() => ({ adminOwnerKey, adminAccountId: `admin-${randomUUID()}` }));
+  for (const owner of owners) await pool.query(`INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version)
+    VALUES($1,$2,$3,true,1)`, [appId, owner.adminAccountId, adminOwnerKey]);
+  return owners as [typeof owners[number], typeof owners[number]];
+}
+async function listing(pool: Pool, owner: FileOwner, status = 'online', shared = false): Promise<FileResource> {
+  const item = resource();
+  await pool.query(`INSERT INTO market_listings(app_id,id,owner_user_id,admin_owner_key,shared_admin_management,status,expires_at,content)
+    VALUES($1,$2,$3,$4,$5,$6,'2020-01-01','{}')`, [appId, item.id, 'userId' in owner ? owner.userId : null,
+    'adminOwnerKey' in owner ? owner.adminOwnerKey : null, shared, status]);
+  return item;
+}
 async function ready(pool: Pool, owner: FileOwner, provider: 'cloudbase' | 'cos' = 'cloudbase') {
   return transaction(pool, async client => {
     const file = await reserveFile(client, { appId, owner, provider, locator: `${provider}://fixture/${randomUUID()}.jpg` });
@@ -77,19 +91,153 @@ test('file ownership, references and deletion use real PostgreSQL transactions',
       const foreign = await user(pool, 'other-app');
       await assert.rejects(transaction(pool, client => reserveFile(client, { appId, owner: foreign, provider: 'cos', locator: 'foreign-key' })), code('INVALID_FILE_OWNER'));
       await assert.rejects(transaction(pool, client => reserveFile(client, { appId, owner: { userId: randomUUID() }, provider: 'cos', locator: 'missing-key' })), code('INVALID_FILE_OWNER'));
-      const admin = { adminOwnerKey: 'shared-fixture-owner' };
+      const admin = { adminOwnerKey: 'shared-fixture-owner', adminAccountId: 'admin-two' };
       await assert.rejects(transaction(pool, client => reserveFile(client, { appId, owner: admin, provider: 'cos', locator: 'missing-admin' })), code('INVALID_FILE_OWNER'));
       await pool.query(`INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version) VALUES
         ($1,'admin-one',$2,false,1),($1,'admin-two',$2,false,1)`, [appId, admin.adminOwnerKey]);
       await assert.rejects(transaction(pool, client => reserveFile(client, { appId, owner: admin, provider: 'cos', locator: 'disabled-admin' })), code('INVALID_FILE_OWNER'));
       await pool.query("UPDATE admin_accounts SET enabled=true WHERE app_id=$1 AND id='admin-two'", [appId]);
+      await assert.rejects(transaction(pool, client => reserveFile(client,
+        { appId, owner: { ...admin, adminAccountId: 'admin-one' }, provider: 'cos', locator: 'disabled-actor' })), code('INVALID_FILE_OWNER'));
+      await assert.rejects(transaction(pool, client => reserveFile(client,
+        { appId, owner: { ...admin, adminOwnerKey: 'wrong-owner' }, provider: 'cos', locator: 'wrong-owner' })), code('INVALID_FILE_OWNER'));
       const file = await ready(pool, admin);
-      assert.deepEqual(file.owner, admin);
+      assert.deepEqual(file.owner, { adminOwnerKey: admin.adminOwnerKey });
+      assert.equal(file.uploadedByAdminId, admin.adminAccountId);
       const other = await user(pool);
       await assert.rejects(transaction(pool, client => confirmFile(client, { ...target(file.id), owner: other, metadata })), code('FILE_OWNER_MISMATCH'));
       await assert.rejects(transaction(pool, client => replaceFileReferences(client, resource(), [{ slot: 'image.0', fileId: file.id }], other)), code('FILE_OWNER_MISMATCH'));
       await assert.rejects(transaction(pool, client => replaceFileReferences(client, { ...resource(), appId: 'other-app' }, [{ slot: 'image.0', fileId: file.id }], admin)), code('FILE_NOT_FOUND'));
       await assert.rejects(transaction(pool, client => queueFileDeletion(client, { appId: 'other-app', fileId: file.id })), code('FILE_NOT_FOUND'));
+    });
+
+    await t.test('admin confirmation requires the original uploader even when owner and metadata match', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      const file = await transaction(pool, client => reserveFile(client,
+        { appId, owner: uploader, provider: 'cos', locator: `actor/${randomUUID()}` }));
+      await assert.rejects(transaction(pool, client => confirmFile(client,
+        { ...target(file.id), owner: colleague, metadata })), code('FILE_UPLOADER_MISMATCH'));
+      assert.equal((await state(pool, file.id)).status, 'pending');
+      await transaction(pool, client => confirmFile(client, { ...target(file.id), owner: uploader, metadata }));
+      await assert.rejects(transaction(pool, client => confirmFile(client,
+        { ...target(file.id), owner: colleague, metadata })), code('FILE_UPLOADER_MISMATCH'));
+      const item = await listing(pool, uploader);
+      await transaction(pool, client => replaceFileReferences(client, item, [{ slot: 'image.0', fileId: file.id }], uploader));
+      await assert.rejects(transaction(pool, client => confirmFile(client,
+        { ...target(file.id), owner: colleague, metadata })), code('FILE_UPLOADER_MISMATCH'));
+    });
+
+    await t.test('same-owner admin sharing requires a current listing reference and ends after the last one is removed', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      const file = await ready(pool, uploader), a = await listing(pool, uploader), b = await listing(pool, colleague);
+      const ref = [{ slot: 'image.0', fileId: file.id }];
+      await assert.rejects(transaction(pool, client => replaceFileReferences(client, b, ref, colleague)), code('FILE_UPLOADER_MISMATCH'));
+      await transaction(pool, client => replaceFileReferences(client, a, ref, uploader));
+      await transaction(pool, client => replaceFileReferences(client, b, ref, colleague));
+      await transaction(pool, client => replaceFileReferences(client, a, [], uploader));
+      await transaction(pool, client => replaceFileReferences(client, b, [{ slot: 'image.1', fileId: file.id }], colleague));
+      assert.deepEqual(await references(pool, b), [{ slot: 'image.1', file_id: file.id }]);
+      await transaction(pool, client => replaceFileReferences(client, b, [], colleague));
+      await assert.rejects(transaction(pool, client => replaceFileReferences(client, b, ref, colleague)), code('FILE_UPLOADER_MISMATCH'));
+      assert.deepEqual(await references(pool, b), []);
+      // A different owner's current listing cannot overcome the file owner check.
+      const [outsider] = await administrators(pool);
+      await transaction(pool, client => replaceFileReferences(client, a, ref, uploader));
+      await assert.rejects(transaction(pool, client => replaceFileReferences(client, resource(), ref, outsider)), code('FILE_OWNER_MISMATCH'));
+    });
+
+    await t.test('ad, community, missing and deleted listing references do not grant admin sharing', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      const file = await ready(pool, uploader), next = await listing(pool, colleague), ref = [{ slot: 'image.0', fileId: file.id }];
+      for (const item of [resource('ad'), resource('community'), resource(), await listing(pool, uploader, 'deleted')]) {
+        await transaction(pool, client => replaceFileReferences(client, item, ref, uploader));
+        await assert.rejects(transaction(pool, client => replaceFileReferences(client, next, ref, colleague)), code('FILE_UPLOADER_MISMATCH'));
+      }
+      assert.deepEqual(await references(pool, next), []);
+    });
+
+    await t.test('offline, sold, expired and explicitly shared user listings retain old admin sharing semantics', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      for (const source of [await listing(pool, uploader, 'offline'), await listing(pool, uploader, 'sold'),
+        await listing(pool, uploader), await listing(pool, owner, 'online', true)]) {
+        const file = await ready(pool, uploader), next = await listing(pool, colleague), ref = [{ slot: 'image.0', fileId: file.id }];
+        await transaction(pool, client => replaceFileReferences(client, source, ref, uploader));
+        await transaction(pool, client => replaceFileReferences(client, next, ref, colleague));
+        assert.deepEqual(await references(pool, next), [{ slot: 'image.0', file_id: file.id }]);
+      }
+      // A regular user listing is not administrator-managed sharing evidence.
+      const file = await ready(pool, uploader), source = await listing(pool, owner), next = await listing(pool, colleague);
+      await transaction(pool, client => replaceFileReferences(client, source, [{ slot: 'image.0', fileId: file.id }], uploader));
+      await assert.rejects(transaction(pool, client => replaceFileReferences(client, next,
+        [{ slot: 'image.0', fileId: file.id }], colleague)), code('FILE_UPLOADER_MISMATCH'));
+    });
+
+    await t.test('removing the last listing reference first makes a waiting admin share lose its proof', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      const file = await ready(pool, uploader), source = await listing(pool, uploader), next = await listing(pool, colleague);
+      const ref = [{ slot: 'image.0', fileId: file.id }];
+      await transaction(pool, client => replaceFileReferences(client, source, ref, uploader));
+      const holder = await pool.connect();
+      let other: ReturnType<typeof competing> | undefined;
+      try {
+        await holder.query('BEGIN');
+        await replaceFileReferences(holder, source, [], uploader);
+        other = competing(pool, client => replaceFileReferences(client, next, ref, colleague));
+        await waitForLock(pool, await other.pid);
+        await holder.query('COMMIT');
+        assert.ok(code('FILE_UPLOADER_MISMATCH')((await other.result).error));
+        assert.deepEqual(await references(pool, next), []);
+        assert.equal((await pool.query('SELECT count(*)::integer AS count FROM file_references WHERE file_id=$1', [file.id])).rows[0].count, 0);
+      } finally { await holder.query('ROLLBACK'); holder.release(); await other?.result; }
+    });
+
+    await t.test('admin sharing that locks first preserves the new reference when the original is released', async () => {
+      const [uploader, colleague] = await administrators(pool);
+      const file = await ready(pool, uploader), source = await listing(pool, uploader), next = await listing(pool, colleague);
+      const ref = [{ slot: 'image.0', fileId: file.id }];
+      await transaction(pool, client => replaceFileReferences(client, source, ref, uploader));
+      const holder = await pool.connect();
+      let other: ReturnType<typeof competing> | undefined;
+      try {
+        await holder.query('BEGIN');
+        await replaceFileReferences(holder, next, ref, colleague);
+        other = competing(pool, client => replaceFileReferences(client, source, [], uploader));
+        await waitForLock(pool, await other.pid);
+        await holder.query('COMMIT');
+        assert.equal((await other.result).error, null);
+        assert.deepEqual(await references(pool, source), []);
+        assert.deepEqual(await references(pool, next), [{ slot: 'image.0', file_id: file.id }]);
+        const third = await listing(pool, colleague);
+        await transaction(pool, client => replaceFileReferences(client, third, ref, colleague));
+      } finally { await holder.query('ROLLBACK'); holder.release(); await other?.result; }
+    });
+
+    await t.test('upload actor is app-scoped, immutable, admin-only and required for new admin files', async () => {
+      const [uploader, colleague] = await administrators(pool), file = await ready(pool, uploader);
+      await assert.rejects(pool.query('UPDATE files SET uploaded_by_admin_id=$2 WHERE id=$1',
+        [file.id, colleague.adminAccountId]), code('23514'));
+      await assert.rejects(pool.query('UPDATE files SET uploaded_by_admin_id=NULL WHERE id=$1', [file.id]), code('23514'));
+      await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator,admin_owner_key)
+        VALUES($1,'cos',$2,$3)`, [appId, `missing-actor/${randomUUID()}`, uploader.adminOwnerKey]),
+      { code: '23514', constraint: 'files_upload_admin_required' });
+      await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator,owner_user_id,uploaded_by_admin_id)
+        VALUES($1,'cos',$2,$3,$4)`, [appId, `user-actor/${randomUUID()}`, 'userId' in owner ? owner.userId : null, uploader.adminAccountId]),
+      { code: '23514', constraint: 'files_upload_admin_owner' });
+      await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator,admin_owner_key,uploaded_by_admin_id)
+        VALUES('foreign-admin-app','cos',$1,$2,$3)`, [`foreign-actor/${randomUUID()}`, uploader.adminOwnerKey, uploader.adminAccountId]),
+      { code: '23503', constraint: 'files_upload_admin_fk' });
+      const legacy = (await pool.query(`INSERT INTO files(app_id,provider,locator,admin_owner_key,legacy_readonly,status,created_at,updated_at)
+        VALUES($1,'cos',$2,$3,true,'ready',NULL,NULL) RETURNING id,uploaded_by_admin_id`,
+      [appId, `unknown-actor/${randomUUID()}`, uploader.adminOwnerKey])).rows[0];
+      assert.equal(legacy.uploaded_by_admin_id, null);
+      await assert.rejects(pool.query('UPDATE files SET uploaded_by_admin_id=$2 WHERE id=$1',
+        [legacy.id, uploader.adminAccountId]), code('23514'));
+      const item = await listing(pool, uploader);
+      await pool.query(`INSERT INTO file_references(app_id,resource_kind,resource_id,slot,file_id)
+        VALUES($1,'listing',$2,'image.0',$3)`, [appId, item.id, legacy.id]);
+      await transaction(pool, client => replaceFileReferences(client, item, [{ slot: 'image.1', fileId: legacy.id }], colleague));
+      await assert.rejects(transaction(pool, client => replaceFileReferences(client, resource(),
+        [{ slot: 'image.0', fileId: legacy.id }], colleague)), code('FILE_READONLY'));
     });
 
     await t.test('shared originals and thumbnails remain protected until the final resource releases them', async () => {
@@ -325,6 +473,35 @@ test('file ownership, references and deletion use real PostgreSQL transactions',
       await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator) VALUES($1,'cos','unowned-new')`, [appId]), code('23514'));
       await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator,owner_user_id) VALUES($1,'cos',$2,$3)`,
         [appId, '中'.repeat(342), 'userId' in owner ? owner.userId : null]), code('23514'));
+    });
+
+    await t.test('legacy files retain unknown timestamps while new reservations require both clocks', async () => {
+      const fileId = randomUUID(), item = resource('ad');
+      await pool.query(`INSERT INTO files(id,app_id,provider,locator,legacy_readonly,status,created_at,updated_at)
+        VALUES($1,$2,'cloudbase',$3,true,'ready',NULL,NULL)`, [fileId, appId, `cloud://fixture/unknown-time/${randomUUID()}`]);
+      await pool.query(`INSERT INTO file_references(app_id,resource_kind,resource_id,slot,file_id)
+        VALUES($1,$2,$3,'image.0',$4)`, [appId, item.kind, item.id, fileId]);
+      await transaction(pool, client => replaceFileReferences(client, item, [{ slot: 'image.1', fileId }], owner));
+      assert.deepEqual((await pool.query('SELECT created_at,updated_at FROM files WHERE id=$1', [fileId])).rows[0],
+        { created_at: null, updated_at: null }, 'retaining a historical reference must not invent file timestamps');
+      const knownCreation = new Date('2025-01-01T00:00:00Z');
+      await pool.query('UPDATE files SET created_at=$2 WHERE id=$1', [fileId, knownCreation]);
+      assert.deepEqual((await pool.query('SELECT created_at,updated_at FROM files WHERE id=$1', [fileId])).rows[0],
+        { created_at: knownCreation, updated_at: null });
+      await assert.rejects(pool.query(`UPDATE files SET legacy_readonly=false,status='pending',owner_user_id=$2 WHERE id=$1`,
+        [fileId, 'userId' in owner ? owner.userId : null]), { code: '23514', constraint: 'files_timestamps_required' });
+
+      const fresh = await transaction(pool, client => reserveFile(client,
+        { appId, owner, provider: 'cos', locator: `new-clock/${randomUUID()}` }));
+      assert.ok(fresh.createdAt instanceof Date); assert.ok(fresh.updatedAt instanceof Date);
+      for (const clocks of [{ createdAt: null, updatedAt: null }, { createdAt: null, updatedAt: knownCreation },
+        { createdAt: knownCreation, updatedAt: null }]) {
+        await assert.rejects(pool.query(`INSERT INTO files(app_id,provider,locator,owner_user_id,created_at,updated_at)
+          VALUES($1,'cos',$2,$3,$4,$5)`, [appId, `null-clock/${randomUUID()}`, 'userId' in owner ? owner.userId : null,
+          clocks.createdAt, clocks.updatedAt]), { code: '23514', constraint: 'files_timestamps_required' });
+      }
+      await assert.rejects(pool.query('UPDATE files SET updated_at=NULL WHERE id=$1', [fresh.id]),
+        { code: '23514', constraint: 'files_timestamps_required' });
     });
 
     await t.test('input boundaries reject malformed locators, duplicate slots and unsafe metadata without coercion', async () => {

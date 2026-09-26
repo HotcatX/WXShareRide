@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   marketDateOnlySchema, marketFileIdSchema, marketImagesSchema, marketListingContentSchema,
-  marketListingPatchSchema, marketListingStatusSchema, marketLocationSchema, marketRegionSchema,
+  marketListingCreateSchema, marketListingPatchSchema, marketListingStatusSchema, marketLocationSchema, marketRegionSchema,
 } from '../src/market/schemas.ts';
 
 function goods() {
@@ -10,10 +10,11 @@ function goods() {
     listingType: 'goods' as const, title: 'Desk', description: 'First line\nSecond line',
     priceCents: 1250, category: '家具', condition: '99新',
     region: { state: 'NJ', county: 'Bergen', area: 'Fort Lee' }, buildingName: '',
-    location: null, startDate: '2026-09-25', endDate: '2026-10-09', images: [],
+    location: null, startDate: '2026-09-25', endDate: '2026-10-09',
     sellerContact: null, sublet: null,
   };
 }
+const fileId = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 function sublet() {
   return {
     ...goods(), listingType: 'sublet' as const, category: 'Studio', condition: '转租',
@@ -63,20 +64,39 @@ test('locations allow unknown coordinates but reject partial, nonfinite or alias
 
 test('ordered images retain pairs and optional thumbnails without accepting duplicates or derived fields', () => {
   const images = [
-    { fileId: 'cloud://fixture/market/b.jpg', thumbFileId: 'cloud://fixture/market_thumb/b.jpg' },
-    { fileId: 'cloud://fixture/market/a.jpg' },
+    { fileId: fileId(1), thumbFileId: fileId(10) },
+    { fileId: fileId(2) },
   ];
   assert.deepEqual(marketImagesSchema.parse(images), images);
   assert.equal(marketImagesSchema.safeParse([]).success, true);
-  assert.equal(marketImagesSchema.safeParse(Array.from({ length: 6 }, (_, index) => ({ fileId: `cloud://fixture/market/${index}.jpg` }))).success, true);
-  for (const invalid of [[images[0], images[0]], [...images, { fileId: 'cloud://fixture/market/c.jpg', thumbFileId: images[0].thumbFileId }],
-    Array.from({ length: 7 }, (_, index) => ({ fileId: `cloud://fixture/market/${index}.jpg` })),
+  assert.equal(marketImagesSchema.safeParse(Array.from({ length: 6 }, (_, index) => ({ fileId: fileId(index) }))).success, true);
+  for (const invalid of [[images[0], images[0]], [...images, { fileId: fileId(3), thumbFileId: images[0].thumbFileId }],
+    Array.from({ length: 7 }, (_, index) => ({ fileId: fileId(index) })),
     [{ ...images[0], imageUrl: 'https://example.test/a.jpg' }], [{ thumbFileId: images[0].thumbFileId }]]) {
     assert.equal(marketImagesSchema.safeParse(invalid).success, false);
   }
-  for (const fileId of ['https://example.test/image', 'cloud://fixture', 'cloud:///image', 'cloud://fixture/a b', 'cloud://fixture/a\u0000b', 'cloud://fixture/a#fragment']) {
-    assert.equal(marketFileIdSchema.safeParse(fileId).success, false);
+  const uppercase = fileId(10).toUpperCase();
+  assert.equal(marketFileIdSchema.parse(uppercase), fileId(10));
+  assert.equal(marketImagesSchema.safeParse([{ fileId: uppercase }, { fileId: fileId(10) }]).success, false);
+  for (const value of ['https://example.test/image', 'cloud://fixture/market/a.jpg', 'cloud://fixture', '', 'invalid-uuid', `${fileId(1)}\n`]) {
+    assert.equal(marketFileIdSchema.safeParse(value).success, false);
   }
+});
+
+test('runtime creation separates UUID attachments from persisted content', () => {
+  for (const content of [goods(), sublet()]) {
+    const images = [{ fileId: fileId(1), thumbFileId: fileId(2) }, { fileId: fileId(3) }];
+    const input = marketListingCreateSchema.parse({ ...content, images });
+    const { images: attachments, ...stored } = input;
+    assert.deepEqual(attachments, images);
+    assert.deepEqual(marketListingContentSchema.parse(stored), content);
+    assert.equal(marketListingContentSchema.safeParse(input).success, false);
+    assert.equal(marketListingContentSchema.safeParse({ ...content, images: [] }).success, false);
+    assert.equal(marketListingCreateSchema.safeParse(content).success, false);
+    assert.equal(marketListingCreateSchema.safeParse({ ...content, images: [] }).success, true);
+    assert.equal(marketListingCreateSchema.safeParse({ ...content, images: [{ fileId: 'cloud://fixture/market/a.jpg' }] }).success, false);
+  }
+  assert.equal(marketListingCreateSchema.safeParse({ ...goods(), images: [], startDate: '2026-10-02', endDate: '2026-10-01' }).success, false);
 });
 
 test('contact content is independent of account ownership, bounded, and explicit', () => {
@@ -95,6 +115,7 @@ test('content rejects owners, status, timestamps, aliases and uncontrolled neste
   for (const key of ['ownerId', '_openid', 'ownerKey', 'managedByAdmin', 'status', 'version', 'expiresAt', 'expireTime',
     'price', 'hasImage', 'imageFileID', 'roomType', 'pickupStartDate', 'payload']) {
     assert.equal(marketListingContentSchema.safeParse({ ...goods(), [key]: 'untrusted' }).success, false, key);
+    assert.equal(marketListingCreateSchema.safeParse({ ...goods(), images: [], [key]: 'untrusted' }).success, false, key);
     assert.equal(marketListingPatchSchema.safeParse({ title: 'New title', [key]: 'untrusted' }).success, false, key);
   }
   assert.equal(marketListingContentSchema.safeParse({ ...sublet(), sublet: { ...sublet().sublet, arbitrary: {} } }).success, false);
@@ -114,12 +135,16 @@ test('patches require meaningful fields and full validation after shallow merge'
     assert.equal(marketListingPatchSchema.safeParse(value).success, false);
   }
   const patch = marketListingPatchSchema.parse({ title: 'New title', images: [], sellerContact: null });
-  const result = marketListingContentSchema.parse({ ...goods(), ...patch });
+  const { images, ...contentPatch } = patch;
+  assert.deepEqual(images, []);
+  const result = marketListingContentSchema.parse({ ...goods(), ...contentPatch });
   assert.equal(result.title, 'New title');
   assert.equal(result.priceCents, goods().priceCents);
   const backwards = marketListingPatchSchema.parse({ endDate: '2026-09-01' });
   assert.equal(marketListingContentSchema.safeParse({ ...goods(), ...backwards }).success, false);
   assert.equal(marketListingContentSchema.safeParse({ ...goods(), ...marketListingPatchSchema.parse({ listingType: 'sublet' }) }).success, false);
+  assert.deepEqual(marketListingPatchSchema.parse({ images: [] }), { images: [] });
+  assert.equal(marketListingPatchSchema.safeParse({ images: [{ fileId: 'cloud://fixture/market/a.jpg' }] }).success, false);
 });
 
 test('only the separate status contract accepts existing lifecycle states', () => {

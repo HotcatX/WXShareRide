@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { marketFileIdSchema, marketImagesSchema } from '../market/schemas.ts';
+import { legacyCloudFileIdSchema, legacyMarketImagesSchema } from './market-images.ts';
 import type { MarketListingRow } from './market.ts';
 import { serializeSource } from './source.ts';
 import type { IssueReporter, UserRow } from './types.ts';
@@ -7,7 +7,7 @@ import { indexMigrationUsers, object, parseExportTimestamp } from './values.ts';
 
 export type FileRow = {
   id: string; appId: string; provider: 'cloudbase'; locator: string;
-  ownerUserId: string | null; adminOwnerKey: string | null; legacyReadonly: true;
+  ownerUserId: string | null; adminOwnerKey: string | null; uploadedByAdminId: string | null; legacyReadonly: true;
   status: 'pending' | 'ready'; sizeBytes: null; mediaType: null; sha256: null; verifiedAt: null;
   createdAt: string; updatedAt: string;
 };
@@ -76,7 +76,7 @@ export function normalizeMarketFiles(
     try { serializeSource(raw); } catch { invalid('INVALID_SOURCE_JSON'); continue; }
     if (!object(raw)) { invalid('INVALID_MARKET_FILE_DOCUMENT'); continue; }
     for (const key of Object.keys(raw)) if (!fields.has(key)) invalid('UNMAPPED_MARKET_FILE_FIELD');
-    const parsedLocator = marketFileIdSchema.safeParse(raw.fileID);
+    const parsedLocator = legacyCloudFileIdSchema.safeParse(raw.fileID);
     if (!parsedLocator.success || Buffer.byteLength(parsedLocator.data, 'utf8') > 1024) {
       invalid('INVALID_MARKET_FILE_LOCATOR', 'locator'); continue;
     }
@@ -144,7 +144,8 @@ export function normalizeMarketFiles(
     if (raw.goodsId !== undefined || raw.deletedGoodsId !== undefined) notice('MARKET_FILE_LAST_ATTACHMENT_INDEX_ARCHIVED', 'metadata');
     if (valid && createdAt && updatedAt && status && (type === 'image' || type === 'thumb')) {
       const file: FileRow = { id: fileId(context.appId, locator), appId: context.appId, provider: 'cloudbase', locator,
-        ownerUserId, adminOwnerKey, legacyReadonly: true, status, sizeBytes: null, mediaType: null, sha256: null, verifiedAt: null,
+        ownerUserId, adminOwnerKey, uploadedByAdminId: adminOwnerKey ? raw.adminAccountId as string : null,
+        legacyReadonly: true, status, sizeBytes: null, mediaType: null, sha256: null, verifiedAt: null,
         createdAt, updatedAt };
       ledger.set(locator, { file, type, goodsId: typeof raw.goodsId === 'string' ? raw.goodsId : null, deletionIntent });
     }
@@ -164,7 +165,7 @@ export function normalizeMarketFiles(
     if ((!userOwned && !adminOwned) || typeof listing.sharedAdminManagement !== 'boolean' || adminOwned && listing.sharedAdminManagement) {
       error('INVALID_MARKET_FILE_LISTING_OWNER', 'references'); continue;
     }
-    const images = marketImagesSchema.safeParse(listing.images);
+    const images = legacyMarketImagesSchema.safeParse(listing.images);
     if (!images.success) { error('INVALID_MARKET_FILE_LISTING_IMAGES', 'references'); continue; }
     images.data.forEach((image, index) => {
       const attach = (locator: string, type: 'image' | 'thumb', slot: FileReferenceRow['slot']) => {

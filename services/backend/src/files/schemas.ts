@@ -5,7 +5,10 @@ const appId = exactString.min(1).refine(value => !/[\u0000-\u001f\u007f-\u009f]/
 const fileId = z.uuid().transform(value => value.toLowerCase());
 export const fileOwnerSchema = z.union([
   z.strictObject({ userId: fileId }),
-  z.strictObject({ adminOwnerKey: exactString.regex(/^[a-zA-Z0-9_-]{1,128}$/) }),
+  z.strictObject({
+    adminOwnerKey: exactString.regex(/^[a-zA-Z0-9_-]{1,128}$/),
+    adminAccountId: exactString.regex(/^[a-z0-9][a-z0-9_-]{2,63}$/),
+  }),
 ]);
 export const fileTargetSchema = z.strictObject({ appId, fileId });
 export const reserveFileSchema = z.strictObject({

@@ -83,11 +83,11 @@ as the SQL migration runner, the importer discovers and locks every application
 table and refuses any nonempty target. New tables automatically participate in
 that guard; they do not automatically become supported import models.
 
-Market content/date schemas and a private legacy-listing converter are available
-for audit. They preserve original ownership, ordered images and historical expiry;
-they do not yet provide market tables, routes or database import. Separate admin
-authentication and the transactional file-reference/deletion core are implemented.
-Trusted uploads, complete reference import, listing operations and market analytics
+Market schemas, a listing table and owner-scoped user write transactions are
+implemented; ordered image UUIDs live only in the file-reference table. Private
+legacy converters cover listings, admins, file ledgers, contact ads and community
+revisions. They preserve historical expiry and unknown metadata. Market HTTP,
+trusted uploads, complete reference import, website administration and analytics
 must still be integrated before that domain can move. No storage deletion timer
 or real provider adapter is installed by the file module. See `SCHEMA.md`.
 

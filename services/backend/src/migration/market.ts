@@ -1,10 +1,14 @@
 import { marketListingContentSchema, marketListingStatusSchema } from '../market/schemas.ts';
 import type { MarketListingContent } from '../market/schemas.ts';
+import { legacyMarketImagesSchema } from './market-images.ts';
+import type { LegacyMarketImage } from './market-images.ts';
 import { serializeSource } from './source.ts';
 import { indexMigrationUsers, object, parseExportTimestamp, present } from './values.ts';
 import type { IssueReporter, UserRow } from './types.ts';
 
 export type MarketListingRow = MarketListingContent & {
+  // Conversion staging only; storage import must move these into references.
+  images: LegacyMarketImage[];
   id: string; appId: string; ownerUserId: string | null; adminOwnerKey: string | null;
   sharedAdminManagement: boolean; status: 'online' | 'offline' | 'sold'; expiresAt: string;
   version: number; createdAt: string; updatedAt: string | null;
@@ -172,8 +176,10 @@ export function normalizeMarketListings(documents: unknown, context: Context, is
       }
     }
 
+    const normalizedImages = legacyMarketImagesSchema.safeParse(images);
+    if (!normalizedImages.success) error('INVALID_MARKET_IMAGES', 'images');
     const normalized = marketListingContentSchema.safeParse({ listingType: raw.listingType, title, description, priceCents,
-      category, condition, region, buildingName, location, startDate, endDate, images, sellerContact, sublet });
+      category, condition, region, buildingName, location, startDate, endDate, sellerContact, sublet });
     if (!normalized.success) error('INVALID_MARKET_CONTENT');
     const status = marketListingStatusSchema.safeParse({ status: raw.status });
     if (!status.success) error('INVALID_MARKET_STATUS', 'status');
@@ -209,8 +215,8 @@ export function normalizeMarketListings(documents: unknown, context: Context, is
         !permitted || typeof version !== 'number' || version < 1 || (createdAt && at < createdAt) || (updatedAt && at > updatedAt)) error('INVALID_MARKET_UPDATE_METADATA', 'metadata');
     }
     notice('MARKET_REDUNDANT_METADATA_ARCHIVED', 'metadata');
-    if (valid && normalized.success && status.success && expiresAt && createdAt && typeof version === 'number') {
-      rows.push({ ...normalized.data, id: raw._id, appId: context.appId, ownerUserId, adminOwnerKey, sharedAdminManagement,
+    if (valid && normalized.success && normalizedImages.success && status.success && expiresAt && createdAt && typeof version === 'number') {
+      rows.push({ ...normalized.data, images: normalizedImages.data, id: raw._id, appId: context.appId, ownerUserId, adminOwnerKey, sharedAdminManagement,
         status: status.data.status, expiresAt, version, createdAt, updatedAt });
     }
   }

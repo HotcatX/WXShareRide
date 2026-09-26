@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `015` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计、邀请关系、管理员认证和文件事务基础；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `018` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计、邀请关系、管理员认证、文件事务及商品写入基础；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -28,8 +28,9 @@
 | `admin_sessions`（014） | `token_hash`、`app_id/account_id`、`credential_version`、`expires_at/created_at` | token只存hash，有效期8小时；停用、改凭据或归属变化永久删除旧会话。 |
 | `admin_login_attempts` / `admin_origins`（014） | `(app_id,scope)` 和窗口/次数；`(app_id,origin)` | 原子15分钟窗口，每账号10次、每应用120次；scope为账号hash或global。来源必须精确HTTPS匹配，默认无授权来源。 |
 | `admin_audit` / `admin_requests`（014） | 审计UUID、app/account/action/details/time；幂等主键 `(app_id,owner_key,operation,request_key)` | 管理写入、审计和永久回执同事务；旧审计actor不强制有账号，不由日志创造权限。 |
-| `files`（015） | UUID、app/provider/locator、user或admin owner、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；一个物理对象不能由多个应用分别删除。旧引用不等于上传所有权。 |
+| `files`（015–016、018） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
 | `file_references`（015） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community；有序slot如image.0、thumbnail.0。引用事实是唯一依据，不另存refCount或attached状态。 |
+| `market_listings`（017） | `(app_id,id)`、两类owner恰一、`shared_admin_management`、`status`、`expires_at`、`version`、`content`、创建/更新时间 | content无images，图片只存引用。status允许online/offline/sold/deleted；删除留墓碑和永久幂等结果。version为0至JS安全整数上限。 |
 
 009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
@@ -130,9 +131,11 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 空目标保护与SQL runner共用schema advisory lock，在锁内从PG目录发现并锁定当前schema全部数据表（仅排除schema_migrations）。不维护会随新增功能遗漏的表名清单；目录标识符由PG quote_ident引用。目标须是专用应用schema，新增的管理员/文件表或其他非空表同样阻止首导。这不代表新表已经支持业务导入。
 
-## 管理员与文件基础（014–015）
+## 管理员与文件基础（014–016、018）
 
 管理员账号不伪造OpenID，也不进入users。登录使用现有账户算法的异步scrypt（N=16384、r=8、p=1、32字节salt、64字节hash）；事务外计算后再次锁账号核对凭据。业务事务按账号→会话顺序锁定，并在等待后读取数据库clock_timestamp核验过期。凭据、归属或停用操作永久撤销原会话，重新启用不恢复旧token。无公开开户/重设密码/临时口令API；旧sessions不导入。
+
+`normalizeAdminAccounts` 验证完整WebAdminAccounts、原规范化账号名/role/版本/所有权和摘要算法。只含元数据的投影会因缺密码摘要阻断；合法原salt/hash在私有JSON候选保留准确小写hex，写bytea时解码，不重哈希、不打印到报告或测试夹具。该转换尚未接中央导入器。
 
 管理接口仅接受admin_origins中的完整HTTPS来源，parser/鉴权错误也带private,no-store。Origin白名单不是身份认证，仍必须带管理员token。永久幂等作用域为app+owner+operation+key，读取回执前仍重新鉴权；原微信用户幂等锁键不变，不混用两类身份。
 
@@ -140,21 +143,25 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 业务调用方须在同事务先授权并锁定资源，再修改file_references。核心按资源advisory锁和有序文件行锁替换引用；原资源可以保留/重排已有历史图片，新资源不能拿旧引用获得归属授权。附加只允许ready，新附加必须与可信owner匹配。文件事务显式要求READ COMMITTED，避免等待文件锁后仍读到遗漏新引用的旧事务快照。
 
+管理员上传归属为ownerKey，上传者是另外的不可变事实uploaded_by_admin_id；可信输入必须同时带adminAccountId/ownerKey。预约要求该账号启用且归属一致，确认仅限原上传者。同归属其他管理员只有在文件当前仍被同归属或显式共享管理的非deleted商品引用时才能复用；广告、社区或历史引用不能授权。末条商品引用删除后失去共享资格，无需“曾经附着”布尔值。以上检查在同一文件锁内，避免释放引用与新增共享竞争。历史未知上传者不能被猜成当前管理员。
+
 删除先锁文件、检查零引用、提交deleting，再调用存储；失败保留deleting可重试，NotFound视作成功。数据库提交回执丢失后再次读取deleted即可返回，不重复删除。legacy_readonly文件尚未全量引用核对，不进入删除；pending文件须先有真实上传截止/关闭协议，当前不自动清理。没有refCount、平行outbox、实际存储删除适配器或定时器。
 
 `normalizeMarketFiles`仅将旧MarketFiles与已转换listing图片生成文件/引用候选，仍未接主导入器。goodsId只代表最后附加索引，不能覆盖商品有序images或证明唯一引用；旧deleted/removed/cleanup是删除意图，不等于存储成功。所有候选legacy_readonly，未验证的内容元数据保持null，按原createdAtMs/updatedAtMs保存台账时钟；独立服务端时间完整归档。遇到错误不返回部分可导入结果。广告/社区图片和实际对象存在性仍需另外核对。
 
-## 市场转换与内容校验（尚未接入数据库）
+## 市场模型、事务与旧数据转换（017）
 
 `src/market/schemas.ts` 统一商品与转租的内容字段，`src/migration/market.ts`
-只生成私有转换候选；当前没有市场 SQL 表、HTTP 接口或市场导入功能。
+只生成私有转换候选；已有市场 SQL 表和用户事务核心，尚无市场 HTTP 接口或中央市场导入功能。
 主审计仍拒绝未支持的非空市场集合，不能把这部分转换通过当成整库迁移通过。
 
 - 内容只保留 `listingType`、`title`、`description`、整数 `priceCents`、`category`、
   `condition`、`region:{state,county,area}`、`buildingName`、可空 `location`、
-  `startDate/endDate`、有序 `images`、可空 `sellerContact` 和 `sublet`。
-  图片先保留旧 `cloud://` 标识及对应缩略图顺序；不复制首图、hasImage、展示 URL。
-  标识通过格式验证不代表对象存在，也不授予附加图片的权限。
+  `startDate/endDate`、可空 `sellerContact` 和 `sublet`。
+  创建/修改输入另接收有序 `images:[{fileId:UUID,thumbFileId?:UUID}]`，最多6张且保持配对。
+  保存content前剥离images，只写file_references；不复制首图、hasImage或展示URL。
+  仅私有迁移边界 `market-images.ts` 保留旧cloud标识校验，转换成UUID引用后不写入商品JSON。
+  联系人头像仍是原头像资料，可为HTTPS或cloud地址，不误当市场附件。
 - 转租房型沿用唯一 `category`，租期沿用唯一日期窗口。`sublet` 只收房屋类型、
   可空押金分值、家具/费用布尔值、室友偏好及可空人数；普通商品必须为 null。
   旧 false 保留原义，不额外推断房屋事实。金额不四舍五入，不解析任意字符串；
@@ -180,9 +187,17 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 文件生命周期的迁移边界：一张文件可以被多条商品引用，关联关系保存顺序及缩略图配对，
 不复制 refCount。`pending/ready/deleting/deleted` 与引用分开；旧 `deleted` 只是删除意图，
-不等于对象已经消失。未来附加引用和清理必须锁定同一文件，检查无引用后置 deleting，
+不等于对象已经消失。附加引用和清理锁定同一文件，检查无引用后置 deleting，
 再执行外部存储删除；deleting 对象禁止新增引用。现 CloudBase 游标扫描不是事务快照，
 不能作为新后端的文件锁替代。广告与社区配置、历史回滚图片也须独立保留引用。
+
+`src/market/service.ts` 当前只实现微信用户自己的创建、内容修改、状态修改和删除。
+所有写入带永久幂等键，修改另带expectedVersion，锁商品后校验归属/版本；正文、文件引用和回执同事务。
+删除写deleted墓碑并释放引用，不立即删除对象。重试原创建键返回原结果，不复活墓碑；同键不同内容409。
+无变化的状态操作不加版本；正文、图片和状态修改保留原expiresAt，真实日期/类型变化才重新校验日期窗。
+网站管理员批量发布、部分失败重试、批次与单行两层去重、管理模板和编辑权限仍需接入；不可据此增加管理员删商品权限。
+
+`normalizeAds` 和 `normalizeCommunity` 目前也只是私有候选：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。两域尚未建表、接中央导入或开放HTTP。
 
 ## 已验证
 

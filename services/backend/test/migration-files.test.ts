@@ -55,7 +55,7 @@ test('market slice preserves exact locators and ledger clocks, without fabricati
   assert.deepEqual(result.errors, []); assert.equal(result.files.length, 2); assert.equal(result.references.length, 2);
   const row = result.files[0]!;
   assert.deepEqual(row, { id: row.id, appId: context.appId, provider: 'cloudbase', locator: main,
-    ownerUserId: user.id, adminOwnerKey: null, legacyReadonly: true, status: 'ready',
+    ownerUserId: user.id, adminOwnerKey: null, uploadedByAdminId: null, legacyReadonly: true, status: 'ready',
     sizeBytes: null, mediaType: null, sha256: null, verifiedAt: null, createdAt, updatedAt });
   assert.deepEqual(result.references, [
     { appId: context.appId, resourceKind: 'listing', resourceId: 'listing_fixture', slot: 'image.0', fileId: row.id },
@@ -116,6 +116,8 @@ test('missing ledger and original-thumbnail conflicts reject the entire slice', 
   rejects([file(), file(thumb)], [listing({ images: [{ fileId: thumb }] })], 'MARKET_FILE_REFERENCE_TYPE_MISMATCH');
   rejects([file(), file(thumb)], [listing({ images: [{ fileId: main, thumbFileId: main }] })], 'MARKET_FILE_REFERENCE_TYPE_MISMATCH');
   rejects([file(), file(thumb)], [listing({ images: [{ fileId: main }, { fileId: main }] })], 'INVALID_MARKET_FILE_LISTING_IMAGES');
+  rejects([file(), file(thumb)], [listing({ images: [{ fileId: '00000000-0000-4000-8000-000000000001' }] })], 'INVALID_MARKET_FILE_LISTING_IMAGES');
+  rejects([file('00000000-0000-4000-8000-000000000001')], [], 'INVALID_MARKET_FILE_LOCATOR');
 });
 
 test('legacy ownership is retained, but shared admin management does not authorize another user file', () => {
@@ -132,6 +134,7 @@ test('web files require the trusted account-owner mapping and exact authenticate
   const webListing = listing({ ownerUserId: null, adminOwnerKey: admin.ownerKey, images: [{ fileId: source.fileID as string }] });
   const result = convert([source], [webListing]);
   assert.deepEqual(result.errors, []); assert.equal(result.files[0]!.ownerUserId, null); assert.equal(result.files[0]!.adminOwnerKey, admin.ownerKey);
+  assert.equal(result.files[0]!.uploadedByAdminId, admin.accountId);
   for (const patch of [{ _openid: user.openid }, { ownerKey: 'other' }, { adminAccountId: 'unknown' }, { adminAccountId: null }]) {
     rejects([{ ...source, ...patch }], [], 'INVALID_MARKET_FILE_ADMIN_OWNER');
   }

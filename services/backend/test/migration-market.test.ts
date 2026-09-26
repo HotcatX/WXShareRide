@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { normalizeMarketListings } from '../src/migration/market.ts';
+import { marketListingContentSchema, marketListingCreateSchema } from '../src/market/schemas.ts';
+import { legacyMarketImagesSchema } from '../src/migration/market-images.ts';
 import type { MigrationIssue, UserRow } from '../src/migration/types.ts';
 
 const createdAt = '2026-09-01T12:00:00.000Z';
@@ -51,6 +53,20 @@ test('market conversion preserves original expiry and source identity, removes a
   for (const key of ['_openid', 'imageFileID', 'hasImage', 'Apartment', 'viewCount', 'clientRequestId', 'ok', 'expireTime']) assert.equal(key in row, false);
   assert.ok(issues.some(issue => issue.code === 'MARKET_INITIAL_VERSION_APPLIED' && issue.severity === 'notice'));
   assert.equal(JSON.stringify(source), before);
+});
+
+test('legacy cloud images remain only in migration staging and cannot become runtime attachment input', () => {
+  const result = convert([fixture()]);
+  assert.deepEqual(result.errors, []);
+  const { id: _id, appId: _appId, ownerUserId: _ownerUserId, adminOwnerKey: _adminOwnerKey,
+    sharedAdminManagement: _shared, status: _status, expiresAt: _expiresAt, version: _version,
+    createdAt: _createdAt, updatedAt: _updatedAt, images, ...content } = result.rows[0]!;
+  assert.deepEqual(legacyMarketImagesSchema.parse(images), [{ fileId: 'cloud://fixture/market/a.jpg', thumbFileId: 'cloud://fixture/market_thumb/a.jpg' }]);
+  assert.deepEqual(marketListingContentSchema.parse(content), content);
+  assert.equal(marketListingContentSchema.safeParse({ ...content, images }).success, false);
+  assert.equal(marketListingCreateSchema.safeParse({ ...content, images }).success, false);
+  const uuid = '00000000-0000-4000-8000-000000000001';
+  assert.equal(convert([fixture({ imageFileID: uuid, imageFileIDs: [uuid] })]).rows.length, 0);
 });
 
 test('explicit admin ownership requires the trusted account mapping and never invents an OpenID', () => {

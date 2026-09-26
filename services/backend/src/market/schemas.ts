@@ -33,11 +33,9 @@ export const marketLocationSchema = z.strictObject({
   }
 });
 
-// Storage ownership/existence must be checked by the write service. A valid
-// cloud:// shape alone never grants permission to attach somebody else's file.
-export const marketFileIdSchema = z.string().max(2048)
-  .regex(/^cloud:\/\/[^\s/?#\\]+\/[^\s?#\\]+$/u)
-  .refine(value => !/[\u0000-\u001f\u007f-\u009f]/u.test(value));
+// The write service still checks the referenced file's app, owner and state.
+// Provider locators and temporary URLs are never accepted as attachment IDs.
+export const marketFileIdSchema = z.uuid().transform(value => value.toLowerCase());
 export const marketImageSchema = z.strictObject({
   fileId: marketFileIdSchema,
   thumbFileId: marketFileIdSchema.optional(),
@@ -56,10 +54,13 @@ export const marketImagesSchema = z.array(marketImageSchema).max(6).superRefine(
 });
 
 const avatar = z.union([
-  z.literal(''), marketFileIdSchema,
+  z.literal(''),
   z.url().max(2048).refine(value => {
     const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !/[\s\u0000-\u001f\u007f-\u009f]/u.test(value);
+    if (url.username || url.password || /[\s\u0000-\u001f\u007f-\u009f]/u.test(value)) return false;
+    // Contact avatars retain their existing URL compatibility. They are not
+    // listing attachments and do not pass through the market image schema.
+    return url.protocol === 'https:' || url.protocol === 'cloud:' && /^cloud:\/\/[^\s/?#\\]+\/[^\s?#\\]+$/u.test(value);
   }),
 ]);
 export const marketSellerContactSchema = z.strictObject({
@@ -91,32 +92,42 @@ const contentFields = {
   location: marketLocationSchema.nullable(),
   startDate: marketDateOnlySchema,
   endDate: marketDateOnlySchema,
-  images: marketImagesSchema,
   sellerContact: marketSellerContactSchema.nullable(),
 };
 
-/** Canonical stored content and complete create input. No owner or derived data. */
-export const marketListingContentSchema = z.discriminatedUnion('listingType', [
-  z.strictObject({ ...contentFields, listingType: z.literal('goods'), sublet: z.null() }),
-  z.strictObject({ ...contentFields, listingType: z.literal('sublet'), sublet: marketSubletSchema,
-    category: z.enum(['Studio', '1B1B', '2B1B', '2B2B', '3B2B', '其他']) }),
-]).superRefine((value, context) => {
+const goodsContentSchema = z.strictObject({ ...contentFields, listingType: z.literal('goods'), sublet: z.null() });
+const subletContentSchema = z.strictObject({ ...contentFields, listingType: z.literal('sublet'), sublet: marketSubletSchema,
+  category: z.enum(['Studio', '1B1B', '2B1B', '2B2B', '3B2B', '其他']) });
+function dateOrder(value: { startDate: string; endDate: string }, context: z.RefinementCtx) {
   if (value.endDate < value.startDate) {
     context.addIssue({ code: 'custom', path: ['endDate'], message: '结束日期不能早于开始日期' });
   }
-});
+}
 
-/** Nested objects replace as a whole. Merge, then validate complete content. */
+/** Stored content has no owner, derived data or images. file_references is the
+ * only persisted source of a listing's ordered original/thumbnail references. */
+export const marketListingContentSchema = z.discriminatedUnion('listingType', [goodsContentSchema, subletContentSchema]).superRefine(dateOrder);
+
+/** Create input includes attachments, split out before persisting content. */
+export const marketListingCreateSchema = z.discriminatedUnion('listingType', [
+  goodsContentSchema.extend({ images: marketImagesSchema }),
+  subletContentSchema.extend({ images: marketImagesSchema }),
+]).superRefine(dateOrder);
+
+/** Nested objects replace as a whole. Split images out, merge the other fields
+ * with stored content, then validate the complete content independently. */
 export const marketListingPatchSchema = z.strictObject({
   ...contentFields,
   listingType: z.enum(['goods', 'sublet']),
   sublet: marketSubletSchema.nullable(),
+  images: marketImagesSchema,
 }).partial().refine(value => Object.keys(value).some(key => value[key as keyof typeof value] !== undefined), '修改不能为空');
 
 // Status is a separate authorized operation; it cannot be smuggled into content.
 export const marketListingStatusSchema = z.strictObject({ status: z.enum(['online', 'offline', 'sold']) });
 
 export type MarketListingContent = z.infer<typeof marketListingContentSchema>;
+export type MarketListingCreate = z.infer<typeof marketListingCreateSchema>;
 export type MarketListingPatch = z.infer<typeof marketListingPatchSchema>;
 export type MarketSellerContact = z.infer<typeof marketSellerContactSchema>;
 export type MarketImage = z.infer<typeof marketImageSchema>;

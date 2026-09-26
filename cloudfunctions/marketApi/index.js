@@ -525,26 +525,6 @@ async function markFilesDeleted(fileIDs, openid, goodsId) {
   }
 }
 
-async function deleteFiles(fileIDs) {
-  const deleted = []
-  const failed = []
-  for (let i = 0; i < fileIDs.length; i += 50) {
-    const chunk = fileIDs.slice(i, i + 50)
-    try {
-      const res = await cloud.deleteFile({ fileList: chunk })
-      ;(res.fileList || []).forEach(row => {
-        if (row.status === 0) deleted.push(row.fileID)
-        else failed.push({ fileID: row.fileID, status: row.status, errMsg: row.errMsg || "" })
-      })
-    } catch (e) {
-      chunk.forEach(fileID => {
-        failed.push({ fileID, errMsg: e && (e.message || e.errMsg) ? String(e.message || e.errMsg) : "delete_failed" })
-      })
-    }
-  }
-  return { deleted, failed }
-}
-
 function normalizeClientRequestId(value) {
   return normalizeText(value).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80)
 }
@@ -884,14 +864,6 @@ function normalizePayloadForSave(payload = {}, oldItem = {}) {
     payload.regionKey !== undefined ||
     payload.buildingName !== undefined
   ) {
-    const meta = {
-      cityKey: data.cityKey || oldItem.cityKey || payload.location?.cityKey,
-      cityLabel: data.cityLabel || oldItem.cityLabel || payload.location?.cityLabel,
-      regionState: data.regionState || oldItem.regionState || payload.location?.regionState,
-      regionArea: data.regionArea || oldItem.regionArea || payload.location?.regionArea || payload.location?.areaLabel,
-      regionKey: data.regionKey || oldItem.regionKey || payload.location?.regionKey,
-      buildingName: data.buildingName || oldItem.buildingName || payload.location?.buildingName
-    }
     const rawLocation = payload.location || oldItem.location || {}
     const displayName = normalizeText(
       rawLocation.displayName ||
@@ -1020,7 +992,6 @@ async function createItem(event, openid) {
   if (!built.ok) return built
   const { data, files, idempotentGoodsId } = built
 
-  // await upsertUserRegion(openid, data)
   let itemId = ""
 
   if (idempotentGoodsId) {
@@ -1121,19 +1092,17 @@ async function updateItem(event, openid) {
     }
   })
 
-  // if (normalized.data.regionState && normalized.data.regionArea && normalized.data.regionKey) {
-  //   await upsertUserRegion(openid, { ...oldItem, ...normalized.data })
-  // }
   await attachMarketFiles(collectMarketFiles({ ...oldItem, ...normalized.data }), id, openid)
-  const deleteResult = await deleteFiles(removedFileIDs)
+  // A file may be shared by other listings. Only record removal intent here;
+  // cleanupMarketImages checks all remaining references before physical cleanup.
   await markFilesDeleted(removedFileIDs, openid, id)
 
   return ok({
     id,
     updated: res.stats.updated,
     removedFiles: removedFileIDs.length,
-    deletedFiles: deleteResult.deleted.length,
-    failedFiles: deleteResult.failed
+    deletedFiles: 0,
+    failedFiles: []
   })
 }
 
@@ -1148,14 +1117,14 @@ async function deleteItem(event, openid) {
   if (item._openid !== openid) return fail("forbidden")
 
   const fileIDs = collectFileIDs(item)
-  const fileResult = await deleteFiles(fileIDs)
-  await markFilesDeleted(fileIDs, openid, id)
   await db.collection(GOODS_COLLECTION).doc(id).remove()
+  // Preserve shared images and do not mark deletion if the listing write fails.
+  await markFilesDeleted(fileIDs, openid, id)
 
   return ok({
     id,
-    deletedFiles: fileResult.deleted.length,
-    failedFiles: fileResult.failed
+    deletedFiles: 0,
+    failedFiles: []
   })
 }
 

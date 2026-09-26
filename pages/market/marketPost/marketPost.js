@@ -1067,16 +1067,15 @@ Page({
             )
           }
 
+          if (thumbLocal) {
+            thumbProgress = 18
+            updateUploadProgress()
+          }
           const thumbUploadPromise = thumbLocal
-            ? compressForUpload(thumbLocal, MARKET_THUMB_IMAGE_QUALITY)
-              .then(path => {
-                thumbProgress = 18
-                updateUploadProgress()
-                return uploadOne(path, "market_thumb", progress => {
-                  thumbProgress = progress
-                  updateUploadProgress()
-                })
-              })
+            ? uploadOne(thumbLocal, "market_thumb", progress => {
+              thumbProgress = progress
+              updateUploadProgress()
+            })
             : Promise.resolve("")
 
           const [fileID, thumbFID] = await Promise.all([

@@ -111,16 +111,43 @@ function isOlderThan(row, nowMs, days) {
   return nowMs - ts >= days * 24 * 60 * 60 * 1000
 }
 
+async function scanDocuments(collection, fields, maxScanDocs, accept) {
+  let scanned = 0
+  let lastId = ""
+  while (scanned < maxScanDocs) {
+    const limit = Math.min(PAGE_SIZE, maxScanDocs - scanned)
+    let rows
+    try {
+      // Keyset pagination does not skip surviving documents when earlier rows
+      // are removed. It is not an atomic snapshot of concurrently added refs.
+      let query = db.collection(collection).field(fields)
+      if (lastId) query = query.where({ _id: _.gt(lastId) })
+      const res = await query.orderBy("_id", "asc").limit(limit).get()
+      if (!res || !Array.isArray(res.data) || res.data.length > limit) {
+        return { scanned, hitScanLimit: false, complete: false }
+      }
+      rows = res.data
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row) || typeof row._id !== "string" ||
+          !row._id.trim() || row._id <= lastId) return { scanned, hitScanLimit: false, complete: false }
+        lastId = row._id
+        if (accept(row) === false) return { scanned, hitScanLimit: false, complete: false }
+      }
+    } catch (_) {
+      // A partial read is never evidence that an object has no references.
+      return { scanned, hitScanLimit: false, complete: false }
+    }
+    scanned += rows.length
+    if (rows.length < limit) return { scanned, hitScanLimit: false, complete: true }
+  }
+  // Even exactly hitting the cap does not prove that this was the final page.
+  return { scanned, hitScanLimit: true, complete: false }
+}
+
 async function readAllGoodsRefs(maxScanDocs) {
   const referenced = new Set()
   const goodsIds = new Set()
-  let scanned = 0
-  let skip = 0
-
-  while (scanned < maxScanDocs) {
-    const limit = Math.min(PAGE_SIZE, maxScanDocs - scanned)
-    const res = await db.collection(GOODS_COLLECTION)
-      .field({
+  const scan = await scanDocuments(GOODS_COLLECTION, {
         _id: true,
         imageFileID: true,
         thumbFileID: true,
@@ -133,34 +160,23 @@ async function readAllGoodsRefs(maxScanDocs) {
         imageUrls: true,
         thumbs: true,
         thumbUrls: true
-      })
-      .skip(skip)
-      .limit(limit)
-      .get()
-
-    const rows = res.data || []
-    rows.forEach(item => {
-      if (item && item._id) goodsIds.add(item._id)
-      collectReferencedFileIDs(item).forEach(fileID => referenced.add(fileID))
-    })
-
-    scanned += rows.length
-    if (rows.length < limit) break
-    skip += rows.length
-  }
-
-  return { referenced, goodsIds, scanned, hitScanLimit: scanned >= maxScanDocs }
+  }, maxScanDocs, item => {
+    for (const field of ["imageFileID", "thumbFileID", "image", "imageUrl", "thumbUrl"]) {
+      if (item[field] !== undefined && item[field] !== null && typeof item[field] !== "string") return false
+    }
+    for (const field of ["imageFileIDs", "thumbFileIDs", "images", "imageUrls", "thumbs", "thumbUrls"]) {
+      if (item[field] !== undefined && item[field] !== null &&
+        (!Array.isArray(item[field]) || item[field].some(value => value !== null && typeof value !== "string"))) return false
+    }
+    goodsIds.add(item._id)
+    collectReferencedFileIDs(item).forEach(fileID => referenced.add(fileID))
+  })
+  return { referenced, goodsIds, ...scan }
 }
 
 async function readTrackedFiles(maxScanDocs) {
   const rows = []
-  let scanned = 0
-  let skip = 0
-
-  while (scanned < maxScanDocs) {
-    const limit = Math.min(PAGE_SIZE, maxScanDocs - scanned)
-    const res = await db.collection(FILES_COLLECTION)
-      .field({
+  const scan = await scanDocuments(FILES_COLLECTION, {
         _id: true,
         fileID: true,
         type: true,
@@ -174,19 +190,8 @@ async function readTrackedFiles(maxScanDocs) {
         updatedAt: true,
         createTime: true,
         updateTime: true
-      })
-      .skip(skip)
-      .limit(limit)
-      .get()
-
-    const batch = res.data || []
-    rows.push(...batch)
-    scanned += batch.length
-    if (batch.length < limit) break
-    skip += batch.length
-  }
-
-  return { rows, scanned, hitScanLimit: scanned >= maxScanDocs }
+  }, maxScanDocs, row => { rows.push(row) })
+  return { rows, ...scan }
 }
 
 function chooseCleanupCandidates(fileRows, context, options) {
@@ -216,6 +221,13 @@ function chooseCleanupCandidates(fileRows, context, options) {
       return
     }
 
+    // A deletion marker is only intent. Shared or re-attached files remain
+    // protected while any listing references them, regardless of ledger state.
+    if (referenced.has(fileID)) {
+      skipped.stillReferenced += 1
+      return
+    }
+
     const deletedLike = status === "deleted" || status === "removed" || status === "cleanup"
     const retentionDays = deletedLike ? options.deletedRetentionDays : options.orphanRetentionDays
     if (!isOlderThan(row, nowMs, retentionDays)) {
@@ -226,9 +238,6 @@ function chooseCleanupCandidates(fileRows, context, options) {
     let reason = ""
     if (deletedLike) {
       reason = "marked_deleted"
-    } else if (referenced.has(fileID)) {
-      skipped.stillReferenced += 1
-      return
     } else if (!canUseGoodsRefs && status === "attached") {
       skipped.emptyGoodsScanSafety += 1
       return
@@ -321,19 +330,24 @@ exports.main = async (event = {}) => {
     allowEmptyGoodsCleanup: event.allowEmptyGoodsCleanup
   })
 
-  const candidates = picked.candidates.slice(0, maxDelete)
+  const complete = goods.complete && tracked.complete
+  const candidates = complete ? picked.candidates.slice(0, maxDelete) : []
   const fileIDs = candidates.map(item => item.fileID)
   const deleteResult = dryRun ? { deleted: [], failed: [] } : await deleteFiles(fileIDs)
   const markedCleaned = dryRun ? 0 : await markCleaned(candidates, deleteResult.deleted)
 
   const summary = {
-    ok: true,
+    ok: complete,
     dryRun,
+    cleanupBlocked: !complete,
+    blockReason: !goods.complete ? "goods_scan_incomplete" : !tracked.complete ? "files_scan_incomplete" : "",
     scanned: {
       goods: goods.scanned,
       marketFiles: tracked.scanned,
       goodsHitScanLimit: goods.hitScanLimit,
-      marketFilesHitScanLimit: tracked.hitScanLimit
+      marketFilesHitScanLimit: tracked.hitScanLimit,
+      goodsComplete: goods.complete,
+      marketFilesComplete: tracked.complete
     },
     referencedFileCount: goods.referenced.size,
     candidateCount: picked.candidates.length,

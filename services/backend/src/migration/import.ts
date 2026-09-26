@@ -5,11 +5,9 @@ import { normalizeCloudBaseExport } from './normalize.ts';
 import type { ExportObservation, MigrationPlan, MigrationReport } from './types.ts';
 import { serializeSource, sourceHash } from './source.ts';
 import { object, text } from './values.ts';
+import { schemaLockName } from './apply.ts';
 
 const requiredCollections = ['userInfo', 'Carpool', 'CarpoolRequest', 'CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings', 'PublicStats'];
-const tables = ['users', 'sessions', 'rides', 'ride_stops', 'ride_members', 'ride_templates', 'user_blocks',
-  'notifications', 'ride_ratings', 'ride_completions', 'public_statistics', 'business_events', 'idempotency_requests',
-  'referral_codes', 'referral_bindings', 'migration_batches', 'migration_sources'];
 type Receipt = { batchId: string; sourceSha256: string; counts: MigrationReport['candidateCounts'] };
 
 export class ImportAuditError extends AppError {
@@ -54,9 +52,20 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
   const planSha256 = sourceHash(planJson);
   const counts = normalized.report.candidateCounts;
   return transaction(pool, async client => {
+    // Share the schema runner's lock before discovering tables. A newly added
+    // domain must never bypass empty-target protection because a list got stale.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [schemaLockName]);
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended('linkx-business-import',0))");
+    const tables = (await client.query<{ qualified_name: string }>(
+      `SELECT quote_ident(n.nspname)||'.'||quote_ident(c.relname) AS qualified_name
+       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE n.nspname=current_schema() AND c.relkind IN ('r','p') AND c.relname <> 'schema_migrations'
+       ORDER BY c.relname`
+    )).rows.map(row => row.qualified_name);
+    if (!tables.length) throw new AppError(409, 'IMPORT_SCHEMA_MISSING', '请先初始化目标数据库结构');
     // Prevent concurrent runtime writes throughout the empty-target check and
-    // bootstrap. The operation never deletes or merges existing business rows.
+    // bootstrap. Identifiers below are quoted by PostgreSQL, never source data.
+    // This dedicated application schema must not contain unrelated data tables.
     await client.query(`LOCK TABLE ${tables.join(',')} IN SHARE ROW EXCLUSIVE MODE`);
     if (plan.observedBefore && (await client.query(
       'SELECT $1::timestamptz > clock_timestamp() AS future', [plan.observedBefore],

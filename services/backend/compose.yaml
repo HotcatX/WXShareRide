@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260925-foundation
+    image: linkx-backend:20260926-admin-files
     restart: unless-stopped
     init: true
     read_only: true

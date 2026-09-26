@@ -49,6 +49,10 @@ is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
 - `/api/v1/referrals/me`: private code and referral count. Login retains or issues
   the same code. `POST /api/v1/referrals/bind {code}` records the first valid
   binding with idempotency; an existing binding cannot be reassigned.
+- `/api/v1/admin/auth/login`, `/api/v1/admin/auth/logout` and `/api/v1/admin/session`:
+  separate password authentication for the management website. Only exact HTTPS
+  origins recorded in `admin_origins` are accepted; an empty allowlist denies
+  access. An admin token cannot authenticate a mini-program user, or vice versa.
 - `/healthz`: readiness against the database; exposes no account/configuration.
 
 Responses use `{ok:true,data,requestId}` or
@@ -74,12 +78,18 @@ target only. It verifies the original source, inserts all supported core models
 and their private source archive in one transaction, and reads counts back.
 An identical completed import replays its receipt without overwriting later
 business changes. It is not a merge, incremental synchronizer or cutover command.
+The target must be a dedicated application schema: under the same advisory lock
+as the SQL migration runner, the importer discovers and locks every application
+table and refuses any nonempty target. New tables automatically participate in
+that guard; they do not automatically become supported import models.
 
 Market content/date schemas and a private legacy-listing converter are available
 for audit. They preserve original ownership, ordered images and historical expiry;
-they do not yet provide market tables, routes or database import. File ownership,
-admin authentication, permanent create deduplication and market analytics must be
-integrated before that domain can move. See the market section of `SCHEMA.md`.
+they do not yet provide market tables, routes or database import. Separate admin
+authentication and the transactional file-reference/deletion core are implemented.
+Trusted uploads, complete reference import, listing operations and market analytics
+must still be integrated before that domain can move. No storage deletion timer
+or real provider adapter is installed by the file module. See `SCHEMA.md`.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 Keep the current mini-program on CloudBase until missing feature compatibility,

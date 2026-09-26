@@ -32,33 +32,49 @@ function canonicalJson(value: unknown): string {
 }
 
 export type MutationResult = { status: number; data: Record<string, unknown> };
+export type MutationReceipt = { payload_hash: string; response_status: number; response_body: Record<string, unknown> };
+
+export function idempotencyInput(key: unknown, payload: unknown): { key: string; hash: string } {
+  if (typeof key !== 'string' || !/^[a-zA-Z0-9._:-]{8,128}$/.test(key)) {
+    throw new AppError(400, 'IDEMPOTENCY_KEY_REQUIRED', '请提供 8–128 位 idempotency-key');
+  }
+  return { key, hash: createHash('sha256').update(canonicalJson(payload)).digest('hex') };
+}
+
+/** Receipts share replay semantics, while each identity domain owns its SQL and authorization. */
+export async function runIdempotentMutation(client: PoolClient, options: {
+  lockKey: string[]; hash: string;
+  beforeReceipt?: () => Promise<void>;
+  read: () => Promise<MutationReceipt | undefined>;
+  save: (result: MutationResult) => Promise<void>;
+}, work: (client: PoolClient) => Promise<MutationResult>): Promise<MutationResult> {
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify(options.lockKey)]);
+  await options.beforeReceipt?.();
+  const previous = await options.read();
+  if (previous) {
+    if (previous.payload_hash !== options.hash) throw new AppError(409, 'IDEMPOTENCY_CONFLICT', '该请求编号已用于其他内容');
+    return { status: previous.response_status, data: previous.response_body };
+  }
+  const result = await work(client);
+  await options.save(result);
+  return result;
+}
 
 /** One database, one transaction. An ambiguous timeout must retry the SAME key here. */
 export async function withIdempotency(
   pool: Pool, userId: string, operation: string, key: unknown, payload: unknown,
   work: (client: PoolClient) => Promise<MutationResult>
 ): Promise<MutationResult> {
-  if (typeof key !== 'string' || !/^[a-zA-Z0-9._:-]{8,128}$/.test(key)) {
-    throw new AppError(400, 'IDEMPOTENCY_KEY_REQUIRED', '请提供 8–128 位 idempotency-key');
-  }
-  const hash = createHash('sha256').update(canonicalJson(payload)).digest('hex');
-  return transaction(pool, async client => {
-    // A transaction lock serializes concurrent retries before the receipt exists.
-    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify([userId, operation, key])]);
-    const previous = await client.query(
+  const input = idempotencyInput(key, payload);
+  return transaction(pool, client => runIdempotentMutation(client, {
+    lockKey: [userId, operation, input.key], hash: input.hash,
+    read: async () => (await client.query<MutationReceipt>(
       'SELECT payload_hash, response_status, response_body FROM idempotency_requests WHERE user_id=$1 AND operation=$2 AND request_key=$3',
-      [userId, operation, key]
-    );
-    if (previous.rows.length) {
-      const row = previous.rows[0];
-      if (row.payload_hash !== hash) throw new AppError(409, 'IDEMPOTENCY_CONFLICT', '该请求编号已用于其他内容');
-      return { status: row.response_status, data: row.response_body };
-    }
-    const result = await work(client);
-    await client.query(
+      [userId, operation, input.key]
+    )).rows[0],
+    save: async result => { await client.query(
       'INSERT INTO idempotency_requests(user_id,operation,request_key,payload_hash,response_status,response_body) VALUES($1,$2,$3,$4,$5,$6)',
-      [userId, operation, key, hash, result.status, result.data]
-    );
-    return result;
-  });
+      [userId, operation, input.key, input.hash, result.status, result.data]
+    ); }
+  }, work));
 }

@@ -17,6 +17,7 @@ import { registerBlockRoutes } from './blocks/routes.ts';
 import { registerRatingRoutes } from './ratings/routes.ts';
 import { registerStatisticsRoutes } from './statistics/routes.ts';
 import { registerReferralRoutes } from './referrals/routes.ts';
+import { registerAdminRoutes } from './admin/routes.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
@@ -35,7 +36,12 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
       message: known ? error.message : status === 400 ? '请求格式不正确' : status === 413 ? '请求过大' : status === 415 ? '请使用 JSON 请求' : '服务暂不可用'
     }, requestId: request.id });
   });
-  app.setNotFoundHandler((request, reply) => reply.code(404).send({ ok: false, error: { code: 'NOT_FOUND', message: '接口不存在' }, requestId: request.id }));
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.split('?')[0].startsWith('/api/v1/admin/')) {
+      reply.header('Cache-Control', 'private, no-store').header('Vary', 'Origin').header('X-Content-Type-Options', 'nosniff');
+    }
+    return reply.code(404).send({ ok: false, error: { code: 'NOT_FOUND', message: '接口不存在' }, requestId: request.id });
+  });
   app.get('/healthz', async request => {
     await deps.pool.query('SELECT 1');
     return { ok: true, data: { status: 'ready' }, requestId: request.id };
@@ -57,5 +63,6 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerRatingRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerStatisticsRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerReferralRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
+  registerAdminRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   return app;
 }

@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `013` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计和邀请关系；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `015` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、拉黑、通知、评分、统计、邀请关系、管理员认证和文件事务基础；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -24,6 +24,12 @@
 | `public_statistics`（009–010） | `app_id`、`served_count`、可空 `coverage_text`、`updated_at` | 显式导入旧累计值和覆盖文案；缺失文案为未知，不猜默认地区。关闭事件同事务增加人次，不从现存行程重算旧总数。 |
 | `referral_codes`（012） | `user_id` 主键、全局唯一 `code` | 每账号一个 `ref_` 加12位小写十六进制码，保留已发布旧码。 |
 | `referral_bindings`（012） | `referred_user_id` 主键、`referrer_user_id`、`bound_at` | 首次有效绑定不可更换，不可自邀；人数由事实关系查询，不另建计数表。 |
+| `admin_accounts`（014） | `(app_id,id)`、`owner_key`、`enabled`、`credential_version`、可空 `password_salt/password_hash`、创建/更新时间 | id 为原规范化账号名，不复制 username；owner_key 可由多个管理账号共享。缺凭据不能登录，旧未知更新时间允许null，不伪造用户/OpenID。 |
+| `admin_sessions`（014） | `token_hash`、`app_id/account_id`、`credential_version`、`expires_at/created_at` | token只存hash，有效期8小时；停用、改凭据或归属变化永久删除旧会话。 |
+| `admin_login_attempts` / `admin_origins`（014） | `(app_id,scope)` 和窗口/次数；`(app_id,origin)` | 原子15分钟窗口，每账号10次、每应用120次；scope为账号hash或global。来源必须精确HTTPS匹配，默认无授权来源。 |
+| `admin_audit` / `admin_requests`（014） | 审计UUID、app/account/action/details/time；幂等主键 `(app_id,owner_key,operation,request_key)` | 管理写入、审计和永久回执同事务；旧审计actor不强制有账号，不由日志创造权限。 |
+| `files`（015） | UUID、app/provider/locator、user或admin owner、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；一个物理对象不能由多个应用分别删除。旧引用不等于上传所有权。 |
+| `file_references`（015） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community；有序slot如image.0、thumbnail.0。引用事实是唯一依据，不另存refCount或attached状态。 |
 
 009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
@@ -121,6 +127,22 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 当前没有生产数据写入/切主命令。`report.ready=true` 仅表示本切片结构审计通过，不表示整个产品迁移、旧客户端兼容、备份恢复或最终增量验证已完成。
 
 内部 `importSnapshot(pool,source,expectedAppId,observation?)` 仅用于空目标首次导入：必须显式提供上述8个已支持集合，重新审计原始source，不能提交调用方自制plan。全局事务锁和表写锁包住空库检查、全部模型、来源归档、读回数量和回执；中途失败全部回滚。事务内以数据库时钟拒绝未来观测时间。目标任何业务/会话/事件/回执数据非空就拒绝，不支持合并、清空或增量覆盖。同app/source只在转换指纹一致时重放原回执，成功后的业务变化不被重试覆盖；转换结果变更需显式迁移。原始输入在首个await前深拷贝，防止校验后被调用方修改。
+
+空目标保护与SQL runner共用schema advisory lock，在锁内从PG目录发现并锁定当前schema全部数据表（仅排除schema_migrations）。不维护会随新增功能遗漏的表名清单；目录标识符由PG quote_ident引用。目标须是专用应用schema，新增的管理员/文件表或其他非空表同样阻止首导。这不代表新表已经支持业务导入。
+
+## 管理员与文件基础（014–015）
+
+管理员账号不伪造OpenID，也不进入users。登录使用现有账户算法的异步scrypt（N=16384、r=8、p=1、32字节salt、64字节hash）；事务外计算后再次锁账号核对凭据。业务事务按账号→会话顺序锁定，并在等待后读取数据库clock_timestamp核验过期。凭据、归属或停用操作永久撤销原会话，重新启用不恢复旧token。无公开开户/重设密码/临时口令API；旧sessions不导入。
+
+管理接口仅接受admin_origins中的完整HTTPS来源，parser/鉴权错误也带private,no-store。Origin白名单不是身份认证，仍必须带管理员token。永久幂等作用域为app+owner+operation+key，读取回执前仍重新鉴权；原微信用户幂等锁键不变，不混用两类身份。
+
+文件状态只有pending/ready/deleting/deleted。预约和确认是可信存储适配器调用的内部函数；客户端报一个locator或内容hash不能证明上传归属。新文件ready须有存储读取验证过的size/media/hash/verifiedAt；旧文件允许元数据未知且legacy_readonly。物理对象键provider+locator全局唯一且永久保留，不重新使用已删除对象键。
+
+业务调用方须在同事务先授权并锁定资源，再修改file_references。核心按资源advisory锁和有序文件行锁替换引用；原资源可以保留/重排已有历史图片，新资源不能拿旧引用获得归属授权。附加只允许ready，新附加必须与可信owner匹配。文件事务显式要求READ COMMITTED，避免等待文件锁后仍读到遗漏新引用的旧事务快照。
+
+删除先锁文件、检查零引用、提交deleting，再调用存储；失败保留deleting可重试，NotFound视作成功。数据库提交回执丢失后再次读取deleted即可返回，不重复删除。legacy_readonly文件尚未全量引用核对，不进入删除；pending文件须先有真实上传截止/关闭协议，当前不自动清理。没有refCount、平行outbox、实际存储删除适配器或定时器。
+
+`normalizeMarketFiles`仅将旧MarketFiles与已转换listing图片生成文件/引用候选，仍未接主导入器。goodsId只代表最后附加索引，不能覆盖商品有序images或证明唯一引用；旧deleted/removed/cleanup是删除意图，不等于存储成功。所有候选legacy_readonly，未验证的内容元数据保持null，按原createdAtMs/updatedAtMs保存台账时钟；独立服务端时间完整归档。遇到错误不返回部分可导入结果。广告/社区图片和实际对象存在性仍需另外核对。
 
 ## 市场转换与内容校验（尚未接入数据库）
 

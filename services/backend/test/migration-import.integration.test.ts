@@ -18,9 +18,6 @@ const driver = 'synthetic-import-driver', passenger = 'synthetic-import-passenge
 const userId = (openid: string) => migrationUserId(appId, openid);
 const code = (expected: string) => (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === expected;
 const options = { skip: !process.env.BACKEND_TEST_DATABASE_URL, timeout: 30000 };
-const targetTables = ['users', 'sessions', 'rides', 'ride_stops', 'ride_members', 'ride_templates', 'user_blocks',
-  'notifications', 'ride_ratings', 'ride_completions', 'public_statistics', 'business_events', 'idempotency_requests',
-  'referral_codes', 'referral_bindings', 'migration_batches', 'migration_sources'];
 
 // Composite of the existing normalization/rating/completion/template fixtures:
 // all eight source collections are explicit, and both ride kinds are exercised.
@@ -69,7 +66,9 @@ async function database(t: TestContext) {
 }
 
 async function assertEmpty(pool: Pool) {
-  for (const table of targetTables) assert.equal((await pool.query(`SELECT count(*)::integer AS count FROM ${table}`)).rows[0].count, 0, table);
+  const tables = (await pool.query(`SELECT quote_ident(tablename) AS name FROM pg_tables
+    WHERE schemaname=current_schema() AND tablename <> 'schema_migrations'`)).rows;
+  for (const table of tables) assert.equal((await pool.query(`SELECT count(*)::integer AS count FROM ${table.name}`)).rows[0].count, 0, table.name);
 }
 
 // Scheduling only; every statement and lock is executed by PostgreSQL.
@@ -273,6 +272,36 @@ test('a late archive failure rolls back every model and receipt, allowing a clea
   await assertEmpty(pool);
   await pool.query('DROP TRIGGER fail_archive ON migration_sources');
   assert.equal((await importSnapshot(pool, source, appId)).counts.ratings, 1);
+});
+
+test('new domain tables are protected without maintaining a second table-name list', options, async t => {
+  const pool = await database(t);
+  // The quoted identifier also verifies catalog names cannot become SQL code.
+  await pool.query('CREATE TABLE "future ""records;--" (value text NOT NULL)');
+  await pool.query('INSERT INTO "future ""records;--" VALUES ($1)', ['Existing domain data']);
+  await assert.rejects(importSnapshot(pool, fixture(), appId), code('IMPORT_TARGET_NOT_EMPTY'));
+  assert.deepEqual((await pool.query('SELECT * FROM "future ""records;--"')).rows, [{ value: 'Existing domain data' }]);
+  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM migration_batches')).rows[0].count, 0);
+  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM users')).rows[0].count, 0);
+});
+
+test('bootstrap waits for the schema runner and sees tables it creates before releasing the lock', options, async t => {
+  const pool = await database(t), schemaWriter = await pool.connect();
+  await schemaWriter.query("SELECT pg_advisory_lock(hashtext('linkx-backend-schema'))");
+  const scheduled = scheduledPool(pool, sql => sql.includes('pg_advisory_xact_lock'), false);
+  const importing = importSnapshot(scheduled.pool, fixture(), appId);
+  const rejected = assert.rejects(importing, code('IMPORT_TARGET_NOT_EMPTY'));
+  try {
+    await assertWaiting(pool, await scheduled.entered);
+    await schemaWriter.query('CREATE TABLE newly_migrated_records (value text NOT NULL)');
+    await schemaWriter.query("INSERT INTO newly_migrated_records VALUES ('Preserve new domain')");
+  } finally {
+    await schemaWriter.query("SELECT pg_advisory_unlock(hashtext('linkx-backend-schema'))");
+    schemaWriter.release();
+  }
+  await rejected;
+  assert.deepEqual((await pool.query('SELECT * FROM newly_migrated_records')).rows, [{ value: 'Preserve new domain' }]);
+  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM users')).rows[0].count, 0);
 });
 
 test('the same source with a different conversion fingerprint cannot masquerade as a replay', options, async t => {

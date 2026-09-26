@@ -9,7 +9,7 @@ type MigrationClient = {
 };
 export type MigrationPool = { connect(): Promise<MigrationClient> };
 const defaultDirectory = fileURLToPath(new URL('../../migrations/', import.meta.url));
-const lockName = 'linkx-backend-schema';
+export const schemaLockName = 'linkx-backend-schema';
 
 /** Apply checked-in SQL once. Existing migrations are immutable, including whitespace. */
 export async function runMigrations(pool: MigrationPool, directory = defaultDirectory): Promise<string[]> {
@@ -25,7 +25,7 @@ export async function runMigrations(pool: MigrationPool, directory = defaultDire
   let locked = false;
   const applied: string[] = [];
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockName]);
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [schemaLockName]);
     locked = true;
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now()
@@ -51,7 +51,7 @@ export async function runMigrations(pool: MigrationPool, directory = defaultDire
     return applied;
   } finally {
     try {
-      if (locked) await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockName]);
+      if (locked) await client.query('SELECT pg_advisory_unlock(hashtext($1))', [schemaLockName]);
     } finally { client.release(); }
   }
 }

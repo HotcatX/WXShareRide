@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { withIdempotency } from '../db.ts';
 import { AppError } from '../errors.ts';
+import { assertNoBlockedMembers } from '../blocks/service.ts';
+import { notifyRideEvent } from '../notifications/service.ts';
 import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, listRidesSchema, rideIdSchema } from './schemas.ts';
 
 type Ride = {
@@ -25,9 +27,12 @@ function assertJoinable(ride: Ride) {
 }
 
 async function recordEvent(client: PoolClient, ride: Ride, actorId: string, action: string, payload: object) {
+  const eventId = randomUUID();
   await client.query(`INSERT INTO business_events(id, ride_id, ride_version, action, actor_id, payload, created_at)
     VALUES ($1, $2, $3, $4, $5, $6::jsonb, clock_timestamp())`,
-  [randomUUID(), ride.id, ride.version, action, actorId, JSON.stringify(payload)]);
+  [eventId, ride.id, ride.version, action, actorId, JSON.stringify(payload)]);
+  await notifyRideEvent(client, { eventId, rideId: ride.id, kind: ride.kind, creatorId: ride.creator_id,
+    actorId, action, payload: payload as Record<string, unknown> });
 }
 
 async function advanceVersion(client: PoolClient, ride: Ride): Promise<Ride> {
@@ -86,6 +91,9 @@ export async function joinRide(pool: Pool, userId: string, key: unknown, id: unk
       if (current.role !== input.role || current.seat_count !== seatCount) throw new AppError(409, 'MEMBERSHIP_EXISTS', '已加入该行程，请先退出后再调整');
       return writeResult(ride, false);
     }
+    // Blocking prevents new relationships, never retroactively removes an
+    // existing member. Pair locks serialize this check with block/unblock.
+    await assertNoBlockedMembers(client, userId, [ride.creator_id, ...members.map(member => member.user_id)]);
     if (input.role === 'driver' && members.some(member => member.role === 'driver')) {
       throw new AppError(409, 'DRIVER_ALREADY_ASSIGNED', '该求车已被其他司机接单');
     }
@@ -132,10 +140,11 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
     if (ride.status === 'cancelled') return writeResult(ride, false);
     assertJoinable(ride);
     await client.query(`UPDATE rides SET status = 'cancelled' WHERE id = $1`, [rideId]);
+    const changed = await advanceVersion(client, { ...ride, status: 'cancelled' });
+    // Capture the active recipients before closing memberships, in this same transaction.
+    await recordEvent(client, changed, userId, 'cancelled', { reason: input.reason });
     await client.query(`UPDATE ride_members SET state = 'left', left_at = GREATEST(clock_timestamp(), joined_at)
       WHERE ride_id = $1 AND state = 'active'`, [rideId]);
-    const changed = await advanceVersion(client, { ...ride, status: 'cancelled' });
-    await recordEvent(client, changed, userId, 'cancelled', { reason: input.reason });
     return writeResult(changed);
   });
 }
@@ -144,7 +153,7 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
 // arbitrary imported details, contact information or business event payloads.
 const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status,
   r.seat_capacity AS "seatCapacity", r.departure_at AS "departureAt", r.time_zone AS "timeZone",
-  r.listed_price_cents AS "listedPriceCents", r.version,
+  r.listed_price_cents AS "listedPriceCents", r.listed_price_label AS "listedPriceLabel", r.version,
   COALESCE(r.details->>'note', '') AS note,
   r.seat_capacity - COALESCE((SELECT sum(m.seat_count) FROM ride_members m
     WHERE m.ride_id = r.id AND m.state = 'active'), 0)::integer AS "availableSeats",

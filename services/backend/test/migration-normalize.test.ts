@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { normalizeCloudBaseExport, localDepartureCandidates, parseListedPrice, parseExportTimestamp, migrationUserId } from '../src/migration/normalize.ts';
+import { normalizeCloudBaseExport, localDepartureCandidates, parseExportTimestamp, migrationUserId } from '../src/migration/normalize.ts';
 
 const options = { timeZone: 'America/New_York' } as const;
 const now = '2026-09-25T03:00:00.000Z';
@@ -102,14 +102,19 @@ test('missing address/time, contradicting cache, or unknown status stops the pla
   assert.equal(normalizeCloudBaseExport(input, options).plan, null);
 });
 
-test('listed price conversion does not fabricate actual transaction price or parse arbitrary numbers', () => {
-  assert.deepEqual(parseListedPrice('15$/人'), { valid: true, cents: 1500 });
-  assert.deepEqual(parseListedPrice('15.20'), { valid: true, cents: 1520 });
-  assert.deepEqual(parseListedPrice(0), { valid: true, cents: 0 });
-  assert.deepEqual(parseListedPrice(''), { valid: true, cents: null });
-  for (const value of ['参考价格', '15-20$/人', '2人共30', '-1', '1.999', true]) assert.equal(parseListedPrice(value).valid, false);
-  const input = fixture(); input.collections.Carpool[0]!.referencePrice = '请参考打车价格';
-  assert.ok(issues(input).includes('UNRESOLVED_PRICE'));
+test('price text and notes survive migration without invented prices or duplicate canonical aliases', () => {
+  for (const [label,cents] of [[' 15 USD ',1500], ['请参考打车价格',null], ['2人共30',null], ['15-20$/人',null]] as const) {
+    const input = fixture(); Object.assign(input.collections.Carpool[0]!, { referencePrice: label, comment: 'Private note' });
+    const result = normalizeCloudBaseExport(input, options);
+    assert.equal(result.report.ready, true);
+    assert.equal(result.plan!.rides[0]!.listedPriceLabel, label);
+    assert.equal(result.plan!.rides[0]!.listedPriceCents, cents);
+    assert.deepEqual(result.plan!.rides[0]!.details, { note: 'Private note' });
+    assert.doesNotMatch(JSON.stringify(result.report), /Private|USD|2人|15-20/);
+  }
+  const invalid = fixture(); invalid.collections.Carpool[0]!.referencePrice = { value: 15 };
+  assert.equal(normalizeCloudBaseExport(invalid, options).plan, null);
+  assert.ok(issues(invalid).includes('INVALID_PRICE_VALUE'));
 });
 
 test('unknown member, overbooking, and stale user membership arrays are visible blockers', () => {

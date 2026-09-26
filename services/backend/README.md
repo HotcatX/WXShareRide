@@ -15,8 +15,9 @@ DATABASE_URL=postgresql://localhost/linkx WECHAT_APP_ID=wx8a8a389199aa2a0e npm r
 DATABASE_URL=postgresql://localhost/linkx WECHAT_APP_ID=wx8a8a389199aa2a0e npm start
 ```
 
-Without `BACKEND_TEST_DATABASE_URL`, database integration tests explicitly skip;
-such a run is insufficient to approve changes to transactions or schemas.
+`BACKEND_TEST_DATABASE_URL` is required for the full test suite. Some older suites
+skip without it, while migration and notification suites reject a missing URL;
+a partial run is insufficient to approve transactions or schemas.
 Migrations run as an explicit deployment step and never implicitly on startup.
 Previously applied SQL files are immutable and checked by SHA-256.
 
@@ -34,6 +35,11 @@ is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
 - `/api/v1/rides`: public `GET`, authenticated `POST`; see [ride contract](src/rides/README.md).
 - `/api/v1/templates`: owner-scoped weekly offer templates; `GET`, `POST`, and
   `PATCH`/`DELETE /:id`. Weekdays and local clocks use `America/New_York`, including DST.
+- `/api/v1/blocks`: authenticated outgoing list/create; `DELETE /:targetUserId`.
+  Bilateral blocks prevent new ride joins; they do not remove existing bookings.
+- `/api/v1/notifications`: private cursor-paginated list and idempotent clear;
+  `GET /unread`, `POST /read-all` and `POST /:id/read`. Ride changes and their
+  recipient notifications commit together, with one notification per event/user.
 - `/healthz`: readiness against the database; exposes no account/configuration.
 
 Responses use `{ok:true,data,requestId}` or

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { parseLegacyListedPrice } from './legacy-price.ts';
 
 type Document = Record<string, unknown>;
 type Collection = 'userInfo' | 'Carpool' | 'CarpoolRequest' | 'other';
@@ -6,7 +7,7 @@ export type MigrationIssue = {
   collection: Collection; code: string; field: string; severity: 'error' | 'notice'; count: number;
 };
 export type UserRow = { id: string; appId: string; openid: string; name: string; avatarUrl: string; profile: Document; createdAt: string; updatedAt: string };
-export type RideRow = { id: string; kind: 'offer' | 'request'; creatorId: string; cityKey: string; status: 'open' | 'cancelled' | 'closed'; seatCapacity: number; departureAt: string; timeZone: string; listedPriceCents: number | null; details: Document; version: number; createdAt: string; updatedAt: string };
+export type RideRow = { id: string; kind: 'offer' | 'request'; creatorId: string; cityKey: string; status: 'open' | 'cancelled' | 'closed'; seatCapacity: number; departureAt: string; timeZone: string; listedPriceCents: number | null; listedPriceLabel: string | null; details: Document; version: number; createdAt: string; updatedAt: string };
 export type MemberRow = { rideId: string; userId: string; role: 'driver' | 'passenger'; seatCount: number; state: 'active'; joinedAt: string; leftAt: null; details: Document };
 export type StopRow = { rideId: string; position: number; kind: 'departure' | 'destination'; address: string; placeId: string | null; departureAt: string | null };
 export type MigrationPlan = { users: UserRow[]; rides: RideRow[]; members: MemberRow[]; stops: StopRow[] };
@@ -85,16 +86,6 @@ export function localDepartureCandidates(date: unknown, time: unknown, timeZone 
   return [...offsets].map(offset => nominal - offset)
     .filter(candidate => parts(candidate).every((value, i) => value === expected[i]))
     .sort((a, b) => a - b).map(ms => new Date(ms).toISOString());
-}
-
-/** Explicit existing USD formats only. Never extract the first number from arbitrary text. */
-export function parseListedPrice(value: unknown): { valid: boolean; cents: number | null } {
-  if (value === null || value === undefined || value === '') return { valid: true, cents: null };
-  if (typeof value !== 'string' && typeof value !== 'number') return { valid: false, cents: null };
-  const match = /^(\d{1,8})(?:\.(\d{1,2}))?(?:\$\/人)?$/.exec(String(value).trim());
-  if (!match) return { valid: false, cents: null };
-  const cents = Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
-  return { valid: Number.isSafeInteger(cents) && cents <= 2_147_483_647, cents };
 }
 
 /** Read-only candidate normalization. The plan contains private data: print only report. */
@@ -245,8 +236,13 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       const statuses: Record<string, RideRow['status']> = { open: 'open', full: 'open', past: 'closed', closed: 'closed', cancelled: 'cancelled', canceled: 'cancelled' };
       const status = typeof raw.status === 'string' ? statuses[raw.status] : undefined;
       if (!status) issue(collection, 'UNMAPPED_RIDE_STATUS', 'status');
-      const price = parseListedPrice(raw.referencePrice);
-      if (!price.valid) issue(collection, 'UNRESOLVED_PRICE', 'referencePrice');
+      const price = parseLegacyListedPrice(raw.referencePrice);
+      if (price.classification === 'unresolved') {
+        // Free-text quotes can be preserved without claiming a scalar amount.
+        // Invalid non-string values still block import rather than losing data.
+        issue(collection, typeof raw.referencePrice === 'string' ? 'PRICE_TEXT_PRESERVED' : 'INVALID_PRICE_VALUE',
+          'referencePrice', typeof raw.referencePrice === 'string' ? 'notice' : 'error');
+      }
       const seatCount = typeof raw.passengerCount === 'number' ? raw.passengerCount : NaN;
       if (!Number.isInteger(seatCount) || seatCount < 1 || seatCount > (kind === 'offer' ? 8 : 4)) issue(collection, 'INVALID_SEAT_COUNT', 'passengerCount');
       const version = raw.businessVersion === undefined ? 1 : raw.businessVersion;
@@ -254,14 +250,14 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) issue(collection, 'INVALID_VERSION', 'businessVersion');
       const details: Document = {};
       for (const key of ['comment', 'zelle'] as const) if (raw[key] !== undefined) {
-        if (typeof raw[key] !== 'string') issue(collection, 'INVALID_RIDE_DETAIL', key); else details[key === 'zelle' ? 'zelleDisplay' : key] = raw[key];
+        if (typeof raw[key] !== 'string') issue(collection, 'INVALID_RIDE_DETAIL', key); else details[key === 'zelle' ? 'zelleDisplay' : 'note'] = raw[key];
       }
       if (raw.largeLuggageCount !== undefined) {
         if (typeof raw.largeLuggageCount !== 'number' || !Number.isInteger(raw.largeLuggageCount) || raw.largeLuggageCount < 0) issue(collection, 'INVALID_RIDE_DETAIL', 'largeLuggageCount'); else details.largeLuggageCount = raw.largeLuggageCount;
       }
       if (raw.cityKey !== 'ny_nj' && raw.cityKey !== 'ny' && raw.cityKey !== 'nj') issue(collection, 'UNMAPPED_CITY', 'cityKey');
       if (raw.cityKey === 'ny' || raw.cityKey === 'nj') issue(collection, 'CITY_ALIAS_NORMALIZED', 'cityKey', 'notice');
-      const ride: RideRow = { id: raw._id, kind, creatorId: creator.id, cityKey: 'ny_nj', status: status || 'open', seatCapacity: kind === 'offer' ? seatCount : 4, departureAt: times[0] || '', timeZone: options.timeZone, listedPriceCents: price.cents, details, version: typeof version === 'number' ? version : 1, createdAt, updatedAt };
+      const ride: RideRow = { id: raw._id, kind, creatorId: creator.id, cityKey: 'ny_nj', status: status || 'open', seatCapacity: kind === 'offer' ? seatCount : 4, departureAt: times[0] || '', timeZone: options.timeZone, listedPriceCents: price.cents, listedPriceLabel: price.label, details, version: typeof version === 'number' ? version : 1, createdAt, updatedAt };
       plan.rides.push(ride); plan.stops.push(...stops);
       const members: MemberRow[] = [];
       const addMember = (openid: unknown, role: MemberRow['role'], seats: number, joinedAt: string, memberDetails: Document = {}) => {

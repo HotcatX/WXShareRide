@@ -26,7 +26,7 @@ Writes require the authenticated user from `requireUser` and an `idempotency-key
 
 - `origin` and `destination` are objects, never string aliases. `address` is required; `placeId` is optional. This slice creates exactly one departure and one destination.
 - `departureAt` is a UTC ISO timestamp ending in `Z`; timezone is fixed to `America/New_York`. New departures must be in the future. Local weekday templates need a separate conversion boundary.
-- `listedPriceCents` is a nonnegative integer or `null` for unknown. It is the listed price, not confirmed payment or actual成交价.
+- `listedPriceCents` is a nonnegative integer or `null` for unknown. New quotes use the existing per-person convention. Imported historical `listedPriceLabel` retains the original text; an unspecified historical unit must not become per-person pricing. Neither field proves payment or actual成交价.
 - An offer requires `seatCapacity` between 1 and 8; its creator becomes the driver with zero passenger seats.
 - A request replaces `seatCapacity` with `partySize` between 1 and 4. Its creator is one passenger membership reserving all party seats. Request capacity is four, matching `MAX_REQUEST_PASSENGERS` in existing `joinTrip`/`tripManage` and the existing request seat-count helper.
 - Unknown fields are rejected, including old aliases such as `passengerCount`, `referencePrice`, `_openid`, and `departures`.
@@ -42,9 +42,9 @@ Each mutation locks the ride row before reading or changing membership. Availabl
 This module must not silently replace the old production write functions yet:
 
 - Multi-departure/multi-destination routes, per-passenger pickup/dropoff, and route editing are not implemented. Import preserves all stops; the single-route create DTO must not flatten them. No capacity-by-segment behavior is inferred.
-- Existing bilateral block relationships and block/unblock APIs are not integrated. Do not migrate joins before enforcing them with the correct transaction/locking semantics.
-- Notifications, kick/remove member actions, ratings, completion accounting, user profile/contact access, vehicle fields, luggage, Zelle/payment-method presentation, weekly templates, and “my trips” are not covered by this slice.
-- Business events are durable, but delivery to analytics/notifications and compatibility projection back to legacy consumers have not been implemented.
+- Bilateral block APIs and join enforcement are implemented with ordered user-pair locks. Existing relationships are not removed by blocking. Legacy block records and client adapters have not yet migrated.
+- Joined/left/cancelled notifications are atomic with the ride write. Kick/remove member actions, ratings and rating invitations, completion accounting, user profile/contact access, vehicle fields, luggage, Zelle/payment-method presentation, and “my trips” still require implementation. Weekly template CRUD exists, but full old field mapping remains incomplete.
+- Business events are durable; delivery to analytics and compatibility projection back to legacy consumers have not been implemented.
 - Departed or closed rides cannot be joined, left, or cancelled here. Some legacy quit/delete paths did not enforce this. Confirm historical membership semantics and frontend behavior before routing those operations here; completed participation must not be casually rewritten.
 - There is no automatic transition worker marking past rides `closed` yet; list and mutation eligibility use the timestamp directly.
 - Public listing uses bounded offset pagination, not a snapshot-consistent feed. Data migration must verify quantities and preserve source IDs/ownership before client routing.

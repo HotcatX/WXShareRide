@@ -122,6 +122,46 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 内部 `importSnapshot(pool,source,expectedAppId,observation?)` 仅用于空目标首次导入：必须显式提供上述8个已支持集合，重新审计原始source，不能提交调用方自制plan。全局事务锁和表写锁包住空库检查、全部模型、来源归档、读回数量和回执；中途失败全部回滚。事务内以数据库时钟拒绝未来观测时间。目标任何业务/会话/事件/回执数据非空就拒绝，不支持合并、清空或增量覆盖。同app/source只在转换指纹一致时重放原回执，成功后的业务变化不被重试覆盖；转换结果变更需显式迁移。原始输入在首个await前深拷贝，防止校验后被调用方修改。
 
+## 市场转换与内容校验（尚未接入数据库）
+
+`src/market/schemas.ts` 统一商品与转租的内容字段，`src/migration/market.ts`
+只生成私有转换候选；当前没有市场 SQL 表、HTTP 接口或市场导入功能。
+主审计仍拒绝未支持的非空市场集合，不能把这部分转换通过当成整库迁移通过。
+
+- 内容只保留 `listingType`、`title`、`description`、整数 `priceCents`、`category`、
+  `condition`、`region:{state,county,area}`、`buildingName`、可空 `location`、
+  `startDate/endDate`、有序 `images`、可空 `sellerContact` 和 `sublet`。
+  图片先保留旧 `cloud://` 标识及对应缩略图顺序；不复制首图、hasImage、展示 URL。
+  标识通过格式验证不代表对象存在，也不授予附加图片的权限。
+- 转租房型沿用唯一 `category`，租期沿用唯一日期窗口。`sublet` 只收房屋类型、
+  可空押金分值、家具/费用布尔值、室友偏好及可空人数；普通商品必须为 null。
+  旧 false 保留原义，不额外推断房屋事实。金额不四舍五入，不解析任意字符串；
+  最大 10,000,000,000 分，未来 SQL 必须使用能容纳该范围的类型。
+- 来源映射另加原 `id`、`appId`、`ownerUserId` 或 `adminOwnerKey`（二者恰一）、
+  `sharedAdminManagement`、`status`、绝对 `expiresAt`、`version`、`createdAt/updatedAt`。
+  这些字段不能混入客户端内容输入。旧未知更新时间为 null，缺失版本初始为 0 并记录提示。
+- 网页归属须由已核验的管理员账号到 ownerKey 映射确认；多个账号可以共享管理范围，
+  不因当前只有一个账号就假定 ownerKey 为账号唯一键。旧 OpenID 代发记录仍归真实用户，
+  用显式 `sharedAdminManagement` 保留有效网页管理员的既有共享管理权限。
+  不把它们改写成网页账号所有，也不伪造 OpenID。
+- 管理员登录账号和会话独立于微信 users。账号非秘密字段投影仅能证明归属；不能用于
+  恢复密码认证，更不能冒充完整源备份。未映射操作者、账户冲突或未知字段会阻断候选。
+- `normalizeMarketListings(documents,{appId,users,adminOwners},issue)` 不写库或改源。
+  调用方必须保留完整来源，并在任意 error 时拒绝整个计划，不能导入部分成功的行。
+  别名须先一致核验；原创建请求、批次摘要、更新摘要和统计字段暂时校验归档。
+  切换前仍须完成永久创建去重、批次结果、浏览事实、文件归属和附件内容的迁移。
+
+`src/market/time.ts` 显式接收服务器时间，按纽约日期限制商品两个月、转租十八个月，
+月份末尾截到实际末日。新建或明确修改日期才计算纽约结束日最后一毫秒（支持夏令时）；
+不因编辑其他内容延长有效期。历史导入始终保留原 `expireTime` 的绝对时刻，
+不把旧 UTC 日末悄悄重算成纽约日末。开始日期不作为额外可见性门槛。
+
+文件生命周期的迁移边界：一张文件可以被多条商品引用，关联关系保存顺序及缩略图配对，
+不复制 refCount。`pending/ready/deleting/deleted` 与引用分开；旧 `deleted` 只是删除意图，
+不等于对象已经消失。未来附加引用和清理必须锁定同一文件，检查无引用后置 deleting，
+再执行外部存储删除；deleting 对象禁止新增引用。现 CloudBase 游标扫描不是事务快照，
+不能作为新后端的文件锁替代。广告与社区配置、历史回滚图片也须独立保留引用。
+
 ## 已验证
 
 `test/migration-normalize.test.ts` 覆盖身份冲突、资料映射、PII 不泄漏、源类型、时间/DST、报价、成员/容量、索引对账和只读 CLI。`test/migration-schema.test.ts` 使用真实临时 PostgreSQL schema，覆盖重复/并发应用、文件校验、DDL 失败回滚、唯一约束、JSON CHECK、司机/座位/状态约束及外键。

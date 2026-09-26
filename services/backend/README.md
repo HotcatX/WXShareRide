@@ -75,6 +75,12 @@ and their private source archive in one transaction, and reads counts back.
 An identical completed import replays its receipt without overwriting later
 business changes. It is not a merge, incremental synchronizer or cutover command.
 
+Market content/date schemas and a private legacy-listing converter are available
+for audit. They preserve original ownership, ordered images and historical expiry;
+they do not yet provide market tables, routes or database import. File ownership,
+admin authentication, permanent create deduplication and market analytics must be
+integrated before that domain can move. See the market section of `SCHEMA.md`.
+
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 Keep the current mini-program on CloudBase until missing feature compatibility,
 backup/restore, complete import reconciliation, trusted login and capacity checks

@@ -1,13 +1,13 @@
 # 后端内部部署记录
 
-2026-09-26 已将内部实例更新至提交 `a933fca`，保留各阶段恢复记录。**尚未把正式业务写入转移到 PostgreSQL；目标小程序版本 5.1.0 未上传、未送审。**
+2026-09-26 已将内部实例更新至提交 `517aaf6`，保留各阶段恢复记录。**尚未把正式业务写入转移到 PostgreSQL；目标小程序版本 5.1.0 未上传、未送审。**
 
 ## 已部署内容
 
 | 组件 | 部署结果 | 正式流量 |
 | --- | --- | --- |
-| 新业务服务 | `linkx-backend:20260926-market-core`，`/opt/linkx-backend` | 仅宿主机 `127.0.0.1:3101`；没有 Caddy 公网路由 |
-| 新业务数据库 | PostgreSQL 16，001 至 018 schema 已应用 | 全部业务表为空；没有导入真实用户、管理员或行程 |
+| 新业务服务 | `linkx-backend:20260926-catalog`，`/opt/linkx-backend` | 仅宿主机 `127.0.0.1:3101`；没有 Caddy 公网路由 |
+| 新业务数据库 | PostgreSQL 16，001 至 020 schema 已应用 | 31 个业务表均为空；没有导入真实用户、管理员或行程 |
 | 采集服务 | `linkx-analytics-collector:20260925-normal-names` | 保留原 Compose project、数据库、JWT、密钥、socket、数据目录 |
 | CloudBase `statistics` | 依次增量上传 `compat.js`、`bridge.js` | 相同协议常量，无业务语义变更；读回 Active、15 秒 |
 | CloudBase `syncMyTripStatus` | 增量上传并发修复后的 `index.js` | 事务内重读当前用户，仅迁移本轮成功且仍存在的行程；读回 Active、15 秒 |
@@ -18,8 +18,8 @@ PostgreSQL 采用固定镜像摘要
 数据库不发布宿主机端口；应用使用独立非超级用户。凭据仅保存在服务器
 `/etc/linkx-backend`，不进入仓库、导出报告或小程序包。
 
-本次业务源码归档 SHA-256：`0bb9893e14967c061826e785ab968fc22b31a2a7d236d14a9392bc4614c48278`。
-业务镜像 ID：`sha256:bf5fd962df6f6ebfbe296a0a96c0aec8357d4e9c8751d9ae70b94e710332e859`。
+本次业务源码归档 SHA-256：`23736a876a9b961bcbfe9fee496914d2e4100fcc298ed505021cdb2f353840cd`。
+业务镜像 ID：`sha256:5c026d49b7c970a3381d8512843167ae7e3fd37414de86c4ad5eaf75ecba671f`。
 
 第一阶段源码归档 SHA-256：
 
@@ -28,12 +28,12 @@ PostgreSQL 采用固定镜像摘要
 
 ## 本次内部升级验证
 
-- 提交 a933fca 的后端 431 项测试通过，真实 PostgreSQL、0 跳过；TypeScript 和差异检查通过。前一内部版本 bca907b 的376项通过仅是历史证据。
-- 服务器已依次应用003–018，并逐表确认全部业务表为空；新业务健康与行程列表返回200，私有接口401、空白名单管理员入口403、未知管理员路径404且private,no-store。市场HTTP尚未接线返回404。缺微信AppSecret时登录503符合当前内部配置。
+- 提交 517aaf6 的后端 494 项测试通过，真实 PostgreSQL、0 跳过；TypeScript 和差异检查通过。前一版本 a933fca 的431项、bca907b的376项通过仅是历史证据。
+- 服务器已应用019–020，并逐表确认31个业务表为空；新业务健康、行程和市场列表返回200，我的市场接口401、空白名单管理员入口403。微信AppSecret仍未配置。
 - 后端、PostgreSQL和现有采集服务均healthy；公网采集health200，新业务路由404，未改变现有公网路由和客户端写库。
 - 升级前PostgreSQL自定义格式备份已真实恢复到独立临时数据库，核验原2项schema和0条用户/行程后删除该临时库。首次恢复因容器内备份文件归属不可读失败；修正仅该文件owner后恢复成功。
 - 未部署市场云函数本地修复、未提交小程序审核、未执行生产导入或切主。
-- 本地18版隔离库完成兼容演练：8核心集合首导后，再插入1管理员、25商品、130文件、72引用；25原到期时间和原管理员摘要均逐项回读相等，商品JSON不存在第二份图片字段。广告/社区只做纯转换核验，尚未接中央导入；不能把该演练称作整库正式迁移。隔离库已清理。
+- 本地20版隔离库对24个已支持集合执行中央原子导入及同源重放：包括1163用户、3921行程、1管理员、1来源、31管理审计、25商品、134文件、87引用、486浏览桶、1广告、128点击、1社区当前配置和6修订。浏览桶合计686次；25原到期时间和原管理员摘要逐项回读相等，未知文件归属保持null，商品JSON无第二份图片字段。实际createApp游客市场读取200、无效会话401，隔离库已清理。该范围仍未包括MarketImportBatches及其余未完成域，不是整库迁移或生产切主。
 
 ## 第一阶段历史验证
 
@@ -52,8 +52,10 @@ PostgreSQL 采用固定镜像摘要
 
 本次内部业务升级备份：
 
-- 当前升级前数据库：`/var/backups/linkx-backend/before-a933fca.dump`，SHA-256 `9a7329001c265fdaf9758ff4f1f65781b9f6dd4f86b762fc2f8e6d4f9752099f`。
-- 当前升级前源码：`/var/backups/linkx-deployments/backend-before-a933fca.tar.gz`；上一镜像 `linkx-backend:20260926-admin-files` 和源码目录 `/opt/linkx-backend-before-a933fca` 保留。
+- 当前升级前数据库：`/var/backups/linkx-backend/before-517aaf6.dump`，SHA-256 `113d0ae077ef17910c55820c150d60c7d4cc7fba76785f5a4ec5b4f0ee0fd059`。
+- 当前升级前源码：`/var/backups/linkx-deployments/backend-before-517aaf6.tar.gz`；上一镜像 `linkx-backend:20260926-market-core` 和源码目录 `/opt/linkx-backend-before-517aaf6` 保留。
+- 前一阶段数据库：`/var/backups/linkx-backend/before-a933fca.dump`，SHA-256 `9a7329001c265fdaf9758ff4f1f65781b9f6dd4f86b762fc2f8e6d4f9752099f`。
+- 前一阶段源码：`/var/backups/linkx-deployments/backend-before-a933fca.tar.gz`；镜像 `linkx-backend:20260926-admin-files` 和源码目录 `/opt/linkx-backend-before-a933fca` 保留。
 - 数据库：`/var/backups/linkx-backend/before-bca907b.dump`，SHA-256 `dcbb1243c5babc5032fbc134d48b2f4b8d07f962a4d54bfc93f294dd0d85257b`。
 - 源码：`/var/backups/linkx-deployments/backend-before-bca907b.tar.gz`，SHA-256 `959b985a93b4d0990d2bf9078b6db211e5a40845790c13922845cc5d881f3ef9`。
 - 原镜像 `linkx-backend:20260925-foundation` 和原源码目录 `/opt/linkx-backend-before-bca907b` 保留；该目录不承担当前服务路径。

@@ -177,15 +177,10 @@ type WeeklyTemplate = {
 4. 旧模板 weekdayIndex=0周一，通过 `(oldIndex+1)%7` 一次性转换。137 个现有模板各只有一个出发站，直接映射 offsetMinutes=0；不得把过去某条具体行程的 UTC 时刻存回模板。
 5. 模板 CRUD 不自动发布；使用模板时按当前 profile 获取车辆与将来的 Zelle 默认值，按当前时间生成 canonical RideStop 后进入普通创建流程。多站预览使用同一实例化函数，不能在列表、点击、发布三处各写一套时间算法。
 
-现有 [rideTime](../utils/rideTime.js#L73) 和 [nextWeeklyOccurrence](../services/backend/src/templates/time.ts) 已实现单首站的纽约周次、15 分钟、30 日和 DST 策略；扩展应复用它们的已验证政策。当前“最近发布再用一次”入口已删除；不要为本切片重新引入历史快捷入口或按钮。
+旧 [rideTime](../utils/rideTime.js#L73) 定义纽约周次、15 分钟、30 日和 DST 策略；新 [nextWeeklyOccurrence](../services/backend/src/templates/time.ts) 已按该策略逐站计算。当前“最近发布再用一次”入口已删除；不要重新引入历史快捷入口或按钮。
 
-## 7. 实现顺序与验收门槛
+## 7. 实现状态与剩余接入
 
-1. root 确认 stops 输入、报名截止、私密投影和模板旧冗余字段归档决策后，统一更新中央 SCHEMA.md；此文不构成已上线 schema。
-2. 修改未正式接入的 rides/template schema、服务及合成测试，一次性替换 origin/destination；不增加别名兼容。保留已应用 SQL 的校验和。
-3. 创建事务同时写全部站点及派生最早出发时间。join 事务在现有锁/幂等/拉黑顺序内保存接送说明，事件/通知只带必要事实。
-4. 新增私密 participants 白名单并做跨账号、未加入、退出/剔除、取消、求车司机更替、供车 Zelle 关闭、profile 默认值改变的授权回归。不能只测试 WXML 是否隐藏。
-5. 用合成多站验证数量上限、两个到达站不丢失、相同时刻、午夜、DST 缺口/重复、周次滚动和模板点击后过期。真实提取只做脱敏 dry-run，不改生产。
-6. 接入现有页面，保留单出发/单到达 UI，不新增控制。旧字段的真正删除在对应新正式版验证后执行；尚未适配的线上旧调用仍按集中 TEMPORARY FALLBACK 边界工作。
+stops输入、首站报名截止、事务内完整站点保存、成员接送说明、私密participants白名单及周模板逐站时间已实现，真实PostgreSQL回归覆盖并发、跨账号权限、旧成员退出、DST及回滚。旧origin/destination输入已移除，模板冗余车辆/收款副本只归档；当前字段以中央 [SCHEMA](../services/backend/SCHEMA.md) 为准，不按本文重新生成别名。
 
-当前实现没有改变：线上 CloudBase 仍是权威业务库；本文件仅新增设计审计，不代表多站、私密详情或模板迁移已完成。
+仍需接入现有页面，保留单出发/单到达UI，不新增控制；完成旧客户端单写兼容后再切换权威库。生产仍使用CloudBase，旧fallback的删除须等新正式版验证正常。

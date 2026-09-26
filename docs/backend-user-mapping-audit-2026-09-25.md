@@ -1,6 +1,6 @@
 # 用户身份、资料与时间字段迁移审计
 
-本次只读分析 `data/backend-migration-20260925` 中的完整业务文档、当前写入口及可查 Git 历史。只新增本文，没有修改 normalizer、schema、业务代码或生产数据。以下都是聚合计数，不包含 OpenID、文档 ID、地址、联系方式或用户原文。
+本文保留对 `data/backend-migration-20260925`、旧写入口及 Git 历史的只读审计依据。相关身份、资料与时间映射已在后续核心迁移器实现并验证；当前字段以 [SCHEMA](../services/backend/SCHEMA.md) 为准，不根据本文另建别名。以下都是聚合计数，不包含 OpenID、文档 ID、地址、联系方式或用户原文。
 
 提取是 2026-09-26 02:08:46 UTC（纽约 2026-09-25 22:08:46）完成的在线扫描，不是原子快照。范围和分页完整性见 [原始数据审计](backend-data-audit-2026-09-25.md)；当前唯一新字段契约见 [SCHEMA](../services/backend/SCHEMA.md)。本文提出映射决策，不另造一套 profile 字段。
 

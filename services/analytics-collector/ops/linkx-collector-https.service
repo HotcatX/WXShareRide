@@ -1,0 +1,17 @@
+[Unit]
+Description=HTTPS entry for LinkX analytics collector
+Requires=linkx-collector.service
+After=linkx-collector.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/linkx-collector
+ExecStart=/usr/bin/docker compose --env-file /etc/linkx-collector/compose.env --profile https up -d --no-build caddy
+ExecStop=/usr/bin/docker compose --env-file /etc/linkx-collector/compose.env --profile https stop caddy
+TimeoutStartSec=120
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target

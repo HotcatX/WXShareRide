@@ -1,20 +1,20 @@
 const { CATALOG_VERSION, resolvePlaceId } = require('./placeCatalog')
 const { currentViewer } = require('./placeRecommendations')
-function research() { return require('./researchParticipation') }
+function analytics() { return require('./analyticsSession') }
 function eventId() {
   return 'place_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 13) + Math.random().toString(36).slice(2, 8)
 }
 function record(session, name, detail = {}) {
   if (!session || session.closed || session.viewer !== currentViewer()) return
   try {
-    const api = research()
+    const api = analytics()
     if (session.scope && typeof api.getCollectionScope === 'function' && api.getCollectionScope() !== session.scope) return
     api.recordEvent(name, { ...session.common, ...detail })
   } catch (_) {}
 }
 function createPlacePickerSession(context, snapshot) {
   let scope = ''
-  try { scope = research().getCollectionScope() || '' } catch (_) {}
+  try { scope = analytics().getCollectionScope() || '' } catch (_) {}
   const session = { viewer: currentViewer(), scope, closed: false, rendered: '', visible: new Set(), observer: null, common: {
     pickerSessionId: eventId(), field: context.field, mode: context.mode, cityKey: context.cityKey,
     catalogVersion: snapshot.catalogVersion || CATALOG_VERSION, rankingVersion: snapshot.rankingVersion || 'fixed-recent-v1',

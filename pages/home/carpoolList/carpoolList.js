@@ -1,6 +1,6 @@
 const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
-const research = require("../../../utils/researchParticipation")
+const analytics = require("../../../utils/analyticsSession")
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
@@ -126,9 +126,9 @@ Page({
 
   onLoad(options) {
     this._listDisposed = false
-    if (typeof research.subscribe === 'function') this._researchUnsubscribe = research.subscribe(state => {
-      if (state.participating && (!this._rideResultSet || this._rideResultSet.scope !== research.getCollectionScope()) && this.data.hasLoadedOnce) {
-        Promise.resolve().then(() => this.recordResearchResult(this._researchSearch, this.data.dayGroups || []))
+    if (typeof analytics.subscribe === 'function') this._analyticsUnsubscribe = analytics.subscribe(state => {
+      if (state.participating && (!this._rideResultSet || this._rideResultSet.scope !== analytics.getCollectionScope()) && this.data.hasLoadedOnce) {
+        Promise.resolve().then(() => this.recordAnalyticsResult(this._analyticsSearch, this.data.dayGroups || []))
       }
     })
     this.restoreFullTripPreference()
@@ -178,7 +178,7 @@ Page({
 
   onShow() {
     if (this.data.placePickerVisible && this._placeContext && this._placeContext.viewerKey !== this.getListViewerKey()) this.onClosePlacePicker()
-    this._researchVisible = true
+    this._analyticsVisible = true
     rideTelemetry.observeList(this)
     this.setData(this.getFilterDateData())
     if (this.data.calendarVisible) this.loadCalendarCounts()
@@ -190,16 +190,16 @@ Page({
   onHide() {
     placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     if (this.data.placePickerVisible) this.setData({ placePickerVisible: false })
-    this._researchVisible = false
+    this._analyticsVisible = false
     rideTelemetry.stopList(this)
   },
 
   onUnload() {
     placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     this._listDisposed = true
-    this._researchSearch = null
+    this._analyticsSearch = null
     rideTelemetry.stopList(this)
-    if (this._researchUnsubscribe) this._researchUnsubscribe()
+    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
   },
 
   getListViewerKey() {
@@ -320,7 +320,7 @@ Page({
   },
 
   onCityPickerCancel() {
-    this.setData({ cityPickerVisible: false, citySearchKeyword: "" }, () => this.resumeResearchList())
+    this.setData({ cityPickerVisible: false, citySearchKeyword: "" }, () => this.resumeAnalyticsList())
   },
 
   stopTouchMove() {},
@@ -442,7 +442,7 @@ Page({
         .map(item => this.decorateTripCommon(item, "request"))
         .filter(item => this.shouldShowTrip(item))
 
-      this._researchResultSource = 'cache'
+      this._analyticsResultSource = 'cache'
 
       this.setData({
         originalCarpoolList: carpoolList,
@@ -916,7 +916,7 @@ Page({
     if (!options.force) {
       const age = Date.now() - this._loadedOnceAt
       if (this.data.hasLoadedOnce && this._loadedListKey === key && age >= 0 && age < LIST_REFRESH_INTERVAL) {
-        this._researchResultSource = 'cache'
+        this._analyticsResultSource = 'cache'
         this.applyAllFiltersAndGroup()
         return
       }
@@ -1041,7 +1041,7 @@ Page({
       this._loadedListKey = request.key
       this._loadedViewerKey = request.viewerKey
       this.cacheLoadedLists(decoratedCarpool, decoratedRequest, request)
-      this._researchResultSource = 'network'
+      this._analyticsResultSource = 'network'
       this.applyAllFiltersAndGroup()
     } catch (err) {
       console.error("loadBothLists error:", err)
@@ -1140,25 +1140,6 @@ Page({
       if (!this._listDisposed) this.setData({ loadingMoreDays: false })
     })
     return this._moreLoadingPromise
-  },
-
-  async fetchListFast(meta) {
-    const data = await this.fetchListFromCloud(meta)
-    return { source: "cloud", data }
-  },
-
-  async fetchListFromCloud(meta) {
-    const res = await wx.cloud.callFunction({
-      name: meta.name,
-      data: meta.data
-    })
-
-    const result = res && res.result ? res.result : {}
-    if (!result.success) {
-      throw new Error(result.errorMsg || result.error || `${meta.name} success=false`)
-    }
-
-    return Array.isArray(result.data) ? result.data : []
   },
 
   // =========================
@@ -1373,27 +1354,27 @@ Page({
     ]
     const groups = this.groupTripsByDate(availableTrips, "available", dateCounts)
     if (!this.data.hideFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
-    const search = this._researchSearch
-    const renderGeneration = this._researchRenderGeneration = (this._researchRenderGeneration || 0) + 1
+    const search = this._analyticsSearch
+    const renderGeneration = this._analyticsRenderGeneration = (this._analyticsRenderGeneration || 0) + 1
     this.setData({ dayGroups: groups, fullTripCount: fullTrips.length }, () => {
       // Read the state after synchronous cache restoration has completed too.
       Promise.resolve().then(() => {
-        if (renderGeneration === this._researchRenderGeneration) this.recordResearchResult(search, groups)
+        if (renderGeneration === this._analyticsRenderGeneration) this.recordAnalyticsResult(search, groups)
       })
     })
   },
 
-  recordResearchResult(search, groups) {
-    if (this._listDisposed || this._researchVisible === false || !this.data.hasLoadedOnce || this.data.loading ||
+  recordAnalyticsResult(search, groups) {
+    if (this._listDisposed || this._analyticsVisible === false || !this.data.hasLoadedOnce || this.data.loading ||
       this._loadedListKey !== this.getListRequestKey()) return
-    const activeSearch = search && search === this._researchSearch && !search.emitted &&
+    const activeSearch = search && search === this._analyticsSearch && !search.emitted &&
       search.key === this.getListRequestKey() && this.getInitialDatePage().exactDate
-    const id = rideTelemetry.renderList(this, groups, { searchId: activeSearch ? search.id : '', source: this._researchResultSource })
+    const id = rideTelemetry.renderList(this, groups, { searchId: activeSearch ? search.id : '', source: this._analyticsResultSource })
     if (id && activeSearch) search.emitted = true
   },
 
-  resumeResearchList() {
-    this.recordResearchResult(this._researchSearch, this.data.dayGroups || [])
+  resumeAnalyticsList() {
+    this.recordAnalyticsResult(this._analyticsSearch, this.data.dayGroups || [])
   },
 
   getAvailableSeatCount(trip) {
@@ -1463,13 +1444,13 @@ Page({
       // This method is called by explicit filter controls only, never by initial
       // load/share normalization. Broad date ranges are intentionally not sampled.
       const range = this.getInitialDatePage()
-      const searchId = range.exactDate ? research.recordSearch({
+      const searchId = range.exactDate ? analytics.recordSearch({
         tripType: this.data.routeTypeFilter || 'all', serviceDate: range.startDate,
         originArea: rideTelemetry.coarseArea(this.data.selectedFromPlace), destinationArea: rideTelemetry.coarseArea(this.data.selectedToPlace),
         hideFullTrips: this.data.hideFullTrips === true
       }) : ''
-      this._researchSearch = searchId ? { id: searchId, key: this.getListRequestKey(), emitted: false } : null
-      this._researchResultSource = 'cache'
+      this._analyticsSearch = searchId ? { id: searchId, key: this.getListRequestKey(), emitted: false } : null
+      this._analyticsResultSource = 'cache'
       if ((this.data.hasLoadedOnce || this._listLoadingPromise) && previousRange !== this.getDateRangeKey()) {
         this.setData({
           hasLoadedOnce: false, loading: true,
@@ -1552,7 +1533,7 @@ Page({
 
   onClosePlacePicker() {
     placePickerTelemetry.closePlacePicker(this._placeSession, "close")
-    this.setData({ placePickerVisible: false, placeSearchKeyword: "" }, () => this.resumeResearchList())
+    this.setData({ placePickerVisible: false, placeSearchKeyword: "" }, () => this.resumeAnalyticsList())
   },
 
   onOpenRefineFilters() {
@@ -1561,7 +1542,7 @@ Page({
   },
 
   onCloseRefineFilters() {
-    this.setData({ refineFiltersVisible: false }, () => this.resumeResearchList())
+    this.setData({ refineFiltersVisible: false }, () => this.resumeAnalyticsList())
   },
 
   onSwapFilterPlaces() {

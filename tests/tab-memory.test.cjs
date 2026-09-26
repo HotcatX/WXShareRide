@@ -129,8 +129,8 @@ test('App restores after the first page is ready, preserving page callbacks and 
     require(name) {
       if (name === './utils/rideTelemetry') return require('./helpers/load-ride-telemetry.cjs')()
       if (name === './utils/rideDiagnostics') return { install() {}, beginForeground() {}, endForeground() {}, captureError() {} }
-      if (name === './utils/researchFollowup') return { beginForeground() {}, endForeground() {} }
-      if (name === './utils/researchParticipation') return { beginForeground() {}, endForeground() {}, pageShown() {} }
+      if (name === './utils/tripFollowup') return { beginForeground() {}, endForeground() {} }
+      if (name === './utils/analyticsSession') return { beginForeground() {}, endForeground() {}, pageShown() {} }
       if (name === './utils/tabMemory') return h.memory
       if (name === './utils/timeline') return {
         updateLaunchContext() {}, isTimelinePreview: () => false, wrapPage() {}

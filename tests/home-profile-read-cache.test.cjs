@@ -43,7 +43,7 @@ function harness(kind, existingStorage) {
     }
   }
   const pilotModule = { exports: {} }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/publicStatsPilot.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/publicStatsClient.js'), 'utf8'), {
     module: pilotModule, wx, Date: Clock, setTimeout, clearTimeout,
     require: name => name === '../config/publicStats' ? state.rollout : require(path.join(__dirname, '../utils', name))
   })
@@ -52,7 +52,7 @@ function harness(kind, existingStorage) {
     Page: value => { definition = value }, wx, Date: Clock, console: { error() {} },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     require(name) {
-      if (name.includes('publicStatsPilot')) return pilotModule.exports
+      if (name.includes('publicStatsClient')) return pilotModule.exports
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return {
         getCitySnapshot: () => ({ key: 'ny_nj' }), getCountryTabs: () => [], getCountryGroups: () => []

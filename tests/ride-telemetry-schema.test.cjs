@@ -1,12 +1,12 @@
 const { test, before } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
-const { validateEvent } = require('../utils/researchSchema')
+const { validateEvent } = require('../utils/analyticsSchema')
 let validateBatch, makeRideEvents
 const NOW = Date.now()
 before(async () => {
-  ;({ validateBatch } = await import('../services/research-collector/src/validation.mjs'))
-  ;({ makeRideEvents } = await import('../services/research-collector/test/fixtures/ride-events.mjs'))
+  ;({ validateBatch } = await import('../services/analytics-collector/src/validation.mjs'))
+  ;({ makeRideEvents } = await import('../services/analytics-collector/test/fixtures/ride-events.mjs'))
 })
 const names = ['search_submitted','result_set_rendered','list_snapshot','result_card_visible','trip_card_clicked',
   'detail_viewed','contact_action','followup_presented','followup_dismissed','followup_answer','service_request','client_error']

@@ -40,7 +40,7 @@ function harness({ pages = [{ route: LOGIN }], storage = {}, call, bind, fail = 
     Page(value) { definition = value }, wx, getCurrentPages: () => pages,
     require(name) {
       if (name.endsWith('/loginNavigation')) return navModule.exports
-      if (name.endsWith('/researchParticipation')) return { identityChanged() { calls.identity++ } }
+      if (name.endsWith('/analyticsSession')) return { identityChanged() { calls.identity++ } }
       if (name.endsWith('/referral')) return {
         setMyReferralCode() { calls.referral++ },
         bindPendingReferral: () => bind ? bind() : Promise.resolve()

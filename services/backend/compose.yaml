@@ -1,0 +1,54 @@
+name: linkx-backend
+services:
+  database:
+    image: postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
+    restart: unless-stopped
+    user: postgres
+    shm_size: 128m
+    mem_limit: 384m
+    cpus: 1.0
+    pids_limit: 128
+    security_opt: [no-new-privileges:true]
+    command: [postgres, -c, shared_buffers=64MB, -c, work_mem=4MB, -c, max_connections=24, -c, log_min_error_statement=panic]
+    environment:
+      POSTGRES_DB: linkx
+      POSTGRES_USER: linkx_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
+    volumes:
+      - /var/lib/linkx-backend/postgres:/var/lib/postgresql/data
+      - /etc/linkx-backend/admin.password:/run/secrets/admin_password:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U linkx_admin -d linkx"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options: { max-size: "2m", max-file: "2" }
+  backend:
+    build: .
+    image: linkx-backend:20260925-foundation
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 96
+    mem_limit: 256m
+    cpus: 1.0
+    depends_on:
+      database: { condition: service_healthy }
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      DATABASE_URL_FILE: /run/secrets/database_url
+      WECHAT_APP_ID: wx8a8a389199aa2a0e
+    # Deliberately host-local until full business compatibility and import pass.
+    ports: ["127.0.0.1:3101:3100"]
+    volumes:
+      - /etc/linkx-backend/database.url:/run/secrets/database_url:ro
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    logging:
+      driver: json-file
+      options: { max-size: "2m", max-file: "2" }

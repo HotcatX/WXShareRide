@@ -87,7 +87,7 @@ Carpool 创建时间为 2025-12-08 至 2026-09-22；计划出发日期延伸至 
 
 TripActions 的有效 `createdAt` 最早为 2026-06-20，晚于正文起点约半年。当前日志中有 deleteTrip 509 行、quitTrip 450 行、acceptRequest 63 行、quitDriver 26 行等，但它们不是完整的生命周期数据库，也不是可直接相除的取消率分子。旧 `tripActionReason` 页面先写日志、再调用管理函数，且可能使用 `createTime`；后端日志在业务成功后单独写，失败只记错误。需要区分尝试/成功、检查双写与字段版本。
 
-参考：[管理函数](../../cloudfunctions/tripManage/index.js)、[旧原因页面](../../pages/profile/tripActionReason/tripActionReason.js)。
+参考：[管理函数](../../cloudfunctions/tripManage/index.js)、[旧原因页面](https://github.com/HotcatX/WXShareRide/blob/88a9221/pages/profile/tripActionReason/tripActionReason.js)。
 
 ### 求车不是需求全集
 

@@ -92,7 +92,7 @@ Page({
 
       wx.setStorageSync('openid', openid)
       wx.setStorageSync('isGuest', false)
-      require('../../../utils/researchParticipation').identityChanged()
+      require('../../../utils/analyticsSession').identityChanged()
       if (result.referralCode) referral.setMyReferralCode(result.referralCode)
       await referral.bindPendingReferral()
       if (!isCurrent()) return
@@ -152,7 +152,7 @@ Page({
 
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
-    require('../../../utils/researchParticipation').identityChanged()
+    require('../../../utils/analyticsSession').identityChanged()
   
     wx.removeStorageSync('postLoginAction')
     wx.removeStorageSync('needLoginToast')

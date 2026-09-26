@@ -82,7 +82,7 @@ function harness() {
   const modules = new Map()
   function loadModule(filename) {
     const absolute = path.resolve(filename)
-    if (absolute === path.join(ROOT, 'utils/researchParticipation.js')) return {
+    if (absolute === path.join(ROOT, 'utils/analyticsSession.js')) return {
       getCollectionScope: () => 'test:' + state.store.openid,
       recordEvent: (name, data) => { state.telemetry.push({ name, data: plain(data) }); return { ok: true } },
       requestPlaceSuggestions: async data => {

@@ -1,6 +1,8 @@
 # statistics: canonical statistics and telemetry authorization entry
 
-This is the single implementation home for independent statistics APIs and the research-telemetry authorization bridge. It does not move transactional trip/seat/rating/referral aggregate writes out of their existing business transactions. Client research event batches continue to go directly to `https://collect.linkx.ink/v1/batches`; this function is not invoked once per event.
+`compat.js` preserves deployed wire versions, internal route and HMAC identity scopes. It is marked `TEMPORARY COMPATIBILITY` and checked against the collector/client by `tests/analytics-compatibility.test.cjs`; do not change these values without migrating all deployed callers and existing account mappings.
+
+This is the single implementation home for independent statistics APIs and the analytics authorization bridge. It does not move transactional trip/seat/rating/referral aggregate writes out of their existing business transactions. Client analytics event batches continue to go directly to `https://collect.linkx.ink/v1/batches`; this function is not invoked once per event.
 
 ## Actions
 
@@ -53,16 +55,16 @@ The receiver enforces ±5 minutes, exact fields, constant-time signature compari
 
 `syncPublicStatsReplica` retains its existing `publicStatsHourly` timer (currently minute 25), verifies the original trigger, signs this relay and delegates; it contains no active database read/publish implementation. That compatibility path also adds one invocation per hourly run. Do not remove the old function/trigger while it is the active scheduler. Do not enable two hourly triggers simultaneously. This new function intentionally has **no trigger configured initially**; direct Timer handling is ready for a later coordinated trigger transfer.
 
-Deploy `statistics` with both private keys, install `wx-server-sdk` and verify its actual configured timeout is **15 seconds**. The JSON file alone does not prove the platform applied that timeout; new functions may default to three seconds. The HTTPS publisher has an eight-second deadline. Verify the canonical function before replacing the old timer wrapper, or the existing hourly refresh could be broken. Then update the public wrapper/client references. Preserve the old public entry for installed clients. The `researchParticipation` name is not used by the client. A live query on 2026-09-23 returned ResourceNotFound.Function; no shutdown action was needed.
+Deploy `statistics` with both private keys, install `wx-server-sdk` and verify its actual configured timeout is **15 seconds**. The JSON file alone does not prove the platform applied that timeout; new functions may default to three seconds. The HTTPS publisher has an eight-second deadline. Verify the canonical function before replacing the old timer wrapper, or the existing hourly refresh could be broken. Preserve the old public entry for installed clients. The active client module is `utils/analyticsSession.js`; the cloud function remains `statistics`. Upload `compat.js` before the updated `bridge.js` so incremental deployment cannot leave a missing dependency. Historical deployment evidence belongs in the dated deployment reports.
 
-Only current non-sensitive status/timestamp logs are emitted. No keys, subjects, user IDs, tokens, raw database objects or request payloads are logged. The limited research rollout, policy notice, batch receiver, maintenance jobs and customer-service stop workflow remain independently controlled.
+Only current non-sensitive status/timestamp logs are emitted. No keys, subjects, user IDs, tokens, raw database objects or request payloads are logged. The analytics configuration, policy notice, batch receiver, maintenance jobs and customer-service stop workflow remain independently controlled.
 
 ## Local checks
 
 From repository root:
 
 ```sh
-node --test tests/statistics-entry.test.cjs tests/public-stats-sync.test.cjs tests/public-stats-context.test.cjs tests/research-participation-bridge.test.cjs
+node --test tests/statistics-entry.test.cjs tests/public-stats-sync.test.cjs tests/public-stats-context.test.cjs tests/analytics-bridge.test.cjs
 ```
 
 Tests use dependency injection and synthetic keys; they do not query cloud data or deploy. They cover public response compatibility/projection, unchanged participation dispatch, trusted Timer validation, domain-separated relay verification/skew/no-user context, legacy wrapper boundaries, and sanitized failures.

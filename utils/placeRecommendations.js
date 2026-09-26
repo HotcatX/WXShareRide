@@ -8,7 +8,7 @@ let activeViewer = null
 function storage(key) { try { return wx.getStorageSync(key) } catch (_) { return null } }
 function currentViewer() { return storage('isGuest') ? '' : String(storage('openid') || '') }
 function copy(value) { return JSON.parse(JSON.stringify(value)) }
-function collectionScope() { try { return require('./researchParticipation').getCollectionScope() || '' } catch (_) { return '' } }
+function collectionScope() { try { return require('./analyticsSession').getCollectionScope() || '' } catch (_) { return '' } }
 function context(options = {}) {
   const viewer = options.viewerKey == null ? currentViewer() : String(options.viewerKey)
   if (viewer !== activeViewer) { cache.clear(); activeViewer = viewer }
@@ -82,7 +82,7 @@ function loadPlaceRecommendations(options = {}) {
   const entry = { key: ctx.key, scope: ctx.scope, baseKey: ctx.baseKey, at: 0, data: null, promise: null }; cache.set(ctx.key, entry)
   while (cache.size > 20) cache.delete(cache.keys().next().value)
   entry.promise = (async () => {
-    const api = require('./researchParticipation')
+    const api = require('./analyticsSession')
     if (typeof api.requestPlaceSuggestions !== 'function') return fallback()
     const result = await api.requestPlaceSuggestions({ schemaVersion: 1, cityKey: ctx.cityKey, field: ctx.field, mode: ctx.mode, ...(ctx.counterpartPlaceId ? { counterpartPlaceId: ctx.counterpartPlaceId } : {}) })
     if (!result) return fallback()

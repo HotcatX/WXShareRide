@@ -230,9 +230,8 @@ async function updateStatusAndLedger(type, id, now) {
 }
 
 async function updateDocs(type, docs, now, personalStats) {
-  const collection = type === 'request' ? 'CarpoolRequest' : 'Carpool'
-  const source = type === 'request' ? 'syncMyTripStatus:request' : 'syncMyTripStatus:carpool'
   let updated = 0
+  const processedIds = new Set()
   const list = (docs || []).filter(doc => doc && doc._id && !isCancelledOrUnsupported(doc))
   // Bound concurrent transactions: several trips can belong to the same driver.
   for (let offset = 0; offset < list.length; offset += 2) {
@@ -255,11 +254,16 @@ async function updateDocs(type, docs, now, personalStats) {
       // Re-reading inside the transaction makes existing past records retryable.
       const counted = await ensureRideCompletion({ type, id: doc._id })
       collectPersonalStats(personalStats, counted)
+      // The completion helper re-reads the trip. A changed departure or a
+      // cancelled/deleted trip must not migrate on the earlier snapshot.
+      if (counted.ok && !['not_due', 'not_completed', 'invalid_trip'].includes(counted.reason)) {
+        processedIds.add(doc._id)
+      }
       return changed
     }))
     updated += results.filter(Boolean).length
   }
-  return updated
+  return { updated, processedIds }
 }
 
 async function fetchMap(collection, ids) {
@@ -274,7 +278,6 @@ async function fetchMap(collection, ids) {
 }
 
 function splitByExpiry(ids, resolveDoc, now) {
-  const active = []
   const moved = []
   const expiredCarpoolIds = []
   const expiredRequestIds = []
@@ -286,10 +289,7 @@ function splitByExpiry(ids, resolveDoc, now) {
     const type = resolved && resolved.type
     const latest = getLatestDeparture(doc)
 
-    if (!latest) {
-      active.push(id)
-      return
-    }
+    if (!latest) return
 
     const diffMs = now.getTime() - latest.getTime()
     if (diffMs > 0) {
@@ -298,10 +298,46 @@ function splitByExpiry(ids, resolveDoc, now) {
     }
 
     if (diffMs > HISTORY_AFTER_MS) moved.push(id)
-    else active.push(id)
   })
 
-  return { active, moved, expiredCarpoolIds, expiredRequestIds }
+  return { moved, expiredCarpoolIds, expiredRequestIds }
+}
+
+async function moveProcessedTripsToHistory(userId, openid, candidates, now) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await db.runTransaction(async transaction => {
+        const ref = transaction.collection('userInfo').doc(userId)
+        const snapshot = await ref.get()
+        const current = snapshot && snapshot.data
+        if (!current || current._openid !== openid) throw new Error('用户资料已变更，请重试')
+        const data = {}
+        const moved = {}
+        // Never write arrays derived from the initial query. Every transaction
+        // attempt merges only this run's processed IDs into the current record,
+        // preserving concurrent joins, removals and other history migrations.
+        for (const [field, ids] of Object.entries(candidates)) {
+          const eligible = new Set(ids)
+          const active = Array.isArray(current[field]) ? current[field] : []
+          const moving = uniq(active.filter(id => eligible.has(id)))
+          moved[field] = moving.length
+          if (!moving.length) continue
+          const historyField = field + 'History'
+          data[field] = active.filter(id => !eligible.has(id))
+          data[historyField] = uniq((Array.isArray(current[historyField]) ? current[historyField] : []).concat(moving))
+        }
+        if (Object.keys(data).length) await ref.update({ data: { ...data, updateTime: now } })
+        return moved
+      })
+      // Match both wx-server-sdk transaction result formats.
+      return result && result.result ? result.result : result
+    } catch (error) {
+      const conflict = error && (error.code === 'DATABASE_TRANSACTION_CONFLICT' ||
+        error.errCode === 'DATABASE_TRANSACTION_CONFLICT' ||
+        [error.message, error.errMsg].some(value => typeof value === 'string' && /\bDATABASE_TRANSACTION_CONFLICT\b/.test(value)))
+      if (!conflict || attempt === 2) throw error
+    }
+  }
 }
 
 exports.main = async () => {
@@ -318,11 +354,7 @@ exports.main = async () => {
         tripDriver: true,
         tripDriverJoin: true,
         tripPassenger: true,
-        tripPassengerCreate: true,
-        tripDriverHistory: true,
-        tripDriverJoinHistory: true,
-        tripPassengerHistory: true,
-        tripPassengerCreateHistory: true
+        tripPassengerCreate: true
       })
       .limit(1)
       .get()
@@ -356,49 +388,38 @@ exports.main = async () => {
     }, now)
     const passengerCreate = splitByExpiry(tripPassengerCreate, id => ({ type: 'request', doc: requestMap.get(id) }), now)
 
-    const movedTotal =
-      driver.moved.length +
-      driverJoin.moved.length +
-      passenger.moved.length +
-      passengerCreate.moved.length
-
-
     const expiredCarpoolIds = uniq(driver.expiredCarpoolIds.concat(passenger.expiredCarpoolIds))
     const expiredRequestIds = uniq(driverJoin.expiredRequestIds.concat(passenger.expiredRequestIds).concat(passengerCreate.expiredRequestIds))
 
     const carpoolDocs = expiredCarpoolIds.map(id => carpoolMap.get(id)).filter(Boolean)
     const requestDocs = expiredRequestIds.map(id => requestMap.get(id)).filter(Boolean)
 
-    const carpoolUpdated = await updateDocs('carpool', carpoolDocs, now, personalStats)
-    const requestUpdated = await updateDocs('request', requestDocs, now, personalStats)
-
-    // Keep active IDs retryable if status or personal counting fails.
-    if (movedTotal > 0) {
-      await db.collection('userInfo').doc(user._id).update({
-        data: {
-          tripDriver: driver.active,
-          tripDriverJoin: driverJoin.active,
-          tripPassenger: passenger.active,
-          tripPassengerCreate: passengerCreate.active,
-          tripDriverHistory: uniq((Array.isArray(user.tripDriverHistory) ? user.tripDriverHistory : []).concat(driver.moved)),
-          tripDriverJoinHistory: uniq((Array.isArray(user.tripDriverJoinHistory) ? user.tripDriverJoinHistory : []).concat(driverJoin.moved)),
-          tripPassengerHistory: uniq((Array.isArray(user.tripPassengerHistory) ? user.tripPassengerHistory : []).concat(passenger.moved)),
-          tripPassengerCreateHistory: uniq((Array.isArray(user.tripPassengerCreateHistory) ? user.tripPassengerCreateHistory : []).concat(passengerCreate.moved)),
-          updateTime: now
-        }
-      })
+    const carpoolResult = await updateDocs('carpool', carpoolDocs, now, personalStats)
+    const requestResult = await updateDocs('request', requestDocs, now, personalStats)
+    const carpoolUpdated = carpoolResult.updated
+    const requestUpdated = requestResult.updated
+    const candidates = {
+      tripDriver: driver.moved.filter(id => carpoolResult.processedIds.has(id)),
+      tripDriverJoin: driverJoin.moved.filter(id => requestResult.processedIds.has(id)),
+      tripPassenger: passenger.moved.filter(id => (carpoolMap.has(id) ? carpoolResult : requestResult).processedIds.has(id)),
+      tripPassengerCreate: passengerCreate.moved.filter(id => requestResult.processedIds.has(id))
     }
 
+    // Keep active IDs retryable if status or personal counting fails.
+    const moved = Object.values(candidates).some(ids => ids.length)
+      ? await moveProcessedTripsToHistory(user._id, openid, candidates, now)
+      : { tripDriver: 0, tripDriverJoin: 0, tripPassenger: 0, tripPassengerCreate: 0 }
+    const movedTotal = Object.values(moved).reduce((sum, count) => sum + count, 0)
 
     return {
       ok: true,
       success: true,
       moved: movedTotal,
       movedTotal,
-      movedTripDriver: driver.moved.length,
-      movedTripDriverJoin: driverJoin.moved.length,
-      movedTripPassenger: passenger.moved.length,
-      movedTripPassengerCreate: passengerCreate.moved.length,
+      movedTripDriver: moved.tripDriver,
+      movedTripDriverJoin: moved.tripDriverJoin,
+      movedTripPassenger: moved.tripPassenger,
+      movedTripPassengerCreate: moved.tripPassengerCreate,
       requestUpdated,
       carpoolUpdated,
       totalUpdatedCarpool: carpoolUpdated,

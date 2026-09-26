@@ -1,0 +1,95 @@
+services:
+  public-read-pilot:
+    build: ../public-read-pilot
+    image: linkx-public-read-pilot:20260923-rollout
+    profiles: [pilot]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      SNAPSHOT_PATH: /snapshot/snapshot.json
+      PUBLIC_STATS_SYNC_KEY_FILE: /secrets/sync.key
+      PUBLIC_STATS_READ_ENABLED: "${PUBLIC_STATS_READ_ENABLED:-true}"
+    volumes:
+      - "${PUBLIC_READ_SNAPSHOT_DIR:-/var/lib/linkx-public-read-pilot}:/snapshot"
+      - "/etc/linkx-public-stats:/secrets:ro"
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    logging:
+      driver: json-file
+      options: { max-size: "2m", max-file: "2" }
+  collector:
+    build: .
+    # Preserve existing mounts/project identity when updating this image.
+    image: linkx-analytics-collector:20260925-normal-names
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "${COLLECTOR_UID:-1000}:${COLLECTOR_GID:-1000}"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.5
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DB_PATH: /data/collector.sqlite
+      ADMIN_SOCKET: /data/run/admin.sock
+      SIGNING_KEY_FILE: /secrets/signing.pem
+      ADMIN_TOKEN_FILE: /secrets/admin.token
+      # TEMPORARY COMPATIBILITY: existing host environment and wire versions.
+      # Match src/compat/legacy.mjs until an explicit host/protocol migration.
+      RESEARCH_BRIDGE_KEY_FILE: "${RESEARCH_BRIDGE_KEY_FILE:-}"
+      RESEARCH_NOTICE_VERSION: "${RESEARCH_NOTICE_VERSION:-ride-research-notice-2026-09-23}"
+      BACKUP_DIR: /backups
+      REAL_COLLECTION_ENABLED: "${REAL_COLLECTION_ENABLED:-false}"
+      PURPOSE_VERSION: ride-research-v1
+      MAX_DATABASE_MB: "${MAX_DATABASE_MB:-1024}"
+      MIN_FREE_MB: "${MIN_FREE_MB:-256}"
+    ports:
+      - "127.0.0.1:${COLLECTOR_PORT:-3000}:3000"
+    volumes:
+      - "${COLLECTOR_DATA_DIR:-./data}:/data"
+      - "${COLLECTOR_SECRETS_DIR:-./secrets}:/secrets:ro"
+      - "${COLLECTOR_BACKUP_DIR:-./backups}:/backups"
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+  caddy:
+    image: caddy:2-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e
+    profiles: [https]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    depends_on: [collector]
+    environment:
+      COLLECTOR_DOMAIN: "${COLLECTOR_DOMAIN:-collect.linkx.ink}"
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+volumes:
+  caddy_data:
+  caddy_config:

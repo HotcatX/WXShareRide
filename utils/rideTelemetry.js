@@ -1,4 +1,4 @@
-const research = require('./researchParticipation')
+const analytics = require('./analyticsSession')
 const { resolvePlaceId } = require('./placeCatalog')
 
 const validTripId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)
@@ -52,14 +52,14 @@ function snapshot(trip = {}, now = Date.now()) {
   return out
 }
 function emit(name, data, meta) {
-  try { return research.recordEvent(name, data, meta) || { ok: false } } catch (_) { return { ok: false } }
+  try { return analytics.recordEvent(name, data, meta) || { ok: false } } catch (_) { return { ok: false } }
 }
 function scope() {
-  try { return research.getCollectionScope() || '' } catch (_) { return '' }
+  try { return analytics.getCollectionScope() || '' } catch (_) { return '' }
 }
 function listVisible(page) {
   const data = page.data || {}
-  return !page._listDisposed && page._researchVisible !== false && !data.loading && !data.placePickerVisible &&
+  return !page._listDisposed && page._analyticsVisible !== false && !data.loading && !data.placePickerVisible &&
     !data.refineFiltersVisible && !data.calendarVisible && !data.cityPickerVisible
 }
 function stopList(page) {
@@ -107,7 +107,7 @@ function observeList(page) {
 }
 function renderList(page, groups, options = {}) {
   stopList(page)
-  if (!listVisible(page) || typeof research.makeEventId !== 'function') return ''
+  if (!listVisible(page) || typeof analytics.makeEventId !== 'function') return ''
   const currentScope = scope()
   if (!currentScope) return ''
   const trips = (groups || []).reduce((all, group) => all.concat(group.items || []), [])
@@ -115,13 +115,13 @@ function renderList(page, groups, options = {}) {
   const at = Date.now()
   const candidates = trips.map((trip, position) => validTripId(trip._id)
     ? { tripKey: trip._id, tripType: tripType(trip._type), position, ...snapshot(trip, at) } : null).filter(Boolean)
-  const id = research.makeEventId()
+  const id = analytics.makeEventId()
   const summary = { selectionSetId: id, source: options.source === 'network' ? 'network' : 'cache',
     renderedCount: trips.length, hasMore: page.data.hasMoreDays === true,
     candidates: candidates.slice(0, 50), candidatesComplete: candidates.length === trips.length && trips.length <= 50 }
   let result
-  if (options.searchId && typeof research.recordResults === 'function') {
-    result = research.recordResults({ ...summary, searchId: options.searchId, loadedDateCount: 1 })
+  if (options.searchId && typeof analytics.recordResults === 'function') {
+    result = analytics.recordResults({ ...summary, searchId: options.searchId, loadedDateCount: 1 })
   } else result = emit('list_snapshot', summary)
   if (!result || !result.ok) { page._rideResultSet = null; return '' }
   page._rideResultSet = { id, scope: currentScope, seen: new Set(), byKey: new Map(candidates.map(item => [`${item.tripType}:${item.tripKey}`, item])) }
@@ -150,9 +150,9 @@ function viewer() {
 function detailViewed(page, trip, type, source) {
   if (!trip || !validTripId(trip._id) || page._rideTelemetryHidden || page.data.routeExpired) return
   page._rideDetailPending = { trip, type, source, viewer: viewer() }
-  if (!page._rideDetailSubscription && typeof research.subscribe === 'function') {
+  if (!page._rideDetailSubscription && typeof analytics.subscribe === 'function') {
     page._rideDetailSubscription = () => {}
-    page._rideDetailSubscription = research.subscribe(state => {
+    page._rideDetailSubscription = analytics.subscribe(state => {
       const pending = page._rideDetailPending
       if (state.participating && pending && pending.viewer === viewer() && !page._rideTelemetryHidden) {
         detailViewed(page, pending.trip, pending.type, pending.source)

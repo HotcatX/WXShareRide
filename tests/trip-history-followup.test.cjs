@@ -14,7 +14,7 @@ function harness() {
     considerTrips(page, list) { state.considered.push({ account: state.account, list: plain(list) }) },
     answer() {}, hide() { state.hides++ }, dispose() { state.disposed++ }
   }
-  const research = { subscribe(fn) { state.listeners.add(fn); fn(); return () => state.listeners.delete(fn) } }
+  const analytics = { subscribe(fn) { state.listeners.add(fn); fn(); return () => state.listeners.delete(fn) } }
   const wx = {
     getStorageSync: key => key === 'openid' ? state.account : key === 'isGuest' ? state.guest : undefined,
     getWindowInfo: () => ({ statusBarHeight: 20 }),
@@ -27,8 +27,8 @@ function harness() {
   }
   let config
   vm.runInNewContext(fs.readFileSync(SOURCE, 'utf8'), { wx, console,
-    require(name) { if (name.endsWith('/researchFollowup')) return followup
-      if (name.endsWith('/researchParticipation')) return research
+    require(name) { if (name.endsWith('/tripFollowup')) return followup
+      if (name.endsWith('/analyticsSession')) return analytics
       throw new Error('Unexpected import: ' + name) },
     Page(value) { config = value },
     setTimeout(fn) { const id = ++state.nextTimer; state.timers.set(id, fn); return id },

@@ -66,7 +66,7 @@ SQLite WAL+synchronous=FULL；BEGIN IMMEDIATE中完成当前授权核对、收�
 
 队列最多500条、256KiB、7天；每批≤50条且≤64KiB。只有ACK的ok/batchId/hash/count匹配才出队，丢ACK保留原批次字节。持久化失败不冒充成功；过期不可变批次整批放弃并记丢失，不改原batchId正文。
 
-本期没有新增停止按钮或管理页。用户从个人中心既有客服提出请求，核验本人后管理员运行[stop-collection工具](../services/research-collector/ops/stop-collection.md)：原openid仅stdin或root-owned0600文件；root-only subject/bridge副本；固定loopback status→单次withdraw CAS；未知账号可写关闭标记，不activate、不重试冲突，不输出ID/key/token/正文。底层SDK withdraw只清本地，不能代替服务端停止；只有服务端确认才能确认跨设备停止。
+本期没有新增停止按钮或管理页。用户从个人中心既有客服提出请求，核验本人后管理员运行[stop-collection工具](../services/analytics-collector/ops/stop-collection.md)：原openid仅stdin或root-owned0600文件；root-only subject/bridge副本；固定loopback status→单次withdraw CAS；未知账号可写关闭标记，不activate、不重试冲突，不输出ID/key/token/正文。底层SDK withdraw只清本地，不能代替服务端停止；只有服务端确认才能确认跨设备停止。
 
 ## 保留与恢复
 

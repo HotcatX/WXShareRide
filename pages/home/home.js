@@ -8,7 +8,7 @@ const MAX_TIMEOUT_MS = 2147483647
 const { formatRidePriceTag: formatRidePriceTagShared, markRideListStale } = require("../../utils/tripManage")
 const rideTime = require("../../utils/rideTime")
 const community = require("../../utils/community")
-const publicStatsPilot = require("../../utils/publicStatsPilot")
+const publicStatsClient = require("../../utils/publicStatsClient")
 const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
@@ -764,7 +764,7 @@ Page({
 
   async loadPublicStats({ force = false } = {}) {
     try {
-      const context = publicStatsPilot.getPublicStatsReadContext()
+      const context = publicStatsClient.getPublicStatsReadContext()
       const previous = this._homeReads && this._homeReads.stats
       const pending = previous && previous.key === context.key && previous.promise
       if (!force && !pending) {
@@ -778,8 +778,8 @@ Page({
       // Public totals have a separate persistent TTL and do not change when a
       // local ride mutation or login invalidates the personal lists.
       await readHomeResource(this, 'stats', context.key, true, async isCurrent => {
-        const read = await publicStatsPilot.loadPublicStats(context)
-        if (!isCurrent() || !publicStatsPilot.isPublicStatsReadCurrent(context)) return false
+        const read = await publicStatsClient.loadPublicStats(context)
+        if (!isCurrent() || !publicStatsClient.isPublicStatsReadCurrent(context)) return false
         this._publicStatsReadDiagnostic = read.diagnostic
         const res = read.response
         if (!res || !res.result || res.result.success !== true) throw new Error('获取社区统计失败')

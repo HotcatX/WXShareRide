@@ -64,11 +64,11 @@ function harness({ realStatusRefresh = false } = {}) {
     console: { error() {}, warn() {}, log() {} },
     require(name) {
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
-        if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('researchParticipation'))
+        if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
         return context._placeModules(name)
       }
-      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('researchParticipation'), { wx, Date: Clock })
-      if (name.includes('researchParticipation')) return { recordSearch: () => '', recordResults: () => ({ ok: false }) }
+      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('analyticsSession'), { wx, Date: Clock })
+      if (name.includes('analyticsSession')) return { recordSearch: () => '', recordResults: () => ({ ok: false }) }
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')

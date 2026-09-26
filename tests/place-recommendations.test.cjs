@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const loadModules = require('./helpers/load-place-modules.cjs')
 const { resolvePlaceId, FIXED_PLACES } = require('../utils/placeCatalog')
 const { makeRidePlaceMatcher, ridePlaceAliasPattern } = require('../utils/ridePlaceOptions')
-const { validateEvent } = require('../utils/researchSchema')
+const { validateEvent } = require('../utils/analyticsSchema')
 const plain = value => JSON.parse(JSON.stringify(value))
 function held() { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 function harness() {

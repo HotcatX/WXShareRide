@@ -20,7 +20,7 @@ async function record(type, action, before, after, actorOpenid = DRIVER) {
   return event
 }
 test('real cloud serializer is accepted by real collector validator for every deployed state transition', async () => {
-  const { validateBusinessEvents } = await import('../services/research-collector/src/places.mjs')
+  const { validateBusinessEvents } = await import('../services/analytics-collector/src/places.mjs')
   const events = [
     await record('carpool', 'publish', null, trip()),
     await record('carpool', 'join', trip({ businessVersion: 1 }), trip({ passengers: [{ _openid: PASSENGER }], availSeatNum: 2 }), PASSENGER),
@@ -38,7 +38,7 @@ test('real cloud serializer is accepted by real collector validator for every de
   assert.equal(events[5].after, null)
 })
 test('unknown legacy endpoint/date/seat values become explicit unknowns instead of poisoning the outbox', async () => {
-  const { validateBusinessEvents } = await import('../services/research-collector/src/places.mjs')
+  const { validateBusinessEvents } = await import('../services/analytics-collector/src/places.mjs')
   const old = trip({ departures: [{ address: 'Fort Lee\u0000', date: '2026-02-30', time: 'bad' }], destinations: [],
     firstDepartureDate: 'not-a-date', availSeatNum: -5, passengerCount: 3.5, departureAtMs: -10, latestDepartureAtMs: NaN, referencePrice: 100000 })
   const event = await record('carpool', 'delete', old, null)
@@ -50,7 +50,7 @@ test('unknown legacy endpoint/date/seat values become explicit unknowns instead 
   assert.equal(event.before.departureAtMs, null)
 })
 test('legacy bootstrap events are distinguishable, retain no contact fields, and validate at version zero', async () => {
-  const { validateBusinessEvents } = await import('../services/research-collector/src/places.mjs')
+  const { validateBusinessEvents } = await import('../services/analytics-collector/src/places.mjs')
   const original = trip({ passengers: [{ _openid: PASSENGER, phone: 'do-not-export', name: 'do-not-export', pickupAddress: 'do-not-export' }],
     destinations: [{ address: '哥大' }], firstDepartureDate: undefined })
   const { event } = makeBaseline(original, 'carpool', options)

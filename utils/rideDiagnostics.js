@@ -1,6 +1,6 @@
 'use strict'
 
-const { sha256 } = require('./researchHash')
+const { sha256 } = require('./hash')
 
 const OPERATIONS = new Set(['getTripList', 'getTripDetail', 'getMyTripHistory', 'getHomeTripList',
   'createTrip', 'joinTrip', 'tripManage', 'syncMyTripStatus', 'getPublicStats'])
@@ -78,12 +78,12 @@ function runtimeMetadata(kind, input) {
 
 function createRideDiagnostics(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now
-  let research = null, foreground = false, epoch = 0, successCount = 0, errorCount = 0
+  let analytics = null, foreground = false, epoch = 0, successCount = 0, errorCount = 0
   let errorFingerprints = new Set()
 
   function scope() {
     try {
-      const value = research && research.getCollectionScope()
+      const value = analytics && analytics.getCollectionScope()
       return typeof value === 'string' && value.length > 0 ? value : ''
     } catch (_) { return '' }
   }
@@ -101,7 +101,7 @@ function createRideDiagnostics(options = {}) {
         if (successCount >= 100) return false
         successCount += 1
       }
-      research.recordEvent(name, data)
+      analytics.recordEvent(name, data)
       return true
     } catch (_) { return false }
   }
@@ -115,15 +115,15 @@ function createRideDiagnostics(options = {}) {
     try { return record('client_error', runtimeMetadata(kind, error), scope(), epoch) } catch (_) { return false }
   }
 
-  function install(wxApi, researchApi) {
+  function install(wxApi, analyticsApi) {
     try {
       if (!wxApi || !wxApi.cloud || typeof wxApi.cloud.callFunction !== 'function' ||
-        !researchApi || typeof researchApi.recordEvent !== 'function' || typeof researchApi.getCollectionScope !== 'function') return false
+        !analyticsApi || typeof analyticsApi.recordEvent !== 'function' || typeof analyticsApi.getCollectionScope !== 'function') return false
       const cloud = wxApi.cloud
       const previous = installations.get(cloud)
       if (previous && cloud.callFunction === previous.wrapper) return previous.owner === install
       const original = cloud.callFunction
-      research = researchApi
+      analytics = analyticsApi
       function wrappedCallFunction() {
         const args = Array.prototype.slice.call(arguments)
         const input = args[0]

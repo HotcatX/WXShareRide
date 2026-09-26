@@ -80,7 +80,7 @@ async function main(argv = process.argv.slice(2)) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'linkx-place-baseline-'))
   fs.chmodSync(temp, 0o700)
   const observedAt = Date.now(), today = getRideDateTime().date
-  const { validateBusinessEvents } = await import(pathToFileURL(path.resolve(__dirname, '../../../services/research-collector/src/places.mjs')).href)
+  const { validateBusinessEvents } = await import(pathToFileURL(path.resolve(__dirname, '../../../services/analytics-collector/src/places.mjs')).href)
   const report = { observedAt: new Date(observedAt).toISOString(), today, lowerServiceDate: shiftRideDate(today, -90), upperServiceDate: shiftRideDate(today, 90),
     source: 'legacy_snapshot', calls: 0, collections: [], skipped: {}, events: 0, batches: 0, bytes: 0,
     limitations: ['Non-atomic paginated read of surviving records; deleted/cancelled history is incomplete.',

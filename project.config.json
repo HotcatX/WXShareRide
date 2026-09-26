@@ -59,6 +59,10 @@
       {
         "type": "folder",
         "value": "research"
+      },
+      {
+        "type": "file",
+        "value": "BACKEND_MIGRATION_WORK.md"
       }
     ],
     "include": []

@@ -6,12 +6,12 @@ function harness() {
   const events = [], timers = new Map(), observers = [], clipboard = []
   let currentScope = 'test:participant_synthetic:1', counter = 0
   const wx = { setClipboardData(options) { clipboard.push(options); return 'native-task' } }
-  const research = { getCollectionScope: () => currentScope,
+  const analytics = { getCollectionScope: () => currentScope,
     makeEventId: () => `selection_synthetic_${++counter}`,
     recordEvent(name, data) { events.push({ name, data: plain(data) }); return { ok: true } },
     recordResults(data) { events.push({ name: 'result_set_rendered', data: plain(data) }); return { ok: true } } }
-  const helper = load(research, { wx, setTimeout(fn) { const id = ++counter; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) } })
-  const page = { data: { hasMoreDays: false }, _researchVisible: true,
+  const helper = load(analytics, { wx, setTimeout(fn) { const id = ++counter; timers.set(id, fn); return id }, clearTimeout(id) { timers.delete(id) } })
+  const page = { data: { hasMoreDays: false }, _analyticsVisible: true,
     createIntersectionObserver() {
       const observer = { disconnected: false, relativeTo() { return this }, observe(selector, fn) { this.callback = fn }, disconnect() { this.disconnected = true } }
       observers.push(observer); return observer

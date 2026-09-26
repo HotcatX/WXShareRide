@@ -1,10 +1,8 @@
 const crypto = require('crypto')
 const https = require('https')
 const { getIdentity } = require('./context')
+const { ENDPOINT, PURPOSE, NOTICE, SUBJECT_SCOPE, TEST_SUBJECT_SCOPE } = require('./compat')
 
-const ENDPOINT = 'https://collect.linkx.ink/internal/v1/research/participation'
-const PURPOSE = 'ride-research-v1'
-const NOTICE = 'ride-research-notice-2026-09-23'
 const ID = /^[A-Za-z0-9_-]{16,80}$/
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
@@ -64,8 +62,9 @@ function send(body, key, { request = https.request, now = Date.now, nonce = () =
       settled = true; clearTimeout(deadline)
       if (error) reject(new Error('BRIDGE_UNAVAILABLE')); else resolve(result)
     }
-    // CloudBase's verified default is three seconds. Leave time to return a
-    // controlled failure and reconcile an uncertain activation/withdrawal result.
+    // Keep authorization responsive with a short deadline; the 15-second
+    // statistics timeout also serves longer sync actions. Reconcile uncertain
+    // activation/withdrawal results through the existing status flow.
     const deadline = setTimeout(() => { finish(true); if (req) req.destroy() }, 2200)
     try {
       req = request(ENDPOINT, { method: 'POST', headers: {
@@ -107,7 +106,7 @@ function createHandler({ getKeys, transport = send, identity = getIdentity }) {
       if (!keys || !Buffer.isBuffer(keys.bridge) || keys.bridge.length !== 32 ||
         !Buffer.isBuffer(keys.subject) || keys.subject.length !== 32 || keys.bridge.equals(keys.subject)) throw new Error('KEY_UNAVAILABLE')
       const synthetic = event.collectionMode === 'test'
-      const subjectScope = synthetic ? 'linkx-research-test-account-v1' : 'linkx-research-account-v1'
+      const subjectScope = synthetic ? TEST_SUBJECT_SCOPE : SUBJECT_SCOPE
       const accountSubject = crypto.createHmac('sha256', keys.subject)
         .update(`${subjectScope}\n${user.appid}\n${user.openid}`).digest('hex')
       // Only the authenticated invocation supplies the operational account link.

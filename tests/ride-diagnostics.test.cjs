@@ -6,13 +6,13 @@ const tick = () => new Promise(resolve => setImmediate(resolve))
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
 function setup(callFunction = () => Promise.resolve({ result: { success: true } })) {
   const state = { clock: 1000, scope: 'real:account-a:grant-1', events: [] }
-  const research = { getCollectionScope: () => state.scope,
+  const analytics = { getCollectionScope: () => state.scope,
     recordEvent: (name, data) => { state.events.push({ name, data }); return { ok: true } } }
   const wx = { cloud: { callFunction } }
   const diagnostics = createRideDiagnostics({ now: () => state.clock })
-  assert.equal(diagnostics.install(wx, research), true)
+  assert.equal(diagnostics.install(wx, analytics), true)
   diagnostics.beginForeground()
-  return { state, research, wx, diagnostics }
+  return { state, analytics, wx, diagnostics }
 }
 
 test('preserves the original Promise, receiver, options and fulfilled response', async () => {
@@ -93,7 +93,7 @@ test('records business failures with safe codes and never serializes arbitrary d
 test('operation and routing fields have closed allowlists; statistics and unrelated calls are untouched', async () => {
   const received = []
   const h = setup(options => { received.push(options); return Promise.resolve({ result: { success: true } }) })
-  for (const name of ['statistics', 'researchParticipation', 'login', 'getUserInfo', 'getUserInfoByOpenids']) {
+  for (const name of ['statistics', 'unrelatedFunction', 'login', 'getUserInfo', 'getUserInfoByOpenids']) {
     const input = { name, get data() { throw new Error('excluded payload must not be read') } }
     await h.wx.cloud.callFunction(input)
     assert.equal(received.at(-1), input)
@@ -123,10 +123,10 @@ test('recording errors, context errors and unusual response getters cannot fail 
   const response = { get result() { throw new Error('getter') } }
   const promise = Promise.resolve(response); const h = setup(() => promise)
   assert.equal(h.wx.cloud.callFunction({ name: 'getTripList' }), promise); assert.equal(await promise, response)
-  h.research.recordEvent = () => { throw new Error('queue failed') }
-  const good = setup(); good.research.recordEvent = h.research.recordEvent
+  h.analytics.recordEvent = () => { throw new Error('queue failed') }
+  const good = setup(); good.analytics.recordEvent = h.analytics.recordEvent
   await good.wx.cloud.callFunction({ name: 'getTripList' }); await tick()
-  good.research.getCollectionScope = () => { throw new Error('scope failed') }
+  good.analytics.getCollectionScope = () => { throw new Error('scope failed') }
   await good.wx.cloud.callFunction({ name: 'getTripList' }); await tick()
   assert.equal(good.state.events.length, 0)
 })
@@ -172,14 +172,14 @@ test('runtime fingerprints contain only error type and code positions, and ignor
 
 test('App onError strings are normalized, hostile errors ignored, and repeated installs do not double-wrap', async () => {
   const h = setup(); const wrapper = h.wx.cloud.callFunction
-  assert.equal(h.diagnostics.install(h.wx, h.research), true); assert.equal(h.wx.cloud.callFunction, wrapper)
+  assert.equal(h.diagnostics.install(h.wx, h.analytics), true); assert.equal(h.wx.cloud.callFunction, wrapper)
   assert.equal(h.diagnostics.captureError('runtime', 'ReferenceError: private\n    at app.js:30:4'), true)
   assert.equal(h.state.events[0].data.code, 'REFERENCE_ERROR')
   assert.equal(h.diagnostics.captureError('runtime', { get name() { throw new Error('hostile') } }), false)
   await h.wx.cloud.callFunction({ name: 'getPublicStats' }); await tick()
   assert.equal(h.state.events.length, 2)
   const locked = { cloud: Object.freeze({ callFunction() {} }) }
-  assert.equal(createRideDiagnostics().install(locked, h.research), false)
+  assert.equal(createRideDiagnostics().install(locked, h.analytics), false)
 })
 
 test('duration is finite, nonnegative and bounded even if the device clock changes', async () => {

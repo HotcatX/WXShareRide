@@ -1,6 +1,6 @@
 // pages/profile/tripHistory/tripHistory.js
-const followup = require('../../../utils/researchFollowup')
-const research = require('../../../utils/researchParticipation')
+const followup = require('../../../utils/tripFollowup')
+const analytics = require('../../../utils/analyticsSession')
 
 function cleanText(value) {
   return String(value || '').trim()
@@ -44,15 +44,15 @@ Page({
   async onShow() {
     this._historyActive = true
     this._historyDataFresh = false
-    if (this._researchUnsubscribe) this._researchUnsubscribe()
-    this._researchUnsubscribe = research.subscribe(() => this._considerFollowup())
+    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
+    this._analyticsUnsubscribe = analytics.subscribe(() => this._considerFollowup())
     await this.loadHistoryTrips()
   },
 
   onHide() {
     this._historyActive = false
-    if (this._researchUnsubscribe) this._researchUnsubscribe()
-    this._researchUnsubscribe = null
+    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
+    this._analyticsUnsubscribe = null
     if (this._ratingTimer) clearTimeout(this._ratingTimer)
     this._ratingTimer = null
     followup.hide(this)

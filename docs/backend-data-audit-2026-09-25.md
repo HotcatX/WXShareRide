@@ -167,7 +167,7 @@ keyset 扫描避免普通 offset 位移，但新增文档的 `_id` 若小于已�
 - `collections-start-response.json` / `collections-end-response.json`：48 集合首尾清单。
 - `<Collection>.json`：32 份完整 keyset 扫描结果；`<Collection>-page-NNN-response.json`：原始分页响应，仅私有落盘。
 - `selected-collections-export.json`：全部 32 个选定集合的 normalizer 输入。
-- `core-collections-export.json`：userInfo / Carpool / CarpoolRequest / CarpoolTemplate 输入。
+- 早期仅含4个集合的 `core-collections-export.json` 中间副本已在逐项核对与完整导出相等后清理。现有首导要求8个核心集合，应从完整导出按当前契约提取并核验manifest，不能把早期4集合切片当完整业务输入。
 - `core-normalization-report.json` / `selected-normalization-report.json`：仅聚合问题和候选计数。
 - `format-patterns-report.json`：价格格式、公开城市类别、日期表示分类。
 - `export_readonly.py`：本次只读分页脚本；为保护本批数据，已有完整输出时再次运行会拒绝覆盖。新批次须用新的私有目录并先重新读取结构；不要将旧响应复用到新的时间窗口。

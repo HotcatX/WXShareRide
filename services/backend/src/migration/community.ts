@@ -4,12 +4,9 @@ import { legacyCloudFileIdSchema } from './market-images.ts';
 import { serializeSource } from './source.ts';
 import type { IssueReporter } from './types.ts';
 import { object, parseExportTimestamp } from './values.ts';
+import type { CommunityContent } from '../community/schemas.ts';
 
-export type CommunityContent = {
-  group: { enabled: boolean; title: string; expiresAt: string | null };
-  announcement: { enabled: boolean; id: string; title: string; body: string; showGroupImage: boolean;
-    maxShows: number; intervalHours: number; startAt: string | null; endAt: string | null };
-};
+export type { CommunityContent } from '../community/schemas.ts';
 export type CommunityRow = CommunityContent & {
   id: 'main'; appId: string; version: number; updatedByAdminId: string | null; updatedAt: string | null;
 };

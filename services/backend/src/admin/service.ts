@@ -141,9 +141,17 @@ export async function withAdminIdempotency(pool: Pool, identity: AdminIdentity, 
   return transaction(pool, client => runIdempotentMutation(client, {
     lockKey: ['admin', identity.appId, identity.ownerKey, operation, input.key], hash: input.hash,
     beforeReceipt: async () => { await lockAdmin(client, identity); },
-    read: async () => (await client.query<MutationReceipt>(
-      'SELECT payload_hash,response_status,response_body FROM admin_requests WHERE app_id=$1 AND owner_key=$2 AND operation=$3 AND request_key=$4',
-      [identity.appId, identity.ownerKey, operation, input.key])).rows[0],
+    read: async () => {
+      const previous = (await client.query<MutationReceipt & { payload_format: string }>(
+        'SELECT payload_hash,payload_format,response_status,response_body FROM admin_requests WHERE app_id=$1 AND owner_key=$2 AND operation=$3 AND request_key=$4',
+        [identity.appId, identity.ownerKey, operation, input.key])).rows[0];
+      // Only an explicit legacy adapter may compare the original web payload
+      // hash. A canonical client must not relabel it or recreate that identity.
+      if (previous && previous.payload_format !== 'canonical-v1') {
+        throw new AppError(409, 'LEGACY_REQUEST_CONFLICT', '该请求来自旧版发布，请查看原商品');
+      }
+      return previous;
+    },
     save: async result => {
       await client.query(`INSERT INTO admin_requests(app_id,owner_key,operation,request_key,payload_hash,response_status,response_body)
         VALUES($1,$2,$3,$4,$5,$6,$7)`, [identity.appId, identity.ownerKey, operation, input.key, input.hash, result.status, result.data]);

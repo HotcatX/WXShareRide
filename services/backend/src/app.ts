@@ -19,6 +19,9 @@ import { registerStatisticsRoutes } from './statistics/routes.ts';
 import { registerReferralRoutes } from './referrals/routes.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
 import { registerMarketRoutes } from './market/routes.ts';
+import { registerCommunityRoutes } from './community/routes.ts';
+import { registerAdminMarketRoutes } from './admin/market-routes.ts';
+import { registerAdminMarketTemplateRoutes } from './admin/market-template-routes.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
@@ -66,5 +69,8 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerReferralRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerAdminRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
+  registerCommunityRoutes(app, { pool: deps.pool, appId: deps.config.appId });
+  registerAdminMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId });
+  registerAdminMarketTemplateRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   return app;
 }

@@ -13,6 +13,8 @@ import type { MarketViewRow } from './market-views.ts';
 import type { AdRow, AdClickRow } from './ads.ts';
 import type { CommunityRow, CommunityRevisionRow } from './community.ts';
 import type { AdminAuditRow } from './admin-audit.ts';
+import type { AdminMarketBatchRow, AdminMarketRequestRow } from './admin-market.ts';
+import type { MarketTemplateRow } from './market-templates.ts';
 
 export type Document = Record<string, unknown>;
 export type Collection = 'userInfo' | 'Carpool' | 'CarpoolRequest' | 'other';
@@ -29,6 +31,7 @@ export type MigrationRows = {
   templates: TemplateRow[]; notifications: NotificationRow[]; blocks: BlockRow[];
   ratings: RatingRow[]; completions: CompletionRow[]; publicStatistics: PublicStatisticsRow[]; referralCodes: ReferralCodeRow[];
   adminAccounts: AdminAccountRow[]; adminOrigins: AdminOriginRow[]; adminAudit: AdminAuditRow[];
+  adminMarketBatches: AdminMarketBatchRow[]; adminRequests: AdminMarketRequestRow[]; marketTemplates: MarketTemplateRow[];
   listings: MarketListingRow[]; files: FileRow[]; fileReferences: FileReferenceRow[]; marketViews: MarketViewRow[];
   ads: AdRow[]; adClicks: AdClickRow[]; communityConfigs: CommunityRow[]; communityRevisions: CommunityRevisionRow[];
 };

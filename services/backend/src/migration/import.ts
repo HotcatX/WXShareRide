@@ -112,6 +112,13 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
     await insertRows(client, 'admin_origins', ['app_id','origin'], plan.adminOrigins.map(row => [row.appId,row.origin]));
     await insertRows(client, 'admin_audit', ['id','app_id','account_id','action','details','created_at'],
       plan.adminAudit.map(row => [row.id,row.appId,row.accountId,row.action,row.details,row.createdAt]));
+    await insertRows(client, 'admin_requests', ['app_id','owner_key','operation','request_key','payload_hash','payload_format','response_status','response_body','created_at'],
+      plan.adminRequests.map(row => [row.appId,row.ownerKey,row.operation,row.requestKey,row.payloadHash,row.payloadFormat,row.responseStatus,row.responseBody,row.createdAt]));
+    await insertRows(client, 'market_import_batches', ['app_id','owner_key','id','payload_hash','payload_format','total','status','results','failures','created_at','updated_at'],
+      plan.adminMarketBatches.map(row => [row.appId,row.ownerKey,row.id,row.payloadHash,row.payloadFormat,row.total,row.status,
+        JSON.stringify(row.results),JSON.stringify(row.failures),row.createdAt,row.updatedAt]));
+    await insertRows(client, 'market_templates', ['app_id','id','name','data','status','created_by_admin_id','updated_by_admin_id','created_at','updated_at'],
+      plan.marketTemplates.map(row => [row.appId,row.id,row.name,row.data,row.status,row.createdByAdminId,row.updatedByAdminId,row.createdAt,row.updatedAt]));
     await insertRows(client, 'market_listings', ['app_id','id','owner_user_id','admin_owner_key','shared_admin_management','status','expires_at','version','content','created_at','updated_at'],
       plan.listings.map(row => {
         const { appId,id,ownerUserId,adminOwnerKey,sharedAdminManagement,status,expiresAt,version,createdAt,updatedAt,images: _images,...content } = row;
@@ -139,6 +146,7 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
     const modelTables = { users:'users', rides:'rides', members:'ride_members', stops:'ride_stops', templates:'ride_templates',
       notifications:'notifications', blocks:'user_blocks', ratings:'ride_ratings', completions:'ride_completions', publicStatistics:'public_statistics', referralCodes:'referral_codes',
       adminAccounts:'admin_accounts', adminOrigins:'admin_origins', adminAudit:'admin_audit', listings:'market_listings', files:'files', fileReferences:'file_references', marketViews:'market_views',
+      adminMarketBatches:'market_import_batches', adminRequests:'admin_requests', marketTemplates:'market_templates',
       ads:'ads', adClicks:'ad_clicks', communityConfigs:'community_configs', communityRevisions:'community_revisions' } as const;
     for (const [name, table] of Object.entries(modelTables)) {
       const actual = (await client.query(`SELECT count(*)::integer AS count FROM ${table}`)).rows[0].count;

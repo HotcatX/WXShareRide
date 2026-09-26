@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import type { Identity } from '../auth/session.ts';
 import { createListing, deleteListing, setListingStatus, updateListing } from './service.ts';
 import { getMarketListing, listMarketListings, listMyMarketListings, listSellerMarketListings } from './read.ts';
+import { recordListingView } from './activity.ts';
 
 type Dependencies = { pool: Pool; appId: string; requireUser: (request: FastifyRequest) => Promise<Identity> };
 
@@ -36,6 +37,12 @@ export function registerMarketRoutes(app: FastifyInstance, { pool, appId, requir
     reply.header('Cache-Control', 'private, no-store');
     const user = await requireUser(request);
     const result = await createListing(pool, user.id, request.headers['idempotency-key'], request.body);
+    return reply.code(result.status).send({ ok: true, data: result.data, requestId: request.id });
+  });
+  app.post<{ Params: { id: string } }>('/api/v1/market/listings/:id/views', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    const user = await requireUser(request);
+    const result = await recordListingView(pool, user.id, request.headers['idempotency-key'], request.params.id, request.body);
     return reply.code(result.status).send({ ok: true, data: result.data, requestId: request.id });
   });
   for (const [method, path, handler] of [

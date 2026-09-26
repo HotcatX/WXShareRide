@@ -26,10 +26,66 @@ function fixture() {
       type: 'image', folder: 'market', status: 'attached', goodsId: 'fixture-listing', createdAtMs: Date.parse(createdAt), updatedAtMs: Date.parse(createdAt),
       attachedAt: { $date: createdAt }, updatedAt: { $date: createdAt } }],
     market_view_events: [],
+    MarketImportBatches: [],
   };
   return { kind: 'cloudbase-full-export', appId, collections };
 }
 const normalize = (source: unknown) => normalizeCloudBaseExport(source, { timeZone: 'America/New_York' });
+
+function adminFixture() {
+  const source = fixture(), account = source.collections.WebAdminAccounts![0]!;
+  const ownerKey = account.ownerKey as string, batchId = 'fixture_batch';
+  const identity = (key: string) => `web_${createHash('sha256').update(`${ownerKey}:${key}`).digest('hex').slice(0, 48)}`;
+  const id = identity('explicit_lost_creation_key');
+  const listing = source.collections.market_goods![0]!;
+  delete listing._openid;
+  Object.assign(listing, { _id: id, imageFileIDs: [], managedByAdmin: true, managedSource: 'web_admin',
+    ownerKey, managedByOwnerKey: ownerKey, managedByAccountId: account._id, webAdminRequestHash: 'b'.repeat(64),
+    clientRequestId: '', adminBatchId: batchId, adminExternalId: 'row_1' });
+  source.collections.MarketFiles = [];
+  source.collections.MarketImportBatches = [{ _id: identity(batchId), accountId: account._id, ownerKey, batchId,
+    type: 'market_admin_bulk', source: 'web_admin', requestHash: 'a'.repeat(64), total: 1, status: 'done', success: 1, failed: 0,
+    results: [{ index: 0, id, externalId: 'row_1' }], failures: [], createdAtMs: Date.parse(createdAt) - 100, updatedAtMs: Date.parse(createdAt) + 100 }];
+  source.collections.MarketAdminTemplates = [{ _id: 'fixture_prewebsite_template', name: 'Fixture contacts', status: 'active',
+    data: { sellerName: 'Fixture contact', sellerWechat: 'fixture_wechat', regionState: 'NJ', regionCounty: 'Bergen', regionArea: 'Fort Lee' },
+    ownerKey, createdBy: account._id, updatedBy: account._id, createdAtMs: Date.parse(createdAt), updatedAtMs: Date.parse(createdAt) }];
+  return source;
+}
+
+test('admin batch, legacy row receipt and shared template import preserve evidence and replay without recreating a listing', options, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const source = adminFixture(), normalized = normalize(source);
+  assert.equal(normalized.report.ready, true, JSON.stringify(normalized.report.issues));
+  const receipt = await importSnapshot(db.pool, source, appId);
+  assert.equal(receipt.counts.adminRequests, 1); assert.equal(receipt.counts.adminMarketBatches, 1); assert.equal(receipt.counts.marketTemplates, 1);
+  const request = (await db.pool.query('SELECT request_key,payload_hash,payload_format,response_body FROM admin_requests')).rows[0];
+  assert.deepEqual(request, { request_key: source.collections.market_goods![0]!._id, payload_hash: 'b'.repeat(64),
+    payload_format: 'legacy-web-v1', response_body: { id: source.collections.market_goods![0]!._id } });
+  const batch = (await db.pool.query('SELECT payload_hash,payload_format,results,failures FROM market_import_batches')).rows[0];
+  assert.deepEqual(batch, { payload_hash: 'a'.repeat(64), payload_format: 'legacy-web-v1', results: source.collections.MarketImportBatches![0]!.results, failures: [] });
+  const template = (await db.pool.query('SELECT id,status,data FROM market_templates')).rows[0];
+  assert.equal(template.id, 'fixture_prewebsite_template'); assert.equal(template.status, 'active');
+  assert.equal(template.data.sellerContact.wechat, 'fixture_wechat');
+  assert.equal('images' in template.data, false); assert.equal('startDate' in template.data, false);
+  await db.pool.query("UPDATE market_listings SET status='deleted'");
+  await db.pool.query("UPDATE market_templates SET status='deleted'");
+  assert.deepEqual(await importSnapshot(db.pool, adminFixture(), appId), receipt);
+  assert.equal((await db.pool.query('SELECT status FROM market_listings')).rows[0].status, 'deleted');
+  assert.equal((await db.pool.query('SELECT status FROM market_templates')).rows[0].status, 'deleted');
+});
+
+test('a late shared template error rolls back admin receipts and batches; missing template account source is rejected', options, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  await db.pool.query(`CREATE FUNCTION reject_template_import() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'synthetic template import failure'; END $$;
+    CREATE TRIGGER reject_template_import BEFORE INSERT ON market_templates FOR EACH ROW EXECUTE FUNCTION reject_template_import()`);
+  await assert.rejects(importSnapshot(db.pool, adminFixture(), appId), /synthetic template import failure/);
+  for (const table of ['users', 'admin_accounts', 'admin_requests', 'market_import_batches', 'market_templates', 'market_listings', 'migration_batches', 'migration_sources']) {
+    assert.equal((await db.pool.query(`SELECT count(*) FROM ${table}`)).rows[0].count, '0');
+  }
+  const source = fixture(); source.collections.MarketAdminTemplates = []; delete source.collections.WebAdminAccounts;
+  assert.ok(normalize(source).report.issues.some(issue => issue.code === 'INCOMPLETE_MARKET_TEMPLATE_SOURCE'));
+});
 
 test('central market plan requires explicit account and file evidence and never leaks credentials in its report', () => {
   const source = fixture();
@@ -42,7 +98,7 @@ test('central market plan requires explicit account and file evidence and never 
   for (const value of ['fixture-owner', 'fixture-owner-key', 'a1'.repeat(32), 'b2'.repeat(64), 'private-listing.jpg']) {
     assert.equal(JSON.stringify(result.report).includes(value), false);
   }
-  for (const missing of ['market_goods', 'MarketFiles', 'WebAdminAccounts', 'market_view_events']) {
+  for (const missing of ['market_goods', 'MarketFiles', 'WebAdminAccounts', 'market_view_events', 'MarketImportBatches']) {
     const incomplete = fixture(); delete incomplete.collections[missing];
     const rejected = normalize(incomplete);
     assert.equal(rejected.plan, null);
@@ -50,7 +106,7 @@ test('central market plan requires explicit account and file evidence and never 
   }
   const projected = fixture(); delete projected.collections.WebAdminAccounts![0]!.passwordDigest;
   assert.equal(normalize(projected).plan, null);
-  const unrelated = fixture(); unrelated.collections.MarketImportBatches = [{ _id: 'fixture-batch' }];
+  const unrelated = fixture(); unrelated.collections.UnsupportedFutureCollection = [{ _id: 'fixture-batch' }];
   assert.ok(normalize(unrelated).report.issues.some(issue => issue.code === 'UNMAPPED_COLLECTION'));
 });
 

@@ -21,6 +21,8 @@ import { normalizeAds } from './ads.ts';
 import { normalizeCommunity } from './community.ts';
 import { normalizeContentFiles } from './content-files.ts';
 import { normalizeAdminAudit, validateLegacyMarketAdmins, validateLegacyMarketAdminSettings } from './admin-audit.ts';
+import { normalizeAdminMarket } from './admin-market.ts';
+import { normalizeMarketTemplates } from './market-templates.ts';
 export type { MigrationIssue, UserRow, RideRow, MemberRow, StopRow, MigrationPlan, MigrationReport, CloudBaseExport } from './types.ts';
 export { parseExportTimestamp, localDepartureCandidates } from './values.ts';
 export { migrationUserId } from './users.ts';
@@ -28,7 +30,7 @@ export { migrationUserId } from './users.ts';
 const collections: Collection[] = ['userInfo', 'Carpool', 'CarpoolRequest'];
 const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings', 'PublicStats',
   'WebAdminAccounts', 'WebAdminSettings', 'WebAdminAuditLogs', 'market_admins', 'MarketAdminSettings', 'market_goods', 'MarketFiles', 'market_view_events', 'houseShare',
-  'WebAdminUploads', 'market_ads', 'market_ad_events', 'community_config', 'CommunityConfigHistory']);
+  'WebAdminUploads', 'market_ads', 'market_ad_events', 'community_config', 'CommunityConfigHistory', 'MarketImportBatches', 'MarketAdminTemplates']);
 const rideFields = new Set([
   '_id', '_openid', 'cityKey', 'cityLabel', 'departures', 'destinations', 'passengerCount', 'availSeatNum', 'passengers', 'passengerID',
   'driverOpenid', 'status', 'referencePrice', 'comment', 'zelle', 'largeLuggageCount', 'createdAt', 'updatedAt',
@@ -39,8 +41,8 @@ const pointFields = new Set(['address', 'date', 'time', 'placeId']);
 const passengerFields = new Set(['_openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'joinedAt', 'pickupAddress', 'dropoffAddress']);
 /** Read-only candidate normalization. The plan contains private data: print only report. */
 export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York'; observation?: ExportObservation }): { plan: MigrationPlan | null; report: MigrationReport } {
-  const plan: MigrationPlan = { sourceSha256: '', observedBefore: null, sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [], publicStatistics: [], referralCodes: [], adminAccounts: [], adminOrigins: [], adminAudit: [], listings: [], files: [], fileReferences: [], marketViews: [], ads: [], adClicks: [], communityConfigs: [], communityRevisions: [] };
-  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0, publicStatistics: 0, referralCodes: 0, adminAccounts: 0, adminOrigins: 0, adminAudit: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0, ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 }, issues: [] };
+  const plan: MigrationPlan = { sourceSha256: '', observedBefore: null, sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [], publicStatistics: [], referralCodes: [], adminAccounts: [], adminOrigins: [], adminAudit: [], adminMarketBatches: [], adminRequests: [], marketTemplates: [], listings: [], files: [], fileReferences: [], marketViews: [], ads: [], adClicks: [], communityConfigs: [], communityRevisions: [] };
+  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0, publicStatistics: 0, referralCodes: 0, adminAccounts: 0, adminOrigins: 0, adminAudit: 0, adminMarketBatches: 0, adminRequests: 0, marketTemplates: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0, ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 }, issues: [] };
   const issue = (collection: Collection, code: string, field = '-', severity: 'error' | 'notice' = 'error', count = 1) => {
     const previous = report.issues.find(item => item.collection === collection && item.code === code && item.field === field && item.severity === severity);
     if (previous) previous.count += count; else report.issues.push({ collection, code, field, severity, count });
@@ -89,10 +91,15 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   if (docs.WebAdminAuditLogs !== undefined) plan.adminAudit = normalizeAdminAudit(docs.WebAdminAuditLogs, appId, issue);
   if (docs.market_admins !== undefined) validateLegacyMarketAdmins(docs.market_admins, issue);
   if (docs.MarketAdminSettings !== undefined) validateLegacyMarketAdminSettings(docs.MarketAdminSettings, issue);
+  if (docs.MarketAdminTemplates !== undefined) {
+    if (!Array.isArray(docs.WebAdminAccounts)) issue('other', 'INCOMPLETE_MARKET_TEMPLATE_SOURCE', 'MarketAdminTemplates');
+    else plan.marketTemplates = normalizeMarketTemplates(docs.MarketAdminTemplates,
+      { appId, adminOwners: plan.adminAccounts.map(row => ({ accountId: row.id, ownerKey: row.ownerKey })) }, issue);
+  }
   // A market slice needs both its authoritative records and complete file
   // ledger, including unreferenced rows. Omission is not an empty collection.
-  if (['market_goods', 'MarketFiles', 'market_view_events', 'houseShare'].some(name => docs[name] !== undefined)) {
-    const complete = ['market_goods', 'MarketFiles', 'WebAdminAccounts', 'market_view_events'].every(name => Array.isArray(docs[name]));
+  if (['market_goods', 'MarketFiles', 'market_view_events', 'houseShare', 'MarketImportBatches'].some(name => docs[name] !== undefined)) {
+    const complete = ['market_goods', 'MarketFiles', 'WebAdminAccounts', 'market_view_events', 'MarketImportBatches'].every(name => Array.isArray(docs[name]));
     if (!complete) issue('other', 'INCOMPLETE_MARKET_SOURCE', 'market_goods');
     else {
       const context = { appId, users: plan.users, adminOwners: plan.adminAccounts.map(row => ({ accountId: row.id, ownerKey: row.ownerKey })) };
@@ -101,12 +108,14 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       plan.files = converted.files;
       plan.fileReferences = converted.references;
       plan.marketViews = normalizeMarketViews({ events: docs.market_view_events, listings: docs.market_goods }, context, issue);
+      const adminMarket = normalizeAdminMarket({ batches: docs.MarketImportBatches, listings: docs.market_goods }, { appId, adminAccounts: plan.adminAccounts }, issue);
+      plan.adminMarketBatches = adminMarket.batches; plan.adminRequests = adminMarket.requests;
       if (docs.houseShare !== undefined) validateMarketShadow(docs.houseShare, docs.market_goods, issue);
     }
   }
   const contentCollections = ['WebAdminUploads', 'market_ads', 'market_ad_events', 'community_config', 'CommunityConfigHistory'];
   if (contentCollections.some(name => docs[name] !== undefined)) {
-    const complete = [...contentCollections, 'WebAdminAccounts', 'market_goods', 'MarketFiles', 'market_view_events']
+    const complete = [...contentCollections, 'WebAdminAccounts', 'market_goods', 'MarketFiles', 'market_view_events', 'MarketImportBatches']
       .every(name => Array.isArray(docs[name]));
     if (!complete) issue('other', 'INCOMPLETE_CONTENT_SOURCE', 'contentFiles');
     else {
@@ -342,6 +351,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
     referralCodes: plan.referralCodes.length, adminAccounts: plan.adminAccounts.length, listings: plan.listings.length,
     files: plan.files.length, fileReferences: plan.fileReferences.length, marketViews: plan.marketViews.length,
     adminOrigins: plan.adminOrigins.length, adminAudit: plan.adminAudit.length, ads: plan.ads.length, adClicks: plan.adClicks.length,
+    adminMarketBatches: plan.adminMarketBatches.length, adminRequests: plan.adminRequests.length, marketTemplates: plan.marketTemplates.length,
     communityConfigs: plan.communityConfigs.length, communityRevisions: plan.communityRevisions.length };
   report.issues.sort((a, b) => `${a.collection}:${a.code}:${a.field}`.localeCompare(`${b.collection}:${b.code}:${b.field}`));
   report.ready = !report.issues.some(item => item.severity === 'error');

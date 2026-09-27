@@ -21,8 +21,29 @@
         method POST
         path /internal/v1/public-stats/sync
     }
-    request_body {
+    @business {
+        path /api/v1/* /internal/v1/auth/cloudbase /internal/v1/compat/cloudbase
+    }
+    @images {
+        method POST
+        path /api/v1/files/images /api/v1/admin/files/images
+    }
+    @standardBody {
+        not {
+            method POST
+            path /api/v1/files/images /api/v1/admin/files/images
+        }
+    }
+    request_body @standardBody {
         max_size 131072
+    }
+    request_body @images {
+        max_size 2097152
+    }
+    # The backend itself rejects every business route while BUSINESS_MODE=staged.
+    # Publishing these paths does not activate writes or change legacy statistics.
+    handle @business {
+        reverse_proxy linkx-business:3100
     }
     handle @health {
         reverse_proxy collector:3000

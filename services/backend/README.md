@@ -23,6 +23,26 @@ a partial run is insufficient to approve transactions or schemas.
 Migrations run as an explicit deployment step and never implicitly on startup.
 Previously applied SQL files are immutable and checked by SHA-256.
 
+Audit a complete private CloudBase export before import:
+
+```sh
+node scripts/import.ts --manifest /absolute/private/manifest.json --expected-app-id wx8a8a389199aa2a0e
+```
+
+`src/migration/manifest.ts` defines the fixed 49-collection manifest. Every file
+must be a complete document array in the same private directory, with exact
+byte/hash/count and export-time observations. Default audit is offline and
+does not connect to PostgreSQL. Ordinary exports are explicitly non-atomic:
+`auditReady` never certifies that live writers are stopped.
+
+After separately verifying the old writer shutdown, pending operations and
+collector delivery, add `--apply --expected-source-sha256 HASH
+--accepted-manifest-sha256 HASH` to accept that exact reviewed bundle. Apply
+requires the existing `staged` configuration and the same AppID. It uses the
+sole atomic importer, rejects a different source on a nonempty target, and
+does not activate business routes or jobs. Preserve the original provider
+export responses separately as migration evidence.
+
 Only `src/config.ts` reads environment variables. `DATABASE_URL_FILE` is the
 alternative for a mounted secret; configure exactly one of it and `DATABASE_URL`.
 `WECHAT_APP_SECRET_FILE` enables real server-side `code2session` login. If absent,
@@ -211,6 +231,12 @@ completed import, old pending-event handoff and client compatibility.
 The existing collector remains authoritative for place and follow-up data.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
+The existing collector stack must already supply `linkx-collector_default`.
+Only the backend joins that network as `linkx-business`; PostgreSQL remains on
+the backend network. The collector Caddyfile proxies `/api/v1/*` and the two
+signed internal bridges to the backend, while the staged gate still rejects
+all business requests. Image POST routes accept at most 2 MiB; other requests
+retain the existing 128 KiB proxy limit. Publishing routes is not a cutover.
 Keep the current mini-program on CloudBase until missing feature compatibility,
 backup/restore, complete import reconciliation, trusted login and capacity checks
 pass. Preserve existing collector storage, credentials and CloudBase data.

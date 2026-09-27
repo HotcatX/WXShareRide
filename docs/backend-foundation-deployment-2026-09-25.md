@@ -1,6 +1,6 @@
 # 后端内部部署记录
 
-2026-09-27 更新。Linux 业务镜像对应 `ee9343b`；本轮部署有限跨切主兼容、收据导入和旧统计读取适配。**正式业务仍由 CloudBase 写入；新服务器处于待启用状态，5.1.0 尚未上传或送审。** 本文件保存当前部署与最近恢复点，早期证据保留在 Git 历史。
+2026-09-27 更新。Linux 业务镜像对应 `ee9343b`；已部署有限跨切主兼容、收据导入和旧统计读取适配；最新另接通待启用业务的 HTTPS 路由。**正式业务仍由 CloudBase 写入；新服务器处于待启用状态，5.1.0 尚未上传或送审。** 本文件保存当前部署与最近恢复点，早期证据保留在 Git 历史。
 
 ## 当前部署
 
@@ -9,8 +9,8 @@
 | 业务服务 | `linkx-backend:20260927-handoff-compat`，`/opt/linkx-backend`，仅监听 `127.0.0.1:3101`，容器 healthy |
 | PostgreSQL | 001–027 已应用；除迁移账本外 35 张表合计 0 行；无公网数据库端口 |
 | 启用状态 | `BUSINESS_MODE=staged`；内部健康检查 200，业务请求 503；关闭和投递任务不启动 |
-| 公网 | 采集健康检查 200；`/api/v1/rides` 404，新业务路由未公开 |
-| 原服务 | collector、SQLite、Caddy、公共读取副本本轮未修改；容器状态正常 |
+| 公网 | 原采集健康检查及公共统计 200；新业务与两个签名桥路由已接通，统一 503 `BACKEND_STAGED` |
+| 原服务 | collector、SQLite、公共读取副本未改；Caddy 已热加载新路径，原有路径保留 |
 | 图片 | 原最小权限 COS 凭据继续使用；私有桶读取及新目录上传，无删除/改权限 |
 | 登录与采集 | 独立登录桥密钥、原 collector bridge/subject 密钥已只读挂载；不替换已有采集身份 |
 | CloudBase `backend` | 登录桥及模板、通知、常用地点有限兼容入口已部署，超时 15 秒；新增固定 PG 代理，但生成配置仍选 CloudBase；`expectedAuthority=server` 实际返回 `AUTHORITY_NOT_READY` |
@@ -29,7 +29,9 @@
 - 小程序普通回归 **935 项通过**，两个需 PostgreSQL 的用例另在对应文件 **26/26、零跳过**运行中补齐，合计 937 个用例均有通过证据。未修改的采集服务和管理站保留前阶段 **44/44**、**34/34**及生产构建证据；尚未完成管理站浏览器界面验收。
 - 新集成旅程执行 38 次本地真实 HTTP、两次签名登录、三个实际 Page 控制器，覆盖模板发布/加入退出/通知及商品丢 ACK 恢复。公开统计回退也经过旧客户端、真实处理器、新服务和 PG：正常读数一致，503和真实 PG 查询错误均未调用旧库。以上不是公网 TLS 或真机测试。
 - 开发者工具刷新后首页正常显示，console error 过滤无匹配。本次页面核验使用 CloudBase 模式，不能替代服务器模式的正式接入测试。
-- Linux 镜像构建和替换成功，本轮没有新增 SQL。运行中读回 COS、登录桥、采集桥和 subject 配置均已加载，业务仍 staged；35 张表合计0行，27项迁移已存在。内部健康200，行程/旧统计/有限兼容桥均503 `BACKEND_STAGED`；公网采集与原统计200、新业务404，其他容器未重启。
+- Linux 镜像构建和替换成功，本轮没有新增 SQL。运行中读回 COS、登录桥、采集桥和 subject 配置均已加载，业务仍 staged；35 张表合计0行，27项迁移已存在。内部健康200，行程/旧统计/有限兼容桥均503 `BACKEND_STAGED`；当次部署公网采集与原统计200、新业务404；其后 HTTPS 路由验证见下项。
+- 最新 HTTPS 准备：backend 加入既有 collector 网络并单独重建，PG 仍只接 backend 网络且不公开端口；Caddy validate、热加载通过。实际 TLS 请求验证原 `/healthz` 与 `/v1/public-stats` 200，新行程/统计/login及两签名桥均 503 `BACKEND_STAGED`，未知 internal 路径404；用户和会话表仍0行。当前运行配置、候选配置与 autosave 的适配 JSON 独立核对一致。Caddy 容器的旧单文件挂载仍指向早期 inode，宿主文件已更新；最终停写窗口需重建 Caddy，再读回挂载哈希验证默认启动配置。当前不得从旧容器 `/etc/caddy/Caddyfile` 再 reload。
+- 新增全量 manifest/CLI 专项 **8/8、零跳过**，含实际子进程向隔离 PostgreSQL 导入、同源重放、源原文/hash对账及非空目标拒绝。默认是离线审核；严格49集合、文件数量/hash通过不代表线上已经停写。尚未执行生产导入。
 - 增量部署 `backend` 的 authority/compat-bridge/handler/index，`statistics` 的 authority/provider/handler/index，以及 `syncPublicStatsReplica/relay`，均取得部署成功结果。一次 provider 上传因开发者工具项目窗口关闭丢失任务查询记录；确认控制台状态后重新上传同一文件取得成功结果，再更新依赖它的入口。实际云端 publicStats 与旧包装器均成功且同值，backend identity 成功，提前要求 server authority 的请求被明确拒绝；没有新增线上测试业务记录。
 - 已审的 **48 个集合、16,911 条历史源记录**在本地隔离 PostgreSQL 完整导入，逐条 JSON 与 SHA-256 对账、同源重放通过；未生成业务事件或登录会话。该混合时间历史导出不是最终一致快照。新增 `OperationReceipts` 导入与有限兼容重放已实现：10 条本地产生的真实旧处理器收据完成导出、PG 导入、原结果重放；冷启动旧模板 ID、失败原 key 重试、并发/事务回滚均已验证。仍需最终线上49集合一致快照和未决请求排空。
 - 在线仅用两个明确标记的合成模板验证；创建、修改、读取、删除及同键重试均通过，第二轮还确认首次与重放的完整 JSON 相等。合成模板及六条测试收据已精确清理；未创建线上用户、行程或商品。`OperationReceipts` 客户端不可读写，实际读取被拒绝。
@@ -44,6 +46,7 @@
 | 升级前数据库 | `/var/backups/linkx-backend/before-handoff-compat.dump`；SHA-256 `be1baec8879697004436a358c472d469b07c9a5648fb2aad09d2dfa53df8ed4d` |
 | 升级前源码 | `/var/backups/linkx-deployments/backend-before-handoff-compat.tar.gz`；SHA-256 `209f59cc008d01e9b01061e9cd8ec1419d9a679308fbdd84803a643d34f62e97` |
 | 前一目录和镜像 | `/opt/linkx-backend-before-ee9343b`；`linkx-backend:20260927-client-integration`，源码 `ba1010c` |
+| HTTPS 配置恢复点 | `/var/backups/linkx-deployments/staged-https/` 保存旧 backend Compose、宿主及实际挂载 Caddyfile；当前宿主 Caddy SHA-256 `60ed76ef0ac29b59a38576c9afbcb6c9e93c9331cc0f0008b8c177ff0d770d13` |
 | 市场云函数 | `marketApi` 已保存不可变版本 `1`，备注“2026-09-27 固定地区配置优化前恢复点”；优化前后均由 `$LATEST` 承接流量 |
 
 本次备份通过 `pg_restore --list` 归档结构检查，未重做完整恢复演练；较早的隔离恢复演练见 Git 历史。开始接收真实业务写入之后，不得通过还原这个空库备份回退。采集 SQLite 不随业务代码回退覆盖。
@@ -55,7 +58,7 @@
 1. 有限模板/通知/常用地点代理及未决回执衔接已实现；仍须完成线上旧包刷新和全部旧写入口退役。旧版直接数据库访问无法被这些云函数代理截获，仅把新客户端设成 CloudBase 模式还不构成安全交接。
 2. 排空旧业务事件，交接定时关闭、统计发布和图片清理任务；同一业务只能有一个权威写入库。
 3. 完成最终全域一致导出、未决操作与收据迁移、导入对账和恢复/容量/混合版本验证。48 集合的归档规则与历史源演练已完成，不能替代最终停写后的完整盘点与导出。
-4. 完成真实登录桥与服务器模式页面验收，然后启用业务、上传 5.1.0，确认具备送审条件。
+4. 完成单一 authority 握手及服务器模式页面验收，先在 CloudBase 权威下发布兼容 5.1.0，再执行用户已授权的停写交接；切后仍停留旧版的用户需重开升级。此握手仍在实现，不能把当前静态 cloudbase 包当作已经支持远程切换。
 
 失败重试只能使用同一权威库、同一操作键。fallback 单独保留并标记；正式版健康验证后再删。临时 `BACKEND_MIGRATION_WORK.md` 继续保存实施审计和约束，整个迁移完成后删除。
 

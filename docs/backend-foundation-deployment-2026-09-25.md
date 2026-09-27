@@ -1,12 +1,12 @@
 # 后端内部部署记录
 
-2026-09-27 更新。Linux 业务镜像仍对应 `ba1010c`；本轮另部署 CloudBase 有限兼容入口并完成离线归档验证。**正式业务仍由 CloudBase 写入；新服务器处于待启用状态，5.1.0 尚未上传或送审。** 本文件保存当前部署与最近恢复点，早期证据保留在 Git 历史。
+2026-09-27 更新。Linux 业务镜像对应 `ee9343b`；本轮部署有限跨切主兼容、收据导入和旧统计读取适配。**正式业务仍由 CloudBase 写入；新服务器处于待启用状态，5.1.0 尚未上传或送审。** 本文件保存当前部署与最近恢复点，早期证据保留在 Git 历史。
 
 ## 当前部署
 
 | 组件 | 已核实状态 |
 | --- | --- |
-| 业务服务 | `linkx-backend:20260927-client-integration`，`/opt/linkx-backend`，仅监听 `127.0.0.1:3101` |
+| 业务服务 | `linkx-backend:20260927-handoff-compat`，`/opt/linkx-backend`，仅监听 `127.0.0.1:3101`，容器 healthy |
 | PostgreSQL | 001–027 已应用；除迁移账本外 35 张表合计 0 行；无公网数据库端口 |
 | 启用状态 | `BUSINESS_MODE=staged`；内部健康检查 200，业务请求 503；关闭和投递任务不启动 |
 | 公网 | 采集健康检查 200；`/api/v1/rides` 404，新业务路由未公开 |
@@ -18,18 +18,19 @@
 | CloudBase `marketApi` | 固定城市和地区目录从同源生成资产返回；异常回退原 CloudBase 查询。已增量部署并核对线上目录一致、市场列表正常、非法集合拒绝 |
 | 客户端 | 小程序和管理站适配已实现并测试，打包配置仍选 CloudBase；网站尚未部署 |
 
-业务镜像 ID：`sha256:a2023694bd5777193d2781ef4ee1a1ece3f08b7aacebe33421bb0e9ae115e7a8`。
-源码归档 SHA-256：`947f79ba526dd6b5985157a05e1b8446b2a657fe9d01d55bbeb2f641a73719b1`。
+业务镜像 ID：`sha256:d1b7b9fde9408a2c2ceec7e8a4504b9a3d1d5e54635bee10a19e3d79533e90cc`。
+从 `ee9343b:services/backend` 生成的源码归档 SHA-256：`3fd2f75a18c9041716c11dd5844f26a58b888871da2cc3a353ddee9c8ff52ca4`。
 
 `/etc/linkx-backend/identity` 是服务器私有目录，目录 root:1000/0750，密钥 1000:1000/0400，配置 root:root/0600，挂载只读。既有采集 subject/bridge 原值已核对，不新建账号映射；登录桥使用另一独立密钥。未配置微信 AppSecret。凭据不进入 Git、镜像、日志或小程序包。
 
 ## 验证
 
-- 后端 **691/691**，真实 PostgreSQL、零跳过；TypeScript、差异与生成资产检查通过。覆盖账户、行程、市场、文件权限、永久幂等、导入、跨应用隔离、城市请求及采集桥。本轮兼容模块尚未打入 Linux 运行镜像。
+- 后端 **691/691**，真实 PostgreSQL、零跳过；TypeScript、差异与生成资产检查通过。覆盖账户、行程、市场、文件权限、永久幂等、导入、跨应用隔离、城市请求及采集桥。本轮代码已打入上述 Linux 镜像。
 - 小程序普通回归 **935 项通过**，两个需 PostgreSQL 的用例另在对应文件 **26/26、零跳过**运行中补齐，合计 937 个用例均有通过证据。未修改的采集服务和管理站保留前阶段 **44/44**、**34/34**及生产构建证据；尚未完成管理站浏览器界面验收。
 - 新集成旅程执行 38 次本地真实 HTTP、两次签名登录、三个实际 Page 控制器，覆盖模板发布/加入退出/通知及商品丢 ACK 恢复。公开统计回退也经过旧客户端、真实处理器、新服务和 PG：正常读数一致，503和真实 PG 查询错误均未调用旧库。以上不是公网 TLS 或真机测试。
 - 开发者工具刷新后首页正常显示，console error 过滤无匹配。本次页面核验使用 CloudBase 模式，不能替代服务器模式的正式接入测试。
-- Linux 镜像构建和 SQL027 升级成功。运行中读回 COS、登录桥、采集桥和 subject 配置均已加载，业务仍 staged；所有业务表为零，原线上服务健康。
+- Linux 镜像构建和替换成功，本轮没有新增 SQL。运行中读回 COS、登录桥、采集桥和 subject 配置均已加载，业务仍 staged；35 张表合计0行，27项迁移已存在。内部健康200，行程/旧统计/有限兼容桥均503 `BACKEND_STAGED`；公网采集与原统计200、新业务404，其他容器未重启。
+- 增量部署 `backend` 的 authority/compat-bridge/handler/index，`statistics` 的 authority/provider/handler/index，以及 `syncPublicStatsReplica/relay`，均取得部署成功结果。一次 provider 上传因开发者工具项目窗口关闭丢失任务查询记录；确认控制台状态后重新上传同一文件取得成功结果，再更新依赖它的入口。实际云端 publicStats 与旧包装器均成功且同值，backend identity 成功，提前要求 server authority 的请求被明确拒绝；没有新增线上测试业务记录。
 - 已审的 **48 个集合、16,911 条历史源记录**在本地隔离 PostgreSQL 完整导入，逐条 JSON 与 SHA-256 对账、同源重放通过；未生成业务事件或登录会话。该混合时间历史导出不是最终一致快照。新增 `OperationReceipts` 导入与有限兼容重放已实现：10 条本地产生的真实旧处理器收据完成导出、PG 导入、原结果重放；冷启动旧模板 ID、失败原 key 重试、并发/事务回滚均已验证。仍需最终线上49集合一致快照和未决请求排空。
 - 在线仅用两个明确标记的合成模板验证；创建、修改、读取、删除及同键重试均通过，第二轮还确认首次与重放的完整 JSON 相等。合成模板及六条测试收据已精确清理；未创建线上用户、行程或商品。`OperationReceipts` 客户端不可读写，实际读取被拒绝。
 - 前一阶段已验证 149/149 原头像可读，以及两张真实 COS 合成图的上传、同键重试、绑定、签名读取、替换/清空；合成图已精确清理。本轮没有重复上传测试图片。
@@ -40,9 +41,9 @@
 
 | 内容 | 位置与校验 |
 | --- | --- |
-| 升级前数据库 | `/var/backups/linkx-backend/before-ba1010c.dump`；SHA-256 `f069c34d9e02afaa56086af17988a99399f0a2c9f40ea5c88b1d715a38da84ba` |
-| 升级前源码 | `/var/backups/linkx-deployments/backend-before-ba1010c.tar.gz`；SHA-256 `f4902a63f9be888e8181a05713350eed03339c18e8db0ae0fd3d4ba96633b433` |
-| 前一目录和镜像 | `/opt/linkx-backend-before-ba1010c`；`linkx-backend:20260926-avatar-login` |
+| 升级前数据库 | `/var/backups/linkx-backend/before-handoff-compat.dump`；SHA-256 `be1baec8879697004436a358c472d469b07c9a5648fb2aad09d2dfa53df8ed4d` |
+| 升级前源码 | `/var/backups/linkx-deployments/backend-before-handoff-compat.tar.gz`；SHA-256 `209f59cc008d01e9b01061e9cd8ec1419d9a679308fbdd84803a643d34f62e97` |
+| 前一目录和镜像 | `/opt/linkx-backend-before-ee9343b`；`linkx-backend:20260927-client-integration`，源码 `ba1010c` |
 | 市场云函数 | `marketApi` 已保存不可变版本 `1`，备注“2026-09-27 固定地区配置优化前恢复点”；优化前后均由 `$LATEST` 承接流量 |
 
 本次备份通过 `pg_restore --list` 归档结构检查，未重做完整恢复演练；较早的隔离恢复演练见 Git 历史。开始接收真实业务写入之后，不得通过还原这个空库备份回退。采集 SQLite 不随业务代码回退覆盖。

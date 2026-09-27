@@ -1,13 +1,13 @@
 # 后端内部部署记录
 
-2026-09-26 已将内部实例更新至提交 `4e77948`，保留各阶段恢复记录。**尚未把正式业务写入转移到 PostgreSQL；目标小程序版本 5.1.0 未上传、未送审。**
+2026-09-26 已将内部实例更新至提交 `4ddd545`，保留各阶段恢复记录。**尚未把正式业务写入转移到 PostgreSQL；目标小程序版本 5.1.0 未上传、未送审。**
 
 ## 已部署内容
 
 | 组件 | 部署结果 | 正式流量 |
 | --- | --- | --- |
-| 新业务服务 | `linkx-backend:20260926-files-ads`，`/opt/linkx-backend` | 仅宿主机 `127.0.0.1:3101`；没有 Caddy 公网路由 |
-| 新业务数据库 | PostgreSQL 16，001 至 023 schema 已应用 | 33 个业务表均为空；没有导入真实用户、管理员或行程 |
+| 新业务服务 | `linkx-backend:20260926-events`，`/opt/linkx-backend` | 仅宿主机 `127.0.0.1:3101`；没有 Caddy 公网路由 |
+| 新业务数据库 | PostgreSQL 16，001 至 024 schema 已应用 | 33 个业务表均为空；没有导入真实用户、管理员或行程 |
 | 采集服务 | `linkx-analytics-collector:20260925-normal-names` | 保留原 Compose project、数据库、JWT、密钥、socket、数据目录 |
 | CloudBase `statistics` | 依次增量上传 `compat.js`、`bridge.js` | 相同协议常量，无业务语义变更；读回 Active、15 秒 |
 | CloudBase `syncMyTripStatus` | 增量上传并发修复后的 `index.js` | 事务内重读当前用户，仅迁移本轮成功且仍存在的行程；读回 Active、15 秒 |
@@ -18,8 +18,8 @@ PostgreSQL 采用固定镜像摘要
 数据库不发布宿主机端口；应用使用独立非超级用户。凭据仅保存在服务器
 `/etc/linkx-backend`，不进入仓库、导出报告或小程序包。
 
-本次业务源码归档 SHA-256：`d491e0697b9d5430a8b210b381370d8a0e7116ea4eb4faa51ff417c9505a4510`。
-业务镜像 ID：`sha256:33486f8cafa0a6aee7fef93beefcd50bc8ce586168a9ace6458c52d8a98bb76a`。
+本次业务源码归档 SHA-256：`80d29c3f6bd9c88706126bfe192d75edb9003ee36d887c646d5a42addb60c2bc`。
+业务镜像 ID：`sha256:1a2980ff1ee5f88d856a25b37f1685d8d6fe85c087788f26f3b88bd82ab9a8b1`。
 
 第一阶段源码归档 SHA-256：
 
@@ -27,6 +27,13 @@ PostgreSQL 采用固定镜像摘要
 - 采集服务：`b150245aa537da0ae86dccf6d11c956ab9ee886b6fafaeca3081b5a54e8d64e4`。
 
 ## 本次内部升级验证
+
+- 提交4ddd545增加事务内冻结的行程前后快照、可靠投递模块和可停止的后台任务循环。完整后端601项测试通过，真实PostgreSQL、0跳过，TypeScript和差异检查通过；独立代理完成交叉审计。
+- 隔离的真实PostgreSQL到现有SQLite接收器验证发布、加入、退出、再次加入、取消，以及接收端提交后丢失ACK再重投；五条事实保持相同字节且只计一次，取消后的参与者正确标为inactive。另覆盖历史身份/版本延续、纽约日期、部分ACK、连接中断、并发互斥和冻结记录不可改写。
+- 024已应用；新镜像内空队列投递、零到期行程关闭与COS配置核验通过。内部health/rides/ads/community均200。投递与关闭模块仍未接入main，没有自动调度或新生产事件发送。
+- 升级前备份真实恢复到独立临时数据库，核对23项schema及用户/行程/文件0行后删除临时库。当前新库仍33张业务表、0条业务记录。
+
+### 图片与广告内部版本的证据
 
 - 提交4e77948增加图片可信上传、按业务授权的短期读取链接，以及广告读取/点击接口；后端577项测试全部通过，真实PostgreSQL、0跳过，TypeScript和差异检查通过。
 - 023已应用；逐表确认33业务表为空。内部health/ads/community正常；无会话上传401、未知图片404。公网health200、ads业务入口404。原采集、数据库和Caddy没有重建。
@@ -68,6 +75,11 @@ PostgreSQL 采用固定镜像摘要
 ## 恢复位置与边界
 
 本次内部业务升级备份：
+
+- 数据库：`/var/backups/linkx-backend/before-4ddd545.dump`，SHA-256 `bc583e8669179f16a60560051027adf71eecb242af35add2a2399da3d8830f01`。
+- 源码：`/var/backups/linkx-deployments/backend-before-4ddd545.tar.gz`，SHA-256 `1210e38aff14dde2938c4e0d6936dc25bd82d551b2a562f4ca119681bd3b73a0`；上一镜像 `linkx-backend:20260926-files-ads` 和目录 `/opt/linkx-backend-before-4ddd545` 保留。服务器图片凭据目录独立于源码恢复目录，恢复源码时仍需保留其挂载。
+
+图片与广告版本升级前备份：
 
 - 数据库：`/var/backups/linkx-backend/before-4e77948.dump`，SHA-256 `79f979694c20e4718995edfcad20770948000e8b43b41bf5fbdef4d72943cd05`。
 - 源码：`/var/backups/linkx-deployments/backend-before-4e77948.tar.gz`，SHA-256 `441fa2c46e48d2a5492b3c49200d8d7d375bfc9cc8f09760ca65a926c7ef5c52`；上一镜像 `linkx-backend:20260926-admin-content` 和目录 `/opt/linkx-backend-before-4e77948` 保留。

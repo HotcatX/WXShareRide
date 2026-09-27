@@ -78,16 +78,18 @@ test('guest and stale IDs cannot write or navigate, and invalid times stay empty
  h.storage.isGuest=true;await h.page.onGoRating(event('a'));await h.page.loadList();assert.equal(h.state.mutations.length,0);assert.equal(h.state.navigation.length,0)
  assert.equal(h.page.data.unreadCount,0);assert.equal(h.page.formatTime('invalid'),'')
 })
-test('legacy mode keeps user-scoped collection reads/writes and original clear function inside compat',async()=>{
- const calls=[];let filter
- const chain={where(value){filter=value;calls.push(['where',value]);return this},orderBy(){return this},limit(n){assert.equal(n,100);return this},
-  async get(){return {data:[{_id:'legacy',type:'RATING_INVITE',extra:{requestId:'old_trip'},read:false,createdAt:0}]}},async count(){return {total:101}},doc(id){calls.push(['doc',id]);return this},async update(body){calls.push(['update',body]);return {}}}
- const h=harness({server:false,cloud:{database:()=>({collection:name=>{assert.equal(name,'Notifications');return chain}}),callFunction:async input=>{calls.push(['cloud',input]);return {result:{success:true}}}}})
+test('CloudBase mode uses narrow backend actions for list/read/readAll/clear and never client database writes',async()=>{
+ const calls=[]
+ const h=harness({server:false,backend:{
+  cloudRead:async(action)=>{calls.push([action]);return {items:[{_id:'legacy',_openid:'synthetic_a',type:'RATING_INVITE',extra:{requestId:'old_trip'},read:false,createdAt:0}],unreadCount:101}},
+  cloudMutate:async(scope,action,body)=>{calls.push([action,plain(body)]);return action==='notifications.read'?{id:body.id,read:true}:action==='notifications.readAll'?{changed:101}:{deleted:101}}
+ }})
  await h.page.loadList();assert.equal(h.page.data.list[0].rateTripId,'old_trip');assert.equal(h.page.data.unreadCount,101)
  await h.api.markRead('legacy');await h.api.markAllRead();await h.api.clear()
- assert.ok(calls.some(([type,value])=>type==='where'&&value._openid==='synthetic_a'&&value.read===false))
- assert.ok(calls.some(([type,value])=>type==='cloud'&&value.name==='clearUserNotifications'));assert.equal(h.state.mutations.length,0)
+ assert.deepEqual(calls,[['notifications.list'],['notifications.read',{id:'legacy'}],['notifications.readAll',{}],['notifications.clear',{}]])
+ assert.equal(h.state.cloud.length,0);assert.equal(h.state.mutations.length,0)
 })
+
 module.exports={harness}
 
 test('real SDK + PostgreSQL: lost read-all/clear ACK replays preserve later arrivals, ownership and true badge count', {skip:!process.env.BACKEND_TEST_DATABASE_URL}, async t=>{

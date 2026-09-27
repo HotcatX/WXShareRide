@@ -252,13 +252,7 @@ Page({
     const account = wx.getStorageSync("openid")
     const revision = this._spotsReadRevision = (this._spotsReadRevision || 0) + 1
     try {
-      let info
-      if (profileApi.isBackendEnabled()) info = profileApi.legacyDocument(await profileApi.getUserInfo())
-      else {
-        // TEMPORARY FALLBACK: selected CloudBase mode only.
-        const r = await wx.cloud.database().collection("userInfo").where({ _openid: account }).limit(1).get()
-        info = r && r.data && r.data[0]
-      }
+      const info = profileApi.legacyDocument(await profileApi.getUserInfo())
       if (!this.isCurrentAccount(account) || revision !== this._spotsReadRevision) return
 
       const pickup = Array.isArray(info?.pickupSpot) ? info.pickupSpot : []
@@ -348,40 +342,13 @@ Page({
     this.setData({ [savingKey]: true })
 
     try {
-      if (profileApi.isBackendEnabled()) {
-        const info = profileApi.legacyDocument(await profileApi.getUserInfo())
-        if (!this.isCurrentAccount(account)) return false
-        await profileApi.updateUser({ [field]: this.normalizeSpotList([...(info?.[field] || []), value]) })
-      } else {
-        // TEMPORARY FALLBACK: legacy addToSet remains inside CloudBase mode.
-        const db = wx.cloud.database(), _ = db.command, openid = account
-      // 先找 userInfo 文档
-      const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
-      const info = (r && r.data && r.data[0]) ? r.data[0] : null
-
-      if (!info || !info._id) {
-        // 没有就新建：字段为数组
-        await db.collection("userInfo").add({
-          data: {
-            [field]: [value]
-          }
-        })
-      } else {
-        // 有就追加：addToSet 去重（推荐）
-        await db.collection("userInfo").doc(info._id).update({
-          data: {
-            [field]: _.addToSet(value)
-          }
-        })
-      }
-
-      }
+      const saved = await profileApi.updateSpot(field, value)
       if (!this.isCurrentAccount(account)) return false
       // 重新拉取/或本地更新
       await this.loadUserSpots()
       if (!this.isCurrentAccount(account)) return false
-      wx.showToast({ title: "已保存", icon: "success" })
-      return true
+      wx.showToast({ title: saved.recovered ? "已确认上次修改" : "已保存", icon: "success" })
+      return !saved.recovered
     } catch (e) {
       if (!this.isCurrentAccount(account)) return false
       console.error("appendSpotToUserInfo error:", e)
@@ -438,30 +405,12 @@ Page({
     this._savingSpots = true
 
     try {
-      if (profileApi.isBackendEnabled()) {
-        const info = profileApi.legacyDocument(await profileApi.getUserInfo())
-        if (!this.isCurrentAccount(account)) return
-        await profileApi.updateUser({ [field]: this.normalizeSpotList(info?.[field] || []).filter(item => item !== value) })
-      } else {
-        // TEMPORARY FALLBACK: legacy array mutation only in CloudBase mode.
-        const db = wx.cloud.database(), _ = db.command, openid = account
-      const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
-      const info = (r && r.data && r.data[0]) ? r.data[0] : null
-      if (!info || !info._id) return
-
-      // 从数组移除指定值
-      await db.collection("userInfo").doc(info._id).update({
-        data: {
-          [field]: _.pull(value)
-        }
-      })
-
-      }
+      const saved = await profileApi.updateSpot(field, value, true)
       if (!this.isCurrentAccount(account)) return
       // 刷新列表
       await this.loadUserSpots()
       if (!this.isCurrentAccount(account)) return
-      wx.showToast({ title: "已删除", icon: "success" })
+      wx.showToast({ title: saved.recovered ? "已确认上次修改" : "已删除", icon: "success" })
 
       // 如果删空了，自动退出删除模式，避免“完成”按钮还在
       if (field === "pickupSpot" && (!this.data.pickupSpotList || this.data.pickupSpotList.length === 0)) {

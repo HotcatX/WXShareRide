@@ -2,5 +2,6 @@
   "name": "backend",
   "version": "1.0.0",
   "private": true,
-  "main": "index.js"
+  "main": "index.js",
+  "dependencies": { "wx-server-sdk": "~3.0.1" }
 }

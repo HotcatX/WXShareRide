@@ -27,32 +27,26 @@ async function list() {
       result.items.some(item => !item || typeof item.read !== 'boolean' || typeof item.id !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(item.id))) throw new Error('通知响应无效，请重试')
     return { items: result.items.map(item => project(item, true)), nextCursor: result.nextCursor, unreadCount: result.unreadCount }
   }
-  const db = wx.cloud.database()
-  const [rows, unread] = await Promise.all([
-    db.collection('Notifications').where({ _openid: openid }).orderBy('createdAt', 'desc').limit(100).get(),
-    db.collection('Notifications').where({ _openid: openid, read: false }).count()
-  ])
-  if (!Number.isSafeInteger(unread.total) || unread.total < 0) throw new Error('未读数量暂不可用')
-  return { items: (rows.data || []).map(item => project(item, false)), nextCursor: null, unreadCount: unread.total }
+  const result = await backend.cloudRead('notifications.list')
+  if (!result || !Array.isArray(result.items) || result.items.some(row => row._openid !== openid) || !Number.isSafeInteger(result.unreadCount) || result.unreadCount < 0) throw new Error('通知响应无效，请重试')
+  return { items: result.items.map(item => project(item, false)), nextCursor: null, unreadCount: result.unreadCount }
 }
 async function markRead(id) {
   requireAccount(); validId(id)
   if (backend.isBackendEnabled()) return backend.mutate(`notifications.read:${id}`, 'POST', `/api/v1/notifications/${encodeURIComponent(id)}/read`, {},
     { validate: result => result && result.id === id && result.read === true })
-  return wx.cloud.database().collection('Notifications').doc(id).update({ data: { read: true } })
+  return backend.cloudMutate(`notifications.read:${id}`, 'notifications.read', { id }, { validate: row => row && row.id === id && row.read === true })
 }
 async function markAllRead() {
   const openid = requireAccount()
   if (backend.isBackendEnabled()) return backend.mutate('notifications.readAll', 'POST', '/api/v1/notifications/read-all', {},
     { validate: result => result && Number.isSafeInteger(result.changed) && result.changed >= 0 })
-  return wx.cloud.database().collection('Notifications').where({ _openid: openid, read: false }).update({ data: { read: true } })
+  return backend.cloudMutate('notifications.readAll', 'notifications.readAll', {}, { validate: row => row && Number.isSafeInteger(row.changed) && row.changed >= 0 })
 }
 async function clear() {
   requireAccount()
   if (backend.isBackendEnabled()) return backend.mutate('notifications.clear', 'DELETE', '/api/v1/notifications', {},
     { validate: result => result && Number.isSafeInteger(result.deleted) && result.deleted >= 0 })
-  const response = await wx.cloud.callFunction({ name: 'clearUserNotifications', data: {} })
-  if (!response || !response.result || response.result.success !== true) throw new Error('删除失败，请重试')
-  return response.result
+  return backend.cloudMutate('notifications.clear', 'notifications.clear', {}, { validate: row => row && Number.isSafeInteger(row.deleted) && row.deleted >= 0 })
 }
 module.exports = { identity, signedIn, list, markRead, markAllRead, clear }

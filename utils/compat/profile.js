@@ -74,12 +74,12 @@ function legacyDocument(response) {
   return Array.isArray(r.data) ? r.data[0] || null : r.data || r.userInfo || r.user || null
 }
 async function login(options) {
-  if (!backend.isBackendEnabled()) return wx.cloud.callFunction({ name: 'login', data: {} })
+  if (!backend.isBackendEnabled()) return backend.cloudLogin(options)
   const session = await backend.login(options)
   return { result: { ok: true, ...session.user } }
 }
 function logout() {
-  if (backend.isBackendEnabled()) return backend.logout()
+  return backend.logout()
 }
 async function getUserInfo({ summary = false } = {}) {
   if (!backend.isBackendEnabled()) return wx.cloud.callFunction({ name: 'getUserInfo', data: {} })
@@ -112,8 +112,25 @@ async function getBlockedIds() {
 }
 async function getUnreadCount(openid) {
   if (backend.isBackendEnabled()) return (await backend.get('/api/v1/notifications/unread')).unreadCount
-  const result = await wx.cloud.database().collection('Notifications').where({ _openid: openid, read: false }).count()
-  return result.total || 0
+  const result = await backend.cloudRead('notifications.unread')
+  if (!result || !Number.isSafeInteger(result.unreadCount) || result.unreadCount < 0) throw new Error('未读数量暂不可用')
+  return result.unreadCount
+}
+async function updateSpot(field, value, remove = false) {
+  if (!['pickupSpot', 'dropoffSpot'].includes(field) || typeof value !== 'string' || !value.trim()) throw new Error('地点无效')
+  const owner = identity()
+  if (backend.isBackendEnabled()) {
+    const info = legacyDocument(await getUserInfo())
+    if (owner !== identity()) throw new Error('当前操作已取消')
+    const values = remove ? (info?.[field] || []).filter(item => item !== value) : [...new Set([...(info?.[field] || []), value])]
+    await updateUser({ [field]: values }); return { field, values }
+  }
+  const scope = `profile.spots:${field}`, options = { validate: row => row && row.field === field && Array.isArray(row.values) && row.values.every(item => typeof item === 'string') }
+  try { return await backend.cloudMutate(scope, remove ? 'profile.spots.remove' : 'profile.spots.add', { field, value }, options) }
+  catch (error) {
+    if (error.code !== 'PENDING_OPERATION') throw error
+    return { ...await backend.retryCloudPending(scope, options), recovered: true }
+  }
 }
 async function updateUser(data) {
   if (backend.isBackendEnabled()) {
@@ -166,5 +183,5 @@ function cacheUser(user) {
   if (backend.isBackendEnabled()) delete cached.avatarUrl
   wx.setStorageSync('userInfo', cached)
 }
-module.exports = { identity, isBackendEnabled: backend.isBackendEnabled, fromBackendUser, toBackendPatch, legacyDocument,
+module.exports = { updateSpot, identity, isBackendEnabled: backend.isBackendEnabled, fromBackendUser, toBackendPatch, legacyDocument,
   login, logout, getUserInfo, getUnreadCount, updateUser, uploadAvatar, avatarPatch, cacheUser }

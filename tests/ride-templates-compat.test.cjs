@@ -64,6 +64,10 @@ function pageHarness(which) {
   const profile = { isBackendEnabled: () => true, legacyDocument: value => value.result.data[0],
     getUserInfo: async () => ({ result: { data: [plain(state.profile)] } }),
     updateUser: async patch => { profileWrites.push(plain(patch)); Object.assign(state.profile, plain(patch)); return { result: { ok: true, data: state.profile } } } }
+  profile.updateSpot = async (field, value, remove = false) => {
+    const values = remove ? state.profile[field].filter(item => item !== value) : [...new Set([...state.profile[field], value])]
+    await profile.updateUser({ [field]: values }); return { field, values }
+  }
   const api = { loadRideTemplates: async () => [toLegacyTemplate(row(), state.account)], getRideTemplate: async () => toLegacyTemplate(row(), state.account),
     saveRideTemplate: async (value, options) => { saved.push({ value: plain(value), options }); if (state.saveError) throw state.saveError
       return toLegacyTemplate(row({ ...toTemplateInput(value, options?.previous?.backendTemplate) }), state.account) },

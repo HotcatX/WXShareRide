@@ -44,7 +44,11 @@ function fixture(clock = now) {
     console: { log() {}, error() {} }, setTimeout: fn => state.timers.push(fn), clearTimeout() {},
     require(name) {
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
-      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false, async cloudRead(action, body) {
+        assert.equal(action, 'templates.list'); assert.equal(body.page, 1); state.templateReads++
+        const result = state.templateResponse ? await state.templateResponse : { data: state.templates }
+        return { items: result.data.map(row => ({ ...row, _openid: state.openid })), page: 1 }
+      } } })
       if (name.endsWith('/compat/ridePublish')) return require('../utils/compat/ridePublish').createRidePublishClient({ wx, backend: { isBackendEnabled: () => false } })
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')

@@ -448,7 +448,7 @@ Page({
       setTimeout(() => { if (this.isCurrentAccount(account)) wx.navigateBack() }, 1200)
     } catch (e) {
       if (!this.isCurrentAccount(account)) return
-      if (e && e.code === 'PENDING_OPERATION' && profileApi.isBackendEnabled()) {
+      if (e && e.code === 'PENDING_OPERATION') {
         try {
           const recovered = await templatesApi.recoverRideTemplate(this.data.editMode ? this.data.templateId : undefined)
           if (!this.isCurrentAccount(account)) return

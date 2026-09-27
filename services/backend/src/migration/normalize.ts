@@ -25,6 +25,7 @@ import { normalizeAvatarFiles } from './avatar-files.ts';
 import { normalizeAdminAudit, validateLegacyMarketAdmins, validateLegacyMarketAdminSettings } from './admin-audit.ts';
 import { normalizeAdminMarket } from './admin-market.ts';
 import { normalizeMarketTemplates } from './market-templates.ts';
+import { archivedCollections, validateArchivedCollections } from './archive.ts';
 export type { MigrationIssue, UserRow, RideRow, MemberRow, StopRow, MigrationPlan, MigrationReport, CloudBaseExport } from './types.ts';
 export { parseExportTimestamp, localDepartureCandidates } from './values.ts';
 export { migrationUserId } from './users.ts';
@@ -81,12 +82,13 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
         else { sourceIds.add(source.sourceId); plan.sources.push(source); }
       } catch { issue(collection, 'MISSING_SOURCE_ID'); }
     }
-    if (collection === 'other' && !optionalCollections.has(name) && values.length) issue('other', 'UNMAPPED_COLLECTION');
+    if (collection === 'other' && !optionalCollections.has(name) && !archivedCollections.has(name)) issue('other', 'UNMAPPED_COLLECTION');
   }
   const { unknownFields, alias, stamp, recordedUpdate, joinedStamp } = migrationReaders(issue);
   if (docs.PublicStats !== undefined) plan.publicStatistics = normalizePublicStatistics(docs.PublicStats, appId, issue);
   const sourceUsers = (Array.isArray(docs.userInfo) ? docs.userInfo : []).filter(object);
   plan.users = normalizeUsers(sourceUsers, appId, issue);
+  validateArchivedCollections(docs, plan.users, issue);
   if (docs.ride_city_demand !== undefined || docs.ride_city_demand_events !== undefined) {
     plan.cityRequests = normalizeCityRequests(docs.ride_city_demand_events, docs.ride_city_demand, plan.users, appId, issue);
   }

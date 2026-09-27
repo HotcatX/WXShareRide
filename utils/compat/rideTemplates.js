@@ -86,6 +86,12 @@ function toTemplateInput(form, previous) {
     localTime: form.departureTime, timeZone: 'America/New_York', definition: { kind: 'offer', cityKey: 'ny_nj',
       seatCapacity: seat, ...quote, note: clean(form.comment || '', 1000, true), stops } }
 }
+function validLegacyReceipt(row, account, expectedId) {
+  if (!object(row) || typeof row._id !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(row._id) ||
+    row._openid !== account || expectedId && row._id !== expectedId || row.weekdayText !== WEEKDAYS[row.weekdayIndex]) return false
+  toTemplateInput(row)
+  return true
+}
 function createRideTemplateClient(options = {}) {
   const api = options.backend || backend, platform = options.wx || (typeof wx !== 'undefined' ? wx : null)
   const owner = () => {
@@ -98,13 +104,15 @@ function createRideTemplateClient(options = {}) {
     const account = owner(), all = [], seen = new Set()
     if (!api.isBackendEnabled()) {
       // TEMPORARY FALLBACK: selected CloudBase mode only.
-      const db = platform.cloud.database()
-      for (let skip = 0; skip < 100000; skip += 100) {
-        const result = await db.collection('CarpoolTemplate').where({ _openid: account }).orderBy('createdAt', 'desc').skip(skip).limit(100).get()
+      for (let page = 1; page <= 1000; page++) {
+        const result = await api.cloudRead('templates.list', { page })
         current(account)
-        if (!result || !Array.isArray(result.data)) throw invalid()
-        all.push(...result.data)
-        if (result.data.length < 100) return all
+        if (!result || result.page !== page || !Array.isArray(result.items) || result.items.length > 100) throw invalid()
+        for (const row of result.items) {
+          if (!row || typeof row._id !== 'string' || row._openid !== account || seen.has(row._id)) throw invalid()
+          seen.add(row._id); all.push(row)
+        }
+        if (result.items.length < 100) return all
       }
       throw invalid()
     }
@@ -130,25 +138,18 @@ function createRideTemplateClient(options = {}) {
       if (!found) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
       return found
     }
-    const result = await platform.cloud.database().collection('CarpoolTemplate').doc(id).get()
+    const row = await api.cloudRead('templates.get', { id })
     current(account)
-    if (!result || !object(result.data) || result.data._openid && result.data._openid !== account) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
-    return result.data
+    if (!row || row._id !== id || row._openid !== account) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
+    return row
   }
+
   async function saveRideTemplate(form, { id, previous } = {}) {
     const account = owner()
     if (!api.isBackendEnabled()) {
-      const db = platform.cloud.database(), payload = { ...form, updatedAt: db.serverDate() }
-      // TEMPORARY FALLBACK: legacy snapshots remain only in the old protocol.
-      if (id) {
-        const result = await db.collection('CarpoolTemplate').doc(id).update({ data: payload })
-        if (!result?.stats?.updated) throw invalid()
-      } else {
-        const result = await db.collection('CarpoolTemplate').add({ data: { ...payload, createdAt: db.serverDate() } })
-        if (!result?._id) throw invalid()
-        id = result._id
-      }
-      current(account); return { _id: id, ...form }
+      const row = await api.cloudMutate(id ? `templates.update:${id}` : 'templates.create', id ? 'templates.update' : 'templates.create',
+        { ...(id ? { id } : {}), form }, { validate: row => validLegacyReceipt(row, account, id) })
+      current(account); return row
     }
     if (id && (!uuid(id) || previous?._id !== id || previous?._ownerAccount !== account || !previous.backendTemplate)) throw invalid()
     const input = toTemplateInput(form, previous?.backendTemplate)
@@ -165,7 +166,11 @@ function createRideTemplateClient(options = {}) {
   }
   async function recoverRideTemplate(id) {
     const account = owner()
-    if (!api.isBackendEnabled()) return null
+    if (!api.isBackendEnabled()) {
+      const row = await api.retryCloudPending(id ? `templates.update:${id}` : 'templates.create',
+        { validate: row => validLegacyReceipt(row, account, id) })
+      current(account); return row
+    }
     if (id && !uuid(id)) throw invalid()
     const row = await api.retryPending(id ? `templates.update:${id}` : 'templates.create', { validate: row => { checked(row); return !id || row.id === id } })
     current(account)
@@ -179,7 +184,8 @@ function createRideTemplateClient(options = {}) {
       if (!uuid(id)) throw invalid()
       const result = await api.mutate(`templates.delete:${id}`, 'DELETE', `/api/v1/templates/${id}`, {}, { validate: row => object(row) && row.id === id && row.deleted === true })
       if (!object(result) || result.id !== id || result.deleted !== true) throw invalid()
-    } else await platform.cloud.database().collection('CarpoolTemplate').doc(id).remove() // TEMPORARY FALLBACK.
+    } else await api.cloudMutate(`templates.delete:${id}`, 'templates.delete', { id },
+      { validate: row => object(row) && row.id === id && row.deleted === true }) // TEMPORARY CloudBase writer.
     current(account)
   }
   return { loadRideTemplates, getRideTemplate, saveRideTemplate, recoverRideTemplate, deleteRideTemplate }

@@ -63,7 +63,10 @@ function templateHarness() {
     Page: page => { definition = page }, wx, console,
     setTimeout() {},
     require(name) {
-      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false,
+        async cloudRead(action, body) { assert.equal(action, 'templates.get'); return { ...state.template, _id: body.id, _openid: 'driver-1' } },
+        async cloudMutate(scope, action, body) { assert.ok(['templates.create', 'templates.update'].includes(action)); saved.push(body.form); return { ...body.form, _id: body.id || 'saved-template', _openid: 'driver-1' } }
+      } })
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/error')) return { showDataError() {} }
       if (name.endsWith('/userProfileUpdate')) return { callUpdateUser: async payload => { profileUpdates.push(payload) } }

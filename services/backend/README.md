@@ -23,11 +23,18 @@ a partial run is insufficient to approve transactions or schemas.
 Migrations run as an explicit deployment step and never implicitly on startup.
 Previously applied SQL files are immutable and checked by SHA-256.
 
-Audit a complete private CloudBase export before import:
+Export the complete CloudBase inventory with an already verified, logged-in
+WeChat developer-tool session, then audit the private bundle:
 
 ```sh
+node scripts/export.ts --output /absolute/new-private-directory --expected-app-id wx8a8a389199aa2a0e --expected-env cloud1-7gmtcu4s3aebce27
 node scripts/import.ts --manifest /absolute/private/manifest.json --expected-app-id wx8a8a389199aa2a0e
 ```
+
+Export is read-only. It preserves raw CLI responses, verifies both inventories
+and every keyset page through an empty terminal page, and never retries a failed
+command silently. Failures retain private evidence but publish no final manifest.
+The output directory must be new; a failed bundle is not reused for another run.
 
 `src/migration/manifest.ts` defines the fixed 49-collection manifest. Every file
 must be a complete document array in the same private directory, with exact
@@ -72,6 +79,15 @@ neither a timeout nor an unavailable bridge permits a write back to CloudBase.
 Generate the isolated cloud bundles' authority files from `config/backend.js`
 with `node scripts/sync-cloud-authority.mjs`; `--check` detects stale copies.
 This repository remains in CloudBase mode until the single-writer handoff.
+
+The mini-program reads that same choice through `backend`'s public `authority`
+action before starting page business work. The packaged configuration is not a
+client fallback. Each JavaScript runtime keeps one source; a confirmed handoff
+persists only the one-way `server` marker and requires a real runtime restart.
+Rechecking the same CloudBase source blocks new interactions but preserves
+already-submitted results. Failed checks never grant offline CloudBase access;
+pending operations remain intact. Deploy the authority action before publishing
+this compatible client, and retain the old writer shutdown as a separate gate.
 
 Collection authorization reuses the existing collector's grant store and account
 derivation. `COLLECTOR_BRIDGE_KEY_FILE` and `COLLECTOR_SUBJECT_KEY_FILE` must contain

@@ -4,6 +4,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { createBackendHandler } = require('../../../../cloudfunctions/backend/handler.js');
 
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 const origin = 'https://collect.linkx.ink';
@@ -20,7 +24,10 @@ export function miniProgram(options: { url: string; appId: string; bridgeKey: Bu
   const toasts: any[] = [], modals: any[] = [], errors: any[] = [];
   const pages: any[] = [], timers = new Set<ReturnType<typeof setTimeout>>();
   const modules = new Map<string, any>(), failures = new Set<string>();
-  let bridgeCalls = 0, definition: any;
+  let bridgeCalls = 0, authorityCalls = 0, definition: any;
+  const authority = createBackendHandler({ authority: 'server',
+    getDb() { throw Error('Authority metadata must not access a database'); },
+    getKey() { throw Error('Authority metadata must not log in'); } });
   const wx: any = {
     getStorageSync: (key: string) => plain(storage.get(key)),
     setStorageSync: (key: string, value: any) => { storage.set(key, plain(value)); },
@@ -35,6 +42,11 @@ export function miniProgram(options: { url: string; appId: string; bridgeKey: Bu
     navigateTo() {}, navigateBack() {}, reLaunch() {}, switchTab() {}, stopPullDownRefresh() {},
     cloud: {
       async callFunction(value: any) {
+        if (value?.name === 'backend' && value?.data?.action === 'authority') {
+          assert.deepEqual(plain(value), { name: 'backend', data: { action: 'authority' } });
+          authorityCalls++;
+          return { result: await authority(plain(value.data), {}) };
+        }
         assert.deepEqual(plain(value), { name: 'backend', data: { action: 'login' } }, 'no legacy business fallback');
         assert.ok(options.openid, 'guests never use a trusted login'); bridgeCalls++;
         // Synthetic identity belongs only to this trusted fixture. Exercise the
@@ -92,9 +104,6 @@ export function miniProgram(options: { url: string; appId: string; bridgeKey: Bu
     };
     const execute = vm.runInContext(`(function(require,module,exports){\n${readFileSync(resolved, 'utf8')}\n})`, context, { filename: resolved });
     execute(localRequire, module, module.exports);
-    // Only the bundled mode is test-selected. The real origin literal and SDK
-    // restrictions, all compat modules, and application page code remain real.
-    if (resolved === path.join(root, 'config/backend.js')) module.exports = { ...module.exports, mode: 'server' };
     return module.exports;
   }
   function page(filename: string) {
@@ -113,6 +122,10 @@ export function miniProgram(options: { url: string; appId: string; bridgeKey: Bu
   }
   function unload() { pages.splice(0).forEach(page => page.onUnload?.()); timers.forEach(clearTimeout); timers.clear(); }
   return { wx, storage, requests, toasts, modals, errors, load, page, bridgeCalls: () => bridgeCalls,
+    authorityCalls: () => authorityCalls,
+    // The journey models App's readiness boundary with the actual singleton
+    // handshake; it does not force its selected mode or replace production code.
+    ready: () => load('utils/backendClient.js').ready(),
     failAfterCommit(method: string, route: string) { failures.add(`${method} ${route}`); },
     restart() { unload(); modules.clear(); }, close: unload,
     async until(predicate: () => boolean, label: string) {

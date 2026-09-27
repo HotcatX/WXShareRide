@@ -25,6 +25,10 @@ test('real mini pages and compat modules complete a weekly ride, notifications a
     const guest = miniProgram({ url, appId, bridgeKey });
     devices.push(driver, passenger, guest);
     const profile = driver.load('utils/compat/profile.js');
+    await assert.rejects(profile.login(), { code: 'BACKEND_NOT_READY' });
+    await Promise.all(devices.map(device => device.ready()));
+    assert.ok(devices.every(device => device.authorityCalls() === 1));
+    assert.equal(guest.bridgeCalls(), 0, 'public authority metadata does not log a guest in');
     const signedIn = (await profile.login()).result;
     assert.equal(signedIn.openid, 'synthetic-journey-driver');
     const updated = (await profile.updateUser({ name: 'Synthetic driver', wechatID: 'synthetic_driver_contact',
@@ -111,7 +115,8 @@ test('real mini pages and compat modules complete a weekly ride, notifications a
       pickupStartDate: selectedDate, pickupEndDate: rideTime.shiftRideDate(selectedDate, 1), imageFileIDs: [] };
     driver.failAfterCommit('POST', '/api/v1/market/listings');
     await assert.rejects(market.call({ data: { action: 'create', payload } }), { code: 'NETWORK_ERROR' });
-    driver.restart(); market = driver.load('utils/compat/market.js');
+    driver.restart(); await driver.ready(); market = driver.load('utils/compat/market.js');
+    assert.equal(driver.authorityCalls(), 1, 'persisted server handoff never asks CloudBase to downgrade after restart');
     const recovered = (await market.call({ data: { action: 'create', payload: { ...payload, title: 'Changed uncertain input' } } })).result;
     assert.equal(recovered.recovered, true);
     assert.equal((await db.pool.query('SELECT count(*)::int n FROM market_listings')).rows[0].n, 1);

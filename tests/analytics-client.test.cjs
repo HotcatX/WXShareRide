@@ -396,3 +396,25 @@ test('personalized response is discarded after logout or account change, and no 
   h.client.clearSession()
   assert.equal(await h.client.requestPlaceSuggestions(payload), null)
 })
+
+
+test('referral metadata uses a real foreground and survives requeue across app versions without context conflicts',()=>{
+  const map=new Map(),data={code:'ref_123456789abc',source:'appShow',entry:'home'}
+  const old=harness({map,config:{buildVersion:'5.1.0'}})
+  assert.equal(old.client.getEventMetadata(),null)
+  old.start();const meta=old.client.getEventMetadata()
+  assert.ok(meta.sessionId);assert.equal(meta.context.clientVersion,'5.1.0')
+  const immutable=copy(meta);meta.context.clientVersion='mutated'
+  assert.deepEqual(old.client.getEventMetadata(),immutable)
+  const input={...immutable,eventId:'referral_capture_event_1',occurredAt:T}
+  assert.equal(old.client.enqueue('referral_visit',data,input).ok,true)
+  // Reboot after enqueue succeeded but the referral journal's queued ACK failed.
+  const next=harness({map,clock:{now:T+1000},config:{buildVersion:'5.2.0'}});next.start()
+  assert.equal(next.client.getEventMetadata().context.clientVersion,'5.2.0')
+  assert.equal(next.client.enqueue('referral_visit',data,input).duplicate,true)
+  assert.equal(next.client.enqueue('referral_visit',data,{...input,eventId:'bad_referral_context',context:{phone:'private'}}).reason,'invalid_event')
+  assert.equal(next.client.enqueue('page_view',{page:'home'},{eventId:'page_own_context',context:{phone:'ignored'}}).ok,true)
+  const page=map.get(STORAGE_KEY).events.find(e=>e.eventId==='page_own_context')
+  assert.equal(page.context.clientVersion,'5.2.0');assert.equal(page.context.phone,undefined)
+  next.client.endForeground();assert.equal(next.client.getEventMetadata(),null)
+})

@@ -69,7 +69,7 @@
 
         <view class="ride-field ride-field--full">
           <text class="ride-field-label">载客数量</text>
-          <input class="ride-input" type="number" value="{{passengerCountInput || passengerCount}}" bindinput="onPassengerInput" placeholder="1-7" placeholder-class="ride-placeholder" />
+          <input class="ride-input" type="number" value="{{passengerCountInput || passengerCount}}" bindinput="onPassengerInput" placeholder="1-8" placeholder-class="ride-placeholder" />
         </view>
       </view>
     </view>

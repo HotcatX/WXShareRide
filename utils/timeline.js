@@ -74,7 +74,7 @@ function getPreviewContext(route, options = {}) {
     return id ? { kind: "market", type: marketType, id } : { ...info, title: "分享内容暂不可用" }
   }
   if (SELLER_PAGES.has(name)) {
-    const sellerId = firstId(options, ["openid"])
+    const sellerId = firstId(options, ["sellerId", "openid"])
     return sellerId ? { kind: "market", type: marketType, sellerId, title: "公开商品" } : { ...info, title: "分享内容暂不可用" }
   }
   if (name === "pages/home/home" || name === "pages/home/carpoolList/carpoolList") {
@@ -111,7 +111,7 @@ function getFullPageTarget(route, options = {}) {
     query.id = context.id
   } else if (name === "pages/market/marketMy/marketMy" && context.sellerId) {
     target = "/pages/market/marketSeller/marketSeller"
-    query.openid = context.sellerId
+    query[options.sellerId ? 'sellerId' : 'openid'] = context.sellerId
     query.type = context.type
   }
   if (!target) return ""

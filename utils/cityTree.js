@@ -60,69 +60,7 @@ const STATE_FILTER_ORDER = [
   "OTHER"
 ]
 
-const DEFAULT_CITY_TREE = [
-  {
-    code: "US",
-    label: "美国",
-    groups: [
-      {
-        title: "热门城市",
-        badge: "Hot",
-        cities: [
-          {
-            key: DEFAULT_CITY_KEY,
-            label: DEFAULT_CITY_LABEL,
-            aliases: NY_NJ_ALIASES
-          },
-          { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
-          { key: "chicago", label: "芝加哥", aliases: ["芝加哥", "Chicago"] },
-          { key: "la", label: "洛杉矶", aliases: ["洛杉矶", "LA", "Los Angeles", "Irvine", "Pasadena"] },
-          { key: "bay_area", label: "旧金山湾区", aliases: ["旧金山", "湾区", "San Francisco", "Bay Area", "San Jose", "Berkeley", "Palo Alto", "Oakland"] },
-          { key: "seattle", label: "西雅图", aliases: ["西雅图", "Seattle", "Bellevue"] },
-          { key: "other_city", label: "其他城市", aliases: ["其他", "其他城市", "Other City", "Other"] }
-        ]
-      },
-      {
-        title: "东北部",
-        cities: [
-          { key: DEFAULT_CITY_KEY, label: DEFAULT_CITY_LABEL, aliases: NY_NJ_ALIASES },
-          { key: "boston", label: "波士顿", aliases: ["波士顿", "Boston", "Cambridge"] },
-          { key: "philadelphia", label: "费城", aliases: ["费城", "Philadelphia", "Philly"] },
-          { key: "dc", label: "华盛顿DC", aliases: ["华盛顿", "Washington DC", "DC", "Arlington"] }
-        ]
-      },
-      {
-        title: "西海岸",
-        cities: [
-          { key: "la", label: "洛杉矶", aliases: ["洛杉矶", "LA", "Los Angeles", "Irvine", "Pasadena"] },
-          { key: "bay_area", label: "旧金山湾区", aliases: ["旧金山", "湾区", "San Francisco", "Bay Area", "San Jose", "Berkeley", "Palo Alto", "Oakland"] },
-          { key: "seattle", label: "西雅图", aliases: ["西雅图", "Seattle", "Bellevue"] },
-          { key: "san_diego", label: "圣地亚哥", aliases: ["圣地亚哥", "San Diego"] }
-        ]
-      },
-      {
-        title: "中部",
-        cities: [
-          { key: "chicago", label: "芝加哥", aliases: ["芝加哥", "Chicago"] },
-          { key: "ann_arbor", label: "安娜堡", aliases: ["安娜堡", "Ann Arbor"] },
-          { key: "champaign", label: "香槟", aliases: ["香槟", "Champaign", "Urbana"] },
-          { key: "columbus", label: "哥伦布", aliases: ["哥伦布", "Columbus"] }
-        ]
-      },
-      {
-        title: "南部",
-        cities: [
-          { key: "dallas", label: "达拉斯", aliases: ["达拉斯", "Dallas"] },
-          { key: "houston", label: "休斯顿", aliases: ["休斯顿", "Houston"] },
-          { key: "atlanta", label: "亚特兰大", aliases: ["亚特兰大", "Atlanta"] },
-          { key: "miami", label: "迈阿密", aliases: ["迈阿密", "Miami"] },
-          { key: "orlando", label: "奥兰多", aliases: ["奥兰多", "Orlando"] },
-          { key: "austin", label: "奥斯汀", aliases: ["奥斯汀", "Austin"] }
-        ]
-      }
-    ]
-  }
-]
+const DEFAULT_CITY_TREE = require('./locationCatalog.generated.js').cityTree.countries
 
 function cleanText(value) {
   return String(value || "").replace(/\s+/g, " ").trim()
@@ -425,6 +363,7 @@ module.exports = {
   flattenCityTree,
   getCityByKey,
   getCitySnapshot,
+  getCityStateFilter,
   getCountryTabs,
   getCountryGroups,
   cityGroupsHaveResults,

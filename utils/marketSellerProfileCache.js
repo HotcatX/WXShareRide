@@ -1,3 +1,4 @@
+const backend = require('./backendClient')
 const {
   buildProfileDisplayLocation,
   buildProfileApartmentDisplay
@@ -57,6 +58,7 @@ function normalizeCachedProfile(openid, entry, options = {}) {
 }
 
 function readMarketSellerProfile(openid, options = {}) {
+  if (backend.isBackendEnabled()) return null
   const key = cleanText(openid)
   if (!key) return null
   return normalizeCachedProfile(key, getProfileCacheStore()[key], {
@@ -65,6 +67,7 @@ function readMarketSellerProfile(openid, options = {}) {
 }
 
 function readMarketSellerProfiles(openids = [], options = {}) {
+  if (backend.isBackendEnabled()) return {}
   const store = getProfileCacheStore()
   const out = {}
   ;(Array.isArray(openids) ? openids : []).forEach(rawOpenid => {
@@ -78,6 +81,7 @@ function readMarketSellerProfiles(openids = [], options = {}) {
 }
 
 function writeMarketSellerProfile(openid, profile = {}) {
+  if (backend.isBackendEnabled()) return
   const key = cleanText(openid || profile._openid || profile.openid)
   if (!key) return null
   const normalized = normalizeMarketSellerProfile({ ...profile, _openid: key })
@@ -91,6 +95,7 @@ function writeMarketSellerProfile(openid, profile = {}) {
 }
 
 function writeMarketSellerProfiles(profiles = {}) {
+  if (backend.isBackendEnabled()) return
   const list = Array.isArray(profiles) ? profiles : Object.values(profiles || {})
   if (!list.length) return {}
 
@@ -191,6 +196,7 @@ async function fetchProfileBatch(targets) {
 }
 
 async function fetchAndCacheMarketSellerProfiles(openids = [], options = {}) {
+  if (backend.isBackendEnabled()) throw Object.assign(new Error("卖家资料请使用商品内的公开投影"), { code: "UNSUPPORTED_ACTION" })
   const targets = Array.from(new Set((Array.isArray(openids) ? openids : []).map(cleanText).filter(Boolean)))
   const cached = options.force ? {} : readMarketSellerProfiles(targets, { allowStale: false })
   const missing = targets.filter(openid => !cached[openid] && !pendingProfiles.has(openid))

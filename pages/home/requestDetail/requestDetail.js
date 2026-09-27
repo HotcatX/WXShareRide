@@ -1,3 +1,6 @@
+const rides = require("../../../utils/compat/rides")
+const profileApi = require("../../../utils/compat/profile")
+const accountKey = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${wx.getStorageSync("openid") || ""}`
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
@@ -84,6 +87,8 @@ Page({
   },
 
   async onLoad(options) {
+    this._disposed = false
+    this._detailAccount = accountKey()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -104,6 +109,21 @@ Page({
   },
 
   onShow() {
+    const changedAccount = this._detailAccount !== undefined && this._detailAccount !== accountKey()
+    this._detailAccount = accountKey()
+    if (changedAccount) {
+      this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+      this.setData({ trip: null, driverInfo: null, isOwner: false, hasJoined: false, joinedByMe: false, acceptedByMe: false,
+        driverUserId: '', ownerUserId: '', driverOpenid: '', ownerOpenid: '', pickupSpotList: [], dropoffSpotList: [] })
+      this._lastDetailLoadedAt = 0
+      if (this.data.tripId) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
+    }
+    if (rides.isBackendEnabled()) {
+      if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+      this._imageRefreshTimer = setInterval(() => {
+        if (!this._disposed && this.data.tripId && !this.data.loading) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
+      }, 240000)
+    }
     if (this.checkRouteExpiry()) return
     // ✅ 从 login “游客身份查看”返回时的提示
     const tip = wx.getStorageSync('needLoginToast')
@@ -126,7 +146,15 @@ Page({
     await this.onDetailRefresherRefresh()
   },
 
+  onHide() {
+    if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+    this._imageRefreshTimer = null
+  },
+
   onUnload() {
+    this._disposed = true
+    if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+    if (this._redirectTimer) clearTimeout(this._redirectTimer)
     this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
   },
 
@@ -136,8 +164,7 @@ Page({
       const { tripId } = this.data
       if (tripId) await this.loadTripDetail(tripId, { silent: true, force: true })
     } finally {
-      this.setData({ refresherTriggered: false })
-      wx.stopPullDownRefresh()
+      if (!this._disposed) { this.setData({ refresherTriggered: false }); wx.stopPullDownRefresh() }
     }
   },
 
@@ -179,6 +206,7 @@ Page({
       formattedDepartTime: '',
       seatLeft: 0,
       ownerOpenid: '',
+      ownerUserId: '',
       driverOpenid: '',
       isOwner: false,
       joinedByMe: false,
@@ -209,7 +237,7 @@ Page({
   // =========================
   ensureLoginBeforeAction(actionFrom) {
     const openid = wx.getStorageSync('openid') || ''
-    if (openid) return true
+    if (openid && !wx.getStorageSync('isGuest')) return true
 
     const { tripId } = this.data
     const pendingUrl = `/pages/home/requestDetail/requestDetail?id=${tripId}`
@@ -227,7 +255,7 @@ Page({
 
   ensureLoginForBlock() {
     const openid = wx.getStorageSync('openid') || ''
-    if (openid) return true
+    if (openid && !wx.getStorageSync('isGuest')) return true
 
     const { tripId } = this.data
     wx.setStorageSync('pendingPage', { url: `/pages/home/requestDetail/requestDetail?id=${tripId}` })
@@ -245,28 +273,13 @@ Page({
     const openid = wx.getStorageSync('openid') || ''
     if (!openid) return false
   
-    // 1. 优先读取个人中心本地 userInfo
+    const owner = accountKey()
+    const isCurrent = () => !this._disposed && owner === accountKey()
     const localUserInfo = wx.getStorageSync('userInfo') || {}
-    const localWechatID = String(
-      localUserInfo.wechatID ||
-      localUserInfo.wechatId ||
-      localUserInfo.wechat ||
-      ''
-    ).trim()
-  
-    if (localWechatID) return true
-  
-    // 2. 再读取云端 User_info
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('userInfo')
-        .where({
-          _openid: openid
-        })
-        .limit(1)
-        .get()
-  
-      const user = res.data && res.data[0]
+      const response = await profileApi.getUserInfo()
+      if (!isCurrent()) return false
+      const user = profileApi.legacyDocument(response)
       const wechatID = String(
         (user && (user.wechatID || user.wechatId || user.wechat)) || ''
       ).trim()
@@ -294,7 +307,7 @@ Page({
         confirmText: '去填写',
         cancelText: '取消',
         success: (res) => {
-          if (res.confirm) {
+          if (res.confirm && isCurrent()) {
             wx.navigateTo({
               url: '/pages/profile/editInfo/editInfo'
             })
@@ -305,6 +318,7 @@ Page({
       return false
 
     } catch (err) {
+      if (!isCurrent()) return false
       console.error('ensureWechatBeforeAction error:', err)
   
       wx.showToast({
@@ -317,6 +331,7 @@ Page({
   },
 
   applyCachedPreview(id) {
+    if (rides.isBackendEnabled()) return false
     let applied = false
 
     try {
@@ -387,7 +402,7 @@ Page({
         ? Number(trip.passengerCount)
         : joinedAll.length
 
-    const seatLeft = Math.max(0, MAX_PASSENGERS - passengerCount)
+    const seatLeft = trip.serverMode ? trip.availableSeats : Math.max(0, MAX_PASSENGERS - passengerCount)
     const isFull = seatLeft <= 0
 
     // 5) 状态
@@ -397,12 +412,12 @@ Page({
 
     // 6) 已登录才计算“我是谁”
     const myOpenid = wx.getStorageSync('openid') || ''
-    const isOwner = !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
-    const joinedByMe = !!(myOpenid && joinedAll.includes(myOpenid))
+    const isOwner = trip.serverMode ? trip.viewer?.isCreator === true : !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
+    const joinedByMe = trip.serverMode ? trip.viewer?.role === 'passenger' : !!(myOpenid && joinedAll.includes(myOpenid))
 
     // 7) 司机接单状态（保持与 driverPickupDetail 一致）
-    const isAccepted = !!driverOpenid
-    const acceptedByMe = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
+    const isAccepted = trip.serverMode ? trip.hasDriver : !!driverOpenid
+    const acceptedByMe = trip.serverMode ? trip.viewer?.role === 'driver' : !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
 
     this.setData({
       trip,
@@ -414,6 +429,7 @@ Page({
       seatLeft,
       myOpenid,
       ownerOpenid,
+      ownerUserId: trip.creatorUserId || '',
       driverOpenid,
 
       isOwner,
@@ -454,6 +470,7 @@ Page({
       this.applyRequestDetailResult(result, id)
     } catch (err) {
       if (sequence !== this._detailLoadSequence) return
+      if (rides.isBackendEnabled()) { this.setLoadError(err.message || '路线加载失败，请重试'); return }
       if (this.data.trip || this.data.routeExpired) {
         this.setData({ loading: false })
         return
@@ -515,21 +532,22 @@ Page({
     if (isClosed) return this.showToast('该路线已结束', 'none')
     if (isFull) return this.showToast('该路线已满员', 'none')
 
-    if (!(await this.ensureWechatBeforeAction())) return
+    const owner = accountKey()
+    const isCurrent = () => !this._disposed && owner === accountKey()
+    if (!(await this.ensureWechatBeforeAction()) || !isCurrent()) return
 
     this.setData({ submittingPassenger: true })
 
     try {
-      const ret = await wx.cloud.callFunction({
-        name: 'joinTrip',
-        data: { type: 'request', requestId: tripId }
-      })
+      const ret = await rides.joinTrip({ type: 'request', requestId: tripId })
+      if (!isCurrent()) return
 
       if (ret.result && ret.result.success) {
         removeTripDetailCache('request', tripId)
         markRideListStale()
-        this.showToast('加入成功', 'success', 1200)
-        setTimeout(() => {
+        this.showToast(ret.result.recovered ? '已确认上次操作' : '加入成功', 'success', 1200)
+        this._redirectTimer = setTimeout(() => {
+          if (!isCurrent()) return
           wx.reLaunch({ url: '/pages/home/home' })
         }, 1200)
         return
@@ -538,10 +556,11 @@ Page({
       const msg = (ret.result && ret.result.errorMsg) ? ret.result.errorMsg : '加入失败'
       this.showToast(msg, 'none')
     } catch (e) {
+      if (!isCurrent()) return
       console.error('joinAsPassenger error:', e)
       this.showToast('加入失败', 'none')
     } finally {
-      this.setData({ submittingPassenger: false })
+      if (isCurrent()) this.setData({ submittingPassenger: false })
     }
   },
 
@@ -586,18 +605,21 @@ Page({
     }
 
     if (!this.ensureLoginBeforeAction('requestDetail:accept')) return
-    if (!(await this.ensureWechatBeforeAction())) return
+    const owner = accountKey()
+    const isCurrent = () => !this._disposed && owner === accountKey()
+    if (!(await this.ensureWechatBeforeAction()) || !isCurrent()) return
 
     this.setData({ submittingDriver: true })
 
     try {
       const result = await callTripManage({ type: 'request', requestId: tripId, action: 'acceptRequest' })
+      if (!isCurrent()) return
 
       if (result && result.ok !== false && result.success !== false &&
           (result.success === true || result.ok === true)) {
         removeTripDetailCache('request', tripId)
         markRideListStale()
-        this.showToast('接单成功', 'success', 1200)
+        this.showToast(result.recovered ? '已确认上次操作' : '接单成功', 'success', 1200)
         this.openAcceptedDriverDetail()
         return
       }
@@ -605,10 +627,11 @@ Page({
       const msg = (result && result.errorMsg) ? result.errorMsg : '接单失败'
       this.showToast(msg, 'none')
     } catch (e) {
+      if (!isCurrent()) return
       console.error('acceptRequest error:', e)
       this.showToast('接单失败', 'none')
     } finally {
-      this.setData({ submittingDriver: false })
+      if (isCurrent()) this.setData({ submittingDriver: false })
     }
   },
 
@@ -620,7 +643,8 @@ Page({
   async onBlockRequestOwner() {
     const { tripId, ownerOpenid, isOwner, trip } = this.data
     if (isOwner) return this.showToast('不能拉黑自己', 'none')
-    if (!ownerOpenid) return this.showToast('缺少拉黑对象', 'none')
+    const targetUserId = trip?.creatorUserId || ''
+    if (!(rides.isBackendEnabled() ? targetUserId : ownerOpenid)) return this.showToast('缺少拉黑对象', 'none')
     if (!this.ensureLoginForBlock()) return
 
     await blockRideUser({
@@ -628,6 +652,7 @@ Page({
       requestId: tripId,
       tripId,
       targetOpenid: ownerOpenid,
+      targetUserId,
       targetName: (trip && (trip.name || trip.nickName)) || '求车发布者'
     })
   },

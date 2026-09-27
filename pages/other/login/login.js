@@ -1,4 +1,5 @@
 // pages/other/login/login.js
+const profileApi = require('../../../utils/compat/profile')
 const referral = require("../../../utils/referral")
 const { returnToPublicPage } = require('../../../utils/loginNavigation')
 
@@ -42,27 +43,8 @@ Page({
 
   // 兼容不同 getUserInfo 返回结构；只认可 profileCompleted === true 才算完成
   async isProfileCompleted() {
-    const res = await wx.cloud.callFunction({ name: 'getUserInfo' })
-    const r = (res && res.result) ? res.result : {}
-
-    // 常见几种结构都兼容一下
-    // 1) r.data = [doc]
-    // 2) r.data = doc
-    // 3) r.userInfo = doc
-    // 4) r.user = doc
-    let doc = null
-
-    if (Array.isArray(r.data)) doc = r.data[0] || null
-    else if (r.data && typeof r.data === 'object') doc = r.data
-    else if (r.userInfo && typeof r.userInfo === 'object') doc = r.userInfo
-    else if (r.user && typeof r.user === 'object') doc = r.user
-
-    // 没有 doc：一定未完成
-    if (!doc) return false
-
-    // 兼容两种字段名：profileCompleted / profileComplete
-    const v = (doc.profileCompleted !== undefined) ? doc.profileCompleted : doc.profileComplete
-    return v === true
+    const doc = profileApi.legacyDocument(await profileApi.getUserInfo())
+    return !!doc && (doc.profileCompleted !== undefined ? doc.profileCompleted : doc.profileComplete) === true
 
   },
 
@@ -82,7 +64,7 @@ Page({
     this.setData({ logging: true })
 
     try {
-      const cloudRes = await wx.cloud.callFunction({ name: 'login', data: {} })
+      const cloudRes = await profileApi.login({ isCurrent })
       if (!isCurrent()) return
       const result = cloudRes.result || {}
       if (!result.ok) throw new Error(result.errorMsg || '登录失败')
@@ -150,6 +132,7 @@ Page({
     this._loginAttempt = (this._loginAttempt || 0) + 1
     this.setData({ logging: false })
 
+    profileApi.logout()
     wx.setStorageSync('isGuest', true)
     wx.setStorageSync('openid', '')
     require('../../../utils/analyticsSession').identityChanged()

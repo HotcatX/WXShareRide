@@ -1,5 +1,7 @@
 // pages/home/CarpoolTemplateList/CarpoolTemplateList.js
 const { showDataError } = require("../../../utils/error")
+const templatesApi = require("../../../utils/compat/rideTemplates")
+const profileApi = require("../../../utils/compat/profile")
 
 const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
@@ -48,6 +50,7 @@ Page({
   },
 
   async onLoad() {
+    this._disposed = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
     await this.loadByRoleIfNeeded()
@@ -55,6 +58,12 @@ Page({
 
   async onShow() {
     await this.loadByRoleIfNeeded()
+  },
+
+  onUnload() { this._disposed = true },
+
+  isCurrentAccount(account) {
+    return !this._disposed && !wx.getStorageSync("isGuest") && wx.getStorageSync("openid") === account
   },
 
   goBack() {
@@ -86,10 +95,15 @@ Page({
 
   isLoggedIn() {
     const openid = wx.getStorageSync("openid") || ""
-    return !!openid
+    return !!openid && !wx.getStorageSync("isGuest")
   },
 
   async loadByRoleIfNeeded() {
+    const account = wx.getStorageSync("openid") || ""
+    if (this._viewAccount !== account) {
+      this._viewAccount = account
+      this.setData({ templateList: [], pickupSpotList: [], dropoffSpotList: [], pickupInput: "", dropoffInput: "" })
+    }
     if (this.data.currentRole === "driver") {
       await this.loadTemplateList()
       return
@@ -108,37 +122,18 @@ Page({
       return
     }
 
+    const account = wx.getStorageSync("openid")
+    const revision = this._templateReadRevision = (this._templateReadRevision || 0) + 1
     this.setData({ loading: true })
 
     try {
-      const db = wx.cloud.database()
-      const openid = wx.getStorageSync("openid") || ""
-
-      // 分页拉取
-      const pageSize = 100
-      let all = []
-      let skip = 0
-
-      while (true) {
-        const r = await db
-          .collection("CarpoolTemplate")
-          .where({ _openid: openid })
-          .orderBy("createdAt", "desc")
-          .skip(skip)
-          .limit(pageSize)
-          .get()
-
-        const batch = r && r.data ? r.data : []
-        all = all.concat(batch)
-
-        if (batch.length < pageSize) break
-        skip += pageSize
-        if (all.length >= 2000) break
-      }
+      const all = await templatesApi.loadRideTemplates()
+      if (!this.isCurrentAccount(account) || revision !== this._templateReadRevision) return
 
       const decorated = this.decorateTemplateList(all || [])
       this.setData({ templateList: decorated, loading: false })
     } catch (e) {
+      if (!this.isCurrentAccount(account) || revision !== this._templateReadRevision) return
       console.error("loadTemplateList error:", e)
       wx.showToast({ title: "模板加载失败", icon: "none" })
       this.setData({ templateList: [], loading: false })
@@ -224,15 +219,19 @@ Page({
   },
 
   async deleteTemplateById(id) {
+    const account = wx.getStorageSync("openid")
+    if (!this.isCurrentAccount(account) || this._deletingTemplate) return
+    this._deletingTemplate = true
     try {
-      const db = wx.cloud.database()
-      await db.collection("CarpoolTemplate").doc(id).remove()
+      await templatesApi.deleteRideTemplate(id)
+      if (!this.isCurrentAccount(account)) return
       wx.showToast({ title: "已删除", icon: "success", duration: 1200 })
       await this.loadTemplateList()
     } catch (e) {
+      if (!this.isCurrentAccount(account)) return
       console.error("deleteTemplateById error:", e)
       wx.showToast({ title: "删除失败，请重试", icon: "none" })
-    }
+    } finally { this._deletingTemplate = false }
   },
 
 
@@ -250,14 +249,17 @@ Page({
       return
     }
 
+    const account = wx.getStorageSync("openid")
+    const revision = this._spotsReadRevision = (this._spotsReadRevision || 0) + 1
     try {
-      const db = wx.cloud.database()
-      const openid = wx.getStorageSync("openid") || ""
-
-      // ⚠️ 这里默认你的 collection 名叫 userInfo
-      // 如果你实际叫 UserInfo / Users / user_info，把这行改掉即可
-      const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
-      const info = (r && r.data && r.data[0]) ? r.data[0] : null
+      let info
+      if (profileApi.isBackendEnabled()) info = profileApi.legacyDocument(await profileApi.getUserInfo())
+      else {
+        // TEMPORARY FALLBACK: selected CloudBase mode only.
+        const r = await wx.cloud.database().collection("userInfo").where({ _openid: account }).limit(1).get()
+        info = r && r.data && r.data[0]
+      }
+      if (!this.isCurrentAccount(account) || revision !== this._spotsReadRevision) return
 
       const pickup = Array.isArray(info?.pickupSpot) ? info.pickupSpot : []
       const dropoff = Array.isArray(info?.dropoffSpot) ? info.dropoffSpot : []
@@ -267,6 +269,7 @@ Page({
         dropoffSpotList: this.normalizeSpotList(dropoff)
       })
     } catch (e) {
+      if (!this.isCurrentAccount(account) || revision !== this._spotsReadRevision) return
       console.error("loadUserSpots error:", e)
       showDataError("常用地址加载失败", e, "常用地址从数据库加载失败，请稍后重试。")
     }
@@ -313,8 +316,7 @@ Page({
       return
     }
 
-    await this.appendSpotToUserInfo("pickupSpot", val)
-    this.setData({ pickupEditing: false, pickupInput: "" })
+    if (await this.appendSpotToUserInfo("pickupSpot", val)) this.setData({ pickupEditing: false, pickupInput: "" })
   },
 
   async onDropoffBtnTap() {
@@ -335,19 +337,24 @@ Page({
       return
     }
 
-    await this.appendSpotToUserInfo("dropoffSpot", val)
-    this.setData({ dropoffEditing: false, dropoffInput: "" })
+    if (await this.appendSpotToUserInfo("dropoffSpot", val)) this.setData({ dropoffEditing: false, dropoffInput: "" })
   },
 
   async appendSpotToUserInfo(field, value) {
-    const db = wx.cloud.database()
-    const _ = db.command
-    const openid = wx.getStorageSync("openid") || ""
-
+    const account = wx.getStorageSync("openid")
+    if (!this.isCurrentAccount(account) || !['pickupSpot', 'dropoffSpot'].includes(field) || this._savingSpots) return false
+    this._savingSpots = true
     const savingKey = field === "pickupSpot" ? "savingPickup" : "savingDropoff"
     this.setData({ [savingKey]: true })
 
     try {
+      if (profileApi.isBackendEnabled()) {
+        const info = profileApi.legacyDocument(await profileApi.getUserInfo())
+        if (!this.isCurrentAccount(account)) return false
+        await profileApi.updateUser({ [field]: this.normalizeSpotList([...(info?.[field] || []), value]) })
+      } else {
+        // TEMPORARY FALLBACK: legacy addToSet remains inside CloudBase mode.
+        const db = wx.cloud.database(), _ = db.command, openid = account
       // 先找 userInfo 文档
       const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
       const info = (r && r.data && r.data[0]) ? r.data[0] : null
@@ -368,14 +375,20 @@ Page({
         })
       }
 
+      }
+      if (!this.isCurrentAccount(account)) return false
       // 重新拉取/或本地更新
       await this.loadUserSpots()
+      if (!this.isCurrentAccount(account)) return false
       wx.showToast({ title: "已保存", icon: "success" })
+      return true
     } catch (e) {
+      if (!this.isCurrentAccount(account)) return false
       console.error("appendSpotToUserInfo error:", e)
       wx.showToast({ title: "保存失败，请重试", icon: "none" })
     } finally {
-      this.setData({ [savingKey]: false })
+      this._savingSpots = false
+      if (!this._disposed) this.setData({ [savingKey]: false })
     }
   },
 
@@ -420,11 +433,18 @@ Page({
   },
 
   async removeSpotFromUserInfo(field, value) {
-    const db = wx.cloud.database()
-    const _ = db.command
-    const openid = wx.getStorageSync("openid") || ""
+    const account = wx.getStorageSync("openid")
+    if (!this.isCurrentAccount(account) || !['pickupSpot', 'dropoffSpot'].includes(field) || this._savingSpots) return
+    this._savingSpots = true
 
     try {
+      if (profileApi.isBackendEnabled()) {
+        const info = profileApi.legacyDocument(await profileApi.getUserInfo())
+        if (!this.isCurrentAccount(account)) return
+        await profileApi.updateUser({ [field]: this.normalizeSpotList(info?.[field] || []).filter(item => item !== value) })
+      } else {
+        // TEMPORARY FALLBACK: legacy array mutation only in CloudBase mode.
+        const db = wx.cloud.database(), _ = db.command, openid = account
       const r = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
       const info = (r && r.data && r.data[0]) ? r.data[0] : null
       if (!info || !info._id) return
@@ -436,8 +456,11 @@ Page({
         }
       })
 
+      }
+      if (!this.isCurrentAccount(account)) return
       // 刷新列表
       await this.loadUserSpots()
+      if (!this.isCurrentAccount(account)) return
       wx.showToast({ title: "已删除", icon: "success" })
 
       // 如果删空了，自动退出删除模式，避免“完成”按钮还在
@@ -448,9 +471,10 @@ Page({
         this.setData({ dropoffDeleteMode: false })
       }
     } catch (e) {
+      if (!this.isCurrentAccount(account)) return
       console.error("removeSpotFromUserInfo error:", e)
       wx.showToast({ title: "删除失败，请重试", icon: "none" })
-    }
+    } finally { this._savingSpots = false }
   },
 
 })

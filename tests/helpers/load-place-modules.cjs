@@ -4,7 +4,7 @@ const path = require('node:path')
 module.exports = function loadPlaceModules(context, analytics = {}) {
   const modules = new Map()
   function load(name) {
-    const key = path.basename(name)
+    const key = path.basename(name, '.js')
     if (key === 'analyticsSession') return analytics
     if (key === 'cityTree') return require('../../utils/cityTree')
     if (modules.has(key)) return modules.get(key).exports

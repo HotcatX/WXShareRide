@@ -40,6 +40,18 @@ No key means no bridge route. Its nonce and session commit atomically; unsigned,
 expired, cross-app and replayed requests are rejected. The companion
 `cloudfunctions/backend` source is not automatically deployed or enabled.
 
+Collection authorization reuses the existing collector's grant store and account
+derivation. `COLLECTOR_BRIDGE_KEY_FILE` and `COLLECTOR_SUBJECT_KEY_FILE` must contain
+the existing, distinct 64-hex keys; replacing the subject key would split accounts.
+`COLLECTOR_ORIGIN` defaults to `https://collect.linkx.ink`. The subject key belongs
+only to this backend and the old trusted cloud bridge, never the collector or a
+client. These optional secrets do not activate business routes or background jobs.
+Compose loads optional settings from `/etc/linkx-backend/identity/config.env` and
+mounts that directory read-only at `/run/secrets/identity`. Create the directory
+before deployment, including staged installations. Keep its key files readable
+only by the service UID, and the environment file root-only; keep all of them
+outside the source tree, image, and public Git repository.
+
 Image storage is optional until provisioned: set all of `COS_BUCKET`,
 `COS_REGION`, and `COS_CREDENTIALS_FILE`. The mounted JSON secret contains only
 `secretId` and `secretKey`; never commit it or put it into the mini program.
@@ -74,9 +86,19 @@ only by the service UID. This server-only directory survives source replacements
 - `/api/v1/rides/:rideId/ratings`: authenticated `POST {targetId,score}` and
   `GET` of the caller's own submitted scores. One rating per counterpart;
   database constraints and the ride transaction prevent duplicate scoring.
+- `/api/v1/rides/calendar`: bounded monthly counts using the same route and
+  bilateral block filters as `/api/v1/rides`; list date ranges use New York
+  midnights and expose the next available date. Authenticated membership reads
+  return the viewer's role explicitly, without using failed contact reads as a
+  membership check. `/api/v1/previews/rides` exposes only fixed area names and
+  schedule/price/capacity for anonymous timeline previews.
 - `/api/v1/me/statistics`: private role-specific completion and rating summaries.
   `/api/v1/statistics/public`: configured-app cumulative served count and coverage.
   Both read existing facts; no second editable personal aggregate is stored.
+- `/api/v1/analytics/session`: authenticated authorization/status bridge to the
+  existing collector. It uses the collector's request ID and status-version
+  protocol, rather than a second generic business idempotency receipt. Ordinary
+  batch uploads continue directly to the collector with their separate token.
 - `/api/v1/referrals/me`: private code and referral count. Login retains or issues
   the same code. `POST /api/v1/referrals/bind {code}` records the first valid
   binding with idempotency; an existing binding cannot be reassigned.
@@ -88,6 +110,10 @@ only by the service UID. This server-only directory survives source replacements
 - `/api/v1/market/listings`: public filtered reads and authenticated creates;
   detail/update/status/delete, own/seller lists and counted detail views are
   separate routes. Reads never increment views. Images use ordered file UUIDs.
+  Seller DTOs distinguish ordinary and managed contacts. The authenticated seller
+  profile endpoint resolves old OpenID share links to user UUIDs only for a
+  currently public ordinary seller or the viewer themselves; it never returns
+  another person's OpenID. Own listings accept a status filter.
 - `/api/v1/admin/market/listings`, `/batches`, `/templates`: management publishing,
   version-checked edits, resumable bulk imports and shared reusable templates.
 - `/api/v1/community`: public display configuration; `/api/v1/admin/community`
@@ -140,8 +166,10 @@ authorized references, bounds downloads and verifies uploaded bytes before a
 file becomes ready. Existing cloud references can keep their original objects;
 only their exact configured bucket/environment may resolve. Credentials, real
 provider checks and mini-program/website DTO adaptation remain deployment gates.
-Avatars still use the separate legacy profile path; this file module does not
-yet authorize profile-avatar references. No storage deletion timer is enabled.
+Profile avatars use the same file UUIDs and references: `PATCH /me` accepts
+`avatarFileId` (omit to preserve, null to clear). Contact views authorize current
+member/seller avatars; a detached old avatar does not remain publicly readable.
+No storage deletion timer is enabled.
 See `SCHEMA.md`.
 
 ## Ride event delivery
@@ -159,10 +187,14 @@ the same bytes; the existing collector deduplicates them. A session advisory loc
 prevents overlapping deliveries for one app without locking ride writes during
 network I/O. Errors preserve pending facts instead of switching databases.
 
-`startRideJobs` provides independent closure and delivery loops, bounded error
-backoff, and shutdown draining. **These functions are not yet connected to
-`main.ts` or enabled in production.** Activation must accompany the business
-write gate, completed import, old pending-event handoff and client compatibility.
+`main.ts` starts independent closure and delivery loops only with
+`BUSINESS_MODE=active`; staged deployments never schedule either job. An active
+executable requires `COLLECTOR_BRIDGE_KEY_FILE`, containing the existing
+collector bridge key. `COLLECTOR_ORIGIN` defaults to `https://collect.linkx.ink`
+and accepts only a trusted HTTPS origin. There is no second outbox or grant
+database. Shutdown drains work before closing the pool, and failures retry with
+bounded backoff. Production remains staged: activation must accompany the
+completed import, old pending-event handoff and client compatibility.
 The existing collector remains authoritative for place and follow-up data.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.

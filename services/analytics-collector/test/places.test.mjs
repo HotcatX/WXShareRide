@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import vm from 'node:vm';
 import { join } from 'node:path';
 import { randomUUID, randomBytes, generateKeyPairSync, createHmac, sign } from 'node:crypto';
 import { openStore } from '../src/store.mjs';
@@ -22,7 +24,18 @@ function put(s,p,eventName,data,occurredAt=now,eventId=randomUUID()){const b={sc
 const selected=(extra={})=>({pickerSessionId:randomUUID(),field:'departure',mode:'driver',cityKey:'ny_nj',catalogVersion:'places-v1',rankingVersion:'circle-selection-v1',placeId:'fort_lee',position:0,source:'fixed',...extra});
 const seed=s=>s.places.seed({label:'Flushing Library',aliases:['flushing library'],cityKey:'ny_nj',parentRegionId:'flushing',verificationReference:'https://www.queenslibrary.org/about-us/locations/flushing'},now-40*DAY).placeId;
 
-test('server/client standard catalog parity; ambiguous city, island and private labels stay unknown',t=>{const s=fixture(t);try{assert.equal(readFileSync(new URL('../../../utils/placeCatalog.js',import.meta.url),'utf8'),readFileSync(new URL('../src/place-catalog.cjs',import.meta.url),'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
+test('server/client standard catalog parity; ambiguous city, island and private labels stay unknown',t=>{const s=fixture(t);
+ const module={exports:{}};
+ vm.runInNewContext(readFileSync(new URL('../src/place-catalog.cjs',import.meta.url),'utf8'),{module});
+ assert.deepEqual(JSON.parse(JSON.stringify(module.exports.FIXED_PLACES)),STANDARD_PLACES);
+ for(const place of STANDARD_PLACES) for(const alias of [place.label,place.value,...place.aliases]) assert.equal(module.exports.resolvePlaceId(alias),place.placeId);
+ let source;
+ try{source=JSON.parse(readFileSync(new URL('../../../config/locationCatalog.json',import.meta.url),'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
+ if(source){
+  execFileSync(process.execPath,[new URL('../../backend/scripts/sync-location-catalog.mjs',import.meta.url).pathname,'--check']);
+  assert.deepEqual(STANDARD_PLACES,source.fixedPlaces);assert.equal(CATALOG_VERSION,source.placeCatalogVersion);
+ }
+
  assert.deepEqual(STANDARD_PLACES.map(p=>p.placeId),['fort_lee','columbia','flushing','jfk','ewr','lga','lic','jsq','inwood','midtown','downtown','queens']);
  assert.equal(CATALOG_VERSION,'places-v2');
  assert.equal(s.placeSuggestions(enroll(s),req(),now).catalogVersion,CATALOG_VERSION);

@@ -248,7 +248,11 @@ function createAnalyticsClient(options = {}) {
     try {
       event = clone({ eventId: meta.eventId || makeId(), eventName, schemaVersion: 1,
         occurredAt: meta.occurredAt === undefined ? now() : meta.occurredAt,
-        sessionId: meta.sessionId || foregroundId, data, context: eventContext() })
+        sessionId: meta.sessionId || foregroundId, data,
+        // Referral captures may wait for sign-in across app versions. Preserve
+        // their first observed foreground context; validateEvent still checks
+        // the complete event, including this narrowly supported metadata.
+        context: eventName === 'referral_visit' && meta.context !== undefined ? meta.context : eventContext() })
     } catch (_) { return { ok: false, reason: 'invalid_event' } }
     if (!validateEvent(event, now(), limits.ttlMs)) return { ok: false, reason: 'invalid_event' }
     const next = prune(clone(state))
@@ -403,7 +407,8 @@ function createAnalyticsClient(options = {}) {
     finally { placeFlights.delete(flight) }
   }
 
-  return { setSession, clearSession, withdraw: clearSession, beginForeground, endForeground, enqueue, flush, getStatus, requestPlaceSuggestions }
+  function getEventMetadata() { return foregroundId ? clone({ sessionId: foregroundId, context: eventContext() }) : null }
+  return { setSession, clearSession, withdraw: clearSession, beginForeground, endForeground, enqueue, flush, getStatus, requestPlaceSuggestions, getEventMetadata }
 }
 
 module.exports = { createAnalyticsClient, createWxTransport, validEndpoint, STORAGE_KEY }

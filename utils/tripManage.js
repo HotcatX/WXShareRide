@@ -1,3 +1,4 @@
+const rides = require("./compat/rides")
 function cleanText(value) {
   return String(value || "").trim()
 }
@@ -29,8 +30,8 @@ function extractRidePriceNumber(value) {
 function formatRidePricePerPerson(value, fallback = "") {
   const text = cleanText(value)
   if (!text) return fallback
-  const n = extractRidePriceNumber(text)
-  if (n) return `${n}$/人`
+  const match = /^(?:\$\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:\$|USD|美元|美金|刀))?(?:\s*\/\s*人)?$/i.exec(text)
+  if (match) return `${match[1]}$/人`
   return text
 }
 
@@ -42,19 +43,11 @@ function formatRidePriceTag(value) {
   return formatRidePricePerPerson(text)
 }
 
-function getResult(res) {
-  return (res && res.result) || {}
-}
-
 const RIDE_LIST_CACHE_KEY = "carpoolListDataV1"
 const RIDE_LIST_REFRESH_KEY = "rideListShouldRefreshAt"
 
 async function callTripManage(data = {}) {
-  const res = await wx.cloud.callFunction({
-    name: "tripManage",
-    data
-  })
-  return getResult(res)
+  return rides.callTripManage(data)
 }
 
 function markRideListStale() {
@@ -168,6 +161,7 @@ function buildRatedTargetMap(detailResult = {}) {
   const map = {}
   const ratingState = detailResult.ratingState || {}
   const sources = [
+    detailResult.ratedTargetUserIds,
     detailResult.ratedTargetOpenids,
     ratingState.ratedTargetOpenids,
     detailResult.ratedTargets,
@@ -201,12 +195,14 @@ function isTargetRated(ratedTargetMap, targetOpenid) {
 }
 
 async function rateTripUser(options = {}) {
+  const targetUserId = cleanText(options.targetUserId)
   const targetOpenid = cleanText(options.targetOpenid)
+  const target = rides.isBackendEnabled() ? targetUserId : targetOpenid
   const tripId = cleanText(options.tripId || options.requestId || options.id)
   const type = cleanText(options.type || "carpool") || "carpool"
   const targetRole = cleanText(options.targetRole)
 
-  if (!targetOpenid) {
+  if (!target) {
     wx.showToast({ title: "缺少评价对象", icon: "none" })
     return false
   }
@@ -214,13 +210,15 @@ async function rateTripUser(options = {}) {
     wx.showToast({ title: "缺少路线ID", icon: "none" })
     return false
   }
-  if (options.hasRated || isTargetRated(options.ratedTargetMap || options.ratedTargets, targetOpenid)) {
+  if (options.hasRated || isTargetRated(options.ratedTargetMap || options.ratedTargets, target)) {
     wx.showToast({ title: "已经评价过", icon: "none" })
     return false
   }
 
+  const identity = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${wx.getStorageSync("openid") || ""}`
+  const owner = identity()
   const rating = await askRating()
-  if (!rating) return false
+  if (!rating || identity() !== owner) return false
 
   try {
     wx.showLoading({ title: "正在提交...", mask: true })
@@ -230,13 +228,15 @@ async function rateTripUser(options = {}) {
       tripId,
       requestId: tripId,
       targetOpenid,
+      targetUserId,
       targetRole,
       score: rating.score
     })
     wx.hideLoading()
+    if (identity() !== owner) return false
 
     if (result && (result.ok || result.success)) {
-      wx.showToast({ title: "已提交评价", icon: "success" })
+      wx.showToast({ title: result.recovered ? "已确认上次操作" : "已提交评价", icon: "success" })
       return true
     }
 
@@ -251,17 +251,21 @@ async function rateTripUser(options = {}) {
 }
 
 async function blockRideUser(options = {}) {
+  const targetUserId = cleanText(options.targetUserId)
   const targetOpenid = cleanText(options.targetOpenid)
+  const target = rides.isBackendEnabled() ? targetUserId : targetOpenid
   const targetName = cleanText(options.targetName || options.name) || "该用户"
   const type = cleanText(options.type || "carpool") || "carpool"
   const tripId = cleanText(options.tripId || options.id)
   const requestId = cleanText(options.requestId || options.tripId || options.id)
 
-  if (!targetOpenid) {
+  if (!target) {
     wx.showToast({ title: "缺少拉黑对象", icon: "none" })
     return false
   }
 
+  const identity = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${wx.getStorageSync("openid") || ""}`
+  const owner = identity()
   return new Promise(resolve => {
     wx.showModal({
       title: "拉黑用户",
@@ -269,7 +273,7 @@ async function blockRideUser(options = {}) {
       confirmText: "拉黑",
       cancelText: "取消",
       success: async (res) => {
-        if (!res.confirm) {
+        if (!res.confirm || identity() !== owner) {
           resolve(false)
           return
         }
@@ -280,13 +284,15 @@ async function blockRideUser(options = {}) {
             type,
             tripId,
             requestId,
-            targetOpenid
+            targetOpenid,
+            targetUserId
           })
           wx.hideLoading()
+          if (identity() !== owner) { resolve(false); return }
 
           if (result && (result.ok || result.success)) {
             markRideListStale()
-            wx.showToast({ title: "已拉黑", icon: "success" })
+            wx.showToast({ title: result.recovered ? "已确认上次操作" : "已拉黑", icon: "success" })
             resolve(true)
             return
           }

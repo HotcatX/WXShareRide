@@ -2,6 +2,8 @@
 const { showDataError } = require("../../../utils/error")
 const { callUpdateUser } = require("../../../utils/userProfileUpdate")
 const { getDriverRouteDefaultPrice } = require("../../../utils/driverRideDefaults")
+const templatesApi = require("../../../utils/compat/rideTemplates")
+const profileApi = require("../../../utils/compat/profile")
 
 const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 
@@ -56,14 +58,15 @@ Page({
   safeSeat(val) {
     const n = parseInt(val, 10)
     if (isNaN(n)) return 1
-    return Math.min(7, Math.max(1, n))
+    return Math.min(8, Math.max(1, n))
   },
 
   async loadTemplateDetail(id) {
+    const account = wx.getStorageSync('openid')
+    const revision = this._detailRevision = (this._detailRevision || 0) + 1
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('CarpoolTemplate').doc(id).get()
-      const tpl = res && res.data ? res.data : null
+      const tpl = await templatesApi.getRideTemplate(id)
+      if (!this.isCurrentAccount(account) || revision !== this._detailRevision) return
       if (!tpl) {
         wx.showToast({ title: '未找到该模板', icon: 'none' })
         return
@@ -76,6 +79,7 @@ Page({
         return
       }
 
+      this._loadedTemplate = tpl
       const seat = this.safeSeat(tpl.passengerCount)
 
       this.setData({
@@ -93,9 +97,10 @@ Page({
         comment: tpl.comment || '',
 
         // 模板存的是 zelle: "yes"/"no"
-        showZelle: tpl.zelle === 'yes'
+        ...(!profileApi.isBackendEnabled() ? { showZelle: tpl.zelle === 'yes' } : {})
       })
     } catch (e) {
+      if (!this.isCurrentAccount(account) || revision !== this._detailRevision) return
       console.error('loadTemplateDetail error:', e)
       wx.showToast({ title: '模板加载失败', icon: 'none' })
     }
@@ -103,6 +108,8 @@ Page({
 
 
   onLoad(options) {
+    this._disposed = false
+    this._editorAccount = wx.getStorageSync("openid") || ""
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -119,6 +126,16 @@ Page({
 
 
   onShow() {
+    const account = wx.getStorageSync("openid") || ""
+    if (this._editorAccount !== undefined && this._editorAccount !== account) {
+      this._loadedTemplate = null
+      this._profileInputDirty = false
+      this.setData({ userInfo: null, departureAddress: "", destinationAddress: "", weekdayIndex: -1, weekdayText: "",
+        departureTime: "", passengerCount: "", passengerCountInput: "", referencePrice: "", comment: "",
+        carNumber: "", carBrand: "", carModel: "", showZelle: false })
+      if (this.data.editMode && this.data.templateId && account && !wx.getStorageSync("isGuest")) this.loadTemplateDetail(this.data.templateId)
+    }
+    this._editorAccount = account
     const tip = wx.getStorageSync("needLoginToast")
     if (tip) {
       wx.removeStorageSync("needLoginToast")
@@ -127,10 +144,16 @@ Page({
     this.loadUserInfo()
   },
 
+  onUnload() { this._disposed = true },
+
+  isCurrentAccount(account) {
+    return !this._disposed && !wx.getStorageSync("isGuest") && wx.getStorageSync("openid") === account
+  },
+
   // ===== 登录态判定 =====
   isLoggedIn() {
     const openid = wx.getStorageSync("openid") || ""
-    return !!openid
+    return !!openid && !wx.getStorageSync("isGuest")
   },
 
   ensureLoginBeforeCreate() {
@@ -167,26 +190,29 @@ Page({
       return
     }
 
+    const account = wx.getStorageSync("openid")
+    const revision = this._userReadRevision = (this._userReadRevision || 0) + 1
     try {
-      const db = wx.cloud.database()
-      const openid = wx.getStorageSync("openid") || ""
-
-      const r = await db.collection("userInfo").where({ _openid: openid }).get()
-      if (!r.data || r.data.length === 0) {
-        wx.showToast({ title: "用户信息缺失，请先完善个人信息", icon: "none" })
-        this.setData({ userInfo: null })
-        return
+      let user
+      if (profileApi.isBackendEnabled()) user = profileApi.legacyDocument(await profileApi.getUserInfo())
+      else {
+        // TEMPORARY FALLBACK: original CloudBase user read in legacy mode.
+        const r = await wx.cloud.database().collection("userInfo").where({ _openid: account }).get()
+        user = r && r.data && r.data[0]
       }
-
-      const user = r.data[0]
+      if (!this.isCurrentAccount(account) || revision !== this._userReadRevision) return
+      if (!user) throw new Error("用户信息缺失，请先完善个人信息")
+      this._userInfoAccount = account
 
       this.setData({
         userInfo: user,
-        carNumber: user.carNumber || "",
-        carBrand: user.carBrand || "",
-        carModel: user.carModel || ""
+        ...(!this._profileInputDirty ? {
+          carNumber: user.carNumber || "", carBrand: user.carBrand || "", carModel: user.carModel || "",
+          ...(profileApi.isBackendEnabled() ? { showZelle: user.defaultShowZelle === true } : {})
+        } : {})
       })
     } catch (e) {
+      if (!this.isCurrentAccount(account) || revision !== this._userReadRevision) return
       console.error("获取用户信息失败：", e)
       wx.showToast({ title: "获取用户信息失败", icon: "none" })
       this.setData({ userInfo: null })
@@ -261,9 +287,9 @@ Page({
   },
 
 
-  onCarNumberInput(e) { this.setData({ carNumber: e.detail.value }) },
-  onCarBrandInput(e) { this.setData({ carBrand: e.detail.value }) },
-  onCarModelInput(e) { this.setData({ carModel: e.detail.value }) },
+  onCarNumberInput(e) { this._profileInputDirty = true; this.setData({ carNumber: e.detail.value }) },
+  onCarBrandInput(e) { this._profileInputDirty = true; this.setData({ carBrand: e.detail.value }) },
+  onCarModelInput(e) { this._profileInputDirty = true; this.setData({ carModel: e.detail.value }) },
   onReferencePriceInput(e) { this.setData({ referencePrice: e.detail.value }) },
 
   onCommentInput(e) {
@@ -271,6 +297,7 @@ Page({
   },
 
   onZelleCheckboxChange(e) {
+    this._profileInputDirty = true
     const values = e.detail.value || []
     this.setData({ showZelle: values.includes("showZelle") })
   },
@@ -325,12 +352,14 @@ Page({
       `参考价格：${referencePrice}\n` +
       `公开 Zelle 信息：${this.data.showZelle ? "是" : "否"}`
 
+    const account = wx.getStorageSync("openid")
     this.setData({ submitting: true })
 
     wx.showModal({
       title: "确认保存模板",
       content: summary,
       success: (res) => {
+        if (!this.isCurrentAccount(account)) return
         if (res.confirm) this.submitTemplate(templateName)
         else this.setData({ submitting: false })
       },
@@ -342,9 +371,9 @@ Page({
   // ✅ 真正写入 CarpoolTemplate
   // ===========================
   async submitTemplate(templateName) {
+    const account = wx.getStorageSync("openid") || ""
+    if (!this.isCurrentAccount(account) || this._userInfoAccount && this._userInfoAccount !== account) return
     try {
-      const db = wx.cloud.database()
-      const openid = wx.getStorageSync("openid") || ""
 
       const {
         editMode,
@@ -379,7 +408,7 @@ Page({
         weekdayText,              // "周一"...
         departureTime,            // "HH:mm"
 
-        passengerCount: this.safeSeat(passengerCount),
+        passengerCount: profileApi.isBackendEnabled() ? passengerCount : this.safeSeat(passengerCount),
         referencePrice,
         comment: comment || "",
 
@@ -389,51 +418,57 @@ Page({
         carModel,
 
         // Zelle
-        zelle: showZelle ? "yes" : "no",
-
-        // 时间戳
-        updatedAt: db.serverDate()
+        zelle: showZelle ? "yes" : "no"
       }
 
-      if (editMode && templateId) {
-        const updateRes = await db.collection("CarpoolTemplate").doc(templateId).update({ data: payload })
-        if (!updateRes || !updateRes.stats || updateRes.stats.updated < 1) {
-          this.showError("模板保存失败，请重试")
-          return
-        }
-      } else {
-        const addRes = await db.collection("CarpoolTemplate").add({
-          data: {
-            ...payload,
-            createdAt: db.serverDate()
-          }
-        })
-        if (!addRes || !addRes._id) {
-          this.showError("模板保存失败，请重试")
-          return
-        }
-      }
+      const saved = await templatesApi.saveRideTemplate(payload, { id: editMode ? templateId : undefined, previous: this._loadedTemplate })
+      if (!this.isCurrentAccount(account)) return
+      this._loadedTemplate = saved
+      this.setData({ editMode: true, templateId: saved._id })
 
       // 不影响模板保存：失败也不回滚模板
+      let preferencesSaved = true
       try {
         const updatePayload = {
           action: "afterCreateTemplate",
           carNumber,
           carBrand,
-          carModel
+          carModel,
+          ...(profileApi.isBackendEnabled() ? { defaultShowZelle: showZelle === true } : {})
         }
 
-        await callUpdateUser(updatePayload)
+        const result = await callUpdateUser(updatePayload)
+        if (profileApi.isBackendEnabled() && result?.result?.ok !== true) throw new Error('Profile update was not confirmed')
       } catch (e) {
+        preferencesSaved = false
       }
 
-      wx.showToast({ title: "模板保存成功", icon: "success", duration: 1800 })
-      setTimeout(() => wx.navigateBack(), 1200)
+      if (!this.isCurrentAccount(account)) return
+      wx.showToast({ title: preferencesSaved ? "模板保存成功" : "模板已保存，车辆设置未更新", icon: preferencesSaved ? "success" : "none", duration: 1800 })
+      setTimeout(() => { if (this.isCurrentAccount(account)) wx.navigateBack() }, 1200)
     } catch (e) {
+      if (!this.isCurrentAccount(account)) return
+      if (e && e.code === 'PENDING_OPERATION' && profileApi.isBackendEnabled()) {
+        try {
+          const recovered = await templatesApi.recoverRideTemplate(this.data.editMode ? this.data.templateId : undefined)
+          if (!this.isCurrentAccount(account)) return
+          if (recovered) {
+            // Reconcile the old creation/update under its original key. Keep
+            // current form input; another explicit save PATCHes this same ID.
+            this._loadedTemplate = recovered
+            this.setData({ editMode: true, templateId: recovered._id })
+            this.showError('已找回上次模板，请再保存当前内容')
+            return
+          }
+        } catch (_) { /* Keep the uncertain receipt and the current form. */ }
+        if (!this.isCurrentAccount(account)) return
+        this.showError('上次保存结果待确认，请稍后重试')
+        return
+      }
       console.error("保存模板异常：", e)
-      this.showError("模板保存失败，请重试")
+      this.showError(e && e.code === "PENDING_OPERATION" ? "上次保存未确认，请保持内容后重试" : "模板保存失败，请重试")
     } finally {
-      this.setData({ submitting: false })
+      if (!this._disposed) this.setData({ submitting: false })
     }
   }
 })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { Pool } from 'pg';
-import { getMarketListing, listMarketListings, listMyMarketListings, listSellerMarketListings } from '../src/market/read.ts';
+import { getMarketSeller, getMarketListing, listMarketListings, listMyMarketListings, listSellerMarketListings } from '../src/market/read.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const appId = 'market-read-fixture';
@@ -57,6 +57,23 @@ test('market read: public, owner and seller reads preserve visibility and app is
   assert.equal(loaded.startDate, '2030-09-01');
 });
 
+test('market read: old seller share IDs retain public listings without exposing managed items or profiles', async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const owner = await user(db.pool), foreign = await user(db.pool, 'other-app');
+  const openid = (await db.pool.query('SELECT openid FROM users WHERE id=$1', [owner])).rows[0].openid;
+  const foreignOpenid = (await db.pool.query('SELECT openid FROM users WHERE id=$1', [foreign])).rows[0].openid;
+  await listing(db.pool, owner, { id: 'ordinary' });
+  await listing(db.pool, owner, { id: 'shared-management', shared: true });
+  await listing(db.pool, foreign, { appId: 'other-app', id: 'other-app-item' });
+  for (const identity of [owner, openid]) {
+    const result = await listSellerMarketListings(db.pool, appId, identity, {});
+    assert.deepEqual(ids(result), ['ordinary']);
+    assert.equal('seller' in result.items[0], false);
+    assert.ok(!JSON.stringify(result).includes(openid));
+  }
+  assert.deepEqual(ids(await listSellerMarketListings(db.pool, appId, foreignOpenid, {})), []);
+});
+
 test('market read: guest redaction and authenticated nested whitelists preserve intended contact visibility', async t => {
   const db = await createTestDatabase(); t.after(db.close);
   const { pool } = db, owner = await user(pool), viewer = await user(pool);
@@ -81,7 +98,7 @@ test('market read: guest redaction and authenticated nested whitelists preserve 
   assert.ok('seller' in authenticated);
   if (!('seller' in authenticated)) return;
   assert.equal(authenticated.isOwner, false);
-  assert.deepEqual(authenticated.seller, { userId: owner, name: 'Synthetic seller', avatarFileId: null,
+  assert.deepEqual(authenticated.seller, { userId: owner, kind: 'user', name: 'Synthetic seller', avatarFileId: null,
     regionLabel: 'Fort Lee', residence: 'Synthetic building', bio: 'Synthetic bio', wechatId: 'explicit_contact', phone: '2125550199' });
   assert.deepEqual(authenticated.sellerContact, { name: 'seller_marker', wechat: 'explicit_contact', phone: '2125550199',
     avatar: 'https://example.test/contact.png', note: 'seller note' });
@@ -95,7 +112,7 @@ test('market read: guest redaction and authenticated nested whitelists preserve 
   const managed = await listing(pool, owner, { owner: null, adminOwnerKey: 'private_owner_key', content: itemContent });
   const managedItem = await getMarketListing(pool, appId, managed, viewer);
   assert.ok('seller' in managedItem);
-  if ('seller' in managedItem) assert.deepEqual(managedItem.seller, { userId: null, name: 'seller_marker',
+  if ('seller' in managedItem) assert.deepEqual(managedItem.seller, { userId: null, kind: 'managed', name: 'seller_marker',
     avatarFileId: null, avatarUrl: 'https://example.test/contact.png', regionLabel: 'Fort Lee', residence: '', bio: 'seller note',
     wechatId: 'explicit_contact', phone: '2125550199' });
   assert.ok(!JSON.stringify(managedItem).includes('private_owner_key'));
@@ -187,4 +204,27 @@ test('market read: view count comes only from app-scoped counted buckets and GET
   assert.equal((await listMarketListings(pool, appId, {}, owner)).items[0].viewCount, 8);
   assert.deepEqual((await pool.query('SELECT count(*)::integer AS rows,sum(count)::integer AS count FROM market_views')).rows[0], before);
   await assert.rejects(getMarketListing(pool, appId, 'historically-deleted-listing', owner), { code: 'LISTING_NOT_FOUND' });
+});
+
+test('seller share resolution is authenticated-scoped, ordinary listings only, and sold filters cannot enumerate private items', async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const owner = await user(db.pool), viewer = await user(db.pool), empty = await user(db.pool), managed = await user(db.pool);
+  const foreign = await user(db.pool, 'foreign-app');
+  await listing(db.pool, owner, {id:'active-share'});
+  await listing(db.pool, owner, {id:'sold-share',status:'sold'});
+  await listing(db.pool, managed, {id:'managed-share',shared:true});
+  await listing(db.pool, foreign, {id:'foreign-share',appId:'foreign-app'});
+  const openid = (await db.pool.query('SELECT openid FROM users WHERE id=$1',[owner])).rows[0].openid;
+  const seller = await getMarketSeller(db.pool,appId,viewer,owner);
+  assert.deepEqual(await getMarketSeller(db.pool,appId,viewer,openid),seller);
+  assert.equal(seller.userId,owner);assert.equal(JSON.stringify(seller).includes(openid),false);
+  assert.equal(seller.phone,'2125550101');assert.equal(seller.avatarFileId,null);
+  for(const id of [empty,managed,foreign]) await assert.rejects(getMarketSeller(db.pool,appId,viewer,id),{code:'SELLER_NOT_FOUND'});
+  assert.equal((await getMarketSeller(db.pool,appId,empty,empty)).userId,empty);
+  assert.deepEqual(ids(await listMyMarketListings(db.pool,appId,owner,{status:'sold'})),['sold-share']);
+  await assert.rejects(listSellerMarketListings(db.pool,appId,owner,{status:'sold'},viewer),{code:'INVALID_INPUT'});
+  const managedItem = await getMarketListing(db.pool,appId,'managed-share',viewer);
+  assert.ok('seller' in managedItem);assert.equal(managedItem.seller.kind,'managed');
+  await db.pool.query("UPDATE market_listings SET status='offline' WHERE id='active-share'");
+  await assert.rejects(getMarketSeller(db.pool,appId,viewer,owner),{code:'SELLER_NOT_FOUND'});
 });

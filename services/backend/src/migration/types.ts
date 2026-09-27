@@ -1,3 +1,4 @@
+import type { CityRequestRow } from './city-requests.ts';
 import type { MigrationSource } from './source.ts';
 import type { TemplateRow } from './templates.ts';
 import type { NotificationRow } from './notifications.ts';
@@ -27,7 +28,7 @@ export type MemberRow = { rideId: string; userId: string; role: 'driver' | 'pass
 export type StopRow = { rideId: string; position: number; kind: 'departure' | 'destination'; address: string; placeId: string | null; departureAt: string | null };
 export type ExportObservation = { sourceSha256: string; at: string };
 export type MigrationRows = {
-  users: UserRow[]; rides: RideRow[]; members: MemberRow[]; stops: StopRow[];
+  cityRequests: CityRequestRow[]; users: UserRow[]; rides: RideRow[]; members: MemberRow[]; stops: StopRow[];
   templates: TemplateRow[]; notifications: NotificationRow[]; blocks: BlockRow[];
   ratings: RatingRow[]; completions: CompletionRow[]; publicStatistics: PublicStatisticsRow[]; referralCodes: ReferralCodeRow[];
   adminAccounts: AdminAccountRow[]; adminOrigins: AdminOriginRow[]; adminAudit: AdminAuditRow[];

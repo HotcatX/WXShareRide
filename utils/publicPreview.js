@@ -1,6 +1,52 @@
 const PREVIEW_ACTIONS = ['marketList', 'marketDetail', 'tripList', 'tripDetail']
 const ITEM_KINDS = ['goods', 'sublet', 'carpool', 'request']
 const REQUEST_TIMEOUT_MS = 15000
+const backend = require('./backendClient')
+const { getRideDateTime } = require('./rideTime')
+const { getCityStateFilter } = require('./cityTree')
+
+async function serverPreview(data) {
+  // Preview is explicitly anonymous even on a device with a remembered login.
+  // The canonical route performs text redaction; this adapter formats only its
+  // public fields and never reconstructs seller/private fields from a cache.
+  const detail = data.previewAction.endsWith('Detail')
+  if (data.previewAction.startsWith('trip')) {
+    const kind = data.type === 'carpool' ? 'offer' : data.type === 'request' ? 'request' : ''
+    const query = `offset=${data.offset || 0}&limit=${data.limit || 10}${kind ? `&kind=${kind}` : ''}`
+    const response = await backend.get(detail ? `/api/v1/previews/rides/${encodeURIComponent(data.id)}` : `/api/v1/previews/rides?${query}`, { anonymous: true })
+    const rows = detail ? [response] : response.items
+    if (!Array.isArray(rows)) throw friendlyError('INVALID_RESPONSE')
+    const items = rows.map(row => {
+      const time = getRideDateTime(Date.parse(row.departureAt))
+      return { id: row.id, kind: row.kind === 'offer' ? 'carpool' : 'request', title: `${row.fromArea} → ${row.toArea}`,
+        description: '', priceText: row.listedPriceCents === null ? '价格面议' : `$${(row.listedPriceCents / 100).toFixed(row.listedPriceCents % 100 ? 2 : 0)}`,
+        regionText: `${row.fromArea} → ${row.toArea}`, timeText: time ? `${time.date} ${time.time}` : '',
+        availabilityText: `余 ${row.availableSeats} 座`, images: [], tags: [row.kind === 'offer' ? '车找人' : '人找车'] }
+    })
+    return detail ? { ok: true, item: items[0] } : { ok: true, items, hasMore: response.hasMore, nextOffset: response.nextOffset }
+  }
+  const prefix = data.sellerId ? `/api/v1/market/sellers/${encodeURIComponent(data.sellerId)}/listings` : '/api/v1/market/listings'
+  const cityKey = data.cityKey || ''
+  const regionState = !cityKey || ['ALL', 'all', 'ALL_STATES'].includes(cityKey) ? ''
+    : /^(?:[A-Z]{2}|NY_NJ)$/.test(cityKey) ? cityKey : getCityStateFilter({ key: cityKey }).key
+  const params = { listingType: data.type, offset: data.offset, limit: data.limit,
+    category: data.category === '全部' ? '' : data.category, regionState }
+  const query = Object.entries(params).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&')
+  const response = await backend.get(detail ? `${prefix}/${encodeURIComponent(data.id)}` : `${prefix}?${query}`, { anonymous: true })
+  const rows = detail ? [response] : response.items
+  if (!Array.isArray(rows)) throw friendlyError('INVALID_RESPONSE')
+  const ids = [...new Set(rows.flatMap(row => (row.images || []).map(image => image.fileId)))]
+  const urls = {}
+  for (let index = 0; index < ids.length; index += 50) {
+    const entries = await backend.resolveImages(ids.slice(index, index + 50), { anonymous: true })
+    entries.forEach(entry => { urls[entry.fileId] = entry.url })
+  }
+  const items = rows.map(row => ({ id: row.id, kind: row.listingType, title: row.title, description: row.description,
+    priceText: `$${(row.priceCents / 100).toFixed(row.priceCents % 100 ? 2 : 0)}${row.listingType === 'sublet' ? '/月' : ''}`,
+    regionText: row.region?.state || '', timeText: `${row.startDate} 至 ${row.endDate}`, availabilityText: '在售',
+    images: (row.images || []).map(image => urls[image.fileId]).filter(Boolean), tags: [row.category, row.condition].filter(Boolean) }))
+  return detail ? { ok: true, item: items[0] } : { ok: true, items, hasMore: response.hasMore, nextOffset: response.nextOffset }
+}
 
 function text(value, maxLength) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
@@ -8,7 +54,7 @@ function text(value, maxLength) {
 
 function friendlyError(code) {
   code = typeof code === 'string' ? code.toUpperCase() : ''
-  const unavailable = ['NOT_FOUND', 'NOT_AVAILABLE', 'EXPIRED', 'INVALID_ID', 'ITEM_NOT_FOUND', 'INVALID_PREVIEW_REQUEST'].includes(code)
+  const unavailable = ['NOT_FOUND', 'NOT_AVAILABLE', 'EXPIRED', 'INVALID_ID', 'ITEM_NOT_FOUND', 'INVALID_PREVIEW_REQUEST', 'LISTING_NOT_FOUND', 'RIDE_NOT_FOUND', 'SELLER_NOT_FOUND'].includes(code)
   const error = new Error(unavailable
     ? '这条信息已失效或暂未公开，可以浏览其他公开信息。'
     : code === 'TIMEOUT'
@@ -93,6 +139,11 @@ function normalizeResult(result, data) {
 }
 
 function callPublicPreview(options) {
+  if (backend.isBackendEnabled()) {
+    let data
+    try { data = requestData(options) } catch (error) { return Promise.reject(error) }
+    return serverPreview(data).then(result => normalizeResult(result, data), error => { throw friendlyError(error.code) })
+  }
   return new Promise((resolve, reject) => {
     let data
     try {

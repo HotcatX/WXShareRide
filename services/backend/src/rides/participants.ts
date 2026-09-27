@@ -10,6 +10,7 @@ import { avatarFileIdSql } from '../users/avatar.ts';
 export type RideParticipant = {
   id: string; name: string; avatarFileId: string | null;
   role: 'driver' | 'passenger'; seatCount: number;
+  isCreator: boolean;
   phone?: string; phoneRegion?: string; wechatId?: string;
   vehicle?: { plate?: string; brand?: string; model?: string };
   zelle?: { name?: string; account?: string };
@@ -22,6 +23,19 @@ type Participants = {
   participants: RideParticipant[]; largeLuggageCount?: number;
 };
 type ParticipantRow = Omit<RideParticipant, 'statistics'> & { statistics: StatisticsFacts };
+
+/** Explicit self relationship; absence of membership is not an authorization
+ * error and must not be guessed from a failed participants request. */
+export async function getRideMembership(pool: Pool, userId: string, id: unknown) {
+  const rideId = rideIdSchema.parse(id);
+  const row = (await pool.query(`SELECT r.id AS "rideId",r.version,viewer.id AS "userId",
+    r.creator_id=viewer.id AS "isCreator",mine.role,coalesce(mine.seat_count,0) AS "seatCount"
+    FROM rides r JOIN users owner ON owner.id=r.creator_id JOIN users viewer ON viewer.app_id=owner.app_id AND viewer.id=$2
+    LEFT JOIN ride_members mine ON mine.ride_id=r.id AND mine.user_id=viewer.id AND mine.state='active'
+    WHERE r.id=$1 AND r.status<>'cancelled'`, [rideId, userId])).rows[0];
+  if (!row) throw new AppError(404, 'RIDE_NOT_FOUND', '行程不存在');
+  return row;
+}
 
 // Authorization, current membership and every disclosed field are read by this
 // one statement. PostgreSQL's statement snapshot cannot mix an old permission
@@ -36,7 +50,7 @@ export async function getRideParticipants(pool: Pool, userId: string, id: unknow
       CASE WHEN r.kind = 'request' THEN r.details->'largeLuggageCount' END AS "largeLuggageCount",
       COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
         'id', u.id, 'name', u.name,
-        'role', m.role, 'seatCount', m.seat_count,
+        'role', m.role, 'seatCount', m.seat_count, 'isCreator', m.user_id=r.creator_id,
         'phone', CASE WHEN jsonb_typeof(u.profile->'phone') = 'string' THEN u.profile->'phone' END,
         'phoneRegion', CASE WHEN jsonb_typeof(u.profile->'phoneRegion') = 'string' THEN u.profile->'phoneRegion' END,
         'wechatId', CASE WHEN jsonb_typeof(u.profile->'wechatId') = 'string' THEN u.profile->'wechatId' END,
@@ -84,8 +98,12 @@ const myRidesSchema = listRidesSchema.pick({ page: true, limit: true }).extend({
 export async function listMyRides(pool: Pool, userId: string, query: unknown) {
   const input = myRidesSchema.parse(query);
   const order = input.scope === 'current' ? 'ASC' : 'DESC';
-  const result = await pool.query(`SELECT ${publicProjection}, mine.role, mine.seat_count AS "seatCount"
+  const result = await pool.query(`SELECT ${publicProjection}, mine.role, mine.seat_count AS "seatCount",
+      r.creator_id = mine.user_id AS "isCreator", schedule.latest_departure_at AS "latestDepartureAt",
+      (r.status = 'closed' AND schedule.latest_departure_at <= now()) AS "followupEligible"
     FROM rides r JOIN ride_members mine ON mine.ride_id = r.id
+    CROSS JOIN LATERAL (SELECT GREATEST(r.departure_at, MAX(s.departure_at)) AS latest_departure_at
+      FROM ride_stops s WHERE s.ride_id = r.id AND s.kind = 'departure') schedule
     WHERE mine.user_id = $1 AND mine.state = 'active' AND r.status <> 'cancelled'
       AND ($2::text IS NULL OR mine.role = $2)
       AND (($3 = 'current' AND r.status = 'open' AND r.departure_at > now())

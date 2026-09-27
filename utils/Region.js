@@ -3,55 +3,7 @@ const CITY_TREE_COLLECTION = 'CITY_TREE'
 const REGION_TREE_STORAGE_KEY = 'city_region_tree_v2'
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 
-const DEFAULT_REGION_TREE = [
-  {
-    key: 'NY',
-    label: 'NY',
-    groups: [
-      {
-        key: 'Queens',
-        label: 'Queens',
-        areas: ['LIC核心区', 'LIC非核心区', 'Queens深处']
-      },
-      {
-        key: '曼岛上城',
-        label: '曼岛上城',
-        areas: ['哥大步行楼', 'Inwood', '96 St 周边']
-      },
-      {
-        key: '曼岛下城',
-        label: '曼岛下城',
-        areas: ['华尔街']
-      },
-      {
-        key: '曼岛中城',
-        label: '曼岛中城',
-        areas: ['中城西', '中城中', '中城东']
-      }
-    ]
-  },
-  {
-    key: 'NJ',
-    label: 'NJ',
-    groups: [
-      {
-        key: 'Fort Lee',
-        label: 'Fort Lee',
-        areas: ['Fort Lee 核心区', 'Fort Lee 非核心区']
-      },
-      {
-        key: 'JC',
-        label: 'JC',
-        areas: ['Newport', 'Grove St', 'JSQ']
-      },
-      {
-        key: '其他区域',
-        label: '其他区域',
-        areas: ['Harrison', 'Union City', 'Hoboken']
-      }
-    ]
-  }
-]
+const DEFAULT_REGION_TREE = require('./locationCatalog.generated.js').regionTree
 
 const REGION_DISPLAY_CONFIG = {
   stateOrder: ["NY", "NJ"],
@@ -393,6 +345,10 @@ function writeCachedRegionTree(tree) {
 }
 
 async function loadCityTreeDocsFromDB() {
+  if (require('./backendClient').isBackendEnabled()) {
+    return (await require('./locationConfig').loadLocationConfig()).regionTree
+  }
+  // TEMPORARY FALLBACK — configuration reads for the existing CloudBase mode.
   const db = wx.cloud.database()
   const pageSize = 100
   let skip = 0

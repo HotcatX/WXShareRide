@@ -26,8 +26,11 @@ import { registerAdRoutes } from './ads/routes.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import type { FileStorage } from './files/routes.ts';
 import { cloudBaseLoginPath, createCloudBaseLoginBridge } from './auth/cloudbase.ts';
+import { registerLocationRoutes } from './locations/routes.ts';
+import { registerCityRequestRoutes } from './locations/requests.ts';
+import { createCollectionSessions } from './analytics/session.ts';
 
-export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage }) {
+export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage; collectorTransport?: typeof fetch }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
   const sessions = sessionService(deps.pool, deps.config, deps.exchange ?? wechatCodeExchange(deps.config.appId, deps.config.appSecret));
   const loginAdmission = createLoginAdmission();
@@ -88,8 +91,13 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
     await sessions.logout(request);
     return { ok: true, data: {}, requestId: request.id };
   });
+  const collectionSession = createCollectionSessions(deps.config, deps.collectorTransport);
+  app.post('/api/v1/analytics/session', async request => {
+    const user = await sessions.requireUser(request);
+    return { ok: true, data: await collectionSession(user, request.body), requestId: request.id };
+  });
   await registerUserRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
-  await registerRideRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
+  await registerRideRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerPrivateRideRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   await registerTemplateRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerNotificationRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
@@ -104,5 +112,7 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerAdminMarketTemplateRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerAdRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerFileRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser, storage: deps.storage });
+  registerLocationRoutes(app);
+  registerCityRequestRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   return app;
 }

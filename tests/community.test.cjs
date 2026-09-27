@@ -31,7 +31,7 @@ function harness(options = {}) {
   }
   const context = {
     module: { exports: {} }, Date: Clock,
-    require(name) { assert.equal(name, './timeline'); return { isTimelinePreview: () => state.preview } },
+    require(name) { if (name === './backendClient') return { isBackendEnabled: () => false }; assert.equal(name, './timeline'); return { isTimelinePreview: () => state.preview } },
     setTimeout(fn, delay) { const id = ++state.nextTimer; state.timers.set(id, { fn, delay }); return id },
     clearTimeout(id) { state.timers.delete(id) }
   }

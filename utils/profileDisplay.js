@@ -54,7 +54,19 @@ function buildProfileApartmentDisplay(user = {}) {
   return ''
 }
 
+async function resolveProfileAvatar(user = {}, fallback = '/images/profile.png') {
+  const backend = require('./backendClient')
+  if (!backend.isBackendEnabled()) return user.avatarUrl || fallback
+  if (!user.avatarFileId) return fallback
+  try {
+    const images = await backend.resolveImages([user.avatarFileId])
+    const image = images.find(item => item.fileId === user.avatarFileId)
+    return image && image.url || fallback
+  } catch (_) { return fallback }
+}
+
 module.exports = {
+  resolveProfileAvatar,
   buildProfileDisplayLocation,
   buildProfileApartmentDisplay,
   getLocationObjectText

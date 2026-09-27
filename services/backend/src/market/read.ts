@@ -18,6 +18,7 @@ const querySchema = z.strictObject({
   longitude: coordinate.pipe(z.number().min(-180).max(180)).optional(),
   offset: integer.pipe(z.number().min(0).max(Number.MAX_SAFE_INTEGER)).default(0),
   limit: integer.pipe(z.number().min(1).max(50)).default(20),
+  status: z.enum(['online', 'offline', 'sold']).optional(),
 }).superRefine((value, context) => {
   const located = value.latitude !== undefined && value.longitude !== undefined;
   if (value.sort === 'distance' ? !located : value.latitude !== undefined || value.longitude !== undefined) {
@@ -105,7 +106,7 @@ function item(row: Row, viewerId?: string, detail = false) {
       genderPreference: c.sublet.genderPreference, roommateCount: c.sublet.roommateCount } : null,
     version: Number(row.version), updatedAt: row.updated_at, isOwner: row.owner_user_id === viewerId,
     distanceMiles: row.distance_miles,
-    seller: { userId: row.owner_user_id,
+    seller: { userId: row.owner_user_id, kind: row.managed ? 'managed' as const : 'user' as const,
       name: row.managed ? contact?.name ?? '' : row.seller_name ?? '',
       avatarFileId: row.managed ? null : row.seller_avatar,
       ...(row.managed ? { avatarUrl: contact?.avatar ?? '' } : {}),
@@ -117,6 +118,7 @@ function item(row: Row, viewerId?: string, detail = false) {
 
 async function list(pool: Pool, appId: string, raw: unknown, viewerId?: string, ownerId?: string, mine = false) {
   const query = querySchema.parse(raw);
+  if (query.status && !mine) throw new AppError(400, 'INVALID_INPUT', '状态筛选仅用于我的商品');
   if (!viewerId && (query.keyword || query.regionCounty || query.regionArea || query.sort === 'distance')) {
     throw new AppError(401, 'UNAUTHORIZED', '请登录后使用详细筛选');
   }
@@ -124,7 +126,12 @@ async function list(pool: Pool, appId: string, raw: unknown, viewerId?: string, 
   const param = (value: unknown) => { values.push(value); return `$${values.length}`; };
   const where = ['l.app_id=$1', "l.status!='deleted'"];
   if (!mine) where.push("l.status='online'", 'l.expires_at>statement_timestamp()');
-  if (ownerId) where.push(`l.owner_user_id=${param(ownerId)}::uuid`);
+  if (query.status) where.push(`l.status=${param(query.status)}`);
+  if (ownerId) {
+    const owner = param(ownerId);
+    where.push(mine ? `l.owner_user_id=${owner}::uuid` : `(l.owner_user_id::text=${owner} OR u.openid=${owner})`);
+    if (!mine) where.push('NOT l.shared_admin_management');
+  }
   if (query.listingType !== 'all') where.push(`l.content->>'listingType'=${param(query.listingType)}`);
   if (query.category) where.push(`l.content->>'category'=${param(query.category)}`);
   for (const [key, value] of [['state', query.regionState], ['county', query.regionCounty], ['area', query.regionArea]] as const) {
@@ -157,7 +164,10 @@ export function listMarketListings(pool: Pool, appId: string, query: unknown, vi
   return list(pool, appId, query, viewerId);
 }
 export function listSellerMarketListings(pool: Pool, appId: string, sellerId: unknown, query: unknown, viewerId?: string) {
-  return list(pool, appId, query, viewerId, z.uuid().parse(sellerId));
+  // Old links may contain an OpenID; only already-public listing projections
+  // are readable anonymously, never the owner's profile/contact or new identity.
+  const id = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).parse(sellerId);
+  return list(pool, appId, query, viewerId, id);
 }
 export function listMyMarketListings(pool: Pool, appId: string, userId: string, query: unknown) {
   return list(pool, appId, query, userId, userId, true);
@@ -170,4 +180,22 @@ export async function getMarketListing(pool: Pool, appId: string, rawId: unknown
   [appId, id, viewerId ?? null])).rows[0];
   if (!row) throw notFound();
   return item(row, viewerId, true);
+}
+
+/** Old share URLs used an OpenID. Resolve it only on this authenticated boundary;
+ * no response or new link exposes it. An ordinary seller needs a currently
+ * public listing, so this is not an arbitrary user/profile lookup API. */
+export async function getMarketSeller(pool: Pool, appId: string, viewerId: string, rawId: unknown) {
+  const id = z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).parse(rawId);
+  const byId = z.uuid().safeParse(id).success;
+  const row = (await pool.query(`SELECT u.id AS "userId",u.name,${avatarFileIdSql('u')} AS "avatarFileId",
+    coalesce(nullif(u.profile->'region'->>'area',''),u.profile->'region'->>'label','') AS "regionLabel",
+    coalesce(u.profile->'location'->>'residence','') AS residence,coalesce(u.profile->>'bio','') AS bio,
+    coalesce(u.profile->>'wechatId','') AS "wechatId",coalesce(u.profile->>'phone','') AS phone
+    FROM users u WHERE u.app_id=$1 AND ${byId ? 'u.id=$2::uuid' : 'u.openid=$2'}
+      AND (u.id=$3::uuid OR EXISTS(SELECT 1 FROM market_listings l WHERE l.app_id=u.app_id AND l.owner_user_id=u.id
+        AND NOT l.shared_admin_management AND l.status='online' AND l.expires_at>statement_timestamp()))`,
+  [appId, id, viewerId])).rows[0];
+  if (!row) throw new AppError(404, 'SELLER_NOT_FOUND', '卖家暂无公开商品');
+  return row;
 }

@@ -1,6 +1,7 @@
 // pages/profile/tripHistory/tripHistory.js
 const followup = require('../../../utils/tripFollowup')
 const analytics = require('../../../utils/analyticsSession')
+const { loadRideHistory } = require('../../../utils/compat/rideHistory')
 
 function cleanText(value) {
   return String(value || '').trim()
@@ -167,7 +168,7 @@ Page({
     this._historyDataFresh = false
     this.setData({ loading: true })
     const current = () => !this._historyDisposed && this._historyFlight === entry && historyIdentity() === identity
-    entry.promise = Promise.resolve().then(() => wx.cloud.callFunction({ name: 'getMyTripHistory' })).then(res => {
+    entry.promise = Promise.resolve().then(() => loadRideHistory(identity)).then(res => {
       if (!current()) return
       if (res.result && res.result.ok) {
         const list = Array.isArray(res.result.data) ? res.result.data : []

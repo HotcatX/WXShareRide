@@ -1,3 +1,5 @@
+const profile = require("../../../utils/compat/profile")
+const contacts = require("../../../utils/compat/rideContacts")
 const { callTripManage, markRideListStale } = require("../../../utils/tripManage")
 
 function formatTime(value) {
@@ -23,14 +25,15 @@ function formatTime(value) {
 }
 
 function normalizeItem(item = {}) {
-  const openid = item.targetOpenid || item.openid || ""
+  const openid = profile.isBackendEnabled() ? "" : item.targetOpenid || item.openid || ""
   return {
     ...item,
     openid,
     targetOpenid: openid,
+    targetUserId: profile.isBackendEnabled() ? item.targetUserId : "",
     name: item.name || "未设置昵称",
     avatarUrl: item.avatarUrl || "/images/profile.png",
-    wechatID: item.wechatID || "",
+    wechatID: (profile.isBackendEnabled() ? item.wechatId : item.wechatID) || "",
     reason: item.reason || "",
     blockedAtText: formatTime(item.blockedAt || item.createdAt)
   }
@@ -50,8 +53,16 @@ Page({
   },
 
   onShow() {
+    this._hidden = false
+    if (this._listIdentity !== profile.identity()) this.setData({ list: [] })
     this.loadBlockList()
   },
+
+  onHide() { this._hidden = true; this.clearRefreshTimer() },
+
+  clearRefreshTimer() { if (this._refreshTimer) clearTimeout(this._refreshTimer); this._refreshTimer = null },
+
+  onUnload() { this.clearRefreshTimer(); this._disposed = true; this._listRevision = (this._listRevision || 0) + 1 },
 
   async onPullDownRefresh() {
     try {
@@ -68,16 +79,27 @@ Page({
   },
 
   async loadBlockList() {
+    if (this._disposed) return
+    this.clearRefreshTimer()
+    const identity = profile.identity(), revision = this._listRevision = (this._listRevision || 0) + 1
+    this._listIdentity = identity
+    const current = () => !this._disposed && this._listRevision === revision && profile.identity() === identity
     this.setData({ loading: true })
     try {
       const result = await callTripManage({ action: "getBlockList" })
+      if (!current()) return
       if (result && (result.ok || result.success)) {
         const list = Array.isArray(result.list) ? result.list.map(normalizeItem) : []
         this.setData({ list, loading: false })
+        if (profile.isBackendEnabled() && !this._hidden) {
+          this._refreshTimer = setTimeout(() => { this._refreshTimer = null; this.loadBlockList() }, 240000)
+          this._refreshTimer?.unref?.()
+        }
         return
       }
       wx.showToast({ title: (result && result.errorMsg) || "加载失败", icon: "none" })
     } catch (err) {
+      if (!current()) return
       console.error("loadBlockList failed:", err)
       wx.showToast({ title: "加载失败", icon: "none" })
     }
@@ -86,9 +108,13 @@ Page({
 
   onUnblockUser(e) {
     const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {}
-    const targetOpenid = dataset.openid || ""
+    const identity = profile.identity()
+    const allowed = () => !this._disposed && identity === profile.identity() && identity === this._listIdentity
+    if (!allowed()) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
     const targetName = dataset.name || "该用户"
-    if (!targetOpenid) return
+    if (!targetId) return
 
     wx.showModal({
       title: "解除拉黑",
@@ -96,23 +122,25 @@ Page({
       confirmText: "解除",
       cancelText: "取消",
       success: async (res) => {
-        if (!res.confirm) return
+        if (!res.confirm || !allowed()) return
         try {
           wx.showLoading({ title: "正在处理...", mask: true })
-          const result = await callTripManage({ action: "unblockUser", targetOpenid })
+          const result = await callTripManage({ action: "unblockUser", ...target })
           wx.hideLoading()
+          if (!allowed()) return
 
           if (result && (result.ok || result.success)) {
             markRideListStale()
-            const list = this.data.list.filter(item => item.targetOpenid !== targetOpenid)
+            const list = this.data.list.filter(item => (item.targetUserId || item.targetOpenid) !== targetId)
             this.setData({ list })
-            wx.showToast({ title: "已解除", icon: "success" })
+            wx.showToast({ title: result.recovered ? "已确认上次操作" : "已解除", icon: "success" })
             return
           }
 
           wx.showToast({ title: (result && result.errorMsg) || "操作失败", icon: "none" })
         } catch (err) {
           wx.hideLoading()
+          if (!allowed()) return
           console.error("unblockUser failed:", err)
           wx.showToast({ title: "操作失败", icon: "none" })
         }

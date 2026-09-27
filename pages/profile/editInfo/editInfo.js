@@ -1,5 +1,7 @@
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
+const profileApi = require('../../../utils/compat/profile')
+const { resolveProfileAvatar } = require('../../../utils/profileDisplay')
 const { callUpdateUser } = require('../../../utils/userProfileUpdate')
 const {
   DEFAULT_REGION_TREE,
@@ -207,7 +209,9 @@ Page({
     wx.navigateBack()
   },
 
-  onLoad(options) {
+  onLoad(options = {}) {
+    this._disposed = false
+    this._profileIdentity = profileApi.identity()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
       statusBarHeight: info.statusBarHeight
@@ -224,10 +228,21 @@ Page({
 
   },
 
+  isProfileCurrent() {
+    const identity = profileApi.identity()
+    if (this._profileIdentity === undefined) this._profileIdentity = identity
+    return !this._disposed && !this._exiting && this._profileIdentity === identity
+  },
+
   onUnload() {
+    this._disposed = true
+    this._profileLoad = (this._profileLoad || 0) + 1
+    this._avatarSelection = (this._avatarSelection || 0) + 1
+    if (this._navigationTimer) clearTimeout(this._navigationTimer)
   },
 
   markDirty() {
+    this._editVersion = (this._editVersion || 0) + 1
     this.setData({ unsaved: true })
   },
 
@@ -241,39 +256,41 @@ Page({
     this.setData({ unsaved: false })
   },
 
-  // 上传头像
+  // Only the latest selected image may change the profile reference.
   async onChooseAvatar(e) {
-    const { avatarUrl } = e.detail || {}
-    if (!avatarUrl) return
-
-
+    if (!this.isProfileCurrent()) return
+    const filePath = (e.detail || {}).avatarUrl
+    if (!filePath) return
+    const selection = this._avatarSelection = (this._avatarSelection || 0) + 1
+    const isCurrent = () => this.isProfileCurrent() && this._avatarSelection === selection
+    this._avatarUploading = true
+    this._editVersion = (this._editVersion || 0) + 1
     try {
-      const extMatch = avatarUrl.match(/\.(\w+)$/)
-      const ext = extMatch ? extMatch[1] : 'jpg'
-      const cloudPath = `userAvatar/${Date.now()}-${Math.floor(Math.random() * 1000000)}.${ext}`
-
-      const uploadRes = await wx.cloud.uploadFile({
-        cloudPath,
-        filePath: avatarUrl
-      })
-
-      this.setData({
-        avatarUrl: uploadRes.fileID
-      })
-      this.markDirtyAndSave()
-    } catch (err) {
-      console.error('上传头像失败：', err)
-      wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
+      const image = await profileApi.uploadAvatar(filePath)
+      if (!isCurrent()) return
+      this.setData({ ...image, unsaved: true })
+      await this.markDirtyAndSave()
+    } catch (_) {
+      if (isCurrent()) wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
     } finally {
+      if (isCurrent()) this._avatarUploading = false
     }
   },
 
   // 拉取云端现有 userInfo
   async loadUserInfo() {
+    if (!this.isProfileCurrent()) return
     try {
-      const res = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      const request = this._profileLoad = (this._profileLoad || 0) + 1
+      const editVersion = this._editVersion || 0
+      const isCurrent = () => this.isProfileCurrent() && this._profileLoad === request &&
+        (this._editVersion || 0) === editVersion && !this.data.unsaved
+      const res = await profileApi.getUserInfo()
+      if (!isCurrent()) return
       if (res.result && res.result.data && res.result.data.length > 0) {
         const user = res.result.data[0]
+        const avatarUrl = await resolveProfileAvatar(user, defaultAvatarUrl)
+        if (!isCurrent()) return
         const location = user.location || {}
         const cityKey = inferProfileCityKey(user, location)
         const city = cityKey ? getCitySnapshot(this.data.regionTree || DEFAULT_REGION_TREE, cityKey) : null
@@ -302,7 +319,9 @@ Page({
           regionGroupLabel: countyLabel,
           regionAreaLabel: areaLabel,
 
-          regionStateKey: stateLabel,
+          regionCityKey: cityKey,
+          regionCityLabel: cityLabel,
+          regionStateKey: stateKey,
           regionGroupKey: countyLabel,
           regionAreaKey: areaLabel,
           regionDisplay: regionBase,
@@ -311,7 +330,8 @@ Page({
           phone: user.phone || '',
           regionIndex: (user.regionPhone === 'CN') ? 1 : 0,
           name: user.name || '',
-          avatarUrl: user.avatarUrl || this.data.avatarUrl,
+          avatarUrl,
+          ...(profileApi.isBackendEnabled() ? { avatarFileId: user.avatarFileId || null } : {}),
           zelleName: user.zelleName || '',
           zelleAccount: user.zelleAccount || '',
           defaultShowZelle: user.defaultShowZelle === true,
@@ -323,6 +343,7 @@ Page({
         this.markCurrentAsSaved()
       }
     } catch (e) {
+      if (!this.isProfileCurrent()) return
       console.error('loadUserInfo 失败：', e)
       showDataError('资料加载失败', e, '个人资料从数据库加载失败，请稍后重试。')
     }
@@ -380,6 +401,7 @@ Page({
   },
 
   async loadRegionTreeFromCloud(options = {}) {
+    if (!this.isProfileCurrent()) return
     if (!options.force) {
       const cached = readCachedRegionTree()
       if (cached) {
@@ -391,6 +413,7 @@ Page({
   
     try {
       const { tree, fromCloud } = await loadRegionTreeConfig({ useCache: false })
+      if (!this.isProfileCurrent()) return
       const normalized = normalizeRegionTree(tree)
   
       if (fromCloud) writeCachedRegionTree(normalized)
@@ -398,6 +421,7 @@ Page({
       this._applyRegionTree(normalized)
       return normalized
     } catch (e) {
+      if (!this.isProfileCurrent()) return
       console.error('REGION_TREE 加载失败：', e)
       const fallback = normalizeRegionTree(DEFAULT_REGION_TREE)
       this._applyRegionTree(fallback)
@@ -638,6 +662,7 @@ Page({
     this.setData({ locationPicking: true })
     wx.chooseLocation({
       success: res => {
+        if (!this.isProfileCurrent()) return
         const lat = toFiniteNumber(res.latitude)
         const lng = toFiniteNumber(res.longitude)
         if (lat === null || lng === null) {
@@ -664,12 +689,14 @@ Page({
         wx.showToast({ title: '位置已选择', icon: 'success' })
       },
       fail: err => {
+        if (!this.isProfileCurrent()) return
         const msg = String(err?.errMsg || '')
         if (msg.includes('cancel')) return
         console.error('选择位置失败：', err)
         wx.showToast({ title: '选择位置失败', icon: 'none' })
       },
       complete: () => {
+        if (!this.isProfileCurrent()) return
         this.setData({ locationPicking: false })
       }
     })
@@ -719,6 +746,11 @@ Page({
   },
   
   async onSaveProfile() {
+    if (!this.isProfileCurrent()) return
+    if (this._avatarUploading) {
+      wx.showToast({ title: '头像上传中，请稍后保存', icon: 'none' })
+      return
+    }
     if (!this.validateBeforeSave()) return
     if (this._savingProfile) return
   
@@ -727,7 +759,7 @@ Page({
       waitForActive: true
     })
   
-    if (!ok) return
+    if (!ok || !this.isProfileCurrent()) return
   
     wx.showToast({
       title: '保存成功',
@@ -735,7 +767,8 @@ Page({
       duration: 800
     })
   
-    setTimeout(() => {
+    this._navigationTimer = setTimeout(() => {
+      if (!this.isProfileCurrent()) return
       wx.navigateBack()
     }, 800)
   },
@@ -771,9 +804,10 @@ Page({
       regionState: regionMeta.stateKey,
       regionCounty: regionMeta.groupLabel,
       regionArea: regionMeta.areaLabel,
+      regionDisplay: regionMeta.baseDisplay,
     
       name: this.data.name || '',
-      avatarUrl: this.data.avatarUrl || '',
+      ...profileApi.avatarPatch(this.data),
       zelleName: this.data.zelleName || '',
       zelleAccount: this.data.zelleAccount || '',
       defaultShowZelle: this.data.defaultShowZelle === true,
@@ -790,6 +824,7 @@ Page({
   },
 
   async saveToCloud(options = {}) {
+    if (!this.isProfileCurrent()) return false
     const { silent = false, waitForActive = false } = options
 
     if (this._savingProfile) {
@@ -824,6 +859,7 @@ Page({
       const savePromise = callUpdateUser(updateData)
       this._activeSavePromise = savePromise
       const res = await savePromise
+      if (!this.isProfileCurrent()) return false
       const result = res.result || {}
       if (!result.ok) {
         if (!silent) wx.showToast({ title: result.errorMsg || '保存失败', icon: 'none' })
@@ -840,6 +876,7 @@ Page({
       }
       return true
     } catch (e) {
+      if (!this.isProfileCurrent()) return false
       console.error('updateUser 调用失败', e)
       if (!silent) {
         showDataError('保存失败', e, '个人资料保存到数据库失败，请稍后重试。')

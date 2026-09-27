@@ -50,6 +50,8 @@ function harness({ store, now = NOW, holdTimers = false } = {}) {
     setTimeout: holdTimers ? (callback, delay) => state.timers.push({ callback, delay }) : setTimeout,
     clearTimeout,
     require(name) {
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
         return context._placeModules(name)
@@ -70,7 +72,7 @@ function harness({ store, now = NOW, holdTimers = false } = {}) {
       if (name.includes('rideCalendarPicker')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideCalendarPicker.js'), 'utf8'), {
-          ...context, module, require: () => require('../utils/rideCalendar')
+          ...context, module, require: name => name === './compat/rides' ? context.require('../../../utils/compat/rides') : require('../utils/rideCalendar')
         })
         return module.exports
       }

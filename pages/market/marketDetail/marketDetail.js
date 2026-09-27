@@ -1,3 +1,4 @@
+const market = require("../../../utils/compat/market")
 // pages/market/marketDetail/marketDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
 const {
@@ -163,7 +164,7 @@ function buildDetailItem(x = {}) {
     imageFileIDs,
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
     hasImage: hasOriginalImage,
-    fallbackImageSrc: x.imageUrl || x.imageFileID || imageFileIDs[0] || fallbackImage,
+    fallbackImageSrc: x.imageUrl || (market.isBackendEnabled() ? fallbackImage : x.imageFileID || imageFileIDs[0] || fallbackImage),
     fallbackImageTitle: title || (listingType === "sublet" ? "房源图片" : "商品图片"),
     pickupStartDate: x.pickupStartDate || "",
     pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
@@ -177,6 +178,10 @@ function buildDetailItem(x = {}) {
     viewCount: x.viewCount || 0,
     viewCountText: `${Number(x.viewCount) || 0} 人浏览`,
     _openid: x._openid,
+    sellerId: x.sellerId || "",
+    seller: x.seller || null,
+    version: x.version,
+    isOwner: x.isOwner === true,
     managedByAdmin: x.managedByAdmin === true,
     managedByOpenid: x.managedByOpenid || "",
     sellerName: normalizeText(x.sellerName),
@@ -241,6 +246,7 @@ function setMarketDetailCacheStore(store = {}) {
 }
 
 function readMarketDetailCache(id) {
+  if (market.isBackendEnabled()) return null
   const key = String(id || "").trim()
   if (!key) return null
   const entry = getMarketDetailCacheStore()[key]
@@ -253,6 +259,7 @@ function readMarketDetailCache(id) {
 }
 
 function writeMarketDetailCache(id, result) {
+  if (market.isBackendEnabled()) return
   const key = String(id || "").trim()
   const item = result && (result.item || result.data)
   if (!key || !item || item._id !== key) return
@@ -337,7 +344,7 @@ function getMarketLoginState() {
   }
 }
 
-Page({
+Page(market.page({
   data: {
     statusBarHeight: 0,
     item: null,
@@ -505,7 +512,7 @@ Page({
       return
     }
     this._lastSeenGoodsChangedAt = getMarketGoodsChangedAt()
-    this.fetchDetail(id)
+    this.fetchDetail(id, { trackView: true })
   },
 
   onShow() {
@@ -520,8 +527,8 @@ Page({
     const isOwner = !!(
       loginState.isLoggedIn &&
       myOpenid &&
-      this.data.item?._openid &&
-      myOpenid === this.data.item._openid
+      (market.isBackendEnabled() ? this.data.item?.isOwner === true :
+        this.data.item?._openid && myOpenid === this.data.item._openid)
     )
     
     this.setData({ myOpenid, isOwner })
@@ -530,7 +537,7 @@ Page({
     const lastSeen = Number(this._lastSeenGoodsChangedAt) || 0
     const detailId = this._lastDetailId || this.data.item?.id || ''
   
-    if (detailId && changedAt && changedAt !== lastSeen) {
+    if (detailId && (market.isBackendEnabled() || changedAt && changedAt !== lastSeen)) {
       this._lastSeenGoodsChangedAt = changedAt
       removeMarketDetailCache(detailId)
       this.fetchDetail(detailId)
@@ -590,7 +597,10 @@ Page({
       hasImageUrls: imgUrls.length > 0,
       hasMultipleImages: imgUrls.length > 1
     })
-    if (detailItem.managedByAdmin) {
+    if (market.isBackendEnabled()) {
+      const seller = buildSellerFromProfile(detailItem.seller || {})
+      this.setData({ seller, sellerWechat: detailItem.sellerWechat || "" })
+    } else if (detailItem.managedByAdmin) {
       this.setData({
         seller: buildSellerFromManagedItem(detailItem),
         sellerWechat: detailItem.sellerWechat || ""
@@ -601,10 +611,10 @@ Page({
     return true
   },
 
-  async fetchDetail(id) {
+  async fetchDetail(id, { trackView = false } = {}) {
     const detailId = String(id || "").trim()
     this._lastDetailId = detailId
-    const requestToken = `${detailId}|${Date.now()}`
+    const requestToken = `${detailId}|${this._detailSequence = (this._detailSequence || 0) + 1}`
     this._detailRequestToken = requestToken
 
     const cached = readMarketDetailCache(detailId)
@@ -632,9 +642,9 @@ Page({
     }
 
     try {
-      const res = await wx.cloud.callFunction({
+      const res = await market.call({
         name: "marketApi",
-        data: { action: "detail", id: detailId, trackView: true }
+        data: { action: "detail", id: detailId, trackView }
       })
       if (this._detailRequestToken !== requestToken) return
 
@@ -676,6 +686,7 @@ Page({
     }
   },
 
+
   onRetryLoad() {
     if (!this._lastDetailId) return
     this.fetchDetail(this._lastDetailId)
@@ -709,12 +720,14 @@ Page({
   },
 
   async onDeleteItem() {
+    const owner = market.identity()
     if (!this.data.isOwner) {
       wx.showToast({ title: '只能删除自己发布的内容', icon: 'none' })
       return
     }
 
     const id = this.data.item?.id
+    const expectedVersion = this.data.item?.version
     if (!id) return
 
     const ok = await new Promise(resolve => {
@@ -727,14 +740,15 @@ Page({
         fail: () => resolve(false)
       })
     })
-    if (!ok) return
+    if (!ok || !market.current(this, owner)) return
 
     try {
-      const res = await wx.cloud.callFunction({
+      const res = await market.call({
         name: 'marketApi',
-        data: { action: "delete", id }
+        data: { action: "delete", id, expectedVersion }
       })
       getMarketApiResult(res)
+      if (!market.current(this, owner)) return
 
       markMarketGoodsChanged()
       wx.showToast({ title: '已删除', icon: 'success' })
@@ -764,9 +778,9 @@ Page({
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
       return
     }
-    const openid = this.data.item?._openid
+    const openid = market.isBackendEnabled() ? this.data.item?.sellerId : this.data.item?._openid
     if (!openid) return
-    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
+    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
   },
 
   onDetailQuickAction() {
@@ -805,13 +819,13 @@ Page({
       })
       return
     }
-    const openid = this.data.item?._openid
+    const openid = market.isBackendEnabled() ? this.data.item?.sellerId : this.data.item?._openid
     if (!openid) {
       wx.showToast({ title: "发布者信息缺失", icon: "none" })
       return
     }
 
-    const wechat = await this._getSellerWechatByOpenid(openid)
+    const wechat = market.isBackendEnabled() ? this.data.item?.sellerWechat || "" : await this._getSellerWechatByOpenid(openid)
     if (!wechat) {
       wx.showToast({ title: "未填写微信号", icon: "none" })
       return
@@ -822,4 +836,4 @@ Page({
       success: () => wx.showToast({ title: "微信号已复制", icon: "success" })
     })
   }
-})
+}))

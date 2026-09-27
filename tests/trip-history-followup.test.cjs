@@ -29,6 +29,8 @@ function harness() {
   vm.runInNewContext(fs.readFileSync(SOURCE, 'utf8'), { wx, console,
     require(name) { if (name.endsWith('/tripFollowup')) return followup
       if (name.endsWith('/analyticsSession')) return analytics
+      if (name.endsWith('/compat/rideHistory')) return { loadRideHistory: account =>
+        require('../utils/compat/rideHistory').loadRideHistory(account, { wx, backend: { isBackendEnabled: () => false } }) }
       throw new Error('Unexpected import: ' + name) },
     Page(value) { config = value },
     setTimeout(fn) { const id = ++state.nextTimer; state.timers.set(id, fn); return id },

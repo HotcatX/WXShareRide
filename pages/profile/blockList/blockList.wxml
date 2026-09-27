@@ -26,7 +26,7 @@
     </view>
 
     <block wx:else>
-      <view class="ride-card ride-card-pad block-card" wx:for="{{list}}" wx:key="targetOpenid">
+      <view class="ride-card ride-card-pad block-card" wx:for="{{list}}" wx:key="index">
         <view class="block-person">
           <image class="ride-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
           <view class="block-main">
@@ -37,7 +37,7 @@
               </view>
               <view
                 class="ride-mini-btn ride-mini-btn--accent block-unblock"
-                data-openid="{{item.targetOpenid}}"
+                data-openid="{{item.targetOpenid}}" data-user-id="{{item.targetUserId}}"
                 data-name="{{item.name}}"
                 bindtap="onUnblockUser"
               >解除</view>

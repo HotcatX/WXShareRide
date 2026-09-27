@@ -315,3 +315,15 @@ test('place request 401 invalidates manager token age and refreshes after bounde
   assert.equal(h.state.calls.length, initial + 1)
   assert.equal(h.state.calls.at(-1).action, 'status')
 })
+
+
+test('event metadata observes the current real foreground without creating a background session',async()=>{
+  const h=harness()
+  assert.equal(h.manager.getEventMetadata(),null);assert.equal(h.state.calls.length,0)
+  await h.start();const metadata=h.manager.getEventMetadata()
+  assert.ok(metadata.sessionId);assert.equal(metadata.context.buildMode,'release')
+  assert.equal(h.store[STORAGE_KEY].events[0].sessionId,metadata.sessionId)
+  h.manager.endForeground();assert.equal(h.manager.getEventMetadata(),null)
+  await tick();h.state.now+=1000;await h.start()
+  assert.notEqual(h.manager.getEventMetadata().sessionId,metadata.sessionId)
+})

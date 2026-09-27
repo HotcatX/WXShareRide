@@ -1,3 +1,5 @@
+const profileApi = require("../../utils/compat/profile")
+const rides = require("../../utils/compat/rides")
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const PUBLIC_STATS_CACHE_KEY = 'homePublicStatsCacheV1'
 const PUBLIC_STATS_CACHE_TTL = 24 * 60 * 60 * 1000
@@ -388,6 +390,12 @@ Page({
   },
 
   onShow() {
+    this._cityRequestDisposed = false
+    const cityRequestOwner = wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+    if (this._cityRequestOwner && this._cityRequestOwner !== cityRequestOwner) {
+      this._cityRequestVersion = (this._cityRequestVersion || 0) + 1
+      this.setData({ rideDemandSubmitting: false, rideDemandRequested: false })
+    }
     this._communityActive = true
     this._announcementShownOnVisit = !!this._skipNextAnnouncementShow
     this._skipNextAnnouncementShow = false
@@ -405,6 +413,7 @@ Page({
   },
 
   onUnload() {
+    this._cityRequestDisposed = true
     this._communityActive = false
     this._communityRequestVersion += 1
     this.clearCommunityNoticeExpiry()
@@ -548,7 +557,7 @@ Page({
   },
 
   homeReadKey() {
-    return JSON.stringify([homeIdentity(), this.data.activeCityKey, wx.getStorageSync(RIDE_LIST_REFRESH_KEY) || 0])
+    return (rides.isBackendEnabled() ? "server:" : "cloudbase:") + JSON.stringify([homeIdentity(), this.data.activeCityKey, wx.getStorageSync(RIDE_LIST_REFRESH_KEY) || 0])
   },
 
   onTapLoginBtn() {
@@ -676,27 +685,28 @@ Page({
 
   async onRequestRideCityService() {
     if (this.data.rideDemandSubmitting || this.data.rideDemandRequested || this.data.isRideServiceAvailable) return
+    const cityKey = this.data.activeCityKey
+    const account = () => wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+    const owner = account(), version = this._cityRequestVersion = (this._cityRequestVersion || 0) + 1
+    this._cityRequestOwner = owner
+    const current = () => !this._cityRequestDisposed && version === this._cityRequestVersion && owner === account()
     this.setData({ rideDemandSubmitting: true })
     try {
-      const res = await wx.cloud.callFunction({
-        name: "rideDemand",
-        data: {
-          cityKey: this.data.activeCityKey,
-          cityLabel: this.data.activeCityLabel,
-          cityAliases: this.data.activeCityAliases || [],
-          sourcePage: "home"
-        }
-      })
-      if (!res || !res.result || !res.result.success) {
-        throw new Error((res && res.result && res.result.errorMsg) || "request_failed")
+      const res = await rides.requestCity({ cityKey, cityLabel: this.data.activeCityLabel,
+        cityAliases: this.data.activeCityAliases || [], sourcePage: "home" })
+      if (!current()) return
+      if (!res || !res.result || !res.result.success) throw new Error("request_failed")
+      const result = res.result
+      // A lost acknowledgement may belong to a previous city. Confirm that
+      // intent without marking a newly selected city as already requested.
+      if (this.data.activeCityKey === cityKey && (!result.cityKey || result.cityKey === cityKey)) {
+        this.setData({ rideDemandRequested: true })
       }
-      this.setData({ rideDemandRequested: true })
-      wx.showToast({ title: "已收到请求", icon: "success" })
+      wx.showToast({ title: result.recovered ? "已确认上次请求" : "已收到请求", icon: "success" })
     } catch (e) {
-      console.error("request ride city service failed:", e)
-      wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
+      if (current()) wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
     } finally {
-      this.setData({ rideDemandSubmitting: false })
+      if (current()) this.setData({ rideDemandSubmitting: false })
     }
   },
 
@@ -827,7 +837,7 @@ Page({
   },
 
   async loadHomeTripLists(key = this.homeReadKey(), isCurrent = () => true) {
-    const res = await wx.cloud.callFunction({ name: 'getHomeTripList' })
+    const res = await rides.getHomeTripList()
     if (!isCurrent() || key !== this.homeReadKey()) return false
     const ok = !!(res && res.result && res.result.ok)
     if (!ok) {
@@ -906,6 +916,8 @@ Page({
   },
 
   refreshHomeStatusInBackground(force = false) {
+    // TEMPORARY FALLBACK: only CloudBase builds invoke legacy status jobs.
+    if (rides.isBackendEnabled()) return Promise.resolve()
     const identity = homeIdentity()
     if (!identity) return Promise.resolve()
     if (this._statusRefreshPromise && this._statusRefreshIdentity === identity) return this._statusRefreshPromise
@@ -978,10 +990,8 @@ Page({
     this.setData({ customTabProfileBadge: Number(wx.getStorageSync('customTabProfileBadge') || 0) })
     const key = this.homeReadKey()
     return readHomeResource(this, 'unread', key, force, async isCurrent => {
-        const res = await wx.cloud.database().collection('Notifications')
-          .where({ _openid: openid, read: false }).count()
+        const count = await profileApi.getUnreadCount(openid)
         if (!isCurrent() || key !== this.homeReadKey()) return false
-        const count = res.total || 0
         wx.setStorageSync('customTabProfileBadge', count)
         this.setData({ customTabProfileBadge: count })
       })

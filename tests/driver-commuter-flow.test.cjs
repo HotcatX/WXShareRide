@@ -21,27 +21,14 @@ function fixture(clock = now) {
   let definition
   const state = { openid: 'driver', templateReads: 0, templates: [],
     createCalls: [], modals: [], toasts: [], navigation: [], timers: [], stale: 0 }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/home/newTrip/newTrip.js'), 'utf8'), {
-    Page: value => { definition = value }, Date: FixtureDate,
-    console: { log() {}, error() {} }, setTimeout: fn => state.timers.push(fn), clearTimeout() {},
-    require(name) {
-      if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
-      if (name.endsWith('/rideTime')) return require('../utils/rideTime')
-      if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale: () => state.stale++ }
-      if (name.endsWith('/error')) return { showDataError() {} }
-      if (name.endsWith('/cityTree')) return { DEFAULT_CITY_KEY: 'ny_nj',
-        getStoredCitySnapshot: () => ({ key: 'ny_nj' }), isRideServiceCityKey: () => true,
-        getRideServiceCitySnapshot: () => ({ key: 'ny_nj', label: '纽约/新泽西' }) }
-      return {}
-    },
-    wx: {
+  const wx = {
       getStorageSync: key => key === 'openid' ? state.openid : '', setStorageSync() {},
       showToast: value => state.toasts.push(value), showModal: value => state.modals.push(value),
       navigateTo: value => state.navigation.push(value), reLaunch: value => state.navigation.push(value),
       cloud: {
         database() { return { collection(name) {
           assert.equal(name, 'CarpoolTemplate')
-          const query = { where() { return query }, orderBy() { return query },
+          const query = { where() { return query }, orderBy() { return query }, skip() { return query }, limit() { return query },
             get() { state.templateReads++; return state.templateResponse || Promise.resolve({ data: state.templates }) } }
           return query
         } } },
@@ -52,6 +39,23 @@ function fixture(clock = now) {
         }
       }
     }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/home/newTrip/newTrip.js'), 'utf8'), {
+    wx, Page: value => { definition = value }, Date: FixtureDate,
+    console: { log() {}, error() {} }, setTimeout: fn => state.timers.push(fn), clearTimeout() {},
+    require(name) {
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
+      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/compat/ridePublish')) return require('../utils/compat/ridePublish').createRidePublishClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
+      if (name.endsWith('/rideTime')) return require('../utils/rideTime')
+      if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale: () => state.stale++ }
+      if (name.endsWith('/error')) return { showDataError() {} }
+      if (name.endsWith('/cityTree')) return { DEFAULT_CITY_KEY: 'ny_nj',
+        getStoredCitySnapshot: () => ({ key: 'ny_nj' }), isRideServiceCityKey: () => true,
+        getRideServiceCitySnapshot: () => ({ key: 'ny_nj', label: '纽约/新泽西' }) }
+      return {}
+    },
+
   })
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function(patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
@@ -143,9 +147,9 @@ test('confirmed snapshot cannot change during the modal/request and successful p
   assert.equal(state.createCalls[0].data.referencePrice, '8$/人')
   response.resolve({ result: { success: true, id: 'published' } })
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(page.data.publishedDriverTrip.id, 'published')
-  assert.equal(page.data.publishedDriverTrip.destinationAddress, '哥大')
-  assert.equal(page.data.publishedDriverTrip.referencePrice, '8')
+  assert.equal(page.data.publishedRide.id, 'published')
+  assert.equal(page.data.publishedRide.destinationAddress, '哥大')
+  assert.equal(page.data.publishedRide.referencePrice, '8')
   assert.equal(state.timers.length, 0)
   assert.equal(state.navigation.length, 0)
   page.driver_confirmTrip()
@@ -186,10 +190,10 @@ test('failed publication can retry while successful publication prevents a dupli
   state.createResponse = Promise.resolve({ result: { success: false } })
   await page.driver_submitTrip()
   assert.equal(state.createCalls.length, 1)
-  assert.equal(page.data.publishedDriverTrip, null)
+  assert.equal(page.data.publishedRide, null)
   state.createResponse = Promise.resolve({ result: { success: true, id: 'retry-success' } })
   await page.driver_submitTrip()
-  assert.equal(page.data.publishedDriverTrip.id, 'retry-success')
+  assert.equal(page.data.publishedRide.id, 'retry-success')
   assert.equal(page.data.submitting, false)
   await page.driver_submitTrip()
   assert.equal(state.createCalls.length, 2)
@@ -222,7 +226,7 @@ test('a successful publication from a previous account never shows the next acco
   state.openid = 'other-driver'
   response.resolve({ result: { success: true, id: 'old-account-trip' } })
   await pending
-  assert.equal(page.data.publishedDriverTrip, null)
+  assert.equal(page.data.publishedRide, null)
   assert.equal(state.createCalls.length, 1)
   assert.equal(page.data.preparingReturn, false)
 })

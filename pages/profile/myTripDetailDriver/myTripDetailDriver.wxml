@@ -16,6 +16,7 @@
   </view>
 
   <view wx:if="{{loading}}" class="ride-state">正在加载路线</view>
+  <view wx:elif="{{loadError}}" class="ride-state">{{loadError}}</view>
 
   <scroll-view
     wx:else
@@ -86,7 +87,7 @@
               <view
                 wx:if="{{kickMode && !isTripCompleted}}"
                 class="ride-copy my-kick"
-                data-openid="{{p._openid}}"
+                data-openid="{{p._openid}}" data-user-id="{{p.userId}}"
                 bindtap="onKickPassenger"
               >剔除</view>
             </view>
@@ -111,9 +112,9 @@
             </view>
 
             <view wx:if="{{!kickMode}}" class="ride-person-actions">
-              <view wx:if="{{isTripCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">评价</view>
-              <view wx:if="{{isTripCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">已评价</view>
-              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+              <view wx:if="{{isTripCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">评价</view>
+              <view wx:if="{{isTripCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '该乘客'}}" bindtap="onRatePassenger">已评价</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>
         </view>

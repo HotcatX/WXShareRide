@@ -30,7 +30,7 @@ function fixture() {
         }
       }
     },
-    require: () => ({ buildProfileDisplayLocation: () => '', buildProfileApartmentDisplay: () => '' })
+    require: () => ({ isBackendEnabled: () => false, buildProfileDisplayLocation: () => '', buildProfileApartmentDisplay: () => '' })
   })
   const resolve = (call, avatar = '') => call.resolve({ result: { ok: true, data: call.request.data.openids.map(openid => ({ _openid: openid, name: openid, avatarUrl: avatar })) } })
   return { api: module.exports, calls, images, storage, resolve, advance: ms => { now += ms } }

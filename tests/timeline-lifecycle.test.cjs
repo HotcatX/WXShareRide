@@ -414,6 +414,8 @@ test('App and referral hooks perform no referral requests or storage writes in p
 
 test('normal share integration keeps original metadata and one timeline marker, without altering friend shares', () => {
   const harness = makeAppHarness()
+  harness.storage.set('openid', 'viewer_1')
+  harness.storage.set('userInfo', { _openid: 'viewer_1', referralCode: 'viewer_ref' })
   harness.storage.set('my_referral_code', 'viewer_ref')
   harness.enter({ scene: 1001 })
   const friendShare = { title: 'Friend title', path: `/${PUBLIC_CARPOOL}?id=trip_1&ref=viewer_ref` }

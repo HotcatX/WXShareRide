@@ -119,6 +119,7 @@ All fields below are required unless followed by `?`. Null is not a substitute f
 | Event | `data` fields |
 | --- | --- |
 | `page_view` | `page` |
+| `referral_visit` | `code` (`ref_` + 12 lowercase hex), enumerated `source` and `entry`; original capture time in `occurredAt` |
 | `search_submitted` | `searchId`, `tripType`, `serviceDate`, `originArea?`, `destinationArea?`, `partySize?`, `intentId?` |
 | `result_set_rendered` | `searchId`, `selectionSetId`, `source`, `renderedCount`, `loadedDateCount`, `hasMore`, `candidatesComplete`, `zeroReason?`, `candidates?` |
 | `result_card_visible` | `selectionSetId`, `tripKey`, `tripType`, `position`, `visibilityBucket` |
@@ -272,3 +273,5 @@ and context for five minutes. Maintenance prunes real payloads/projections at
 removed after 180 inactive days. Official deployment requires a pre-migration
 backup: schema-3 code deliberately refuses schema 4, so rollback needs its paired
 backup, not an old image pointed at an upgraded database.
+
+Referral visits use the existing event ledger. The mini program keeps at most 32 not-yet-queued captures locally for seven days and reports overflow/expiry through `collection_diagnostic`. It queues visits only after a signed-in account is eligible; visitors who never sign in are outside this sample. App launch/show/page-load captures of the same code and entry within ten seconds retain the same event ID and capture time. No raw query, URL, or contact data enters this event. Binding an invitation is a separate business operation and is not a visit timestamp. A visit preserves its observed foreground `sessionId` and client context. A launch capture before foreground initialization waits for the first observed foreground; it does not create a synthetic session from its event ID. These metadata remain unchanged when a locally pending visit is retried after an app restart or upgrade.

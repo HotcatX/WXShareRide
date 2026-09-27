@@ -3,6 +3,7 @@ const { createAnalyticsClient } = require('./analyticsClient')
 const { readInstallationBucket } = require('./rolloutCohort')
 const { isOpaqueId } = require('./analyticsSchema')
 const { PENDING_KEY } = require('./compat/analyticsLegacy')
+const backend = require('./backendClient')
 
 const ROUTES = Object.freeze({
   'pages/home/home': 'home',
@@ -14,6 +15,7 @@ const ROUTES = Object.freeze({
 const validVersion = value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647
 
 function createAnalyticsSession(options = {}) {
+  const business = options.backend || backend
   const wxApi = options.wx || (typeof wx !== 'undefined' ? wx : null)
   const config = Object.assign({}, defaults, options.config || {})
   const now = options.now || Date.now
@@ -124,8 +126,16 @@ function createAnalyticsSession(options = {}) {
       action, requestId, expectedStatusVersion, purposeVersion: config.purposeVersion, noticeVersion: config.noticeVersion
     }
     if (collectionMode === 'test') data.collectionMode = 'test'
-    const response = await wxApi.cloud.callFunction({ name: 'statistics', data })
-    const reply = response && response.result
+    let reply
+    if (business.isBackendEnabled()) {
+      try { reply = await business.collectionSession(data) }
+      catch (error) { error.conflict = error.status === 409; throw error }
+    } else {
+      // TEMPORARY FALLBACK: selected CloudBase mode only; server errors never
+      // create another grant or retry a write against a different identity store.
+      const response = await wxApi.cloud.callFunction({ name: 'statistics', data })
+      reply = response && response.result
+    }
     if (!reply || reply.ok !== true) {
       const failure = new Error('participation_request_failed')
       failure.conflict = !!(reply && reply.statusCode === 409)
@@ -310,6 +320,10 @@ function createAnalyticsSession(options = {}) {
     const result = record('result_set_rendered', Object.assign({ candidatesComplete: false }, data, { selectionSetId }))
     return Object.assign({}, result, { selectionSetId })
   }
+  function getEventMetadata() {
+    syncIdentity()
+    return foreground && typeof client.getEventMetadata === 'function' ? client.getEventMetadata() : null
+  }
   function getCollectionScope() {
     syncIdentity()
     return verified && participantKey && getState().participating ? `${collectionMode}:${participantKey}:${statusVersion}` : ''
@@ -336,14 +350,14 @@ function createAnalyticsSession(options = {}) {
     return epoch === generation && verified && foreground ? response : null
   }
   return { beginForeground, endForeground, identityChanged, pageShown, refreshStatus, withdraw,
-    getState, subscribe, recordSearch, recordResults, flush, recordEvent: record, makeEventId: makeId, getCollectionScope, requestPlaceSuggestions }
+    getState, subscribe, recordSearch, recordResults, flush, recordEvent: record, makeEventId: makeId, getCollectionScope, requestPlaceSuggestions, getEventMetadata }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createAnalyticsSession(); return singleton }
 const exported = { createAnalyticsSession, PENDING_KEY, ROUTES }
 ;['beginForeground', 'endForeground', 'identityChanged', 'pageShown', 'refreshStatus', 'withdraw',
-  'getState', 'subscribe', 'recordSearch', 'recordResults', 'flush', 'recordEvent', 'makeEventId', 'getCollectionScope', 'requestPlaceSuggestions'].forEach(name => {
+  'getState', 'subscribe', 'recordSearch', 'recordResults', 'flush', 'recordEvent', 'makeEventId', 'getCollectionScope', 'requestPlaceSuggestions', 'getEventMetadata'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

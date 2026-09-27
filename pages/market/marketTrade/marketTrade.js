@@ -1,3 +1,4 @@
+const market = require("../../../utils/compat/market")
 // pages/market/marketTrade/marketTrade.js
 const { showDataError } = require("../../../utils/error")
 
@@ -60,7 +61,7 @@ function buildTradeItem(x = {}, type = "sold") {
   }
 }
 
-Page({
+Page(market.page({
   data: {
     statusBarHeight: 0,
     type: "sold",
@@ -86,6 +87,7 @@ Page({
     this.init()
   },
 
+
   onPullDownRefresh() {
     this.init().finally(() => wx.stopPullDownRefresh())
   },
@@ -99,6 +101,8 @@ Page({
   },
 
   async fetchList() {
+    const request = this._tradeRequest = (this._tradeRequest || 0) + 1
+    const owner = market.identity()
     try {
       const PAGE = 50
       const MAX_TOTAL = 1000
@@ -108,7 +112,7 @@ Page({
       let myOpenid = this.data.myOpenid || ""
 
       while (true) {
-        const res = await wx.cloud.callFunction({
+        const res = await market.call({
           name: "marketApi",
           data: { action: "tradeList", type: this.data.type, skip, limit: PAGE }
         })
@@ -123,6 +127,7 @@ Page({
         if (rows.length >= MAX_TOTAL) break
       }
 
+      if (!market.current(this, owner) || request !== this._tradeRequest) return
       const list = rows.map(x => buildTradeItem(x, this.data.type))
 
       this.setData({
@@ -131,6 +136,7 @@ Page({
         ...buildTradeDisplayPatch(this.data.type, list)
       })
     } catch (e) {
+      if (!market.current(this, owner) || request !== this._tradeRequest) return
       console.error("fetchList error", e)
       showDataError("交易加载失败", e, "交易列表从数据库加载失败，请稍后重试。")
     }
@@ -153,4 +159,4 @@ Page({
       success: () => wx.showToast({ title: "已复制微信号", icon: "success" })
     })
   }
-})
+}))

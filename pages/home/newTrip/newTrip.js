@@ -1,8 +1,11 @@
 const { showDataError } = require("../../../utils/error")
+const profileApi = require("../../../utils/compat/profile")
+const templatesApi = require("../../../utils/compat/rideTemplates")
+const publishApi = require("../../../utils/compat/ridePublish")
 const rideTime = require("../../../utils/rideTime")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { getDriverRouteDefaultPrice, getDriverRoutePriceKey } = require("../../../utils/driverRideDefaults")
-const { shortRidePlaceLabel, ridePlaceAliasPattern, resolvePlaceId } = require("../../../utils/ridePlaceOptions")
+const { shortRidePlaceLabel, resolvePlaceId } = require("../../../utils/ridePlaceOptions")
 const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const placeRecommendations = require("../../../utils/placeRecommendations")
 const placePickerTelemetry = require("../../../utils/placePickerTelemetry")
@@ -42,6 +45,8 @@ Page({
     // ====== 顶部/通用 ======
     statusBarHeight: 80,
     pageTitle: "新建路线",
+    serverMode: false,
+    templateRouteSummary: "",
     mode: "driver", // 默认司机
 
     userInfo: null,
@@ -78,7 +83,7 @@ Page({
 
     templates: [],
     loadingTemplates: false,
-    publishedDriverTrip: null,
+    publishedRide: null,
     preparingReturn: false,
 
     // ====== 乘客模式字段 ======
@@ -92,9 +97,10 @@ Page({
   // -------------------------
   onLoad(options = {}) {
     this._calendarDisposed = false
+    this._pageIdentity = profileApi.identity()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const mode = options.mode === "passenger" ? "passenger" : "driver"
-    this.setData({ statusBarHeight: info.statusBarHeight, mode,
+    this.setData({ statusBarHeight: info.statusBarHeight, mode, serverMode: profileApi.isBackendEnabled(),
       ...this.getFilterDateData(),
       ...(mode === "passenger" ? { referencePrice: "", referencePriceHasNumber: false } : {})
     })
@@ -110,10 +116,19 @@ Page({
   },
 
   onShow() {
-    if (this._publishedDriverOpenid && this._publishedDriverOpenid !== (wx.getStorageSync("openid") || "")) {
-      this._publishedDriverOpenid = ""
+    const identity = profileApi.identity()
+    if (this._pageIdentity !== undefined && identity !== this._pageIdentity) {
+      this.invalidateUserInfoRead()
+      this._selectedTemplate = null
+      this._priceManuallyEdited = false
+      this.setData({ userInfo: null, departureAddress: "", destinationAddress: "", departureDate: "", departureTime: "",
+        referencePrice: "", comment: "", templateRouteSummary: "", publishedRide: null, preparingReturn: false, submitting: false })
+    }
+    this._pageIdentity = identity
+    if (this._publishedOwner && this._publishedOwner !== (wx.getStorageSync("openid") || "")) {
+      this._publishedOwner = ""
       this._returnDepartureTimestamp = null
-      this.setData({ publishedDriverTrip: null, preparingReturn: false })
+      this.setData({ publishedRide: null, preparingReturn: false })
     }
     if (this.data.calendarVisible) {
       this.setData(this.getFilterDateData())
@@ -147,16 +162,18 @@ Page({
   // -------------------------
   setMode(e) {
     const mode = e.currentTarget.dataset.mode
-    if (this.data.submitting || this._driverSubmitInFlight) return
+    if (this.data.submitting || this._submitInFlight) return
     if (!["driver", "passenger"].includes(mode) || mode === this.data.mode) return
     placePickerTelemetry.closePlacePicker(this._placeSession, "replaced")
     this._priceManuallyEdited = false
+    this._selectedTemplate = null
     this._returnDepartureTimestamp = null
 
     this.setData({
       mode,
       preparingReturn: false,
-      publishedDriverTrip: null,
+      templateRouteSummary: "",
+      publishedRide: null,
       calendarVisible: false,
       timePickerVisible: false,
       placePickerVisible: false,
@@ -186,7 +203,7 @@ Page({
   // -------------------------
   isLoggedIn() {
     const openid = wx.getStorageSync("openid") || ""
-    return !!openid
+    return !!openid && !wx.getStorageSync("isGuest")
   },
 
   // 司机：创建前拦截
@@ -237,10 +254,12 @@ Page({
       this.setData({ userInfo: null, loadingUserInfo: false, driverProfileReady: false, carNumber: "", carBrand: "", carModel: "", showZelle: false })
       return Promise.resolve()
     }
-    if (this._userInfoPromise) return this._userInfoPromise
+    const identity = profileApi.identity()
+    if (this._userInfoPromise && this._userInfoReadIdentity === identity) return this._userInfoPromise
+    this._userInfoReadIdentity = identity
     const revision = this._userInfoReadRevision = (this._userInfoReadRevision || 0) + 1
     this.setData({ loadingUserInfo: true })
-    const pending = this.readUserInfo(revision).finally(() => {
+    const pending = this.readUserInfo(revision, identity).finally(() => {
       if (this._userInfoPromise !== pending) return
       this._userInfoPromise = null
       if (!this._calendarDisposed) this.setData({ loadingUserInfo: false })
@@ -254,10 +273,10 @@ Page({
     this._userInfoPromise = null
   },
 
-  async readUserInfo(revision) {
-    const isCurrent = () => !this._calendarDisposed && revision === this._userInfoReadRevision
+  async readUserInfo(revision, identity = profileApi.identity()) {
+    const isCurrent = () => !this._calendarDisposed && revision === this._userInfoReadRevision && identity === profileApi.identity()
     try {
-      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      const res = await profileApi.getUserInfo()
       if (!isCurrent()) return
       const list = res?.result?.data || []
       const user = list[0] || null
@@ -328,6 +347,7 @@ Page({
 
   // 地址变化后的分流：司机更新默认参考价；乘客查 Request_Price
   async afterAddressChanged() {
+    this.refreshTemplateRouteSummary()
     if (this.data.mode === "driver") {
       this.updateReferencePrice_driver()
     } else {
@@ -374,7 +394,7 @@ Page({
   },
 
   applyCalendarSelection(date) {
-    this.setData({ departureDate: date, calendarVisible: false })
+    this.setData({ departureDate: date, calendarVisible: false }, () => this.refreshTemplateRouteSummary())
   },
 
   onOpenTimePicker() {
@@ -389,7 +409,7 @@ Page({
   onTimeChange(e) {
     const value = e.detail.value
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value || "")) return
-    this.setData({ departureTime: value, timePickerVisible: false })
+    this.setData({ departureTime: value, timePickerVisible: false }, () => this.refreshTemplateRouteSummary())
   },
 
   getPlaceRecommendationContext() {
@@ -462,7 +482,7 @@ Page({
   },
 
   // -------------------------
-  // 司机：人数输入（允许先输入，提交时校验 1-7）
+  // 司机：人数输入（提交时按当前后端容量上限校验）
   // -------------------------
   onPassengerInput(e) {
     const v = String(e.detail.value || "")
@@ -481,7 +501,7 @@ Page({
   onReferencePriceInput(e) {
     this._priceManuallyEdited = true
     this.setData({
-      referencePrice: normalizeRidePriceInput(e.detail.value),
+      referencePrice: profileApi.isBackendEnabled() ? String(e.detail.value || "") : normalizeRidePriceInput(e.detail.value),
       referencePriceHasNumber: true
     })
   },
@@ -491,8 +511,8 @@ Page({
   // 乘客：人数输入（1-4）
   // -------------------------
   onPassengerInputPassenger(e) {
-    const num = parseInt(e.detail.value, 10)
-    if (isNaN(num) || num < 1 || num > 4) return this.showError("乘客数需为 1-4 的整数")
+    const num = Number(e.detail.value)
+    if (!Number.isInteger(num) || num < 1 || num > 4) return this.showError("乘客数需为 1-4 的整数")
     this.setData({ passengerCount: num })
   },
 
@@ -512,36 +532,11 @@ Page({
       dep === String(this.data.departureAddress || "").trim() && dest === String(this.data.destinationAddress || "").trim()
 
     try {
-      const db = wx.cloud.database()
-      const departureAlias = ridePlaceAliasPattern(dep)
-      const destinationAlias = ridePlaceAliasPattern(dest)
-      const res = await db.collection("Request_Price")
-        .where({
-          Departure: departureAlias ? db.RegExp({ regexp: departureAlias, options: 'i' }) : dep,
-          Destination: destinationAlias ? db.RegExp({ regexp: destinationAlias, options: 'i' }) : dest
-        })
-        .limit(departureAlias || destinationAlias ? 100 : 1)
-        .get()
-
-      // Prefer an exact configured price when both new and legacy airport names exist.
-      const rows = Array.isArray(res?.data) ? res.data : []
-      const exactScore = row => Number(row.Departure === dep) + Number(row.Destination === dest)
-      const row = rows.slice().sort((a, b) => exactScore(b) - exactScore(a))[0] || null
+      const label = await publishApi.loadRequestPrice(dep, dest)
       if (!isCurrent()) return
-      if (row && row.Price !== undefined && row.Price !== null && String(row.Price).trim() !== "") {
-        const priceNumber = extractRidePriceNumber(row.Price)
-        this.setData({
-          referencePrice: priceNumber || String(row.Price).trim(),
-          referencePriceHasNumber: !!priceNumber,
-          priceLocked: true
-        })
-      } else {
-        this.setData({
-          referencePrice: "参考打车价格",
-          referencePriceHasNumber: false,
-          priceLocked: true
-        })
-      }
+      const priceNumber = profileApi.isBackendEnabled() ? null : extractRidePriceNumber(label)
+      this.setData({ referencePrice: priceNumber || label,
+        referencePriceHasNumber: profileApi.isBackendEnabled() ? false : !!priceNumber, priceLocked: true })
     } catch (err) {
       if (!isCurrent()) return
       console.error("updateReferencePriceFromRequestPrice error:", err)
@@ -561,7 +556,7 @@ Page({
   },
 
   // -------------------------
-  // 司机：模板（保持同表 CarpoolTemplate）
+  // 司机：每周模板
   // -------------------------
   loadTemplatesIfNeeded() {
     if (this.data.mode !== "driver") return
@@ -594,13 +589,10 @@ Page({
     const isCurrent = () => !this._calendarDisposed && revision === this._templateReadRevision &&
       openid === (wx.getStorageSync("openid") || "")
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection("CarpoolTemplate")
-        .where({ _openid: openid })
-        .orderBy("createdAt", "desc")
-        .get()
+      const rows = await templatesApi.loadRideTemplates()
+      if (!isCurrent()) return
 
-      const templates = (res.data || []).map(t => this.decorateWeeklyShortcut({
+      const templates = rows.map(t => this.decorateWeeklyShortcut({
         ...t,
         departureText: t.departureAddress || "未设置出发地",
         destinationText: t.destinationAddress || "未设置目的地",
@@ -620,7 +612,7 @@ Page({
   },
 
   onManageTemplates() {
-    if (this.data.submitting || this.data.publishedDriverTrip) return
+    if (this.data.submitting || this.data.publishedRide) return
     if (!this.ensureLoginBeforeCreate_driver()) return
     this._templateReadRevision = (this._templateReadRevision || 0) + 1
     this._templatesPromise = null
@@ -636,7 +628,9 @@ Page({
     }
     const time = this.normalizeTimeStr(route.departureTime || "")
     const options = { now: Date.now() }
-    const nextDepartureDate = rideTime.getNextWeeklyRideDate(weekdayIndex, time, options)
+    const occurrence = profileApi.isBackendEnabled() && route.backendTemplate ? publishApi.templateOccurrence(route.backendTemplate, options.now) : null
+    const nextDepartureDate = profileApi.isBackendEnabled() && route.backendTemplate ? occurrence?.date || ""
+      : rideTime.getNextWeeklyRideDate(weekdayIndex, time, options)
     const weekdayText = weekdayIndex === null ? "" : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][weekdayIndex]
     const nextDepartureLabel = nextDepartureDate
       ? `${Number(nextDepartureDate.slice(5, 7))}月${Number(nextDepartureDate.slice(8, 10))}日` : "请确认日期时间"
@@ -646,7 +640,7 @@ Page({
   },
 
   onTemplateTap(e) {
-    if (this.data.submitting || this.data.publishedDriverTrip || this.data.mode !== "driver") return
+    if (this.data.submitting || this.data.publishedRide || this.data.mode !== "driver") return
     const id = e.currentTarget.dataset.id
     const tpl = (this.data.templates || []).find(x => x._id === id)
     if (!tpl) return
@@ -658,8 +652,9 @@ Page({
   },
 
   applyDriverShortcut(route, date, time) {
-    const seat = this.safeSeat(route.passengerCount)
-    const referencePrice = extractRidePriceNumber(route.referencePrice) || ""
+    this._selectedTemplate = profileApi.isBackendEnabled() ? route.backendTemplate || null : null
+    const seat = profileApi.isBackendEnabled() ? Number(route.passengerCount) : this.safeSeat(route.passengerCount)
+    const referencePrice = profileApi.isBackendEnabled() ? String(route.referencePrice ?? "") : extractRidePriceNumber(route.referencePrice) || ""
     const comment = route.comment || ""
     this._priceManuallyEdited = !!referencePrice
     this._returnDepartureTimestamp = null
@@ -674,11 +669,12 @@ Page({
       commentExpanded: !!comment,
       templatesExpanded: false,
       preparingReturn: false,
-      publishedDriverTrip: null,
+      publishedRide: null,
       departureDate: date,
       departureTime: time
     }, () => {
-      if (!referencePrice) this.updateReferencePrice_driver()
+      if (!referencePrice && !this._selectedTemplate) this.updateReferencePrice_driver()
+      this.refreshTemplateRouteSummary()
     })
   },
 
@@ -703,7 +699,29 @@ Page({
   // -------------------------
   // ✅ 统一入口：confirmTrip 分流到司机/乘客原逻辑
   // -------------------------
-  confirmTrip() {
+  async confirmTrip() {
+    if (this.data.submitting || this._submitInFlight || this.data.publishedRide || this._calendarDisposed) return
+    if (profileApi.isBackendEnabled() && this.isLoggedIn()) {
+      const identity = profileApi.identity()
+      this._submitInFlight = true
+      this.setData({ submitting: true })
+      try {
+        const recovered = await publishApi.recoverPublishedRide()
+        if (this._calendarDisposed || identity !== profileApi.identity()) return
+        if (recovered) {
+          this._publishedOwner = wx.getStorageSync('openid') || ''
+          this.setData({ publishedRide: { id: recovered.id, recovered: true }, preparingReturn: false })
+          markRideListStale()
+          return
+        }
+      } catch (error) {
+        if (!this._calendarDisposed && identity === profileApi.identity()) this.showError('上次发布结果尚未确认，请重试')
+        return
+      } finally {
+        this._submitInFlight = false
+        if (!this._calendarDisposed && identity === profileApi.identity()) this.setData({ submitting: false })
+      }
+    }
     if (this.data.mode === "driver") return this.driver_confirmTrip()
     return this.passenger_confirmTrip()
   },
@@ -712,10 +730,11 @@ Page({
   // 司机：confirmTrip / submitTrip
   // =========================
   driver_confirmTrip() {
-    if (this.data.submitting || this._driverSubmitInFlight || this.data.publishedDriverTrip) return
-    const seat = parseInt(this.data.passengerCountInput, 10)
-    if (!seat || isNaN(seat) || seat < 1 || seat > 7) {
-      this.showError("载客数量必须为 1-7 的整数")
+    if (this.data.submitting || this._submitInFlight || this.data.publishedRide) return
+    const seat = Number(this.data.passengerCountInput)
+    const maxSeats = profileApi.isBackendEnabled() ? 8 : 7
+    if (!Number.isInteger(seat) || seat < 1 || seat > maxSeats) {
+      this.showError(`载客数量必须为 1-${maxSeats} 的整数`)
       return
     }
     this.setData({ passengerCount: seat })
@@ -762,18 +781,23 @@ Page({
 
     const now = new Date()
     const diffMin = (selectedTime.getTime() - now.getTime()) / (1000 * 60)
-    if (diffMin < 12) return this.showError("发车时间需晚于当前15分钟")
+    if (diffMin < (profileApi.isBackendEnabled() ? 15 : 12)) return this.showError("发车时间需晚于当前15分钟")
     if (diffMin > 43200) return this.showError("发车时间不能超过30天")
     if (this.data.preparingReturn && selectedTime.getTime() <= this._returnDepartureTimestamp) {
       return this.showError("返程时间需晚于去程时间")
     }
 
-    const referencePriceText = formatRidePricePerPerson(referencePrice)
+    const referencePriceText = profileApi.isBackendEnabled() ? String(referencePrice || "").trim() : formatRidePricePerPerson(referencePrice)
     if (!referencePriceText) return this.showError("请填写参考价格")
 
+    let fullRoute = ""
+    if (profileApi.isBackendEnabled()) {
+      try { fullRoute = publishApi.summarizeStops(publishApi.toRideInput(this.captureDriverDraft()).stops) }
+      catch (error) { return this.showError(error.message) }
+    }
     const summary =
-      `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
-      `到达：${destinationAddress}\n` +
+      (fullRoute ? `${fullRoute}\n` : `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
+      `到达：${destinationAddress}\n`) +
       `载客数：${passengerCount}\n` +
       `参考价格：${referencePriceText}\n` +
       `公开 Zelle 信息：${this.data.showZelle ? "是" : "否"}`
@@ -790,24 +814,27 @@ Page({
         if (res.confirm) this.driver_submitTrip(draft)
         else this.setData({ submitting: false })
       },
-      fail: () => this.setData({ submitting: false })
+      fail: () => { if (!this._calendarDisposed) this.setData({ submitting: false }) }
     })
   },
 
   captureDriverDraft() {
     const { departureAddress, destinationAddress, departureDate, departureTime, passengerCount, referencePrice, comment } = this.data
     const rideCity = getRideCitySnapshot()
-    return { departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
-      referencePrice: extractRidePriceNumber(referencePrice) || "", comment,
+    return { kind: "offer", departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
+      referencePrice: profileApi.isBackendEnabled() ? String(referencePrice ?? "") : extractRidePriceNumber(referencePrice) || "", comment,
+      ...(profileApi.isBackendEnabled() && this._selectedTemplate ? { template: JSON.parse(JSON.stringify(this._selectedTemplate)) } : {}),
       showZelle: this.data.showZelle === true, hasUserInfo: !!this.data.userInfo,
       openid: wx.getStorageSync("openid") || "", cityKey: rideCity.key || DEFAULT_CITY_KEY,
       cityLabel: rideCity.label || "" }
   },
 
   onPrepareReturnTrip() {
-    const trip = this.data.publishedDriverTrip
-    if (!trip || this.data.submitting || this._driverSubmitInFlight) return
-    if (this._publishedDriverOpenid !== (wx.getStorageSync("openid") || "")) return
+    const trip = this.data.publishedRide
+    if (!trip || this.data.submitting || this._submitInFlight) return
+    if (this._publishedOwner !== (wx.getStorageSync("openid") || "")) return
+    if (trip.recovered || trip.kind === 'request' || (trip.stops && trip.stops.length > 2)) return
+    this._selectedTemplate = null
     this._returnDepartureTimestamp = rideTime.parseRideDateTime(trip.departureDate, trip.departureTime)
     this._priceManuallyEdited = true
     this.setData({
@@ -821,19 +848,20 @@ Page({
       referencePriceHasNumber: !!trip.referencePrice,
       comment: trip.comment || "",
       commentExpanded: !!trip.comment,
-      publishedDriverTrip: null,
+      templateRouteSummary: "",
+      publishedRide: null,
       preparingReturn: true
     })
   },
 
   onReturnHome() {
-    if (this.data.submitting || this._driverSubmitInFlight) return
+    if (this.data.submitting || this._submitInFlight) return
     wx.reLaunch({ url: "/pages/home/home" })
   },
 
   async driver_submitTrip(draft = this.captureDriverDraft()) {
-    if (this._driverSubmitInFlight || this.data.publishedDriverTrip || this._calendarDisposed) return
-    this._driverSubmitInFlight = true
+    if (this._submitInFlight || this.data.publishedRide || this._calendarDisposed) return
+    this._submitInFlight = true
     if (!this.data.submitting) this.setData({ submitting: true })
 
     try {
@@ -870,28 +898,21 @@ Page({
         zelle: showZelle ? "yes" : "no"
       }
 
-      const createRes = await wx.cloud.callFunction({
-        name: "createTrip",
-        data: createPayload
-      })
-
-      if (!createRes?.result?.success || !createRes?.result?.id) {
-        this.showError("路线创建失败，请重试")
-        return
-      }
-
+      const created = await publishApi.publishRide(draft, createPayload)
       markRideListStale()
-      const publishedDriverTrip = { id: createRes.result.id, departureAddress, destinationAddress,
-        departureDate, departureTime, passengerCount, referencePrice, comment }
-      if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "")) {
-        this._publishedDriverOpenid = draft.openid
-        this.setData({ publishedDriverTrip, preparingReturn: false })
+      if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "") && !wx.getStorageSync("isGuest")) {
+        this._publishedOwner = draft.openid
+        this.setData({ publishedRide: created.recovered ? { id: created.id, recovered: true } : {
+          id: created.id, kind: 'offer', departureAddress, destinationAddress, departureDate, departureTime,
+          passengerCount, referencePrice, comment, ...(created.payload ? { stops: created.payload.stops, routeSummary: publishApi.summarizeStops(created.payload.stops) } : {})
+        }, preparingReturn: false })
       }
     } catch (e) {
+      if (this._calendarDisposed || draft.openid !== (wx.getStorageSync("openid") || "") || wx.getStorageSync("isGuest")) return
       console.error("driver_submitTrip error:", e)
       this.showError("路线创建失败，请重试")
     } finally {
-      this._driverSubmitInFlight = false
+      this._submitInFlight = false
       if (!this._calendarDisposed) this.setData({ submitting: false })
     }
   },
@@ -900,7 +921,7 @@ Page({
   // 乘客：confirmTrip / submitRequest
   // =========================
   passenger_confirmTrip() {
-    if (this.data.submitting) return
+    if (this.data.submitting || this._submitInFlight || this.data.publishedRide) return
     if (!this.ensureLoginBeforeCreate_passenger()) return
 
     const {
@@ -918,7 +939,7 @@ Page({
     if (!departureAddress || !destinationAddress) return this.showError("请选择出发地和目的地")
     if (departureAddress === destinationAddress) return this.showError("出发地与目的地不能相同")
     if (!departureDate || !departureTime) return this.showError("请完善出发日期和时间")
-    const referencePriceText = formatRidePricePerPerson(referencePrice)
+    const referencePriceText = profileApi.isBackendEnabled() ? String(referencePrice || "").trim() : formatRidePricePerPerson(referencePrice)
     if (!referencePriceText) return this.showError("价格信息缺失，请重新选择地址")
 
     const selectedTime = this.parseDateTimeSafe(departureDate, departureTime)
@@ -926,80 +947,91 @@ Page({
 
     const now = new Date()
     const diffMin = (selectedTime - now) / (1000 * 60)
-    if (diffMin < 12) return this.showError("出发时间需晚于当前15分钟")
+    if (diffMin < (profileApi.isBackendEnabled() ? 15 : 12)) return this.showError("出发时间需晚于当前15分钟")
     if (diffMin > 43200) return this.showError("出发时间不能超过30天")
 
+    if (!Number.isInteger(Number(passengerCount)) || passengerCount < 1 || passengerCount > 4) return this.showError("乘客数需为 1-4 的整数")
+    if (profileApi.isBackendEnabled()) {
+      try { publishApi.toRideInput(this.capturePassengerDraft()) }
+      catch (error) { return this.showError(error.message) }
+    }
     const summary =
       `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
       `到达：${destinationAddress}\n` +
       `人数：${passengerCount}\n` +
       `价格：${referencePriceText}`
 
+    const draft = this.capturePassengerDraft()
     this.setData({ submitting: true })
 
+    let answered = false
     wx.showModal({
       title: "确认发起求车",
       content: summary,
       success: async (res) => {
+        if (answered || this._calendarDisposed) return
+        answered = true
         if (!res.confirm) {
           this.setData({ submitting: false })
           return
         }
-        await this.passenger_submitRequest()
+        await this.passenger_submitRequest(draft)
       },
-      fail: () => this.setData({ submitting: false })
+      fail: () => { if (!this._calendarDisposed) this.setData({ submitting: false }) }
     })
   },
 
-  async passenger_submitRequest() {
-    try {
-      const {
-        userInfo,
-        departureAddress, destinationAddress,
-        departureDate, departureTime,
-        passengerCount, referencePrice
-      } = this.data
-      const referencePriceText = formatRidePricePerPerson(referencePrice, referencePrice)
-      const rideCity = getRideCitySnapshot()
+  capturePassengerDraft() {
+    const { departureAddress, destinationAddress, departureDate, departureTime, passengerCount, referencePrice } = this.data
+    const rideCity = getRideCitySnapshot()
+    return { kind: 'request', departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
+      referencePrice: String(referencePrice || ''), comment: '', cityKey: rideCity.key || DEFAULT_CITY_KEY,
+      cityLabel: rideCity.label || '', openid: wx.getStorageSync('openid') || '', hasUserInfo: !!this.data.userInfo }
+  },
 
-      if (!userInfo) {
+  refreshTemplateRouteSummary() {
+    let templateRouteSummary = ''
+    if (profileApi.isBackendEnabled() && this._selectedTemplate?.definition.stops.length > 2) {
+      try { templateRouteSummary = publishApi.summarizeStops(publishApi.toRideInput(this.captureDriverDraft()).stops) }
+      catch (_) { templateRouteSummary = '多站路线：' + this._selectedTemplate.definition.stops.map(stop => stop.address).join(' → ') + '（请确认完整出发时间）' }
+    }
+    this.setData({ templateRouteSummary })
+  },
+
+  async passenger_submitRequest(draft = this.capturePassengerDraft()) {
+    if (this._submitInFlight || this.data.publishedRide || this._calendarDisposed) return
+    this._submitInFlight = true
+    this.setData({ submitting: true })
+    try {
+      const { departureAddress, destinationAddress, departureDate, departureTime, passengerCount, referencePrice } = draft
+      if (!draft.hasUserInfo || !draft.openid || draft.openid !== (wx.getStorageSync('openid') || '') || wx.getStorageSync('isGuest')) {
         this.showError("请先完善个人信息")
         return
       }
-
-      const createRes = await wx.cloud.callFunction({
-        name: "createTrip",
-        data: {
-          type: "request",
-          cityKey: rideCity.key || DEFAULT_CITY_KEY,
-          cityLabel: rideCity.label || "",
-          departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
-          destinations: [{ address: destinationAddress }],
-          passengerCount,
-          largeLuggageCount: 0,
-          comment: "",
-          referencePrice: referencePriceText
-        }
+      const created = await publishApi.publishRide(draft, {
+        type: "request", cityKey: draft.cityKey, cityLabel: draft.cityLabel,
+        departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
+        destinations: [{ address: destinationAddress }], passengerCount, largeLuggageCount: 0, comment: "",
+        referencePrice: formatRidePricePerPerson(referencePrice, referencePrice)
       })
-
-      const ok = createRes?.result?.success
-      const requestId = createRes?.result?.id
-      const errMsg = createRes?.result?.errorMsg || createRes?.result?.errMsg || ""
-
-      if (!ok || !requestId) {
-        this.showError(errMsg ? `求车创建失败：${errMsg}` : "求车创建失败，请重试")
-        return
-      }
-
       markRideListStale()
-      wx.showToast({ title: "已发布求车", icon: "success", duration: 1800 })
-      setTimeout(() => wx.reLaunch({ url: "/pages/home/home" }), 1200)
-
+      if (this._calendarDisposed || draft.openid !== (wx.getStorageSync('openid') || '') || wx.getStorageSync('isGuest')) return
+      this._publishedOwner = draft.openid
+      this.setData({ publishedRide: created.recovered ? { id: created.id, recovered: true } : {
+        id: created.id, kind: 'request', departureAddress, destinationAddress, departureDate, departureTime,
+        passengerCount, referencePrice, ...(created.payload ? { stops: created.payload.stops, routeSummary: publishApi.summarizeStops(created.payload.stops) } : {})
+      } })
+      wx.showToast({ title: created.recovered ? "已确认上次发布" : "已发布求车", icon: "success", duration: 1800 })
+      if (!created.recovered) setTimeout(() => {
+        if (!this._calendarDisposed && draft.openid === (wx.getStorageSync('openid') || '') && !wx.getStorageSync('isGuest')) wx.reLaunch({ url: "/pages/home/home" })
+      }, 1200)
     } catch (e) {
+      if (this._calendarDisposed || draft.openid !== (wx.getStorageSync('openid') || '') || wx.getStorageSync('isGuest')) return
       console.error("passenger_submitRequest error:", e)
       this.showError("求车创建失败，请重试")
     } finally {
-      this.setData({ submitting: false })
+      this._submitInFlight = false
+      if (!this._calendarDisposed) this.setData({ submitting: false })
     }
   }
 })

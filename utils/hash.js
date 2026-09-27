@@ -1,4 +1,4 @@
-// SHA-256 of the exact UTF-8 request body, for immutable-batch ACK checks only.
+// SHA-256 of request bodies or image bytes, for ACK checks and retry identity.
 // Authentication is provided by a server-issued token, never by this hash.
 function utf8Bytes(text) {
   const out = []
@@ -29,8 +29,7 @@ const K = [
 ]
 const rotate = (x, n) => (x >>> n) | (x << (32 - n))
 
-function sha256(text) {
-  const bytes = utf8Bytes(String(text))
+function hashBytes(bytes) {
   const length = bytes.length
   bytes.push(0x80)
   while (bytes.length % 64 !== 56) bytes.push(0)
@@ -61,4 +60,11 @@ function sha256(text) {
   return h.map(v => (v >>> 0).toString(16).padStart(8, '0')).join('')
 }
 
-module.exports = { sha256, utf8ByteLength: text => utf8Bytes(String(text)).length }
+function sha256(text) { return hashBytes(utf8Bytes(String(text))) }
+function sha256Bytes(value) {
+  if (value instanceof ArrayBuffer) value = new Uint8Array(value)
+  if (!(value instanceof Uint8Array)) throw new TypeError('Expected image bytes')
+  return hashBytes(Array.from(value))
+}
+
+module.exports = { sha256, sha256Bytes, utf8ByteLength: text => utf8Bytes(String(text)).length }

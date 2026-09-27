@@ -18,7 +18,10 @@ function harness() {
       return new Promise((resolve, reject) => calls.push({ input, resolve: result => resolve({ result }), reject }))
     } }
   }
-  const context = { module: { exports: {} }, wx }
+  const context = { module: { exports: {} }, wx, require(name) {
+    assert.equal(name, './compat/rides')
+    return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+  } }
   vm.runInNewContext(source, context)
   return { api: context.module.exports, storage, calls }
 }
@@ -133,4 +136,22 @@ test('invalidating a request after accepting it prevents an older unassigned rea
   h.calls[1].resolve({ ok: true, data: { _id: 'trip', driverOpenid: 'alice' } })
   assert.equal((await afterAccept).data.driverOpenid, 'alice')
   assert.equal(h.api.readTripDetailCache('request', 'trip').data.driverOpenid, 'alice')
+})
+
+test('server details neither reuse old CloudBase disk entries nor persist member contacts and signed URLs', async () => {
+  const storage = { openid: 'alice', isGuest: false,
+    trip_detail_cache_v1: { 'cloudbase:alice:carpool:trip': { ts: Date.now(), result: success('legacy-secret') } } }
+  let reads = 0, writes = 0
+  const context = { module: { exports: {} }, wx: {
+    getStorageSync: key => storage[key], setStorageSync() { writes++ }
+  }, require(name) {
+    assert.equal(name, './compat/rides')
+    return { isBackendEnabled: () => true, async getTripDetail() { reads++; return success('server-authorized') } }
+  } }
+  vm.runInNewContext(source, context)
+  const api = context.module.exports
+  assert.equal(api.readTripDetailCache('carpool', 'trip', { allowStale: true }), null)
+  assert.equal((await api.fetchTripDetail('carpool', 'trip')).driverInfo.phone, 'server-authorized')
+  await api.fetchTripDetail('carpool', 'trip')
+  assert.equal(reads, 2); assert.equal(writes, 0)
 })

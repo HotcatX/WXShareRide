@@ -39,6 +39,8 @@ function harness({ pages = [{ route: LOGIN }], storage = {}, call, bind, fail = 
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/other/login/login.js'), 'utf8'), {
     Page(value) { definition = value }, wx, getCurrentPages: () => pages,
     require(name) {
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
+      if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
       if (name.endsWith('/loginNavigation')) return navModule.exports
       if (name.endsWith('/analyticsSession')) return { identityChanged() { calls.identity++ } }
       if (name.endsWith('/referral')) return {

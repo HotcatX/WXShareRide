@@ -1,10 +1,12 @@
 const { isTimelinePreview } = require('./timeline')
+const backend = require('./backendClient')
 
 const HISTORY_KEY = 'community_announcement_history_v1'
 const MAX_HISTORY = 100
 const REQUEST_TIMEOUT_MS = 15000
 let pendingRequest = null
 let cachedConfig = null
+let cacheIdentity = ''
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 const validTime = value => Number.isSafeInteger(value) && value >= 0 && value <= 8640000000000000
@@ -80,7 +82,21 @@ function normalizeConfig(result) {
 }
 
 function canRequest() {
-  return typeof wx !== 'undefined' && wx.cloud && typeof wx.cloud.callFunction === 'function' && !isTimelinePreview()
+  return typeof wx !== 'undefined' && (backend.isBackendEnabled() || wx.cloud && typeof wx.cloud.callFunction === 'function') && !isTimelinePreview()
+}
+
+async function requestConfig() {
+  // Legacy compatibility ends here; failures never fall back across modes.
+  if (!backend.isBackendEnabled()) return (await wx.cloud.callFunction({ name: 'marketApi', data: { action: 'communityConfig' } })).result
+  const data = await backend.get('/api/v1/community', { anonymous: true })
+  const files = [...new Set([data.group?.imageFileId, data.announcement?.imageFileId].filter(Boolean))]
+  const urls = files.length ? await backend.resolveImages(files, { anonymous: true }) : []
+  const byId = Object.fromEntries(urls.map(image => [image.fileId, image.url]))
+  const time = value => value === null ? 0 : Date.parse(value)
+  return { ok: true, serverTime: time(data.serverTime),
+    group: { ...data.group, imageUrl: byId[data.group?.imageFileId] || '', expiresAt: time(data.group?.expiresAt) },
+    announcement: { ...data.announcement, imageUrl: byId[data.announcement?.imageFileId] || '',
+      startAt: time(data.announcement?.startAt), endAt: time(data.announcement?.endAt) } }
 }
 
 function friendlyError(timeout = false) {
@@ -93,6 +109,8 @@ function friendlyError(timeout = false) {
 // default fresh read so replaced QR codes and server-side switches are immediate.
 function loadCommunityConfig({ force = false, maxAgeMs = 0 } = {}) {
   if (!canRequest()) return Promise.resolve(null)
+  const owner = backend.isBackendEnabled() ? JSON.stringify(['server', wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')]) : 'cloudbase'
+  if (cacheIdentity !== owner) { pendingRequest = null; cachedConfig = null; cacheIdentity = owner }
   if (pendingRequest) return pendingRequest
   const maxAge = Math.min(30000, Math.max(0, Number(maxAgeMs) || 0))
   if (!force && cachedConfig && getCommunityNow(cachedConfig) - cachedConfig.serverTime < maxAge) {
@@ -109,20 +127,18 @@ function loadCommunityConfig({ force = false, maxAgeMs = 0 } = {}) {
     }
     const timer = setTimeout(() => finish(friendlyError(true)), REQUEST_TIMEOUT_MS)
     try {
-      Promise.resolve(wx.cloud.callFunction({ name: 'marketApi', data: { action: 'communityConfig' } }))
+      Promise.resolve(requestConfig())
         .then(response => {
-          if (!canRequest()) return finish(null, null)
-          try { finish(null, normalizeConfig(response && response.result)) } catch (_) { finish(friendlyError()) }
+          if (!canRequest() || cacheIdentity !== owner) return finish(null, null)
+          try { finish(null, normalizeConfig(response)) } catch (_) { finish(friendlyError()) }
         }, () => finish(friendlyError()))
     } catch (_) { finish(friendlyError()) }
   })
   pendingRequest = request.then(value => {
-    pendingRequest = null
-    cachedConfig = value
+    if (cacheIdentity === owner) { pendingRequest = null; cachedConfig = value }
     return value
   }, error => {
-    pendingRequest = null
-    cachedConfig = null
+    if (cacheIdentity === owner) { pendingRequest = null; cachedConfig = null }
     throw error
   })
   return pendingRequest

@@ -51,3 +51,28 @@ test('storage config is all-or-nothing and credentials stay in a server secret f
   assert.throws(() => loadConfig(environment), { message: 'Invalid COS_CREDENTIALS_FILE' });
   assert.throws(() => loadConfig({ ...environment, COS_REGION: 'ap-shanghai.attacker.test' }), /Invalid configuration/);
 });
+
+test('collector uses one file-only bridge key and a trusted HTTPS origin', t => {
+  const base = { DATABASE_URL: 'postgresql://localhost/linkx', WECHAT_APP_ID: 'wx8a8a389199aa2a0e' };
+  const dir = mkdtempSync(join(tmpdir(), 'linkx-collector-config-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'collector.key'); writeFileSync(file,'b'.repeat(64),{mode:0o600});
+  assert.deepEqual(loadConfig({...base,COLLECTOR_BRIDGE_KEY_FILE:file}).collector,
+    {origin:'https://collect.linkx.ink',key:Buffer.alloc(32,0xbb)});
+  for(const origin of ['http://collect.linkx.ink','https://collect.linkx.ink/path','https://user:secret@collect.linkx.ink']) {
+    assert.throws(()=>loadConfig({...base,COLLECTOR_ORIGIN:origin}),/Invalid configuration/);
+  }
+  writeFileSync(file,'do-not-echo-secret');
+  assert.throws(()=>loadConfig({...base,COLLECTOR_BRIDGE_KEY_FILE:file}),{message:'Invalid COLLECTOR_BRIDGE_KEY_FILE'});
+});
+
+test('collection account subjects require the original distinct file-only key',t=>{
+  const dir=mkdtempSync(join(tmpdir(),'linkx-subject-config-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const bridge=join(dir,'bridge.key'),subject=join(dir,'subject.key');
+  writeFileSync(bridge,'a'.repeat(64));writeFileSync(subject,'b'.repeat(64));
+  const base={DATABASE_URL:'postgresql://localhost/linkx',WECHAT_APP_ID:'wx8a8a389199aa2a0e',COLLECTOR_SUBJECT_KEY_FILE:subject};
+  assert.throws(()=>loadConfig(base),/Invalid configuration/);
+  assert.deepEqual(loadConfig({...base,COLLECTOR_BRIDGE_KEY_FILE:bridge}).collector?.subjectKey,Buffer.alloc(32,0xbb));
+  writeFileSync(subject,'a'.repeat(64));
+  assert.throws(()=>loadConfig({...base,COLLECTOR_BRIDGE_KEY_FILE:bridge}),{message:'Invalid COLLECTOR_SUBJECT_KEY_FILE'});
+});

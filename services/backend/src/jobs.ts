@@ -1,8 +1,23 @@
+import type { Config } from './config.ts';
+import type { Pool } from 'pg';
+import { closeDueRides } from './rides/completion.ts';
+import { createCollectorTransport, deliverBusinessEvents } from './analytics/delivery.ts';
+
 type RideJobs = {
   closeRides: () => Promise<unknown>;
   deliverEvents: () => Promise<unknown>;
 };
 type JobFailure = 'RIDE_CLOSURE_FAILED' | 'EVENT_DELIVERY_FAILED';
+
+export function startConfiguredRideJobs(config: Config, pool: Pool, report: (code: JobFailure) => void) {
+  if (config.businessMode !== 'active') return async () => {};
+  // Never accept business writes in the executable without a delivery path.
+  // The same deployment state controls HTTP writes and both background loops.
+  if (!config.collector) throw new Error('Active backend requires collector configuration');
+  const send = createCollectorTransport(config.collector);
+  return startRideJobs({ closeRides: () => closeDueRides(pool, config.appId),
+    deliverEvents: () => deliverBusinessEvents(pool, config.appId, send) }, report);
+}
 
 /** Start only after the business writer has been activated. This module does
  * not decide cutover authority. Each task runs independently, never overlaps

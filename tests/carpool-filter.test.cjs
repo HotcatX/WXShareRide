@@ -44,6 +44,8 @@ function harness() {
     getApp: () => ({ withReferralShare: value => value }),
     console: { error() {}, warn() {} },
     require(name) {
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx: context.wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(context.wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
         return context._placeModules(name)
@@ -56,7 +58,13 @@ function harness() {
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
+          ...context, module, require: name => {
+            if (name === './backendClient') return { isBackendEnabled: () => false }
+            if (name === './locationConfig') return { loadLocationConfig: () => { throw new Error('CloudBase mode must not call the server') } }
+            if (name === './placeCatalog') return require('../utils/placeCatalog')
+            if (name === './ridePlaceOptions') return require('../utils/ridePlaceOptions')
+            throw new Error(`Unexpected address configuration dependency: ${name}`)
+          }
         })
         return module.exports
       }
@@ -64,7 +72,7 @@ function harness() {
       if (name.includes('rideCalendarPicker')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideCalendarPicker.js'), 'utf8'), {
-          ...context, module, require: () => require('../utils/rideCalendar')
+          ...context, module, require: name => name === './compat/rides' ? context.require('../../../utils/compat/rides') : require('../utils/rideCalendar')
         })
         return module.exports
       }

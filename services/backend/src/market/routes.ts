@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { Identity } from '../auth/session.ts';
 import { createListing, deleteListing, setListingStatus, updateListing } from './service.ts';
-import { getMarketListing, listMarketListings, listMyMarketListings, listSellerMarketListings } from './read.ts';
+import { getMarketListing, getMarketSeller, listMarketListings, listMyMarketListings, listSellerMarketListings } from './read.ts';
 import { recordListingView } from './activity.ts';
 
 type Dependencies = { pool: Pool; appId: string; requireUser: (request: FastifyRequest) => Promise<Identity> };
@@ -32,6 +32,12 @@ export function registerMarketRoutes(app: FastifyInstance, { pool, appId, requir
     reply.header('Cache-Control', 'private, no-store').header('Vary', 'Authorization');
     const user = await optionalUser(request);
     return { ok: true, data: await listSellerMarketListings(pool, appId, request.params.sellerId, request.query, user?.id), requestId: request.id };
+  });
+  app.get<{ Params: { sellerId: string } }>('/api/v1/market/sellers/:sellerId', async (request, reply) => {
+    const user = await requireUser(request);
+    z.strictObject({}).parse(request.query);
+    reply.header('Cache-Control', 'private, no-store');
+    return { ok: true, data: await getMarketSeller(pool, appId, user.id, request.params.sellerId), requestId: request.id };
   });
   app.post('/api/v1/market/listings', async (request, reply) => {
     reply.header('Cache-Control', 'private, no-store');

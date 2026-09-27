@@ -1,3 +1,4 @@
+const rides = require("./compat/rides")
 const rideCalendar = require("./rideCalendar")
 
 const CALENDAR_CACHE_TTL = 5 * 60 * 1000
@@ -46,7 +47,7 @@ const methods = {
       const preset = name === "fromPresets" || name === "toPresets"
       return [name, preset && Array.isArray(value) ? value.slice().sort() : value]
     })
-    return JSON.stringify([filters, this.getListViewerKey(), this.getRideListRefreshAt(), this.data.todayDateStr])
+    return JSON.stringify([rides.isBackendEnabled() ? "server" : "cloudbase", filters, this.getListViewerKey(), this.getRideListRefreshAt(), this.data.todayDateStr])
   },
 
   renderCalendar() {
@@ -134,7 +135,7 @@ const methods = {
       reads.set(key, entry)
       const pending = entry
       entry.promise = (async () => {
-        const res = await wx.cloud.callFunction({ name: "getTripList", data: request })
+        const res = await rides.callTripList(request)
         const result = res && res.result
         if (!result || !result.success || result.month !== request.month || !Array.isArray(result.data && result.data.days)) {
           throw new Error(result && result.errorMsg || "无法读取日历统计")

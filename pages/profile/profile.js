@@ -1,3 +1,5 @@
+const profileApi = require('../../utils/compat/profile')
+const { resolveProfileAvatar } = require('../../utils/profileDisplay')
 const defaultAvatarUrl =
   '/images/profile.png'
 const { formatRideStats } = require("../../utils/tripManage")
@@ -93,14 +95,15 @@ Page({
   },
 
   onLoad() {
+    this._disposed = false
     this.setData(getProfileNavMetrics())
 
     // 先用缓存的基础 userInfo（头像/昵称）快速渲染
     const basicUser = wx.getStorageSync('userInfo')
-    if (basicUser) {
+    if (basicUser && profileIdentity() && basicUser._openid === profileIdentity()) {
       this.setData({
         userInfo: basicUser,
-        avatarUrl: basicUser.avatarUrl || this.data.avatarUrl,
+        avatarUrl: profileApi.isBackendEnabled() ? defaultAvatarUrl : basicUser.avatarUrl || this.data.avatarUrl,
         name: basicUser.name || this.data.name
       })
     }
@@ -117,6 +120,8 @@ Page({
   },
 
   onUnload() {
+    this._disposed = true
+    this._profileReads = {}
     this.clearProfileRefresh()
   },
 
@@ -138,6 +143,7 @@ Page({
   // ✅ 登录态判定 + 数据拉取
   // =========================
   refreshAuthAndData({ force = false } = {}) {
+    if (this._disposed) return Promise.resolve()
     const openid = wx.getStorageSync('openid') || ''
     const isGuest = wx.getStorageSync('isGuest')
 
@@ -238,7 +244,7 @@ Page({
     if (!profileIdentity()) return Promise.resolve()
     const key = this.profileReadKey()
     return readProfileResource(this, 'user', key, force, async isCurrent => {
-        const res = await wx.cloud.callFunction({ name: 'getUserInfo', data: {} })
+        const res = await profileApi.getUserInfo({ summary: true })
         if (!isCurrent() || key !== this.profileReadKey()) return false
         const list = (res && res.result && res.result.data) || []
 
@@ -248,6 +254,8 @@ Page({
         }
 
         const user = list[0] || {}
+        const avatarUrl = await resolveProfileAvatar(user, defaultAvatarUrl)
+        if (!isCurrent() || this._disposed || key !== this.profileReadKey()) return false
         const priceObj = user.customPrice || {}
         const driverStats = formatRideStats(user.rideStats || {}, 'driver')
         const passengerStats = formatRideStats(user.rideStats || {}, 'passenger')
@@ -256,7 +264,7 @@ Page({
           isLoggedIn: true,
           userInfo: user,
 
-          avatarUrl: user.avatarUrl || defaultAvatarUrl,
+          avatarUrl,
           name: user.name || '',
           wechatID: user.wechatID || '',
           address: user.address || '',
@@ -279,9 +287,9 @@ Page({
           blockedCount: countBlockedUsers(user)
         })
 
-        wx.setStorageSync('userInfo', user)
+        profileApi.cacheUser(user)
       }).catch(err => {
-        if (key !== this.profileReadKey()) return
+        if (this._disposed || key !== this.profileReadKey()) return
         console.error('getUserInfo 调用失败：', err)
         wx.showToast({ icon: 'none', title: '加载失败' })
       })
@@ -304,10 +312,8 @@ Page({
     this.setData({ unreadCount: Number(wx.getStorageSync('customTabProfileBadge') || 0) })
     const key = this.profileReadKey()
     return readProfileResource(this, 'unread', key, force, async isCurrent => {
-        const r = await wx.cloud.database().collection('Notifications')
-          .where({ _openid: openid, read: false }).count()
+        const count = await profileApi.getUnreadCount(openid)
         if (!isCurrent() || key !== this.profileReadKey()) return false
-        const count = (r && r.total) || 0
         this.setData({ unreadCount: count })
         wx.setStorageSync('customTabMarketBadge', 0)
         wx.setStorageSync('customTabProfileBadge', count)

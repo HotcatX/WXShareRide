@@ -8,37 +8,10 @@ const REGION_TREE_STORAGE_KEY = "market_region_tree_v8"
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
 const AREA_PANEL_ALL_KEY = "all"
 
-const STATE_CODES = [
-  "NY_NJ", "CA", "MA", "PA", "CT", "RI", "NH", "VT", "ME",
-  "MD", "VA", "DC", "DE", "NC", "SC", "GA", "FL", "IL", "MI",
-  "OH", "IN", "WI", "MN", "IA", "MO", "KS", "NE", "TX", "WA",
-  "OR", "AZ", "CO", "UT", "NV", "NM", "TN", "KY", "AL", "LA",
-  "OK", "AR", "MS", "ID", "MT", "WY", "ND", "SD", "AK", "HI", "WV"
-]
-
-const CORE_STATE_LABELS = {
-  NY_NJ: "纽约/新泽西"
-}
-
-const CORE_STATE_AREAS = {
-  NY_NJ: [
-    { key: "ny_columbia_walkup", label: "哥大步行楼", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["哥大步行楼", "Columbia Walkup"] },
-    { key: "ny_inwood", label: "Inwood", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["Inwood"] },
-    { key: "ny_96_st", label: "96街周边", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_uptown", groupLabel: "曼哈顿上城", aliases: ["96街", "96街周边", "96th St"] },
-    { key: "ny_midtown_west", label: "中城西", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown West"] },
-    { key: "ny_midtown_central", label: "中城中", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown Central"] },
-    { key: "ny_midtown_east", label: "中城东", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_midtown", groupLabel: "曼哈顿中城", aliases: ["Midtown East"] },
-    { key: "ny_manhattan_downtown", label: "曼哈顿下城", sectionKey: "ny", sectionLabel: "纽约", groupKey: "manhattan_downtown", groupLabel: "曼哈顿下城", aliases: ["下城", "Downtown", "Lower Manhattan"] },
-    { key: "ny_lic_queens", label: "LIC/Queens", sectionKey: "ny", sectionLabel: "纽约", groupKey: "queens", groupLabel: "Queens", aliases: ["LIC", "Queens", "Long Island City", "LIC / Queens"] },
-    { key: "ny_other", label: "其他", sectionKey: "ny", sectionLabel: "纽约", groupKey: "ny_other", groupLabel: "其他", aliases: ["其他NY", "NY其他", "Other NY"] },
-    { key: "nj_fort_lee", label: "Fortlee", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_north", groupLabel: "新泽西北方", aliases: ["Fort Lee", "FL"] },
-    { key: "nj_newport", label: "Newport", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["New Port"] },
-    { key: "nj_grove_st", label: "Grove St", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["Grove Street", "Grove"] },
-    { key: "nj_jsq", label: "JSQ", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_south", groupLabel: "新泽西南方", aliases: ["Journal Square"] },
-    { key: "nj_harrison", label: "Harrison", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_deep", groupLabel: "新泽西深处", aliases: [] },
-    { key: "nj_other", label: "其他", sectionKey: "nj", sectionLabel: "NJ", groupKey: "nj_other", groupLabel: "其他", aliases: ["其他NJ", "NJ其他", "Other NJ"] }
-  ]
-}
+const configuredStates = require('./locationCatalog.generated.js').marketRegionTree.states
+const STATE_CODES = configuredStates.map(state => state.key)
+const CORE_STATE_LABELS = Object.fromEntries(configuredStates.map(state => [state.key, state.label]))
+const CORE_STATE_AREAS = Object.fromEntries(configuredStates.map(state => [state.key, state.areas]))
 
 const AREA_SECTION_LABELS = {
   nj: "NJ",

@@ -48,6 +48,9 @@ const picker = { pickerSessionId: id, field: values('departure', 'destination'),
 const pickerRequired = ['pickerSessionId', 'field', 'mode', 'cityKey', 'catalogVersion', 'rankingVersion'];
 
 export const eventSchemas = {
+  referral_visit: v => shape(v, { code: value => typeof value === 'string' && /^ref_[a-f0-9]{12}$/.test(value),
+    source: values('appLaunch', 'appShow', 'pageLoad', 'other'),
+    entry: values('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile', 'other') }),
   place_picker_open: v => shape(v, picker, pickerRequired),
   place_picker_rendered: v => shape(v, { ...picker, items: list => Array.isArray(list) && list.length <= 20
     && list.every(item => shape(item, { placeId, position: integer(0, 49), source: placeSource })),

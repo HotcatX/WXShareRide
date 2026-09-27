@@ -63,6 +63,8 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
       cloud: { callFunction(options) { calls.cloud.push(options); return Promise.resolve({ result: {} }) } }
     },
     require(name) {
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false }
+      if (name.endsWith('/compat/profile')) return {}
       if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('/routeExpiry')) return {
         ...expiry,

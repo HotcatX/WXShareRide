@@ -1,3 +1,4 @@
+const contacts = require("../../../utils/compat/rideContacts")
 // pages/profile/myTripRequestPassenger/myTripRequestPassenger.js
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const {
@@ -177,6 +178,7 @@ Page({
   },
 
   onShow() {
+    contacts.onShow(this, () => this.loadRequestDetail(this.data.requestId))
     rideTelemetry.pageVisible(this)
     if (!this.data.loading && !this.data.loadError && this.data.trip) {
       rideTelemetry.detailViewed(this, this.data.trip, 'request', 'history')
@@ -184,6 +186,7 @@ Page({
   },
 
   onHide() {
+    contacts.onHide(this)
     rideTelemetry.pageHidden(this)
   },
 
@@ -192,6 +195,7 @@ Page({
   },
 
   onUnload() {
+    contacts.onUnload(this)
     rideTelemetry.pageHidden(this)
     this._pageUnloaded = true
     this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
@@ -208,6 +212,8 @@ Page({
   },
 
   async loadRequestDetail(requestId, options = {}) {
+    if (contacts.isBackendEnabled()) return contacts.load(this, 'request', requestId, 'passenger', { ...options, creatorOnly: true })
+    // TEMPORARY FALLBACK: legacy contacts stay in the selected CloudBase mode only.
     const sequence = this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
     const viewerKey = JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
     const isCurrent = () => {
@@ -389,9 +395,11 @@ Page({
 
   // ===== 剔除司机：仅 kickMode 下可用 =====
   async onKickDriver() {
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
     if (!this.data.kickMode) return
     const { requestId, driverInfo } = this.data
-    if (!driverInfo || !driverInfo._openid) {
+    if (!driverInfo || !(contacts.isBackendEnabled() ? driverInfo.userId : driverInfo._openid)) {
       wx.showToast({ title: '当前无司机', icon: 'none' })
       return
     }
@@ -410,16 +418,17 @@ Page({
       placeholder: '理由会发送给该司机',
       confirmText: '剔除'
     })
-    if (!reason) return
+    if (!reason || !allowed()) return
 
     try {
       wx.showLoading({ title: '正在处理...', mask: true })
-      const result = await callTripManage({ type: 'request', requestId, action: 'kickDriver', reason })
+      const result = await callTripManage({ type: 'request', requestId, action: 'kickDriver', ...(contacts.isBackendEnabled() ? { targetUserId: driverInfo.userId } : {}), reason })
       wx.hideLoading()
+      if (!allowed()) return
       if (result && (result.ok || result.success)) {
         removeTripDetailCache('request', requestId)
         markRideListStale()
-        wx.showToast({ title: '已剔除', icon: 'success' })
+        wx.showToast({ title: result.recovered ? '已确认上次操作' : '已剔除', icon: 'success' })
         await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
         wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
@@ -433,10 +442,13 @@ Page({
 
   // ===== 剔除乘客：仅 kickMode 下可用 =====
   async onKickPassenger(e) {
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
     if (!this.data.kickMode) return
     const { requestId } = this.data
-    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
-    if (!targetOpenid) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
+    if (!targetId) return
 
     const reason = await askReason({
       title: '剔除乘客',
@@ -452,16 +464,17 @@ Page({
       placeholder: '理由会发送给该乘客',
       confirmText: '剔除'
     })
-    if (!reason) return
+    if (!reason || !allowed()) return
 
     try {
       wx.showLoading({ title: '正在处理...', mask: true })
-      const result = await callTripManage({ type: 'request', requestId, action: 'kickPassenger', targetOpenid, reason })
+      const result = await callTripManage({ type: 'request', requestId, action: 'kickPassenger', ...target, reason })
       wx.hideLoading()
+      if (!allowed()) return
       if (result && (result.ok || result.success)) {
         removeTripDetailCache('request', requestId)
         markRideListStale()
-        wx.showToast({ title: '已剔除', icon: 'success' })
+        wx.showToast({ title: result.recovered ? '已确认上次操作' : '已剔除', icon: 'success' })
         await this.loadRequestDetail(requestId, { force: true, silent: true })
       } else {
         wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
@@ -475,6 +488,8 @@ Page({
 
   // ===== 创建者退出并删除路线 =====
   async onQuitAndDelete() {
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
     const { requestId } = this.data
     if (!requestId) return
 
@@ -492,18 +507,19 @@ Page({
       placeholder: '理由会发送给司机和其他乘客',
       confirmText: '删除'
     })
-    if (!reason) return
+    if (!reason || !allowed()) return
 
     try {
       wx.showLoading({ title: '正在删除...', mask: true })
       const result = await callTripManage({ type: 'request', requestId, action: 'deleteTrip', reason })
       wx.hideLoading()
+      if (!allowed()) return
 
       if (result && (result.ok || result.success)) {
         removeTripDetailCache('request', requestId)
         markRideListStale()
-        wx.showToast({ title: '已删除', icon: 'success' })
-        setTimeout(() => this.goBack(), 500)
+        wx.showToast({ title: result.recovered ? '已确认上次操作' : '已删除', icon: 'success' })
+        setTimeout(() => { if (allowed()) this.goBack() }, 500)
         return
       }
 
@@ -520,10 +536,13 @@ Page({
   },
 
   async onBlockUser(e) {
-    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
     const { requestId } = this.data
-    if (!targetOpenid) return
+    if (!targetId) return
 
     wx.showModal({
       title: '拉黑用户',
@@ -531,11 +550,12 @@ Page({
       confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
-        if (!r.confirm) return
+        if (!r.confirm || !allowed()) return
         try {
-          const result = await callTripManage({ type: 'request', requestId, action: 'blockUser', targetOpenid })
+          const result = await callTripManage({ type: 'request', requestId, action: 'blockUser', ...target })
+          if (!allowed()) return
           if (result && (result.ok || result.success)) markRideListStale()
-          wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
+          wx.showToast({ title: result && (result.ok || result.success) ? (result.recovered ? '已确认上次操作' : '已拉黑') : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e) {
           console.error(e)
           wx.showToast({ title: '操作失败', icon: 'none' })
@@ -545,26 +565,29 @@ Page({
   },
 
   async onRateDriver(e) {
-    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
     const { requestId, isRequestCompleted, ratedTargetMap } = this.data
     if (!isRequestCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+    if (isTargetRated(ratedTargetMap, targetId)) {
       wx.showToast({ title: '已经评价过', icon: 'none' })
       return
     }
     const ok = await rateTripUser({
       type: 'request',
       tripId: requestId,
-      targetOpenid,
+      ...target,
       targetRole: 'driver',
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadRequestDetail(requestId, { force: true, silent: true })
+    if (ok && allowed()) await this.loadRequestDetail(requestId, { force: true, silent: true })
   },
 
   onShareAppMessage() {

@@ -57,7 +57,7 @@ function harness({ enabled = false, maxShows = 2 } = {}) {
   vm.runInNewContext(source, {
     Page: value => { definition = value }, console, Date,
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, setInterval, clearInterval,
-    wx: { showToast: value => state.toasts.push(value.title), previewImage: () => { throw new Error('Home must open the shared notice, not another preview') } },
+    wx: { getStorageSync() {}, showToast: value => state.toasts.push(value.title), previewImage: () => { throw new Error('Home must open the shared notice, not another preview') } },
     require(name) { if (name.includes('rideTime')) return require('../utils/rideTime'); return name.includes('/community') ? community : name.includes('/cityTree') ? city : {} }
   })
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)) }

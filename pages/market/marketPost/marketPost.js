@@ -1,3 +1,4 @@
+const market = require("../../../utils/compat/market")
 const MARKET_MAIN_IMAGE_QUALITY = 52
 const MARKET_THUMB_IMAGE_QUALITY = 42
 const MARKET_MAX_IMAGE_COUNT = 6
@@ -180,13 +181,24 @@ function getMarketApiResult(res) {
   return result
 }
 
-// ========== 图片压缩（上传前压缩，压缩失败使用原图，保证不出错） ==========
-function compressForUpload(srcPath, quality = 70) {
+// Server uploads use bounded dimensions as well as quality. This keeps ordinary
+// phone photos below the image service's pixel limit; preflight still validates
+// the actual output before persisting/uploading it if compression fails.
+async function compressForUpload(srcPath, quality = 70, maxSide = 2048) {
+  let dimensions = {}
+  if (srcPath && market.isBackendEnabled()) {
+    const info = await new Promise(resolve => wx.getImageInfo({ src: srcPath, success: resolve, fail: () => resolve(null) }))
+    if (info?.width > 0 && info?.height > 0) {
+      const ratio = Math.min(1, maxSide / Math.max(info.width, info.height))
+      dimensions = { compressedWidth: Math.max(1, Math.round(info.width * ratio)), compressedHeight: Math.max(1, Math.round(info.height * ratio)) }
+    }
+  }
   return new Promise(resolve => {
     if (!srcPath) return resolve(srcPath)
     wx.compressImage({
       src: srcPath,
       quality,
+      ...dimensions,
       success: res => resolve(res.tempFilePath || srcPath),
       fail: () => resolve(srcPath)
     })
@@ -199,43 +211,14 @@ async function prepareMainImageForUpload(page, imgPath) {
 
 // ========== 生成缩略图 ==========
 function genThumbFromFirstImage(page, imgPath) {
-  return compressForUpload(imgPath, MARKET_THUMB_IMAGE_QUALITY)
-}
-
-// ========== 上传单张到云存储 ==========
-function uploadOne(localPath, folder = "market", onProgress) {
-  if (!localPath) return Promise.resolve("")
-  const match = String(localPath).match(/\.([a-z0-9]+)(?:\?|$)/i)
-  const rawExt = match ? match[1].toLowerCase() : "jpg"
-  const ext = ["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(rawExt) ? rawExt : "jpg"
-  const cloudPath = `${folder}/${Date.now()}_${Math.random().toString(16).slice(2)}.${ext}`
-
-  return new Promise((resolve, reject) => {
-    const uploadTask = wx.cloud.uploadFile({
-      cloudPath,
-      filePath: localPath,
-      success: res => resolve(res.fileID || ""),
-      fail: reject
-    })
-
-    if (uploadTask && typeof uploadTask.onProgressUpdate === "function") {
-      uploadTask.onProgressUpdate(res => {
-        if (typeof onProgress === "function") {
-          onProgress(Math.max(0, Math.min(100, Number(res.progress) || 0)))
-        }
-      })
-    }
-  })
+  return compressForUpload(imgPath, MARKET_THUMB_IMAGE_QUALITY, 512)
 }
 
 function normalizeFileID(fileID) {
   const value = String(fileID || "").trim()
-  return value.startsWith("cloud://") ? value : ""
+  return market.isFileId(value) ? value : ""
 }
 
-function uniqFileIDs(fileIDs) {
-  return Array.from(new Set((fileIDs || []).map(normalizeFileID).filter(Boolean)))
-}
 
 function previewImagesFromState(state = {}) {
   const images = Array.isArray(state.images) ? state.images.filter(Boolean) : []
@@ -244,8 +227,8 @@ function previewImagesFromState(state = {}) {
 }
 
 function orderedImageFileIDsFromState(state = {}) {
-  const fromList = Array.isArray(state.imageFileIDs) ? state.imageFileIDs.map(normalizeFileID).filter(Boolean) : []
-  if (fromList.length) return Array.from(new Set(fromList))
+  const fromList = Array.isArray(state.imageFileIDs) ? state.imageFileIDs.map(normalizeFileID) : []
+  if (fromList.length) return fromList
   const primary = normalizeFileID(state.imageFileID)
   return primary ? [primary] : []
 }
@@ -257,9 +240,6 @@ function orderedThumbFileIDsFromState(state = {}) {
   return primary ? [primary] : []
 }
 
-function firstValidFileID(fileIDs = []) {
-  return fileIDs.map(normalizeFileID).find(Boolean) || ""
-}
 
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -509,7 +489,7 @@ function buildItemMapLocationDisplay(item = {}) {
   )
 }
 
-Page({
+Page(market.page({
   data: {
     statusBarHeight: 0,
     activeListingType: "goods",
@@ -620,11 +600,13 @@ Page({
   },
 
   _finishSubmitSuccess(title, postFilter = null) {
+    const owner = market.identity()
     this._activeSubmitRequestId = ""
     markMarketGoodsChanged()
     if (postFilter) markMarketPostSuccessFilter(postFilter)
     wx.showToast({ title, icon: "success" })
     setTimeout(() => {
+      if (!market.current(this, owner)) return
       wx.navigateBack({
         delta: 1,
         fail: () => {
@@ -698,7 +680,7 @@ Page({
     if (this.data.isEdit || this._locationTouched) return false
 
     try {
-      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      const res = await market.call({ name: "getUserInfo" })
       const user = mergeProfileRegionHandoff(
         (res?.result?.data || [])[0] || null,
         readMarketProfileRegionHandoff()
@@ -789,7 +771,7 @@ Page({
 
     try {
       this.setData({ editLoading: true })
-      const res = await wx.cloud.callFunction({
+      const res = await market.call({
         name: "marketApi",
         data: { action: "detail", id }
       })
@@ -830,6 +812,8 @@ Page({
 
       this._setPostData({
         activeListingType,
+        version: x.version,
+        sellerContact: x.sellerContact || null,
         title: x.title || '',
         desc: x.desc || '',
         category: finalCategory,
@@ -862,14 +846,12 @@ Page({
         imageFileID: fileIds[0] || '',
         imageFileIDs: fileIds,
 
-        thumbFileID: firstValidFileID(thumbIds),
+        thumbFileID: thumbIds[0] || "",
         thumbFileIDs: thumbIds,
 
-        ...normalizePickupWindow(
-          x.pickupStartDate || '',
-          x.pickupEndDate || x.expiresAtText || '',
-          activeListingType
-        )
+        ...(market.isBackendEnabled() ? { pickupStartDate: x.pickupStartDate, pickupEndDate: x.pickupEndDate,
+          pickupRangeText: `${x.pickupStartDate} 至 ${x.pickupEndDate}` } : normalizePickupWindow(
+          x.pickupStartDate || '', x.pickupEndDate || x.expiresAtText || '', activeListingType))
       })
     } catch (e) {
       console.error(e)
@@ -893,7 +875,7 @@ Page({
 
   async _getMyUserInfo() {
     try {
-      const res = await wx.cloud.callFunction({ name: "getUserInfo" })
+      const res = await market.call({ name: "getUserInfo" })
       return mergeProfileRegionHandoff(
         (res?.result?.data || [])[0] || {},
         readMarketProfileRegionHandoff()
@@ -1006,6 +988,7 @@ Page({
 
   // ========== 选择图片（最多 6 张） ==========
   async onChooseImage() {
+    const owner = market.identity()
     if (!this.ensureLoginBeforePost()) return
     if (this.data.imageUploading) {
       wx.showToast({ title: "图片上传中", icon: "none" })
@@ -1023,13 +1006,15 @@ Page({
         return
       }
 
-      const res = await wx.chooseMedia({
+      const pendingUploads = market.pendingUploads()
+      const res = pendingUploads.length ? { tempFiles: pendingUploads.map(item => ({ tempFilePath: item.localPath })) } : await wx.chooseMedia({
         count: remaining,
         mediaType: ["image"],
         sourceType: ["album", "camera"],
         sizeType: ["compressed"]
       })
 
+      if (!market.current(this, owner)) return
       const tempFiles = (res.tempFiles || []).map(x => x.tempFilePath).filter(Boolean).slice(0, remaining)
       if (!tempFiles.length) return
 
@@ -1052,10 +1037,13 @@ Page({
         const labelSuffix = tempFiles.length > 1 ? ` ${i + 1}/${tempFiles.length}` : ""
         try {
           this._setImageUploadProgress(stepBase + stepSize * 0.04, `压缩${labelSuffix}`)
-          const [mainUploadPath, thumbLocal] = await Promise.all([
+          const pending = pendingUploads.find(item => item.localPath === localPath)
+          const [mainUploadPath, thumbLocal] = pending ? [pending.mainPath, pending.thumbPath] : await Promise.all([
             prepareMainImageForUpload(this, localPath),
             genThumbFromFirstImage(this, localPath)
           ])
+          if (!market.current(this, owner)) return
+          const prepared = pending || await market.prepareUpload(localPath, mainUploadPath, thumbLocal)
 
           let mainProgress = 0
           let thumbProgress = thumbLocal ? 0 : 100
@@ -1071,31 +1059,22 @@ Page({
             thumbProgress = 18
             updateUploadProgress()
           }
-          const thumbUploadPromise = thumbLocal
-            ? uploadOne(thumbLocal, "market_thumb", progress => {
-              thumbProgress = progress
-              updateUploadProgress()
-            })
-            : Promise.resolve("")
-
-          const [fileID, thumbFID] = await Promise.all([
-            uploadOne(mainUploadPath, "market", progress => {
-              mainProgress = progress
-              updateUploadProgress()
-            }),
-            thumbUploadPromise
-          ])
+          const { fileID, thumbFID, previewPath } = await market.uploadPrepared(prepared,
+            progress => { mainProgress = progress; updateUploadProgress() },
+            progress => { thumbProgress = progress; updateUploadProgress() })
+          if (!market.current(this, owner)) return
 
           if (!fileID) throw new Error("empty_file_id")
-          uploaded.push({ localPath, fileID, thumbFID: thumbFID || "" })
+          uploaded.push({ localPath: previewPath || localPath, fileID, thumbFID: thumbFID || "" })
         } catch (uploadError) {
           failedCount += 1
           console.error("[marketPost] image upload failed:", uploadError)
         }
       }
 
+      if (!market.current(this, owner)) return
       const nextImages = baseImages.concat(uploaded.map(item => item.localPath))
-      const nextImageFileIDs = uniqFileIDs(baseImageFileIDs.concat(uploaded.map(item => item.fileID)))
+      const nextImageFileIDs = baseImageFileIDs.concat(uploaded.map(item => item.fileID))
       const nextThumbFileIDs = baseThumbFileIDs.concat(uploaded.map(item => item.thumbFID || ""))
       const uploadText = failedCount ? "部分完成" : "已完成"
       this._setPostData({
@@ -1103,7 +1082,7 @@ Page({
         images: nextImages,
         imageFileID: nextImageFileIDs[0] || "",
         imageFileIDs: nextImageFileIDs,
-        thumbFileID: firstValidFileID(nextThumbFileIDs),
+        thumbFileID: nextThumbFileIDs[0] || "",
         thumbFileIDs: nextThumbFileIDs,
         imageUploading: false,
         imageUploadProgress: uploaded.length ? 100 : 0,
@@ -1128,6 +1107,7 @@ Page({
       })
     }
   },
+
 
   onPreviewPostImage(e) {
     const images = previewImagesFromState(this.data)
@@ -1159,7 +1139,7 @@ Page({
       images,
       imageFileID: imageFileIDs[0] || "",
       imageFileIDs,
-      thumbFileID: firstValidFileID(thumbFileIDs),
+      thumbFileID: thumbFileIDs[0] || "",
       thumbFileIDs
     })
   },
@@ -1241,6 +1221,7 @@ onChooseCondition() {
 
   // ========== 提交：发布 / 编辑 ==========
   async onSubmit() {
+    const owner = market.identity()
     if (this._submitInFlight || this.data.submitting) return
     if (!this.ensureLoginBeforePost()) return
 
@@ -1254,12 +1235,14 @@ onChooseCondition() {
       pickupStartDate,
       pickupEndDate
     } = this.data
-    const imageFileIDs = uniqFileIDs([imageFileID, ...(Array.isArray(this.data.imageFileIDs) ? this.data.imageFileIDs : [])])
-    const thumbFileIDs = uniqFileIDs([this.data.thumbFileID, ...(Array.isArray(this.data.thumbFileIDs) ? this.data.thumbFileIDs : [])])
+    const imageFileIDs = orderedImageFileIDsFromState(this.data)
+    const thumbFileIDs = orderedThumbFileIDsFromState(this.data)
     const activeListingType = normalizeListingType(this.data.activeListingType)
     const config = getListingTypeConfig(activeListingType)
     const normalizedCategory = normalizeListingCategory(category, activeListingType)
-    const pickupWindow = normalizePickupWindow(pickupStartDate, pickupEndDate, activeListingType)
+    const pickupWindow = market.isBackendEnabled() && this.data.isEdit
+      ? { pickupStartDate, pickupEndDate, pickupRangeText: `${pickupStartDate} 至 ${pickupEndDate}` }
+      : normalizePickupWindow(pickupStartDate, pickupEndDate, activeListingType)
     const expireTime = endOfDayTime(pickupWindow.pickupEndDate)
     const hasImage = imageFileIDs.length > 0
 
@@ -1275,7 +1258,7 @@ onChooseCondition() {
 
     try {
       const profile = await this._getMyUserInfo()
-      if (!profile) return
+      if (!profile || !market.current(this, owner)) return
       const profileUpdates = this.data.isEdit
         ? {
             profileWechatID: normalizeLocationText(profile.wechatID),
@@ -1317,10 +1300,11 @@ onChooseCondition() {
       }
       if (!hasLatLng(location)) {
         const shouldContinue = await this._confirmPublishWithoutLocation(config)
-        if (!shouldContinue) return
+        if (!shouldContinue || !market.current(this, owner)) return
       }
       if (!expireTime) return wx.showToast({ title: `请选择${config.pickupEndLabel}`, icon: "none" })
 
+      if (!market.current(this, owner)) return
       const clientRequestId = this._activeSubmitRequestId || createSubmitRequestId()
       this._activeSubmitRequestId = clientRequestId
 
@@ -1328,8 +1312,9 @@ onChooseCondition() {
 
       const payload = {
         listingType: activeListingType,
+        sellerContact: this.data.sellerContact || null,
         title: title.trim(),
-        price: Number(price) || 0,
+        price: market.isBackendEnabled() ? price : Number(price) || 0,
         category: normalizedCategory,
       
         region: regionDisplay,
@@ -1367,29 +1352,32 @@ onChooseCondition() {
       }
 
       if (this.data.isEdit && this.data.editId) {
-        const updRes = await wx.cloud.callFunction({
+        const updRes = await market.call({
           name: "marketApi",
-          data: { action: "update", id: this.data.editId, patch: payload }
+          data: { action: "update", id: this.data.editId, expectedVersion: this.data.version, patch: payload }
         })
 
-        getMarketApiResult(updRes)
+        if (!market.current(this, owner)) return
+        const saved = getMarketApiResult(updRes)
 
         keepSubmitLocked = true
-        this._finishSubmitSuccess("已保存")
+        this._finishSubmitSuccess(saved.recovered ? "上次保存已确认" : "已保存")
         return
       }
 
-      const checkRes = await wx.cloud.callFunction({
+      const checkRes = await market.call({
         name: "marketApi",
         data: { action: "create", payload }
       })
 
-      getMarketApiResult(checkRes)
+      if (!market.current(this, owner)) return
+      const saved = getMarketApiResult(checkRes)
 
       keepSubmitLocked = true
-      this._finishSubmitSuccess(this.data.isEdit ? "已保存" : "已提交", payload)
+      this._finishSubmitSuccess(saved.recovered ? "上次提交已确认" : this.data.isEdit ? "已保存" : "已提交", saved.recovered ? null : payload)
     } catch (e) {
       console.error(e)
+      if (!market.current(this, owner)) return
       showDataError("发布失败", e, "发布信息保存到数据库失败，请稍后重试。")
     } finally {
       if (!keepSubmitLocked) {
@@ -1397,4 +1385,4 @@ onChooseCondition() {
       }
     }
   }
-})
+}))

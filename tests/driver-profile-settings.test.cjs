@@ -31,11 +31,14 @@ function profile(user) {
   const context = {
     Page: value => { definition = value },
     wx: {
+      getStorageSync: () => undefined,
       showToast: value => state.toasts.push(value), navigateBack: () => state.navigation.push('back'),
       cloud: { callFunction: async () => ({ result: { data: user ? [user] : [] } }) }
     },
     console: { error() {} }, setTimeout: callback => { callback(); return 1 },
     require(name) {
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(context.wx)
+      if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
       if (name.endsWith('/userProfileUpdate')) return { callUpdateUser: async data => { state.writes.push(plain(data)); return { result: { ok: true } } } }
       if (name.endsWith('/error')) return { showDataError: (...args) => state.errors.push(args) }
       if (name.endsWith('/Region')) return {

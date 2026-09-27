@@ -144,7 +144,7 @@
             <view
               wx:if="{{isRequestCompleted && !driverInfo.hasRated}}"
               class="ride-mini-btn ride-mini-btn--accent"
-              data-openid="{{driverInfo._openid}}"
+              data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
               data-name="{{driverInfo.name || '司机'}}"
               bindtap="onRateDriver"
             >
@@ -154,7 +154,7 @@
             <view
               wx:if="{{isRequestCompleted && driverInfo.hasRated}}"
               class="ride-mini-btn ride-mini-btn--disabled"
-              data-openid="{{driverInfo._openid}}"
+              data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
               data-name="{{driverInfo.name || '司机'}}"
               bindtap="onRateDriver"
             >
@@ -163,7 +163,7 @@
 
             <view
               class="ride-mini-btn ride-mini-btn--danger"
-              data-openid="{{driverInfo._openid}}"
+              data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
               data-name="{{driverInfo.name || '该用户'}}"
               bindtap="onBlockUser"
             >
@@ -211,7 +211,7 @@
       </view>
 
       <block wx:else>
-        <view class="ride-person" wx:for="{{passengerList}}" wx:key="_openid" wx:for-item="p">
+        <view class="ride-person" wx:for="{{passengerList}}" wx:key="index" wx:for-item="p">
           <image class="ride-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
           <view class="ride-person-main">
             <text class="ride-person-name">{{p.name || p.nickName || '未设置昵称'}}</text>
@@ -234,7 +234,7 @@
               </view>
             </view>
             <view class="ride-person-actions">
-              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>
         </view>

@@ -10,10 +10,24 @@ const profile = extra => ({ wechatID: 'test-driver', carNumber: 'TEST123', carBr
 function fixture() {
   let definition
   const state = { user: profile(), calls: [], modals: [], navigation: [], toast: [], response: null }
+  const wx = {
+      getStorageSync: key => key === 'openid' ? 'driver' : false, setStorageSync() {},
+      showToast: value => state.toast.push(value),
+      showModal: value => state.modals.push(value),
+      navigateTo: value => state.navigation.push(value),
+      cloud: { callFunction(args) {
+        state.calls.push(plain(args))
+        if (args.name === 'getUserInfo') return state.response || Promise.resolve({ result: { data: state.user ? [state.user] : [] } })
+        if (args.name === 'createTrip') return Promise.resolve({ result: { success: true, id: 'test-only' } })
+        throw new Error(`Unexpected call ${args.name}`)
+      } }
+    }
   vm.runInNewContext(fs.readFileSync(path.join(root, 'pages/home/newTrip/newTrip.js'), 'utf8'), {
-    Page: value => { definition = value }, console: { log() {}, error() {} },
+    wx, Page: value => { definition = value }, console: { log() {}, error() {} },
     setTimeout() {}, clearTimeout() {},
     require(name) {
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
+      if (name.endsWith('/compat/ridePublish')) return require('../utils/compat/ridePublish').createRidePublishClient({ wx, backend: { isBackendEnabled: () => false } })
       if (name.endsWith('/placePickerTelemetry')) return { closePlacePicker() {} }
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale() {} }
@@ -25,18 +39,7 @@ function fixture() {
       }
       return {}
     },
-    wx: {
-      getStorageSync: () => 'driver', setStorageSync() {},
-      showToast: value => state.toast.push(value),
-      showModal: value => state.modals.push(value),
-      navigateTo: value => state.navigation.push(value),
-      cloud: { callFunction(args) {
-        state.calls.push(plain(args))
-        if (args.name === 'getUserInfo') return state.response || Promise.resolve({ result: { data: state.user ? [state.user] : [] } })
-        if (args.name === 'createTrip') return Promise.resolve({ result: { success: true, id: 'test-only' } })
-        throw new Error(`Unexpected call ${args.name}`)
-      } }
-    }
+
   })
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }

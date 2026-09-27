@@ -66,6 +66,7 @@ function helper(callFunction, timers = {}) {
   const module = { exports: {} }
   vm.runInNewContext(helperSource, {
     module,
+    require(name) { return name === './backendClient' ? { isBackendEnabled: () => false } : name === './cityTree' ? require('../utils/cityTree') : require('../utils/rideTime') },
     wx: { cloud: { callFunction } },
     setTimeout: timers.setTimeout || setTimeout,
     clearTimeout: timers.clearTimeout || clearTimeout

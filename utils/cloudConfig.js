@@ -1,4 +1,6 @@
 const { isTimelinePreview } = require("./timeline")
+const backend = require('./backendClient')
+const { loadLocationConfig } = require('./locationConfig')
 
 const PUBLIC_CONFIG_FUNCTION = "marketApi"
 const PUBLIC_CONFIG_ACTION = "publicConfig"
@@ -33,6 +35,11 @@ function setCachedDoc(collection, data) {
 
 async function loadPublicConfigDoc(collection, options = {}) {
   const name = cleanText(collection)
+  if (name && backend.isBackendEnabled() && !isTimelinePreview()) {
+    if (!['cityTree', 'regionTree'].includes(name)) throw new Error('未知公开地点配置')
+    const catalog = await loadLocationConfig(options)
+    return name === 'cityTree' ? catalog.cityTree : catalog.marketRegionTree
+  }
   if (!name || !canCallCloudFunction()) return null
 
   if (!options.force) {

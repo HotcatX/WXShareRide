@@ -1,3 +1,4 @@
+const rides = require("../../../utils/compat/rides")
 const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
 const analytics = require("../../../utils/analyticsSession")
@@ -177,6 +178,12 @@ Page({
   },
 
   onShow() {
+    this._cityRequestDisposed = false
+    const cityRequestOwner = wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+    if (this._cityRequestOwner && this._cityRequestOwner !== cityRequestOwner) {
+      this._cityRequestVersion = (this._cityRequestVersion || 0) + 1
+      this.setData({ rideDemandSubmitting: false, rideDemandRequested: false })
+    }
     if (this.data.placePickerVisible && this._placeContext && this._placeContext.viewerKey !== this.getListViewerKey()) this.onClosePlacePicker()
     this._analyticsVisible = true
     rideTelemetry.observeList(this)
@@ -195,6 +202,7 @@ Page({
   },
 
   onUnload() {
+    this._cityRequestDisposed = true
     placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     this._listDisposed = true
     this._analyticsSearch = null
@@ -212,6 +220,7 @@ Page({
 
   getListRequestKey() {
     return JSON.stringify([
+      rides.isBackendEnabled() ? "server" : "cloudbase",
       this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY,
       this.getListViewerKey(),
       this.getRideListRefreshAt(),
@@ -383,27 +392,28 @@ Page({
 
   async onRequestRideCityService() {
     if (this.data.rideDemandSubmitting || this.data.rideDemandRequested || this.data.isRideServiceAvailable) return
+    const cityKey = this.data.activeCityKey
+    const account = () => wx.getStorageSync("isGuest") ? "guest" : String(wx.getStorageSync("openid") || "guest")
+    const owner = account(), version = this._cityRequestVersion = (this._cityRequestVersion || 0) + 1
+    this._cityRequestOwner = owner
+    const current = () => !this._cityRequestDisposed && version === this._cityRequestVersion && owner === account()
     this.setData({ rideDemandSubmitting: true })
     try {
-      const res = await wx.cloud.callFunction({
-        name: "rideDemand",
-        data: {
-          cityKey: this.data.activeCityKey,
-          cityLabel: this.data.activeCityLabel,
-          cityAliases: this.data.activeCityAliases || [],
-          sourcePage: "carpoolList"
-        }
-      })
-      if (!res || !res.result || !res.result.success) {
-        throw new Error((res && res.result && res.result.errorMsg) || "request_failed")
+      const res = await rides.requestCity({ cityKey, cityLabel: this.data.activeCityLabel,
+        cityAliases: this.data.activeCityAliases || [], sourcePage: "carpoolList" })
+      if (!current()) return
+      if (!res || !res.result || !res.result.success) throw new Error("request_failed")
+      const result = res.result
+      // A lost acknowledgement may belong to a previous city. Confirm that
+      // intent without marking a newly selected city as already requested.
+      if (this.data.activeCityKey === cityKey && (!result.cityKey || result.cityKey === cityKey)) {
+        this.setData({ rideDemandRequested: true })
       }
-      this.setData({ rideDemandRequested: true })
-      wx.showToast({ title: "已收到请求", icon: "success" })
+      wx.showToast({ title: result.recovered ? "已确认上次请求" : "已收到请求", icon: "success" })
     } catch (e) {
-      console.error("request ride city service failed:", e)
-      wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
+      if (current()) wx.showToast({ title: "提交失败，请稍后重试", icon: "none" })
     } finally {
-      this.setData({ rideDemandSubmitting: false })
+      if (current()) this.setData({ rideDemandSubmitting: false })
     }
   },
 
@@ -427,7 +437,7 @@ Page({
   restoreCachedLists() {
     try {
       const cached = wx.getStorageSync(LIST_CACHE_KEY)
-      if (!cached || cached.version !== 2 || !cached.savedAt || cached.rangeKey !== this.getDateRangeKey()) return false
+      if (!cached || (cached.backendMode || "cloudbase") !== (rides.isBackendEnabled() ? "server" : "cloudbase") || cached.version !== 2 || !cached.savedAt || cached.rangeKey !== this.getDateRangeKey()) return false
       if (cached.hasMoreDays && !this.isValidFilterDate(cached.nextPageDate)) return false
       if (cached.viewerKey !== this.getListViewerKey()) return false
       if (Number(cached.revision || 0) !== this.getRideListRefreshAt()) return false
@@ -468,6 +478,7 @@ Page({
     try {
       wx.setStorageSync(LIST_CACHE_KEY, {
         version: 2,
+        backendMode: rides.isBackendEnabled() ? "server" : "cloudbase",
         rangeKey: request.rangeKey,
         savedAt: request.startedAt,
         viewerKey: request.viewerKey,
@@ -708,6 +719,8 @@ Page({
   },
 
   refreshStatusInBackground(force) {
+    // TEMPORARY FALLBACK: only CloudBase builds invoke legacy status jobs.
+    if (rides.isBackendEnabled()) return Promise.resolve()
     if (!this.data.isRideServiceAvailable) return Promise.resolve()
     if (this._statusRefreshing) return Promise.resolve()
 
@@ -962,16 +975,13 @@ Page({
   },
 
   async readDatePage(request) {
-    const res = await wx.cloud.callFunction({
-      name: "getTripList",
-      data: {
+    const res = await rides.callTripList({
         type: "all", quick: true, fastOnly: true,
         startDate: request.startDate,
         endDateExclusive: request.endDateExclusive,
         cityKey: normalizeRideServiceCityKey(request.cityKey),
         cityLabel: RIDE_SERVICE_CITY_LABEL,
         cityAliases: this.data.activeCityAliases || []
-      }
     })
     const result = res && res.result ? res.result : {}
     if (result.success) {

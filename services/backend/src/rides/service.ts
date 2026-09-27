@@ -7,7 +7,7 @@ import { assertNoBlockedMembers } from '../blocks/service.ts';
 import { advanceRideVersion, recordRideEvent } from './events.ts';
 import { captureRide } from './collector-event.ts';
 import { formatDriverStatistics, statisticsProjection } from '../statistics/service.ts';
-import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, listRidesSchema, rideIdSchema } from './schemas.ts';
+import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, rideIdSchema } from './schemas.ts';
 
 type Ride = {
   id: string; kind: 'offer' | 'request'; creator_id: string;
@@ -17,9 +17,10 @@ type Ride = {
 type Member = { user_id: string; role: 'driver' | 'passenger'; seat_count: number; state: 'active' | 'left';
   details: { pickupAddress?: string; dropoffAddress?: string } };
 
-async function lockedRide(client: PoolClient, rideId: string): Promise<Ride> {
-  const result = await client.query<Ride>(`SELECT id, kind, creator_id, status, seat_capacity, departure_at, version
-    FROM rides WHERE id = $1 FOR UPDATE`, [rideId]);
+async function lockedRide(client: PoolClient, rideId: string, userId: string): Promise<Ride> {
+  const result = await client.query<Ride>(`SELECT r.id, r.kind, r.creator_id, r.status, r.seat_capacity, r.departure_at, r.version
+    FROM rides r JOIN users owner ON owner.id=r.creator_id JOIN users actor ON actor.id=$2 AND actor.app_id=owner.app_id
+    WHERE r.id=$1 FOR UPDATE OF r`, [rideId, userId]);
   if (!result.rows[0]) throw new AppError(404, 'RIDE_NOT_FOUND', '行程不存在');
   return result.rows[0];
 }
@@ -83,7 +84,7 @@ export async function joinRide(pool: Pool, userId: string, key: unknown, id: unk
   return withIdempotency(pool, userId, 'rides.join', key, { rideId, ...input }, async client => {
     // Every membership mutation locks the ride first. Available seats are
     // derived from memberships; no second counter can drift or be overwritten.
-    const ride = await lockedRide(client, rideId);
+    const ride = await lockedRide(client, rideId, userId);
     assertJoinable(ride);
     if (ride.creator_id === userId) throw new AppError(403, 'CREATOR_ALREADY_MEMBER', '不能加入自己发布的行程');
     if (ride.kind === 'offer' && input.role !== 'passenger') throw new AppError(400, 'INVALID_ROLE', '供车行程只能以乘客身份加入');
@@ -133,7 +134,7 @@ export async function leaveRide(pool: Pool, userId: string, key: unknown, id: un
   const rideId = rideIdSchema.parse(id);
   const input = leaveRideSchema.parse(body);
   return withIdempotency(pool, userId, 'rides.leave', key, { rideId, ...input }, async client => {
-    const ride = await lockedRide(client, rideId);
+    const ride = await lockedRide(client, rideId, userId);
     if (ride.creator_id === userId) throw new AppError(403, 'CREATOR_MUST_CANCEL', '创建者请取消行程');
     const member = (await client.query<Member>(`SELECT user_id, role, seat_count, state FROM ride_members
       WHERE ride_id = $1 AND user_id = $2`, [rideId, userId])).rows[0];
@@ -158,7 +159,7 @@ export async function removeRideMember(pool: Pool, userId: string, key: unknown,
   // Removal and cancellation both require one explicit, bounded reason.
   const input = cancelRideSchema.parse(body);
   return withIdempotency(pool, userId, 'rides.removeMember', key, { rideId, memberId, ...input }, async client => {
-    const ride = await lockedRide(client, rideId);
+    const ride = await lockedRide(client, rideId, userId);
     // The legacy offer driver is its creator. For requests, only the passenger
     // creator can remove a passenger or the accepted driver; acceptance never
     // grants a driver management authority over the passenger's request.
@@ -186,7 +187,7 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
   const rideId = rideIdSchema.parse(id);
   const input = cancelRideSchema.parse(body);
   return withIdempotency(pool, userId, 'rides.cancel', key, { rideId, ...input }, async client => {
-    const ride = await lockedRide(client, rideId);
+    const ride = await lockedRide(client, rideId, userId);
     if (ride.creator_id !== userId) throw new AppError(403, 'NOT_RIDE_CREATOR', '只有创建者可以取消行程');
     if (ride.status === 'cancelled') return writeResult(ride, false);
     assertJoinable(ride);
@@ -219,20 +220,13 @@ export const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status
     'address', s.address, 'placeId', s.place_id, 'departureAt', s.departure_at) ORDER BY s.position)
     FROM ride_stops s WHERE s.ride_id = r.id), '[]'::jsonb) AS stops`;
 
-export async function listRides(pool: Pool, query: unknown) {
-  const input = listRidesSchema.parse(query);
-  const result = await pool.query(`SELECT ${publicProjection} FROM rides r
-    WHERE r.city_key = $1 AND r.status = 'open' AND r.departure_at > now()
-      AND ($2::text IS NULL OR r.kind = $2)
-    ORDER BY r.departure_at, r.id LIMIT $3 OFFSET $4`,
-  [input.cityKey, input.kind || null, input.limit + 1, (input.page - 1) * input.limit]);
-  return { rides: result.rows.slice(0, input.limit).map(formatDriverStatistics), nextPage: input.page < 1000 && result.rows.length > input.limit ? input.page + 1 : null };
-}
+export { listRides } from './read.ts';
 
-export async function getRide(pool: Pool, id: unknown) {
+export async function getRide(pool: Pool, id: unknown, appId?: string) {
   const rideId = rideIdSchema.parse(id);
   const result = await pool.query(`SELECT ${publicProjection} FROM rides r
-    WHERE r.id = $1 AND r.status <> 'cancelled'`, [rideId]);
+    WHERE r.id = $1 AND r.status <> 'cancelled'
+      AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM users owner WHERE owner.id=r.creator_id AND owner.app_id=$2))`, [rideId, appId ?? null]);
   if (!result.rows[0]) throw new AppError(404, 'RIDE_NOT_FOUND', '行程不存在');
   return formatDriverStatistics(result.rows[0]);
 }

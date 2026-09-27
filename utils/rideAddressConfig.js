@@ -1,12 +1,14 @@
 const { normalizeRidePlace, uniqueRidePlaces } = require('./ridePlaceOptions')
 const { FIXED_PLACES, configuredPlaceId } = require('./placeCatalog')
+const backend = require('./backendClient')
+const { loadLocationConfig } = require('./locationConfig')
 const ADDRESS_CONFIG_CACHE_MS = 5 * 60 * 1000
 let cached = null, pending = null
 function copyConfig(config) { return { fromPlaces: config.fromPlaces.slice(), toPlaces: config.toPlaces.slice() } }
 function getStaticRideAddressConfig() { const values = FIXED_PLACES.map(place => place.value); return { fromPlaces: values.slice(), toPlaces: values.slice() } }
 function getCachedRideAddressConfig() {
   const age = cached ? Date.now() - cached.at : -1
-  return cached && age >= 0 && age < ADDRESS_CONFIG_CACHE_MS ? copyConfig(cached.data) : null
+  return cached && cached.server === backend.isBackendEnabled() && age >= 0 && age < ADDRESS_CONFIG_CACHE_MS ? copyConfig(cached.data) : null
 }
 function readPlaces(response) {
   const record = response && Array.isArray(response.data) && response.data[0]
@@ -24,10 +26,18 @@ function loadRideAddressConfig({ force = false } = {}) {
   const available = !force && getCachedRideAddressConfig()
   if (available) return Promise.resolve(available)
   pending = (async () => {
+    const server = backend.isBackendEnabled()
+    if (server) {
+      const catalog = await loadLocationConfig({ force })
+      const data = catalog.rideAddresses.offer
+      cached = { at: Date.now(), data, server }; return data
+    }
+    // TEMPORARY FALLBACK — old release configuration reads only. Server-mode
+    // errors must not silently retry another source or cache an empty directory.
     const db = wx.cloud.database()
     const [from, to] = await Promise.all([db.collection('Departure').get(), db.collection('Arrival').get()])
     const data = { fromPlaces: readPlaces(from), toPlaces: readPlaces(to) }
-    cached = { at: Date.now(), data }; return data
+    cached = { at: Date.now(), data, server }; return data
   })().finally(() => { pending = null })
   return pending.then(copyConfig)
 }

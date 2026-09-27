@@ -47,7 +47,7 @@
         <text class="ride-list-kind">乘客求车</text>
         <view class="ride-head-actions">
           <view
-            wx:if="{{ownerOpenid && !isOwner}}"
+            wx:if="{{(ownerOpenid || ownerUserId) && !isOwner}}"
             class="ride-chip ride-chip--warn ride-chip--small"
             bindtap="onBlockRequestOwner"
             hover-class="ride-pressed"

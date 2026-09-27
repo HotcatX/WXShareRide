@@ -98,16 +98,17 @@
                 class="goods-seller-touch"
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
+                data-id="{{item.id}}"
                 data-type="{{item.listingType}}"
                 data-managed="{{item.managedByAdmin}}"
               >
-                <image class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
+                <image binderror="onMarketImageError" class="seller-avatar goods-seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name goods-seller-name">{{item.sellerNameText}}</text>
               </view>
               <text wx:if="{{item.buildingNameText}}" class="card-building goods-building">{{item.buildingNameText}}</text>
               <text wx:if="{{item.regionShortText}}" class="goods-region">{{item.regionShortText}}</text>
               <view class="goods-views">
-                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <image binderror="onMarketImageError" class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
                 <text>{{item.viewCount || 0}}</text>
               </view>
             </view>
@@ -122,16 +123,17 @@
                 class="seller-touch"
                 catchtap="onTapSeller"
                 data-openid="{{item._openid}}"
+                data-id="{{item.id}}"
                 data-type="{{item.listingType}}"
                 data-managed="{{item.managedByAdmin}}"
               >
-                <image class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
+                <image binderror="onMarketImageError" class="seller-avatar" src="{{item.sellerAvatar}}" mode="aspectFill" fade-in="{{false}}" />
                 <text class="seller-name">{{item.sellerNameText}}</text>
               </view>
               <text wx:if="{{item.buildingNameText}}" class="card-building">{{item.buildingNameText}}</text>
               <text wx:if="{{item.regionShortText}}" class="card-location">{{item.regionShortText}}</text>
               <view class="card-views">
-                <image class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
+                <image binderror="onMarketImageError" class="card-view-icon" src="/images/icon_eye.png" mode="aspectFit" />
                 <text>{{item.viewCount || 0}}</text>
               </view>
             </view>

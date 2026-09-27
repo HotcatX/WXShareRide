@@ -2,6 +2,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
+const vm = require('node:vm')
+const { execFileSync } = require('node:child_process')
 const { readPendingBusinessEvents, acknowledgeBusinessEvents } = require('../cloudfunctions/statistics/businessOutbox')
 const ledger = require('../cloudfunctions/tripManage/businessLedger')
 const catalog = require('../utils/placeCatalog')
@@ -63,13 +65,25 @@ test('business-only batches accommodate the supported 100-member legacy snapshot
   assert.ok(bytes > 64 * 1024 && bytes < 112 * 1024)
 })
 test('business identity helpers use the same fixed aliases as the picker and never conflate Newark city with EWR', () => {
+  execFileSync(process.execPath, [path.resolve(__dirname, '../services/backend/scripts/sync-location-catalog.mjs'), '--check'])
   for (const place of catalog.FIXED_PLACES) {
     for (const value of [place.value, place.label, ...place.aliases]) assert.equal(ledger.placeId(value), place.placeId, value)
   }
   for (const value of ['Newark', '纽瓦克', 'Long Island', 'Jersey City']) assert.equal(ledger.placeId(value), '')
-  for (const name of ['createTrip', 'joinTrip', 'syncTripStatus', 'syncMyTripStatus']) {
+  for (const name of ['createTrip', 'joinTrip', 'tripManage', 'syncTripStatus', 'syncMyTripStatus']) {
     assert.equal(fs.readFileSync(path.resolve(__dirname, `../cloudfunctions/${name}/businessLedger.js`), 'utf8'), fs.readFileSync(path.resolve(__dirname, '../cloudfunctions/tripManage/businessLedger.js'), 'utf8'))
-    assert.equal(fs.readFileSync(path.resolve(__dirname, `../cloudfunctions/${name}/placeCatalog.js`), 'utf8'), fs.readFileSync(path.resolve(__dirname, '../utils/placeCatalog.js'), 'utf8'))
+    // Cloud functions are independent deployment folders. Execute their bundle
+    // without require, then verify real behavior rather than root-file bytes.
+    const module = { exports: {} }
+    vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, `../cloudfunctions/${name}/placeCatalog.js`), 'utf8'), { module })
+    const bundled = module.exports
+    assert.deepEqual(JSON.parse(JSON.stringify(bundled.FIXED_PLACES)), catalog.FIXED_PLACES)
+    assert.equal(bundled.CATALOG_VERSION, catalog.CATALOG_VERSION)
+    for (const place of catalog.FIXED_PLACES) {
+      for (const value of [place.value, place.label, ...place.aliases]) assert.equal(bundled.resolvePlaceId(value), catalog.resolvePlaceId(value), value)
+    }
+    for (const value of ['Newark', '纽瓦克', 'Long Island', 'Jersey City']) assert.equal(bundled.resolvePlaceId(value), 'unknown')
+    assert.equal(bundled.configuredPlaceId('纽瓦克'), 'ewr')
   }
 })
 test('synthetic designation comes only from trusted invocation metadata, never client/event fields', () => {

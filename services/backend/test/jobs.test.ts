@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startRideJobs } from '../src/jobs.ts';
+import { startRideJobs, startConfiguredRideJobs } from '../src/jobs.ts';
 
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
 
@@ -52,4 +52,17 @@ test('stopping before startup does not call any job', async t => {
   const unexpected = async () => { assert.fail('job started after stop'); };
   const stop = startRideJobs({ closeRides: unexpected, deliverEvents: unexpected }, () => {});
   await stop(); t.mock.timers.tick(60_000); await settle();
+});
+
+
+test('staged runtime never opens a job connection and active runtime refuses a missing delivery path', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pool = { connect() { assert.fail('staged runtime touched database'); }, query() { assert.fail('staged runtime touched database'); } } as unknown as import('pg').Pool;
+  const config = { databaseUrl: '', host:'127.0.0.1',port:3100,appId:'synthetic-runtime',sessionTtlSeconds:3600,businessMode:'staged' as const };
+  const stop = startConfiguredRideJobs(config,pool,()=>assert.fail('unexpected job'));
+  t.mock.timers.tick(300_000); await settle(); await stop();
+  assert.throws(()=>startConfiguredRideJobs({...config,businessMode:'active'},pool,()=>{}),/requires collector/);
+  // Even with credentials present, staged state remains the one effective gate.
+  const other = startConfiguredRideJobs({...config,collector:{origin:'https://collect.linkx.ink',key:Buffer.alloc(32)}},pool,()=>{});
+  t.mock.timers.tick(300_000); await settle(); await other();
 });

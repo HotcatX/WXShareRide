@@ -1,3 +1,4 @@
+const market = require("../../../utils/compat/market")
 // pages/market/marketMy/marketMy.js
 const { showDataError } = require("../../../utils/error")
 const { callUpdateUser } = require("../../../utils/userProfileUpdate")
@@ -113,6 +114,7 @@ function buildMyGoodsItem(x = {}) {
     : (x.condition || x.pickupEndDate || config.metaFallback)
   return {
     id: x._id || x.id || '',
+    version: x.version,
     listingType,
     title,
     price: x.price,
@@ -180,7 +182,7 @@ function buildMyDisplayPatch(state = {}) {
   }
 }
 
-Page({
+Page(market.page({
   data: {
     statusBarHeight: 0,
 
@@ -269,7 +271,7 @@ Page({
 
   onShow() {
     const changedAt = getMarketGoodsChangedAt()
-    if (!changedAt || changedAt === this._lastHandledGoodsChangeAt) return
+    if (!market.isBackendEnabled() && (!changedAt || changedAt === this._lastHandledGoodsChangeAt)) return
     this._lastHandledGoodsChangeAt = changedAt
     this._clearMyGoodsCache()
     this.loadUserInfo().then(() => {
@@ -278,18 +280,19 @@ Page({
   },
 
   onShareAppMessage() {
-    const openid = this.data.openid || ''
+    const openid = market.isBackendEnabled() ? this.data.sellerId || '' : this.data.openid || ''
     const config = getListingTypeConfig(this.data.activeListingType)
     const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
-    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
+    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onShareTimeline() {
-    const openid = this.data.openid || ''
+    const openid = market.isBackendEnabled() ? this.data.sellerId || '' : this.data.openid || ''
     const config = getListingTypeConfig(this.data.activeListingType)
     const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
-    return getApp().withReferralShare({ title, query: `openid=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
+    return getApp().withReferralShare({ title, query: `${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
+
 
   onPullDownRefresh() {
     Promise.resolve()
@@ -392,7 +395,9 @@ Page({
 
   // ✅ 批量删除
   async onDeleteSelected() {
+    const owner = market.identity()
     const ids = Object.keys(this.data.selectedMap || {})
+    const goods = this.data.goods || []
     if (!ids.length) {
       wx.showToast({ title: `请先选择要删除的${getListingTypeConfig(this.data.activeListingType).deleteConfirmName}`, icon: 'none' })
       return
@@ -408,17 +413,16 @@ Page({
         fail: () => resolve(false)
       })
     })
-    if (!confirm) return
-
-    const goods = this.data.goods || []
+    if (!confirm || !market.current(this, owner)) return
 
     try {
       const failed = []
       for (const id of ids) {
+        if (!market.current(this, owner)) return
         try {
-          const res = await wx.cloud.callFunction({
+          const res = await market.call({
             name: 'marketApi',
-            data: { action: 'delete', id }
+            data: { action: 'delete', id, expectedVersion: goods.find(item => item.id === id)?.version }
           })
           getMarketApiResult(res)
         } catch (e) {
@@ -426,6 +430,7 @@ Page({
         }
       }
 
+      if (!market.current(this, owner)) return
       const failedSet = new Set(failed.map(x => x.id))
       const successIds = ids.filter(id => !failedSet.has(id))
       const nextGoods = goods.filter(g => !successIds.includes(g.id))
@@ -496,10 +501,13 @@ Page({
   },
 
   loadUserInfo() {
+    const request = this._profileRequest = (this._profileRequest || 0) + 1
+    const owner = market.identity()
     return new Promise((resolve) => {
-      wx.cloud.callFunction({
+      market.call({
         name: 'getUserInfo',
         success: (res) => {
+          if (!market.current(this, owner) || request !== this._profileRequest) return resolve()
           const list = (res?.result?.data) || []
           const user = list[0] || {}
 
@@ -511,7 +519,8 @@ Page({
             apartment: buildProfileApartmentDisplay(user),
             bio: user.bio || user.intro || '',
             bioOriginal: (user.bio || user.intro || ''),
-            openid: user._openid || ''
+            openid: user._openid || '',
+            sellerId: user._id || ''
           })
           resolve()
         },
@@ -530,6 +539,7 @@ Page({
   },
 
   _getFreshMyGoodsCache(type) {
+    if (market.isBackendEnabled()) return null
     const cache = this._getMyGoodsCache(type)
     if (!cache) return null
     if (cache.changedAt !== getMarketGoodsChangedAt()) return null
@@ -594,7 +604,7 @@ Page({
       return
     }
 
-    const requestToken = `${listingType}|${Date.now()}`
+    const requestToken = `${listingType}|${this._mySequence = (this._mySequence || 0) + 1}`
     this._activeMyGoodsRequestToken = requestToken
 
     try {
@@ -606,7 +616,7 @@ Page({
 
       const requestPromise = (async () => {
         while (true) {
-          const res = await wx.cloud.callFunction({
+          const res = await market.call({
             name: 'marketApi',
             data: {
               action: 'myList',
@@ -656,4 +666,4 @@ Page({
       }
     }
   }
-})
+}))

@@ -34,7 +34,7 @@
             data-index="{{index}}"
             bindtap="onPreviewPostImage"
           >
-            <image class="preview-img" src="{{item}}" mode="aspectFill" />
+            <image binderror="onMarketImageError" class="preview-img" src="{{item}}" mode="aspectFill" />
             <view class="image-remove" catchtap="onRemoveImage" data-index="{{index}}">×</view>
           </view>
 

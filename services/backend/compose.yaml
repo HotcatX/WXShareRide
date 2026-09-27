@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260926-avatar-login
+    image: linkx-backend:20260927-client-integration
     restart: unless-stopped
     init: true
     read_only: true
@@ -42,6 +42,8 @@ services:
     env_file:
       - path: /etc/linkx-backend/images/config.env
         required: false
+      - path: /etc/linkx-backend/identity/config.env
+        required: false
     environment:
       HOST: 0.0.0.0
       PORT: 3100
@@ -55,6 +57,11 @@ services:
       - type: bind
         source: /etc/linkx-backend/images
         target: /run/secrets/images
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /etc/linkx-backend/identity
+        target: /run/secrets/identity
         read_only: true
         bind: { create_host_path: false }
     tmpfs: ["/tmp:size=8m,mode=1777"]

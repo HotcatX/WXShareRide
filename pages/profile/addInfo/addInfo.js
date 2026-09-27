@@ -1,6 +1,8 @@
 // pages/profile/addInfo/addInfo.js
 const defaultAvatarUrl = 'https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0'
 const { showDataError } = require('../../../utils/error')
+const profileApi = require('../../../utils/compat/profile')
+const { resolveProfileAvatar } = require('../../../utils/profileDisplay')
 const { callUpdateUser } = require('../../../utils/userProfileUpdate')
 const { returnToPublicPage } = require('../../../utils/loginNavigation')
 
@@ -24,6 +26,7 @@ Page({
 
   onLoad(options = {}) {
     this._disposed = false
+    this._profileIdentity = profileApi.identity()
     this._exiting = false
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({
@@ -35,6 +38,12 @@ Page({
 
     // 拉取云端 userInfo
     this.loadUserInfo()
+  },
+
+  isProfileCurrent() {
+    const identity = profileApi.identity()
+    if (this._profileIdentity === undefined) this._profileIdentity = identity
+    return !this._disposed && !this._exiting && this._profileIdentity === identity
   },
 
   onUnload() {
@@ -61,50 +70,48 @@ Page({
     returnToPublicPage(typeof pending.url === 'string' ? pending.url : '')
   },
 
-  // 上传头像
+  // Only the latest selected image may change the profile reference.
   async onChooseAvatar(e) {
-    if (this._exiting || this._disposed) return
-    const { avatarUrl } = e.detail || {}
-    if (!avatarUrl) return
-
-
+    if (!this.isProfileCurrent()) return
+    const filePath = (e.detail || {}).avatarUrl
+    if (!filePath) return
+    const selection = this._avatarSelection = (this._avatarSelection || 0) + 1
+    const isCurrent = () => this.isProfileCurrent() && this._avatarSelection === selection
+    this._avatarUploading = true
+    this._editVersion = (this._editVersion || 0) + 1
     try {
-      const extMatch = avatarUrl.match(/\.(\w+)$/)
-      const ext = extMatch ? extMatch[1] : 'jpg'
-      const cloudPath = `userAvatar/${Date.now()}-${Math.floor(Math.random() * 1000000)}.${ext}`
-
-      const uploadRes = await wx.cloud.uploadFile({
-        cloudPath,
-        filePath: avatarUrl
-      })
-
-      if (this._exiting || this._disposed) return
-
-      this.setData({
-        avatarUrl: uploadRes.fileID,
-        unsaved: true
-      })
-    } catch (err) {
-      if (this._exiting || this._disposed) return
-      console.error('上传头像失败：', err)
-      wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
+      const image = await profileApi.uploadAvatar(filePath)
+      if (!isCurrent()) return
+      this.setData({ ...image, unsaved: true })
+    } catch (_) {
+      if (isCurrent()) wx.showToast({ title: '头像上传失败，请重试', icon: 'none' })
     } finally {
+      if (isCurrent()) this._avatarUploading = false
     }
   },
 
   // 拉取云端现有 userInfo
   async loadUserInfo() {
+    if (!this.isProfileCurrent()) return
     try {
-      const res = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      const request = this._profileLoad = (this._profileLoad || 0) + 1
+      const editVersion = this._editVersion || 0
+      const isCurrent = () => this.isProfileCurrent() && this._profileLoad === request &&
+        (this._editVersion || 0) === editVersion && !this.data.unsaved
+      const res = await profileApi.getUserInfo()
+      if (!isCurrent()) return
       if (this._exiting || this._disposed || this.data.unsaved) return
       if (res.result && res.result.data && res.result.data.length > 0) {
         const user = res.result.data[0]
+        const avatarUrl = await resolveProfileAvatar(user, defaultAvatarUrl)
+        if (!isCurrent()) return
         this.setData({
           wechat: user.wechatID || '',
           phone: user.phone || '',               // ⭐ 若无则为空（选填）
           regionIndex: ((user.regionPhone || user.region) === 'CN') ? 1 : 0,
           name: user.name || '',
-          avatarUrl: user.avatarUrl || this.data.avatarUrl,
+          avatarUrl,
+          ...(profileApi.isBackendEnabled() ? { avatarFileId: user.avatarFileId || null } : {}),
           zelleName: user.zelleName || '',
           zelleAccount: user.zelleAccount || ''
         })
@@ -115,6 +122,7 @@ Page({
   },
 
   onInput(e) {
+    this._editVersion = (this._editVersion || 0) + 1
     const { field } = e.currentTarget.dataset
     this.setData({ [field]: e.detail.value, unsaved: true })
   },
@@ -131,15 +139,19 @@ Page({
 
     // ⭐ 手机号为选填：如果填写，则校验格式；否则不校验
     if (phone) {
-      if (regionIndex === 0 && !/^\d{10}$/.test(phone)) return '请输入正确美国手机号'
-      if (regionIndex === 1 && !/^1\d{10}$/.test(phone)) return '请输入正确大陆手机号'
+      if (Number(regionIndex) === 0 && !/^\d{10}$/.test(phone)) return '请输入正确美国手机号'
+      if (Number(regionIndex) === 1 && !/^1\d{10}$/.test(phone)) return '请输入正确大陆手机号'
     }
 
     return ''
   },
 
   async onComplete() {
-    if (this._exiting || this._disposed || this.data.saving) return
+    if (!this.isProfileCurrent() || this.data.saving) return
+    if (this._avatarUploading) {
+      wx.showToast({ title: '头像上传中，请稍后保存', icon: 'none' })
+      return
+    }
     const msg = this.validateAll()
     if (msg) {
       wx.showToast({ title: msg, icon: 'none', duration: 2000 })
@@ -147,7 +159,7 @@ Page({
     }
 
     const version = this._completionVersion = (this._completionVersion || 0) + 1
-    const isCurrent = () => !this._exiting && !this._disposed && this._completionVersion === version
+    const isCurrent = () => this.isProfileCurrent() && this._completionVersion === version
     this.setData({ saving: true })
     const ok = await this.saveToCloud(isCurrent)
     if (!isCurrent()) return
@@ -199,10 +211,10 @@ Page({
 
   },
 
-  async saveToCloud(isCurrent = () => !this._exiting && !this._disposed) {
+  async saveToCloud(isCurrent = () => this.isProfileCurrent()) {
     if (!isCurrent()) return false
     const { wechat, phone, regionIndex } = this.data
-    const region = regionIndex === 0 ? 'US' : 'CN'
+    const region = Number(regionIndex) === 0 ? 'US' : 'CN'
     const updateData = {}
 
     // wechatID（必填）
@@ -224,7 +236,7 @@ Page({
 
     // 写入其他字段
     updateData.name = this.data.name || ''
-    updateData.avatarUrl = this.data.avatarUrl || ''
+    Object.assign(updateData, profileApi.avatarPatch(this.data))
     updateData.zelleName = this.data.zelleName || ''
     updateData.zelleAccount = this.data.zelleAccount || ''
 

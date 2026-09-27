@@ -39,6 +39,8 @@ function harness() {
     clearTimeout: id => { state.cancelled.set(id, state.timers.get(id)); state.timers.delete(id) },
     console: { error() {} },
     require(name) {
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
+      if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
       if (name.endsWith('/userProfileUpdate')) return { callUpdateUser: data => { state.saves.push(JSON.parse(JSON.stringify(data))); return save.promise } }
       if (name.endsWith('/loginNavigation')) return { returnToPublicPage: url => state.publicReturns.push(url) }
       if (name.endsWith('/error')) return { showDataError: (...args) => state.errors.push(args) }

@@ -36,6 +36,9 @@ function harness(kind, result, actor = 'driver') {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', pagePaths[kind]), 'utf8'), {
     Page(value) { definition = value }, wx, console: { error() {}, warn() {} }, setTimeout,
     require(name) {
+      if (name.endsWith('/compat/rideContacts')) return require('../utils/compat/rideContacts')
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('tripManage')) return {
         ...tripManage,
         async callTripManage(options) { calls.push(options); return state.accepted },

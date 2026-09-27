@@ -34,6 +34,7 @@ function harness(respond = () => ({ ok: true, items: [] })) {
     Page(value) { definition = value }, wx,
     console: { error() {} },
     require(name) {
+      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
       assert.equal(name, '../../../utils/error', 'Admin-only region and upload dependencies must be absent')
       return { showDataError: (...args) => errors.push(args) }
     }

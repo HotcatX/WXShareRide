@@ -1,3 +1,4 @@
+import { normalizeCityRequests } from './city-requests.ts';
 import { parseListedPrice } from '../prices.ts';
 import { migrationSource, serializeSource, sourceHash } from './source.ts';
 import type { Document, Collection, ExportObservation, MigrationIssue, MigrationPlan, MigrationReport, RideRow, MemberRow, StopRow } from './types.ts';
@@ -29,7 +30,7 @@ export { parseExportTimestamp, localDepartureCandidates } from './values.ts';
 export { migrationUserId } from './users.ts';
 
 const collections: Collection[] = ['userInfo', 'Carpool', 'CarpoolRequest'];
-const optionalCollections = new Set(['CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings', 'PublicStats',
+const optionalCollections = new Set(['ride_city_demand', 'ride_city_demand_events', 'CarpoolTemplate', 'Notifications', 'UserBlocks', 'TripRatings', 'PublicStats',
   'WebAdminAccounts', 'WebAdminSettings', 'WebAdminAuditLogs', 'market_admins', 'MarketAdminSettings', 'market_goods', 'MarketFiles', 'market_view_events', 'houseShare',
   'WebAdminUploads', 'market_ads', 'market_ad_events', 'community_config', 'CommunityConfigHistory', 'MarketImportBatches', 'MarketAdminTemplates']);
 const rideFields = new Set([
@@ -42,8 +43,8 @@ const pointFields = new Set(['address', 'date', 'time', 'placeId']);
 const passengerFields = new Set(['_openid', 'name', 'nickName', 'nickname', 'avatarUrl', 'joinedAt', 'pickupAddress', 'dropoffAddress']);
 /** Read-only candidate normalization. The plan contains private data: print only report. */
 export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'America/New_York'; observation?: ExportObservation }): { plan: MigrationPlan | null; report: MigrationReport } {
-  const plan: MigrationPlan = { sourceSha256: '', observedBefore: null, sources: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [], publicStatistics: [], referralCodes: [], adminAccounts: [], adminOrigins: [], adminAudit: [], adminMarketBatches: [], adminRequests: [], marketTemplates: [], listings: [], files: [], fileReferences: [], marketViews: [], ads: [], adClicks: [], communityConfigs: [], communityRevisions: [] };
-  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0, publicStatistics: 0, referralCodes: 0, adminAccounts: 0, adminOrigins: 0, adminAudit: 0, adminMarketBatches: 0, adminRequests: 0, marketTemplates: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0, ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 }, issues: [] };
+  const plan: MigrationPlan = { sourceSha256: '', observedBefore: null, sources: [], cityRequests: [], users: [], rides: [], members: [], stops: [], templates: [], notifications: [], blocks: [], ratings: [], completions: [], publicStatistics: [], referralCodes: [], adminAccounts: [], adminOrigins: [], adminAudit: [], adminMarketBatches: [], adminRequests: [], marketTemplates: [], listings: [], files: [], fileReferences: [], marketViews: [], ads: [], adClicks: [], communityConfigs: [], communityRevisions: [] };
+  const report: MigrationReport = { sourceKind: 'rejected', ready: false, inputCounts: { userInfo: 0, Carpool: 0, CarpoolRequest: 0, other: 0 }, candidateCounts: { cityRequests: 0, users: 0, rides: 0, members: 0, stops: 0, templates: 0, notifications: 0, blocks: 0, ratings: 0, completions: 0, publicStatistics: 0, referralCodes: 0, adminAccounts: 0, adminOrigins: 0, adminAudit: 0, adminMarketBatches: 0, adminRequests: 0, marketTemplates: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0, ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 }, issues: [] };
   const issue = (collection: Collection, code: string, field = '-', severity: 'error' | 'notice' = 'error', count = 1) => {
     const previous = report.issues.find(item => item.collection === collection && item.code === code && item.field === field && item.severity === severity);
     if (previous) previous.count += count; else report.issues.push({ collection, code, field, severity, count });
@@ -86,6 +87,9 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
   if (docs.PublicStats !== undefined) plan.publicStatistics = normalizePublicStatistics(docs.PublicStats, appId, issue);
   const sourceUsers = (Array.isArray(docs.userInfo) ? docs.userInfo : []).filter(object);
   plan.users = normalizeUsers(sourceUsers, appId, issue);
+  if (docs.ride_city_demand !== undefined || docs.ride_city_demand_events !== undefined) {
+    plan.cityRequests = normalizeCityRequests(docs.ride_city_demand_events, docs.ride_city_demand, plan.users, appId, issue);
+  }
   plan.referralCodes = normalizeReferralCodes(sourceUsers, plan.users, appId, issue);
   if (docs.WebAdminAccounts !== undefined) plan.adminAccounts = normalizeAdminAccounts(docs.WebAdminAccounts, appId, issue);
   if (docs.WebAdminSettings !== undefined) plan.adminOrigins = normalizeAdminOrigins(docs.WebAdminSettings, appId, issue);
@@ -348,7 +352,7 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       }
     }
   }
-  report.candidateCounts = { users: plan.users.length, rides: plan.rides.length, members: plan.members.length, stops: plan.stops.length,
+  report.candidateCounts = { cityRequests: plan.cityRequests.length, users: plan.users.length, rides: plan.rides.length, members: plan.members.length, stops: plan.stops.length,
     templates: plan.templates.length, notifications: plan.notifications.length, blocks: plan.blocks.length,
     ratings: plan.ratings.length, completions: plan.completions.length, publicStatistics: plan.publicStatistics.length,
     referralCodes: plan.referralCodes.length, adminAccounts: plan.adminAccounts.length, listings: plan.listings.length,

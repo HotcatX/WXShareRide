@@ -24,7 +24,9 @@ function harness() {
   const module = { exports: {} }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
     module, Date: Clock,
-    require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions')),
+    require: name => name === './backendClient' ? { isBackendEnabled: () => false } :
+      name === './locationConfig' ? { loadLocationConfig: () => { throw new Error('unexpected backend read') } } :
+        require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions')),
     wx: { cloud: { database: () => ({ collection(name) {
       assert.ok(['Departure', 'Arrival'].includes(name))
       return { get() {

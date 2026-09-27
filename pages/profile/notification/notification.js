@@ -1,321 +1,111 @@
-// pages/profile/notification/notification.js
+const notifications = require('../../../utils/compat/notifications')
+
 Page({
-  data: {
-    list: [],             // 通知列表
-    loading: true,        // 是否在加载中
-    statusBarHeight: 80,
-    pageTitle: '消息通知',
-    unreadCount: 0        // 未读数量
-  },
+  data: { list: [], loading: true, statusBarHeight: 80, pageTitle: '消息通知', unreadCount: 0 },
 
   onLoad() {
-    const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
-    this.setData({
-      statusBarHeight: info.statusBarHeight
-    })
+    this._unloaded = false
+    this._epoch = (this._epoch || 0) + 1
+    this._loadSequence = 0
+    const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync()
+    this.setData({ statusBarHeight: info.statusBarHeight })
   },
+  onShow() { return this.loadList() },
+  onUnload() { this._unloaded = true; this._epoch = (this._epoch || 0) + 1; this._loadSequence = (this._loadSequence || 0) + 1 },
+  context() { return { epoch: this._epoch, identity: notifications.identity() } },
+  current(context) { return !this._unloaded && context.epoch === this._epoch && context.identity === notifications.identity() },
+  goBack() { wx.navigateBack({ delta: 1 }) },
+  async onPullDownRefresh() { try { await this.loadList() } finally { if (!this._unloaded) wx.stopPullDownRefresh() } },
 
-  onShow() {
-    this.loadList()
-  },
-
-  // 返回上一页
-  goBack() {
-    wx.navigateBack({ delta: 1 })
-  },
-
-  // 下拉刷新
-  async onPullDownRefresh() {
-    try {
-      await this.loadList()
-    } catch (e) {
-      console.error('onPullDownRefresh error', e)
-    } finally {
-      wx.stopPullDownRefresh()
+  async loadList({ failureTitle = '加载失败，请重试' } = {}) {
+    if (this._unloaded) return false
+    const context = this.context(), sequence = this._loadSequence = (this._loadSequence || 0) + 1
+    const current = () => this.current(context) && sequence === this._loadSequence
+    if (this._listIdentity !== context.identity) {
+      this._listIdentity = context.identity
+      this.setData({ list: [], unreadCount: 0 })
+      this.updateTabBarBadge(0)
     }
-  },
-
-
-  /**
-   * 读取 Notifications 集合中的消息
-   * 只读取当前用户的通知
-   */
-  async loadList() {
     this.setData({ loading: true })
-    const openid = wx.getStorageSync('openid')
-
-    if (!openid) {
-      this.setData({
-        list: [],
-        loading: false,
-        unreadCount: 0
-      })
+    if (!notifications.signedIn()) {
+      this.setData({ list: [], loading: false, unreadCount: 0 })
       this.updateTabBarBadge(0)
-      return
+      return false
     }
-
-    const db = wx.cloud.database()
-
     try {
-      const res = await db.collection('Notifications')
-        .where({
-          _openid: openid
-        })
-        .orderBy('createdAt', 'desc')
-        .limit(100)
-        .get()
-
-      const rawList = res.data || []
-
-      const list = rawList.map(item => {
-        const extra = item.extra || {}
-        const rateTripId = extra.tripId || extra.requestId || item.carpoolId || ''
-        return {
-          ...item,
-          createdAtText: this.formatTime(item.createdAt),
-          canRate: item.type === 'RATING_INVITE' || extra.action === 'rateUser',
-          rateTripId
-        }
-      })
-
-      const unreadCount = list.filter(it => !it.read).length
-
-      this.setData({
-        list,
-        loading: false,
-        unreadCount
-      })
-
-      // 更新自绘底栏红点
-      this.updateTabBarBadge(unreadCount)
-
-    } catch (err) {
-      console.error('加载通知失败：', err)
-      wx.showToast({
-        title: '加载失败',
-        icon: 'none'
-      })
-      this.setData({ loading: false })
+      const result = await notifications.list()
+      if (!current()) return false
+      this.setData({ list: result.items.map(item => ({ ...item, createdAtText: this.formatTime(item.createdAt) })),
+        loading: false, unreadCount: result.unreadCount })
+      // This count includes notices outside the first 100 rows.
+      this.updateTabBarBadge(result.unreadCount)
+      return true
+    } catch (_) {
+      if (current()) { this.setData({ loading: false }); wx.showToast({ title: failureTitle, icon: 'none' }) }
+      return false
     }
   },
 
-  /**
-   * 时间格式化：YYYY-MM-DD HH:mm
-   */
-  formatTime(t) {
-    if (!t) return ''
-    let d
-
-    if (t instanceof Date) {
-      d = t
-    } else if (t.toDate && typeof t.toDate === 'function') {
-      d = t.toDate()
-    } else {
-      d = new Date(t)
-    }
-
-    const y = d.getFullYear()
-    const m = (d.getMonth() + 1).toString().padStart(2, '0')
-    const day = d.getDate().toString().padStart(2, '0')
-    const hh = d.getHours().toString().padStart(2, '0')
-    const mm = d.getMinutes().toString().padStart(2, '0')
-
-    return `${y}-${m}-${day} ${hh}:${mm}`
+  formatTime(value) {
+    if (!value) return ''
+    const date = value instanceof Date ? value : value.toDate && typeof value.toDate === 'function'
+      ? value.toDate() : new Date(value.$date === undefined ? value : value.$date)
+    if (!Number.isFinite(date.getTime())) return ''
+    const pad = number => String(number).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
   },
-
-  /**
-   * 单条点击 → 设为已读
-   */
-  async onTapItem(e) {
-    const { id, index } = e.currentTarget.dataset
-    const item = this.data.list[index]
-    if (!item || item.read) return
-
-    const db = wx.cloud.database()
-
+  item(event) {
+    if (this._listIdentity !== notifications.identity()) return null
+    const id = event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.id
+    return this.data.list.find(item => item._id === id)
+  },
+  async runMutation(operation, successTitle) {
+    const context = this.context()
+    if (!this.current(context)) return false
+    if (!notifications.signedIn()) { wx.showToast({ title: '请先登录', icon: 'none' }); return false }
+    if (this._mutation && this.current(this._mutation)) return false
+    this._mutation = context
+    this._loadSequence = (this._loadSequence || 0) + 1
+    this.setData({ loading: false })
     try {
-      await db.collection('Notifications').doc(id).update({
-        data: { read: true }
-      })
-
-      const key = `list[${index}].read`
-      this.setData({ [key]: true })
-
-      this.syncUnreadFromList()
-
-    } catch (err) {
-      console.error('标记已读失败：', err)
-      wx.showToast({
-        title: '操作失败',
-        icon: 'none'
-      })
-    }
-  },
-
-  async onGoRating(e) {
-    const { id, index, tripid } = e.currentTarget.dataset || {}
-    const item = this.data.list[index]
-    const rateTripId = tripid || (item && item.rateTripId) || ''
-    if (!rateTripId) {
-      wx.showToast({ title: '缺少历史行程', icon: 'none' })
-      return
-    }
-
-    if (id && item && !item.read) {
-      try {
-        const db = wx.cloud.database()
-        await db.collection('Notifications').doc(id).update({
-          data: { read: true }
-        })
-        this.setData({ [`list[${index}].read`]: true })
-        this.syncUnreadFromList()
-      } catch (err) {
-        console.error('标记评价通知已读失败：', err)
-      }
-    }
-
-    wx.navigateTo({
-      url: `/pages/profile/tripHistory/tripHistory?rateTripId=${encodeURIComponent(rateTripId)}`
-    })
-  },
-
-  /**
-   * 一键全部标为已读
-   * ⭐ 只标记当前用户自己的未读消息
-   */
-  async onMarkAllRead() {
-    // 虽然按钮 disabled 了，这里加一道保险
-    if (this.data.unreadCount <= 0) return
-
-    const openid = wx.getStorageSync('openid')
-    if (!openid) {
-      wx.showToast({
-        title: '请先登录',
-        icon: 'none'
-      })
-      return
-    }
-
-    const db = wx.cloud.database()
-
-
-    try {
-      await db.collection('Notifications')
-        .where({
-          _openid: openid,
-          read: false
-        })
-        .update({
-          data: { read: true }
-        })
-
-      // 本地全部改为已读
-      const newList = this.data.list.map(item => ({
-        ...item,
-        read: true
-      }))
-
-      this.setData({
-        list: newList,
-        unreadCount: 0
-      })
-
-        // 更新自绘底栏红点、同步 profile
-      this.updateTabBarBadge(0)
+      await operation()
+      if (!this.current(context)) return false
+      // Re-read after the transaction: read-all/clear must preserve later arrivals.
+      const refreshed = await this.loadList({ failureTitle: '操作已完成，刷新失败，请下拉重试' })
+      if (!this.current(context)) return false
       this.notifyPrevPage()
-
-      wx.showToast({
-        title: '已全部标为已读',
-        icon: 'success'
-      })
-    } catch (err) {
-      console.error('全部标为已读失败：', err)
-      wx.showToast({
-        title: '操作失败',
-        icon: 'none'
-      })
-    } finally {
-    }
+      if (refreshed && successTitle) wx.showToast({ title: successTitle, icon: 'success' })
+      return true
+    } catch (error) {
+      if (this.current(context)) wx.showToast({ title: error.message || '操作失败，请重试', icon: 'none' })
+      return false
+    } finally { if (this._mutation === context) this._mutation = null }
   },
-
-  /**
-   * 一键删除所有消息（调用云函数）
-   */
+  async onTapItem(event) {
+    const item = this.item(event)
+    if (!item || item.read) return
+    await this.runMutation(() => notifications.markRead(item._id))
+  },
+  async onGoRating(event) {
+    const context = this.context(), item = this.item(event)
+    if (!item || !item.canRate || !item.rateTripId) { wx.showToast({ title: '缺少历史行程', icon: 'none' }); return }
+    if (!item.read) await this.runMutation(() => notifications.markRead(item._id))
+    if (this.current(context)) wx.navigateTo({ url: `/pages/profile/tripHistory/tripHistory?rateTripId=${encodeURIComponent(item.rateTripId)}` })
+  },
+  async onMarkAllRead() {
+    if (this.data.unreadCount <= 0) return
+    await this.runMutation(() => notifications.markAllRead(), '已全部标为已读')
+  },
   onDeleteAll() {
-    if (this.data.list.length === 0) return
-
-    wx.showModal({
-      title: '提示',
-      content: '确定要删除所有消息吗？此操作不可恢复。',
-      success: async (res) => {
-        if (!res.confirm) return
-
-
-        try {
-          const callRes = await wx.cloud.callFunction({
-            name: 'clearUserNotifications',
-            data: {}
-          })
-
-          const result = (callRes && callRes.result) || {}
-          if (result.success !== true) {
-            wx.showToast({
-              title: result.errorMsg || '删除失败',
-              icon: 'none'
-            })
-            return
-          }
-
-          this.setData({
-            list: [],
-            unreadCount: 0
-          })
-
-          // 更新自绘底栏红点、同步 profile
-          this.updateTabBarBadge(0)
-          this.notifyPrevPage()
-
-          wx.showToast({
-            title: '已删除所有消息',
-            icon: 'success'
-          })
-        } catch (err) {
-          console.error('删除所有消息失败：', err)
-          wx.showToast({
-            title: '操作失败',
-            icon: 'none'
-          })
-        } finally {
-        }
-      }
-    })
+    if (!this.data.list.length) return
+    const context = this.context()
+    wx.showModal({ title: '提示', content: '确定要删除所有消息吗？此操作不可恢复。', success: async result => {
+      if (result.confirm && this.current(context)) await this.runMutation(() => notifications.clear(), '已删除所有消息')
+    } })
   },
-
-  /**
-   * 根据当前 list 重新统计未读数量并同步到自绘底栏与 profile
-   */
-  syncUnreadFromList() {
-    const unreadCount = this.data.list.filter(it => !it.read).length
-    this.setData({ unreadCount })
-    this.updateTabBarBadge(unreadCount)
-    this.notifyPrevPage()
-  },
-
-  /**
-   * 更新自绘底部导航角标
-   */
-  updateTabBarBadge(count) {
-    wx.setStorageSync('customTabProfileBadge', Number(count || 0))
-  },
-
-  /**
-   * 通知上一页（通常是 profile）刷新未读数量
-   */
+  updateTabBarBadge(count) { wx.setStorageSync('customTabProfileBadge', Number(count || 0)) },
   notifyPrevPage() {
-    const pages = getCurrentPages()
-    const prevPage = pages[pages.length - 2]
-    if (prevPage && typeof prevPage.loadUnreadCount === 'function') {
-      prevPage.loadUnreadCount()
-    }
+    const pages = getCurrentPages(), previous = pages[pages.length - 2]
+    if (previous && typeof previous.loadUnreadCount === 'function') previous.loadUnreadCount()
   }
 })

@@ -38,6 +38,7 @@ function fixture() {
     console: { error() {}, warn() {} },
     setTimeout(fn) { timers.push(fn) },
     require(name) {
+      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
       if (name === '../../utils/error') return { showDataError: (...args) => errors.push(args) }
       if (name === '../../utils/marketSellerProfileCache') return {
         readMarketSellerProfiles: () => ({}), fetchAndCacheMarketSellerProfiles: async () => ({})

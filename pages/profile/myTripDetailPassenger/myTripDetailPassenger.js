@@ -1,3 +1,4 @@
+const contacts = require("../../../utils/compat/rideContacts")
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const { showDataError } = require("../../../utils/error")
@@ -158,6 +159,7 @@ Page({
   },
 
   onShow() {
+    contacts.onShow(this, () => this.loadTripDetail(this.data.tripId, this.data.sourceType))
     rideTelemetry.pageVisible(this)
     if (!this.data.loading && !this.data.loadError && this.data.trip) {
       rideTelemetry.detailViewed(this, this.data.trip, this.data.sourceType, 'history')
@@ -165,10 +167,12 @@ Page({
   },
 
   onHide() {
+    contacts.onHide(this)
     rideTelemetry.pageHidden(this)
   },
 
   onUnload() {
+    contacts.onUnload(this)
     rideTelemetry.pageHidden(this)
   },
 
@@ -200,6 +204,8 @@ Page({
 
   // ========== 主加载：按入口来源读取 Carpool 或 CarpoolRequest ==========
   async loadTripDetail(tripId, sourceType = this.data.sourceType, options = {}) {
+    if (contacts.isBackendEnabled()) return contacts.load(this, sourceType, tripId, 'passenger', options)
+    // TEMPORARY FALLBACK: legacy contacts stay in the selected CloudBase mode only.
     if (!options.silent) this.setData({ loading: true, loadError: '' })
 
     try {
@@ -434,6 +440,8 @@ Page({
 
   // ====== 统一退出：Carpool 或 CarpoolRequest ======
   async onDeleteOrQuit() {
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
     const { tripId, sourceType } = this.data
     if (!tripId) return
 
@@ -451,7 +459,7 @@ Page({
       placeholder: '理由会发送给相关成员',
       confirmText: '继续'
     })
-    if (!reason) return
+    if (!reason || !allowed()) return
 
     wx.showModal({
       title: '退出路线',
@@ -459,13 +467,14 @@ Page({
       confirmText: '退出',
       cancelText: '取消',
       success: async (r) => {
-        if (!r.confirm) return
+        if (!r.confirm || !allowed()) return
         try {
           const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'quitTrip', reason })
+          if (!allowed()) return
 
           if (result && (result.ok || result.success)) {
-            wx.showToast({ title: '已退出路线', icon: 'success' })
-            setTimeout(() => this.goBack(), 500)
+            wx.showToast({ title: result.recovered ? '已确认上次操作' : '已退出路线', icon: 'success' })
+            setTimeout(() => { if (allowed()) this.goBack() }, 500)
           } else {
             wx.showToast({ title: (result && result.errorMsg) || '操作失败', icon: 'none' })
           }
@@ -478,10 +487,13 @@ Page({
   },
 
   async onBlockUser(e) {
-    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
     const { tripId, sourceType } = this.data
-    if (!targetOpenid) return
+    if (!targetId) return
 
     wx.showModal({
       title: '拉黑用户',
@@ -489,11 +501,12 @@ Page({
       confirmText: '拉黑',
       cancelText: '取消',
       success: async (r) => {
-        if (!r.confirm) return
+        if (!r.confirm || !allowed()) return
         try {
-          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'blockUser', targetOpenid })
+          const result = await callTripManage({ type: sourceType, tripId, requestId: tripId, action: 'blockUser', ...target })
+          if (!allowed()) return
           if (result && (result.ok || result.success)) markRideListStale()
-          wx.showToast({ title: result && (result.ok || result.success) ? '已拉黑' : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
+          wx.showToast({ title: result && (result.ok || result.success) ? (result.recovered ? '已确认上次操作' : '已拉黑') : ((result && result.errorMsg) || '操作失败'), icon: result && (result.ok || result.success) ? 'success' : 'none' })
         } catch (e2) {
           console.error('blockUser error:', e2)
           wx.showToast({ title: '操作失败', icon: 'none' })
@@ -503,26 +516,29 @@ Page({
   },
 
   async onRateDriver(e) {
-    const targetOpenid = (e.currentTarget.dataset && e.currentTarget.dataset.openid) || ''
+    const allowed = contacts.actionGuard(this)
+    if (!allowed()) return
+    const target = contacts.target(e)
+    const targetId = target.targetUserId || target.targetOpenid
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
     const { tripId, sourceType, isTripCompleted, ratedTargetMap } = this.data
     if (!isTripCompleted) {
       wx.showToast({ title: '只能评价过往行程', icon: 'none' })
       return
     }
-    if (isTargetRated(ratedTargetMap, targetOpenid)) {
+    if (isTargetRated(ratedTargetMap, targetId)) {
       wx.showToast({ title: '已经评价过', icon: 'none' })
       return
     }
     const ok = await rateTripUser({
       type: sourceType,
       tripId,
-      targetOpenid,
+      ...target,
       targetRole: 'driver',
       targetName,
       ratedTargetMap
     })
-    if (ok) await this.loadTripDetail(tripId, sourceType, { force: true, silent: true })
+    if (ok && allowed()) await this.loadTripDetail(tripId, sourceType, { force: true, silent: true })
   },
 
   onShareAppMessage() {

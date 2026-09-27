@@ -51,6 +51,9 @@ const pickerOptional = { snapshotId: id, counterpartPlaceId: placeId, preference
 const pickerItem = { placeId, position: integer(0, 49), source: enumeration('fixed', 'personal', 'circle', 'city', 'new', 'custom') }
 
 const validators = {
+  referral_visit: shape({ code: value => typeof value === 'string' && /^ref_[a-f0-9]{12}$/.test(value),
+    source: enumeration('appLaunch', 'appShow', 'pageLoad', 'other'),
+    entry: enumeration('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile', 'other') }),
   place_picker_open: shape(picker, pickerOptional),
   place_picker_rendered: shape(Object.assign({}, picker, {
     items: value => Array.isArray(value) && value.length <= 20 && value.every(shape(pickerItem)),

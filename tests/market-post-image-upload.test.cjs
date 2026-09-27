@@ -34,6 +34,7 @@ function fixture({ paths = ['photo-one.jpg', 'photo-two.jpg'], failCompress = ()
   vm.runInNewContext(source, {
     wx, Date: Clock, console: { error() {} }, Page(value) { definition = value },
     require(name) {
+      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
       if (name === '../../../utils/error') return { showDataError() {} }
       assert.equal(name, '../../../utils/regionTree')
       return { normalizeUserRegion() { return {} } }

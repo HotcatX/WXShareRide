@@ -1,3 +1,6 @@
+const rides = require("../../../utils/compat/rides")
+const profileApi = require("../../../utils/compat/profile")
+const accountKey = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${wx.getStorageSync("openid") || ""}`
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
@@ -124,9 +127,11 @@ Page({
     const openid = wx.getStorageSync("openid")
     if (!openid) return
 
-    const db = wx.cloud.database()
-    const res = await db.collection("userInfo").where({ _openid: openid }).limit(1).get()
-    const info = res.data[0] || {}
+    if (wx.getStorageSync("isGuest")) return
+    const owner = accountKey()
+    const res = await profileApi.getUserInfo()
+    if (this._disposed || owner !== accountKey()) return
+    const info = profileApi.legacyDocument(res) || {}
 
     this.setData({
       pickupSpotList: info.pickupSpot || [],
@@ -152,8 +157,7 @@ Page({
     } catch (e) {
       console.error('onDetailRefresherRefresh error', e)
     } finally {
-      this.setData({ refresherTriggered: false })
-      wx.stopPullDownRefresh()
+      if (!this._disposed) { this.setData({ refresherTriggered: false }); wx.stopPullDownRefresh() }
     }
   },
 
@@ -178,6 +182,8 @@ Page({
   },
 
   async onLoad(options) {
+    this._disposed = false
+    this._detailAccount = accountKey()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: info.statusBarHeight })
 
@@ -209,6 +215,21 @@ Page({
 
 
   async onShow() {
+    const changedAccount = this._detailAccount !== undefined && this._detailAccount !== accountKey()
+    this._detailAccount = accountKey()
+    if (changedAccount) {
+      this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+      this.setData({ trip: null, driverInfo: null, isOwner: false, hasJoined: false, joinedByMe: false, acceptedByMe: false,
+        driverUserId: '', ownerUserId: '', driverOpenid: '', ownerOpenid: '', pickupSpotList: [], dropoffSpotList: [] })
+      this._lastDetailLoadedAt = 0
+      if (this.data.tripId) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
+    }
+    if (rides.isBackendEnabled()) {
+      if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+      this._imageRefreshTimer = setInterval(() => {
+        if (!this._disposed && this.data.tripId && !this.data.loading) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
+      }, 240000)
+    }
     if (this.checkRouteExpiry()) return
     try {
       await this.loadUserSpots()
@@ -235,6 +256,8 @@ Page({
   },
 
   async resumeJoinAfterLogin() {
+    const owner = accountKey()
+    const isCurrent = () => !this._disposed && owner === accountKey()
     const action = wx.getStorageSync('postLoginAction') || {}
     if (!action || action.type !== 'joinCarpool') return false
 
@@ -256,7 +279,8 @@ Page({
       if (!this.data.trip) return false
 
       // 只有资料确实已经写入，并且微信号存在时才自动继续加入。
-      const userRes = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      const userRes = await profileApi.getUserInfo()
+      if (!isCurrent()) return false
       const profile = extractUserInfoDoc(userRes.result || {})
       if (!profile || !String(profile.wechatID || '').trim()) return false
 
@@ -364,6 +388,7 @@ Page({
       isOwner: false,
       driverInfo: null,
       driverOpenid: '',
+      driverUserId: '',
       driverCompletedText: '无',
       driverRatingText: '无',
       departAddress: '',
@@ -389,7 +414,15 @@ Page({
     }, 2000)
   },
 
+  onHide() {
+    if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+    this._imageRefreshTimer = null
+  },
+
   onUnload() {
+    this._disposed = true
+    if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
+    if (this._redirectTimer) clearTimeout(this._redirectTimer)
     this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
     if (this._toastTimer) clearTimeout(this._toastTimer)
   },
@@ -399,7 +432,7 @@ Page({
   // =========================
   ensureLoginBeforeJoin() {
     const openid = wx.getStorageSync('openid') || ''
-    if (openid) return true
+    if (openid && !wx.getStorageSync('isGuest')) return true
 
     const { tripId, trip } = this.data
     const id = tripId || (trip && trip._id) || ''
@@ -421,7 +454,7 @@ Page({
 
   ensureLoginForBlock() {
     const openid = wx.getStorageSync('openid') || ''
-    if (openid) return true
+    if (openid && !wx.getStorageSync('isGuest')) return true
 
     const { tripId, trip } = this.data
     const id = tripId || (trip && trip._id) || ''
@@ -440,6 +473,7 @@ Page({
   },
 
   applyCachedPreview(id) {
+    if (rides.isBackendEnabled()) return false
     let applied = false
 
     try {
@@ -478,7 +512,10 @@ Page({
     let hasJoined = false
     let isOwner = false
 
-    if (myOpenid) {
+    if (trip.serverMode) {
+      isOwner = trip.viewer?.isCreator === true
+      hasJoined = trip.viewer?.role === 'passenger'
+    } else if (myOpenid) {
       if (trip._openid === myOpenid) isOwner = true
       hasJoined = getCarpoolPassengerOpenids(trip).includes(myOpenid)
     }
@@ -522,6 +559,7 @@ Page({
       driverCompletedText: keepDriverStats ? this.data.driverCompletedText : '无',
       driverRatingText: keepDriverStats ? this.data.driverRatingText : '无',
       driverOpenid,
+      driverUserId: trip.driverUserId || '',
       departAddress,
       destAddress,
       formattedDepartTime,
@@ -561,9 +599,9 @@ Page({
     if (this.data.routeExpired) return true
     const driverOpenid = getCarpoolDriverOpenid(trip)
     const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
-    if (result.driverInfo && result.driverInfo._openid) {
+    if (result.driverInfo && (trip.serverMode ? result.driverInfo.userId : result.driverInfo._openid)) {
       this.applyDriverInfo(result.driverInfo, trip._id || id)
-    } else if (driverOpenid && canShowDriverInfo) {
+    } else if (!trip.serverMode && driverOpenid && canShowDriverInfo) {
       this.loadDriverInfo(driverOpenid, trip._id || id)
     }
     this.applyDriverStats(result.driverStats || (result.driverInfo && result.driverInfo.rideStats))
@@ -591,6 +629,7 @@ Page({
       this.applyTripDetailResult(result, id)
     } catch (err) {
       if (sequence !== this._detailLoadSequence) return
+      if (rides.isBackendEnabled()) { this.setLoadError(err.message || '路线加载失败，请重试'); return }
       if (this.data.trip || this.data.routeExpired) {
         this.showToastBar('网络异常', 'error')
         this.setData({ loading: false })
@@ -634,6 +673,7 @@ Page({
   },
 
   async loadDriverInfo(driverOpenid, id) {
+    if (rides.isBackendEnabled()) return
     if (!driverOpenid) return
 
     try {
@@ -689,6 +729,8 @@ Page({
     // ✅ 1) 未登录先去 login，并要求必要时去 addInfo
     if (!this.ensureLoginBeforeJoin()) return
 
+    const owner = accountKey()
+    const isCurrent = () => !this._disposed && owner === accountKey()
     this.setData({ submitting: true })
 
     try {
@@ -699,7 +741,8 @@ Page({
       }
 
       // 从云端读取当前用户资料（用于写 passengers）
-      const userRes = await wx.cloud.callFunction({ name: 'getUserInfo' })
+      const userRes = await profileApi.getUserInfo()
+      if (!isCurrent()) return
       const userDoc = extractUserInfoDoc(userRes.result || {})
 
       // 已登录但资料不存在：引导 addInfo
@@ -729,7 +772,7 @@ Page({
           confirmText: '去填写',
           cancelText: '取消',
           success: (res) => {
-            if (res.confirm) {
+            if (res.confirm && isCurrent()) {
               wx.navigateTo({
                 url: '/pages/profile/editInfo/editInfo'
               })
@@ -744,9 +787,7 @@ Page({
       userInfo.pickupAddress = p
       userInfo.dropoffAddress = d
 
-      const joinRes = await wx.cloud.callFunction({
-        name: 'joinTrip',
-        data: {
+      const joinRes = await rides.joinTrip({
           type: 'carpool',
           tripId: trip._id,
           passengerInfo: {
@@ -754,8 +795,8 @@ Page({
             pickupAddress: this.data.pickupAddress,
             dropoffAddress: this.data.dropoffAddress
           }
-        }
       })
+      if (!isCurrent()) return
 
       const cResult = joinRes.result || {}
       if (!cResult.success) {
@@ -764,10 +805,11 @@ Page({
       }
 
       markRideListStale()
-      wx.showToast({ title: '加入成功', icon: 'success', duration: 2000 })
+      wx.showToast({ title: cResult.recovered ? '已确认上次操作' : '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })
 
       await this.loadTripDetail(trip._id, { silent: true, force: true })
+      if (!isCurrent()) return
 
       const pages = getCurrentPages()
       const prevPage = pages[pages.length - 2]
@@ -775,10 +817,11 @@ Page({
         prevPage.loadCarpoolList()
       }
     } catch (err) {
+      if (!isCurrent()) return
       console.error('joinCarpool error:', err)
-      wx.showToast({ title: '请求失败，请稍后重试', icon: 'none' })
+      wx.showToast({ title: err.message || '请求失败，请稍后重试', icon: 'none' })
     } finally {
-      this.setData({ submitting: false })
+      if (isCurrent()) this.setData({ submitting: false })
     }
   },
 
@@ -789,7 +832,8 @@ Page({
       wx.showToast({ title: '不能拉黑自己', icon: 'none' })
       return
     }
-    if (!targetOpenid) {
+    const targetUserId = trip?.driverUserId || ''
+    if (!(rides.isBackendEnabled() ? targetUserId : targetOpenid)) {
       wx.showToast({ title: '缺少拉黑对象', icon: 'none' })
       return
     }
@@ -799,6 +843,7 @@ Page({
       type: 'carpool',
       tripId: tripId || (trip && trip._id) || '',
       targetOpenid,
+      targetUserId,
       targetName: (driverInfo && (driverInfo.name || driverInfo.nickName)) || '司机'
     })
   },

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import { parseListedPrice } from '../src/prices.ts';
 
@@ -37,11 +38,17 @@ test('only explicit free labels or zero amounts become zero', () => {
   }
 });
 
-test('built-in reference-price placeholders remain unknown and keep their exact meaning', () => {
-  const createPage = readFileSync(new URL('../../../pages/home/newTrip/newTrip.js', import.meta.url), 'utf8');
+test('built-in reference-price placeholders remain unknown and keep their exact meaning', async () => {
+  const { createRidePublishClient, toRideInput } = createRequire(import.meta.url)('../../../utils/compat/ridePublish.js');
+  const client = createRidePublishClient({ backend: { isBackendEnabled: () => true },
+    loadLocationConfig: async () => ({ requestPrices: [] }) });
+  const missingQuote = await client.loadRequestPrice('Fort Lee', '哥大');
+  assert.equal(missingQuote, '参考打车价格');
   const displayHelper = readFileSync(new URL('../../../utils/tripManage.js', import.meta.url), 'utf8');
-  // Guard the audited built-in examples against drifting away from the actual UI.
-  assert.match(createPage, /referencePrice:\s*"参考打车价格"/);
+  const body = toRideInput({ kind: 'request', cityKey: 'ny_nj', departureAddress: 'Fort Lee', destinationAddress: '哥大',
+    passengerCount: 1, departureDate: '2026-10-02', departureTime: '15:00', referencePrice: missingQuote }, Date.parse('2026-10-01T12:00:00Z'));
+  assert.equal(body.listedPriceCents, null);
+  assert.equal(body.listedPriceLabel, missingQuote);
   for (const label of ['参考打车价格', '请参考打车价格', '价格以司机确认为准']) {
     assert.ok(displayHelper.includes(label));
     assert.deepEqual(parseListedPrice(label), { classification: 'unpriced', cents: null, label });

@@ -1,3 +1,4 @@
+const rides = require("./compat/rides")
 const TRIP_DETAIL_CACHE_KEY = "trip_detail_cache_v1"
 const TRIP_DETAIL_CACHE_TTL = 5 * 60 * 1000
 const TRIP_DETAIL_CACHE_MAX_STALE = 30 * 60 * 1000
@@ -31,7 +32,7 @@ function makeKey(type, id, viewerKey = getViewerKey()) {
   const keyType = normalizeType(type)
   const keyId = normalizeId(id)
   if (!keyId) return ""
-  return `${viewerKey}:${keyType}:${keyId}`
+  return `${rides.isBackendEnabled() ? "server" : "cloudbase"}:${viewerKey}:${keyType}:${keyId}`
 }
 
 function getStore() {
@@ -72,6 +73,8 @@ function pruneStore(store = {}) {
 }
 
 function readTripDetailCache(type, id, options = {}) {
+  // Contacts and short-lived signed URLs are never persisted in server mode.
+  if (rides.isBackendEnabled()) return null
   const key = makeKey(type, id)
   if (!key) return null
   const entry = getStore()[key]
@@ -85,6 +88,7 @@ function readTripDetailCache(type, id, options = {}) {
 }
 
 function writeTripDetailCache(type, id, result) {
+  if (rides.isBackendEnabled()) return isSuccessResult(result) ? result : null
   const key = makeKey(type, id)
   if (!key || !isSuccessResult(result)) return null
   const store = pruneStore(getStore())
@@ -126,14 +130,10 @@ async function fetchTripDetail(type, id, options = {}) {
   // A forced read may follow a join/leave mutation, so it must not join an
   // older request. Its response also takes precedence over older cache writes.
   const request = {}
-  request.promise = Promise.resolve().then(() => wx.cloud.callFunction({
-    name: "getTripDetail",
-    data: { type: detailType, id: detailId }
-  })).then(res => {
+  request.promise = Promise.resolve().then(() => rides.getTripDetail(detailType, detailId)).then(result => {
     if (getViewerKey() !== viewerKey) {
       return { ok: false, success: false, identityChanged: true, errorMsg: "登录状态已变化，请重新加载", type: detailType }
     }
-    const result = (res && res.result) || {}
     if (pendingRequests.get(key) === request) {
       if (isSuccessResult(result)) {
         writeTripDetailCache(detailType, detailId, result)

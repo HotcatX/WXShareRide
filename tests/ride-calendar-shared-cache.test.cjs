@@ -49,7 +49,7 @@ function harness() {
     const execute = vm.runInContext(`(function(require, module, exports) {\n${fs.readFileSync(absolute, 'utf8')}\n})`, context, { filename: absolute })
     execute(name => {
       assert.ok(name.startsWith('.'), `Unexpected dependency: ${name}`)
-      return load(path.resolve(path.dirname(absolute), `${name}.js`))
+      return load(path.resolve(path.dirname(absolute), name.endsWith('.js') ? name : `${name}.js`))
     }, module, module.exports)
     return module.exports
   }

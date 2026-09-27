@@ -1,3 +1,4 @@
+const market = require("../../utils/compat/market")
 // 与 marketPost 保持一致：分类顺序固定
 const { showDataError } = require("../../utils/error")
 const {
@@ -118,6 +119,7 @@ function getGoodsCacheKey(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = A
 }
 
 function readGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY) {
+  if (market.isBackendEnabled()) return null
   const key = getGoodsCacheKey(type, cityKey, regionKey)
   const memory = MARKET_LIST_MEMORY_CACHE[key]
   if (memory && Array.isArray(memory.list)) return memory
@@ -132,6 +134,7 @@ function readGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey 
 }
 
 function writeGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY, entry = {}) {
+  if (market.isBackendEnabled()) return
   const key = getGoodsCacheKey(type, cityKey, regionKey)
   MARKET_LIST_MEMORY_CACHE[key] = entry
   try {
@@ -526,7 +529,7 @@ const CLOUD_PAGE_SIZE = 20
 const INITIAL_LOAD_SIZE = 8                         // 首屏只拉当前可见数量
 
 
-Page({
+Page(market.page({
   data: {
     statusBarHeight: 0,
     marketSearchRowStyle: "",
@@ -1002,7 +1005,7 @@ Page({
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
     try {
-      this._thumbUrlCache = normalizeObjectCache(wx.getStorageSync(THUMB_CACHE_KEY))
+      this._thumbUrlCache = market.isBackendEnabled() ? {} : normalizeObjectCache(wx.getStorageSync(THUMB_CACHE_KEY))
     } catch (e) {
       this._thumbUrlCache = {}
     }
@@ -1022,7 +1025,11 @@ Page({
     this._startMarketBootstrap()
   },
 
+
   async onShow() {
+    if (market.isBackendEnabled() && this._marketBootstrapped) {
+      this._fillThumbUrlsFor(this.data.displayGoods || [], this._getCurrentListQueryKey()).catch(() => {})
+    }
     const viewerKey = getMarketViewerKey()
     const viewerChanged = this._marketViewerKey !== viewerKey
     this._marketViewerKey = viewerKey
@@ -1255,20 +1262,20 @@ Page({
   },
 
   onTapSeller(e) {
-    const managed = e.currentTarget.dataset.managed
+    const record = market.isBackendEnabled() ? (this.data.allGoods || []).find(item => item.id === e.currentTarget.dataset.id) : null
+    const managed = market.isBackendEnabled() ? record?.managedByAdmin : e.currentTarget.dataset.managed
     if (managed === true || managed === "true") {
 
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
 
-      wx.showToast({ title: "无信息", icon: "none" })
 
       return
     }
-    const openid = e.currentTarget.dataset.openid
+    const openid = market.isBackendEnabled() ? record?.sellerId : e.currentTarget.dataset.openid
     const type = e.currentTarget.dataset.type || this.data.activeListingType || "goods"
     if (!openid) return
     wx.navigateTo({
-      url: `/pages/market/marketSeller/marketSeller?openid=${encodeURIComponent(openid)}&type=${normalizeListingType(type)}`
+      url: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${normalizeListingType(type)}`
     })
   },
 
@@ -1469,6 +1476,7 @@ Page({
     return this._withDistance({
       id: x._id,
       _openid: x._openid,
+      sellerId: x.sellerId || "",
       managedByAdmin: isManagedSeller,
       sellerWechat: x.sellerWechat || "",
       sellerPhone: x.sellerPhone || "",
@@ -1498,6 +1506,7 @@ Page({
       sellerRoleText: isSublet ? "发布者" : "卖家",
       sellerNameText,
       sellerAvatar,
+      sellerAvatarFileId: x.sellerAvatarFileId || null,
       viewCount: Number(x.viewCount) || 0,
       createTime: x.createTime,
       updateTime: x.updateTime,
@@ -1541,6 +1550,7 @@ Page({
   },
 
   _hydrateSellerProfilesFromCache(goods = [], options = {}) {
+    if (market.isBackendEnabled()) return goods
     const rows = Array.isArray(goods) ? goods : []
     const openids = Array.from(new Set(rows
       .filter(item => !(item && item.managedByAdmin && item.sellerNameText))
@@ -1684,6 +1694,7 @@ Page({
   },
 
   _restoreMarketAdsFromCache() {
+    if (market.isBackendEnabled()) return { restored: false, isFresh: false }
     try {
       const cached = wx.getStorageSync(getMarketAdCacheKey())
       if (!cached || !cached.ts || !Array.isArray(cached.ads)) return { restored: false, isFresh: false }
@@ -1701,6 +1712,7 @@ Page({
   },
 
   _saveMarketAdsToCache(ads = []) {
+    if (market.isBackendEnabled()) return
     try {
       wx.setStorageSync(getMarketAdCacheKey(), {
         ts: Date.now(),
@@ -1723,7 +1735,7 @@ Page({
     if (this._marketAdsInFlightKey === requestKey) return
     this._marketAdsInFlightKey = requestKey
     try {
-      const res = await wx.cloud.callFunction({
+      const res = await market.call({
         name: "marketApi",
         data: {
           action: "listAds",
@@ -1748,7 +1760,7 @@ Page({
 
   _trackMarketAdClick(ad = {}) {
     if (!ad.id) return
-    wx.cloud.callFunction({
+    market.call({
       name: "marketApi",
       data: {
         action: "trackAdClick",
@@ -1878,7 +1890,7 @@ Page({
         this._locationProfileRequests = this._locationProfileRequests || {}
         let request = this._locationProfileRequests[locationCacheKey]
         if (!request) {
-          request = Promise.resolve().then(() => wx.cloud.callFunction({ name: "getUserInfo" }))
+          request = Promise.resolve().then(() => market.call({ name: "getUserInfo" }))
             .finally(() => {
               if (this._locationProfileRequests[locationCacheKey] === request) delete this._locationProfileRequests[locationCacheKey]
             })
@@ -1937,7 +1949,7 @@ Page({
   _requestMarketList(data, requestKey) {
     this._marketListRequests = this._marketListRequests || {}
     if (this._marketListRequests[requestKey]) return this._marketListRequests[requestKey]
-    const task = Promise.resolve().then(() => wx.cloud.callFunction({ name: "marketApi", data }))
+    const task = Promise.resolve().then(() => market.call({ name: "marketApi", data }))
       .finally(() => {
         if (this._marketListRequests[requestKey] === task) delete this._marketListRequests[requestKey]
       })
@@ -2047,7 +2059,7 @@ Page({
       })
 
       const skip = this.data.cloudSkip || 0
-      const res = await wx.cloud.callFunction({
+      const res = await market.call({
         name: "marketApi",
         data: {
           action: "list",
@@ -2262,7 +2274,7 @@ Page({
 
   // ====== thumb temp url ======
   async _fillThumbUrlsFor(goodsList, stateKey = "") {
-    this._thumbUrlCache = normalizeObjectCache(this._thumbUrlCache)
+    this._thumbUrlCache = market.isBackendEnabled() ? {} : normalizeObjectCache(this._thumbUrlCache)
     const list = goodsList || []
     const collectFileIDs = (g = {}) => {
       const id = g.thumbFileID ||
@@ -2284,11 +2296,9 @@ Page({
       const targets = missing.filter(fileID => !this._thumbUrlRequests.has(fileID))
       for (let i = 0; i < targets.length; i += 50) {
         const chunk = targets.slice(i, i + 50)
-        const request = Promise.resolve().then(() => wx.cloud.getTempFileURL({ fileList: chunk }))
+        const request = Promise.resolve().then(() => market.imageURLs(chunk))
           .then(result => {
-            ;(result.fileList || []).forEach(file => {
-              if (file.fileID && file.tempFileURL) this._thumbUrlCache[file.fileID] = file.tempFileURL
-            })
+            Object.assign(this._thumbUrlCache, result)
           }).catch(error => console.error("getTempFileURL failed:", error))
         chunk.forEach(fileID => {
           const task = request.finally(() => {
@@ -2298,7 +2308,7 @@ Page({
         })
       }
       await Promise.all(missing.map(fileID => this._thumbUrlRequests.get(fileID)))
-      try { wx.setStorageSync(THUMB_CACHE_KEY, this._thumbUrlCache) } catch (e) {}
+      if (!market.isBackendEnabled()) { try { wx.setStorageSync(THUMB_CACHE_KEY, this._thumbUrlCache) } catch (e) {} }
     }
 
     if (stateKey && this._getCurrentListQueryKey() !== stateKey) return
@@ -2379,4 +2389,4 @@ Page({
       })
     } catch (e) {}
   }
-})
+}))

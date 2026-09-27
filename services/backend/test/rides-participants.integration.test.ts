@@ -58,7 +58,7 @@ test('private ride projections enforce current relationships and field boundarie
       assert.equal(data.participants[0].role, 'driver');
       assert.deepEqual(participant(data, 'passenger-a'), {
         id: users['passenger-a'], name: 'passenger-a', avatarFileId: null,
-        role: 'passenger', seatCount: 1, phone: 'phone-passenger-a', phoneRegion: 'US', wechatId: 'wechat-passenger-a',
+        role: 'passenger', seatCount: 1, isCreator: false, phone: 'phone-passenger-a', phoneRegion: 'US', wechatId: 'wechat-passenger-a',
         pickupAddress: 'pickup-passenger-a', dropoffAddress: 'dropoff-passenger-a',
         statistics: { completedTrips: 0, ratingCount: 0, averageRating: null, weightedRating: null },
       });

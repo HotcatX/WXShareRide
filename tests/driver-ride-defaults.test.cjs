@@ -46,7 +46,7 @@ function templateHarness() {
   const sourcePath = path.join(__dirname, '../pages/home/driverCarpoolTemplate/driverCarpoolTemplate.js')
   const state = { template: {}, modalResult: { confirm: false } }
   const wx = {
-    getStorageSync: () => 'driver-1', showToast() {}, navigateBack() {},
+    getStorageSync: key => key === 'openid' ? 'driver-1' : false, showToast() {}, navigateBack() {},
     showModal: async () => state.modalResult,
     cloud: { database: () => ({
       serverDate: () => 'server-date',
@@ -63,6 +63,8 @@ function templateHarness() {
     Page: page => { definition = page }, wx, console,
     setTimeout() {},
     require(name) {
+      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/error')) return { showDataError() {} }
       if (name.endsWith('/userProfileUpdate')) return { callUpdateUser: async payload => { profileUpdates.push(payload) } }
       return require(path.resolve(path.dirname(sourcePath), name))

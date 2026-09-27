@@ -47,13 +47,13 @@
         >
           <block wx:if="{{hasImageUrls}}">
             <swiper-item wx:for="{{imgUrls}}" wx:key="*this">
-              <image class="hero-img" src="{{item}}" mode="aspectFill" />
+              <image binderror="onMarketImageError" class="hero-img" src="{{item}}" mode="aspectFill" />
             </swiper-item>
           </block>
 
           <block wx:else>
             <swiper-item>
-              <image wx:if="{{item.hasImage}}" class="hero-img" src="{{item.fallbackImageSrc}}" mode="aspectFill" />
+              <image binderror="onMarketImageError" wx:if="{{item.hasImage}}" class="hero-img" src="{{item.fallbackImageSrc}}" mode="aspectFill" />
               <view wx:else class="hero-no-img">
                 <text>{{item.fallbackImageTitle}}</text>
               </view>
@@ -67,7 +67,7 @@
         <view class="info-card">
           <view class="seller-price-row">
             <view class="seller-profile pressable" hover-class="is-pressed" hover-stay-time="80" catchtap="onViewSellerProfile">
-              <image class="seller-avatar" src="{{seller.avatarDisplay}}" mode="aspectFill" fade-in="{{false}}" />
+              <image binderror="onMarketImageError" class="seller-avatar" src="{{seller.avatarDisplay}}" mode="aspectFill" fade-in="{{false}}" />
               <view class="seller-copy">
                 <view class="seller-name-row">
                   <text class="seller-name">{{seller.nameDisplay}}</text>

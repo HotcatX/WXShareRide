@@ -64,7 +64,7 @@ export function normalizeUsers(documents: unknown[], appId: string, issue: Issue
     const name = alias(raw, ['name', 'nickName', 'nickname'], 'userInfo', 'name');
     if (name !== undefined && typeof name !== 'string') issue('userInfo', 'INVALID_PROFILE_VALUE', 'name');
     if (raw.avatarUrl !== undefined && typeof raw.avatarUrl !== 'string') issue('userInfo', 'INVALID_PROFILE_VALUE', 'avatarUrl');
-    const user: UserRow = { id: migrationUserId(appId, openid), appId, openid, name: typeof name === 'string' ? name : '', avatarUrl: typeof raw.avatarUrl === 'string' ? raw.avatarUrl : '', profile, createdAt: stamp(raw, ['createdAt', 'createdTime', 'createTime'], 'userInfo', 'createdAt'), updatedAt: recordedUpdate(raw, ['updatedAt', 'updateTime', 'bigregionUpdatedAt'], 'userInfo') };
+    const user: UserRow = { id: migrationUserId(appId, openid), appId, openid, name: typeof name === 'string' ? name : '', profile, createdAt: stamp(raw, ['createdAt', 'createdTime', 'createTime'], 'userInfo', 'createdAt'), updatedAt: recordedUpdate(raw, ['updatedAt', 'updateTime', 'bigregionUpdatedAt'], 'userInfo') };
     if (user.createdAt && user.updatedAt && user.updatedAt < user.createdAt) issue('userInfo', 'INVALID_TIMESTAMP_ORDER');
     users.push(user);
   }

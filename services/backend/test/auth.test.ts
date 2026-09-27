@@ -6,7 +6,7 @@ import type { Config } from '../src/config.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const config: Config = { databaseUrl: '', host: '127.0.0.1', port: 3100,
-  appId: 'wx8a8a389199aa2a0e', sessionTtlSeconds: 3600 };
+  appId: 'wx8a8a389199aa2a0e', businessMode: 'active' as const, sessionTtlSeconds: 3600 };
 
 test('real DB: trusted identity, concurrent login, private profile, retries and logout', { skip: !process.env.BACKEND_TEST_DATABASE_URL }, async t => {
   const db = await createTestDatabase();

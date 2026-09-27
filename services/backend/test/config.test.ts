@@ -10,12 +10,28 @@ test('one config boundary validates required values without exposing secrets', (
   assert.equal(config.host, '127.0.0.1');
   assert.equal(config.port, 3100);
   assert.equal(config.appSecret, undefined);
+  assert.equal(config.businessMode, 'staged');
+  assert.equal(config.authBridgeKey, undefined);
   assert.throws(() => loadConfig({ DATABASE_URL: 'private-password', WECHAT_APP_ID: 'bad' }), error => {
     assert.ok(error instanceof Error);
     assert.ok(error.message.includes('DATABASE_URL'));
     assert.ok(!error.message.includes('private-password'));
     return true;
   });
+});
+
+test('business activation is explicit and the bridge secret is file-only with safe errors', t => {
+  const base = { DATABASE_URL: 'postgresql://localhost/linkx', WECHAT_APP_ID: 'wx8a8a389199aa2a0e' };
+  assert.equal(loadConfig({ ...base, BUSINESS_MODE: 'active' }).businessMode, 'active');
+  assert.throws(() => loadConfig({ ...base, BUSINESS_MODE: 'true' }), /Invalid configuration/);
+  const dir = mkdtempSync(join(tmpdir(), 'linkx-auth-config-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'bridge.key');
+  writeFileSync(file, 'a'.repeat(64), { mode: 0o600 });
+  assert.deepEqual(loadConfig({ ...base, AUTH_BRIDGE_KEY_FILE: file }).authBridgeKey, Buffer.alloc(32, 0xaa));
+  writeFileSync(file, 'invalid-secret-do-not-log');
+  assert.throws(() => loadConfig({ ...base, AUTH_BRIDGE_KEY_FILE: file }), { message: 'Invalid AUTH_BRIDGE_KEY_FILE' });
+  assert.throws(() => loadConfig({ ...base, AUTH_BRIDGE_KEY_FILE: join(dir, 'absent') }), { message: 'Invalid AUTH_BRIDGE_KEY_FILE' });
 });
 
 test('storage config is all-or-nothing and credentials stay in a server secret file', t => {

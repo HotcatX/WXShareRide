@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AppError } from '../errors.ts';
 import { marketStateSchema } from './schemas.ts';
 import type { MarketImage, MarketListingContent } from './schemas.ts';
+import { avatarFileIdSql } from '../users/avatar.ts';
 
 const idSchema = z.string().regex(/^[a-zA-Z0-9:_-]{1,160}$/);
 const text = z.string().trim().min(1).max(240).refine(value => !/[\u0000-\u001f\u007f-\u009f]/u.test(value));
@@ -38,7 +39,7 @@ type Row = {
 // remain internal; the client URL adapter is deliberately not implemented here.
 const projection = `l.id,l.owner_user_id,(l.admin_owner_key IS NOT NULL OR l.shared_admin_management) AS managed,
   l.content,l.status,l.version,l.expires_at,l.created_at,l.updated_at,
-  u.name AS seller_name,u.avatar_url AS seller_avatar,u.openid AS seller_openid,
+  u.name AS seller_name,${avatarFileIdSql('u')} AS seller_avatar,u.openid AS seller_openid,
   coalesce(nullif(u.profile->'region'->>'area',''),u.profile->'region'->>'label') AS seller_region,
   u.profile->'location'->>'residence' AS seller_residence,u.profile->>'bio' AS seller_bio,
   u.profile->>'wechatId' AS seller_wechat,u.profile->>'phone' AS seller_phone,
@@ -106,7 +107,8 @@ function item(row: Row, viewerId?: string, detail = false) {
     distanceMiles: row.distance_miles,
     seller: { userId: row.owner_user_id,
       name: row.managed ? contact?.name ?? '' : row.seller_name ?? '',
-      avatarUrl: row.managed ? contact?.avatar ?? '' : row.seller_avatar ?? '',
+      avatarFileId: row.managed ? null : row.seller_avatar,
+      ...(row.managed ? { avatarUrl: contact?.avatar ?? '' } : {}),
       regionLabel: row.managed ? c.region.area : row.seller_region ?? '',
       residence: row.managed ? '' : row.seller_residence ?? '', bio: row.managed ? contact?.note ?? '' : row.seller_bio ?? '',
       wechatId: contact?.wechat || (!row.managed ? row.seller_wechat ?? '' : ''),

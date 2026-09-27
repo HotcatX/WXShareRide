@@ -65,7 +65,7 @@ test('content storage preserves imported facts with bounded app-scoped records a
       VALUES($1,'fixture-admin','fixture-owner',true,1),('foreign-content','foreign-admin','foreign-owner',true,1)`, [appId]);
 
     await t.test('real converter candidates map to all four tables, including null actors and independent times', async () => {
-      const user: UserRow = { id: ownerId, appId, openid: 'fixture-user', name: '', avatarUrl: '', profile: {}, createdAt: at, updatedAt: null };
+      const user: UserRow = { id: ownerId, appId, openid: 'fixture-user', name: '', profile: {}, createdAt: at, updatedAt: null };
       const sourceAd = { _id: 'source-ad', status: 'online', placement: 'market_feed', title: 'Fixture ad', subtitle: '', badgeText: '广告', ctaText: '查看',
         weight: 1, priority: 0, startAtMs: 0, endAtMs: 0, imageFileID: file, thumbFileID: file, targetType: 'contact',
         contactSessionFrom: 'fixture', contactMessageTitle: 'Fixture message', contactMessagePath: '/pages/market/market', showMessageCard: false,

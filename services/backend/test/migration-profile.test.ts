@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeProfile, profileSourceFields } from '../src/migration/profile.ts';
 import { migrationReaders } from '../src/migration/values.ts';
 import type { Document, IssueReporter } from '../src/migration/types.ts';
-import { profileSchema } from '../src/users/routes.ts';
+import { profileSchema } from '../src/users/service.ts';
 
 function normalize(raw: Document) {
   const issues: { code: string; field: string; severity: string }[] = [];

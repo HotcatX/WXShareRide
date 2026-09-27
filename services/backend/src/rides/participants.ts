@@ -5,9 +5,10 @@ import { listRidesSchema, rideIdSchema } from './schemas.ts';
 import { publicProjection } from './service.ts';
 import { formatDriverStatistics, formatStatistics, statisticsProjection } from '../statistics/service.ts';
 import type { Statistics, StatisticsFacts } from '../statistics/service.ts';
+import { avatarFileIdSql } from '../users/avatar.ts';
 
 export type RideParticipant = {
-  id: string; name: string; avatarUrl: string;
+  id: string; name: string; avatarFileId: string | null;
   role: 'driver' | 'passenger'; seatCount: number;
   phone?: string; phoneRegion?: string; wechatId?: string;
   vehicle?: { plate?: string; brand?: string; model?: string };
@@ -34,7 +35,7 @@ export async function getRideParticipants(pool: Pool, userId: string, id: unknow
     SELECT r.id AS "rideId", r.kind, r.version,
       CASE WHEN r.kind = 'request' THEN r.details->'largeLuggageCount' END AS "largeLuggageCount",
       COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
-        'id', u.id, 'name', u.name, 'avatarUrl', u.avatar_url,
+        'id', u.id, 'name', u.name,
         'role', m.role, 'seatCount', m.seat_count,
         'phone', CASE WHEN jsonb_typeof(u.profile->'phone') = 'string' THEN u.profile->'phone' END,
         'phoneRegion', CASE WHEN jsonb_typeof(u.profile->'phoneRegion') = 'string' THEN u.profile->'phoneRegion' END,
@@ -55,7 +56,8 @@ export async function getRideParticipants(pool: Pool, userId: string, id: unknow
         'dropoffAddress', CASE WHEN r.kind = 'offer' AND m.role = 'passenger'
           AND (mine.role = 'driver' OR m.user_id = mine.user_id)
           AND jsonb_typeof(m.details->'dropoffAddress') = 'string' THEN m.details->'dropoffAddress' END
-      )) || jsonb_build_object('statistics', ${statisticsProjection('currentParticipant')})
+      )) || jsonb_build_object('avatarFileId', ${avatarFileIdSql('u')},
+        'statistics', ${statisticsProjection('currentParticipant')})
         ORDER BY CASE m.role WHEN 'driver' THEN 0 ELSE 1 END, m.user_id)
       FROM ride_members m JOIN users u ON u.id = m.user_id
       WHERE m.ride_id = r.id AND m.state = 'active'

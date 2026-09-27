@@ -8,7 +8,7 @@ test('ride HTTP routes use sessions, one idempotency contract and public project
   const app = await createApp({
     pool: database.pool,
     config: { databaseUrl: process.env.BACKEND_TEST_DATABASE_URL!, host: '127.0.0.1', port: 3100,
-      appId: 'wx1234567890123456', sessionTtlSeconds: 3600 },
+      appId: 'wx1234567890123456', businessMode: 'active' as const, sessionTtlSeconds: 3600 },
     // Only the external WeChat exchange is replaced; real sessions and route
     // authentication still run against the isolated PostgreSQL fixture.
     exchange: async code => ({ openid: `private-http-fixture-${code}` }),

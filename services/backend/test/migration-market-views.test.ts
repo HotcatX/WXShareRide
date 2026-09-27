@@ -7,7 +7,7 @@ import type { MigrationIssue, UserRow } from '../src/migration/types.ts';
 const at = '2026-09-25T12:00:00.000Z';
 const later = '2026-09-25T13:00:00.000Z';
 const user: UserRow = { id: 'bfbf7e2b-a8b7-4d82-91bf-c03845325d1b', appId: 'views-test', openid: 'fixture-viewer',
-  name: 'Fixture', avatarUrl: '', profile: {}, createdAt: at, updatedAt: null };
+  name: 'Fixture', profile: {}, createdAt: at, updatedAt: null };
 const context = { appId: user.appId, users: [user] };
 function event(patch: Record<string, unknown> = {}): Record<string, unknown> {
   const row = { goodsId: 'fixture-listing', _openid: user.openid, dayKey: '2026-09-25', count: 3,

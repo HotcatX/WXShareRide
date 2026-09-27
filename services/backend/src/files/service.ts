@@ -99,6 +99,15 @@ export async function replaceFileReferences(
   const next = fileReferencesSchema.parse(references);
   const actor = fileOwnerSchema.parse(owner);
   await assertFileTransactionIsolation(client);
+  if (input.kind === 'user') {
+    if (!('userId' in actor) || actor.userId !== input.id) {
+      throw new AppError(403, 'FILE_OWNER_MISMATCH', '仅本人可修改头像');
+    }
+    if (next.length > 1 || next.some(reference => reference.slot !== 'avatar')) {
+      throw new AppError(400, 'INVALID_AVATAR_REFERENCE', '头像引用格式不正确');
+    }
+    await assertOwner(client, input.appId, actor);
+  }
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
     [JSON.stringify(['files.references', input.appId, input.kind, input.id])]);
   const previous = (await client.query<{ file_id: string }>(`SELECT file_id FROM file_references

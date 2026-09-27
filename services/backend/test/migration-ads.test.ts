@@ -5,7 +5,7 @@ import type { MigrationIssue, UserRow } from '../src/migration/types.ts';
 
 const createdAt = '2026-09-01T12:00:00.000Z';
 const updatedAt = '2026-09-02T12:00:00.000Z';
-const user: UserRow = { id: 'bfbf7e2b-a8b7-4d82-91bf-c03845325d1b', appId: 'ads-test', openid: 'fixture-user', name: 'Fixture', avatarUrl: '', profile: {}, createdAt, updatedAt };
+const user: UserRow = { id: 'bfbf7e2b-a8b7-4d82-91bf-c03845325d1b', appId: 'ads-test', openid: 'fixture-user', name: 'Fixture', profile: {}, createdAt, updatedAt };
 const context = { appId: 'ads-test', users: [user] };
 const image = 'cloud://fixture/market_ad/a.jpg';
 const ad = (patch: Record<string, unknown> = {}): Record<string, unknown> => ({

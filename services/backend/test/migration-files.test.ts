@@ -8,7 +8,7 @@ import type { MigrationIssue, UserRow } from '../src/migration/types.ts';
 const createdAt = '2026-09-01T12:00:00.000Z';
 const updatedAt = '2026-09-02T12:00:00.000Z';
 const user: UserRow = { id: 'bfbf7e2b-a8b7-4d82-91bf-c03845325d1b', appId: 'files-test', openid: 'fixture-owner',
-  name: 'Fixture', avatarUrl: '', profile: {}, createdAt, updatedAt };
+  name: 'Fixture', profile: {}, createdAt, updatedAt };
 const otherUser: UserRow = { ...user, id: '739858fb-cf75-4c19-8b99-16482ce877c2', openid: 'fixture-other' };
 const admin = { accountId: 'fixture-admin', ownerKey: 'fixture-admin-owner' };
 const context = { appId: 'files-test', users: [user, otherUser], adminOwners: [admin] };

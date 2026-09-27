@@ -25,11 +25,26 @@ import { registerAdminMarketTemplateRoutes } from './admin/market-template-route
 import { registerAdRoutes } from './ads/routes.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import type { FileStorage } from './files/routes.ts';
+import { cloudBaseLoginPath, createCloudBaseLoginBridge } from './auth/cloudbase.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
   const sessions = sessionService(deps.pool, deps.config, deps.exchange ?? wechatCodeExchange(deps.config.appId, deps.config.appSecret));
   const loginAdmission = createLoginAdmission();
+  // One deployment state protects the empty first-import database, including
+  // apparently read-only endpoints that record views or ensure user identities.
+  // Activation is an explicit deployment after the final import and old-writer
+  // handoff, never an automatic fallback after a failed request.
+  const isActive = () => deps.config.businessMode === 'active';
+  app.addHook('onRequest', async (request, reply) => {
+    // The router decodes escaped static segments; checking only the raw URL
+    // would let /%61pi/v1/auth/login bypass staging and create real accounts.
+    const path = request.routeOptions.url ?? request.url.split('?')[0];
+    if (path.startsWith('/api/v1/') || path.startsWith('/internal/v1/')) {
+      reply.header('Cache-Control', 'private, no-store');
+      if (!isActive()) throw new AppError(503, 'BACKEND_STAGED', '服务正在准备中，请稍后重试');
+    }
+  });
   app.setErrorHandler((error, request, reply) => {
     const known = error instanceof AppError;
     const invalid = error instanceof ZodError;
@@ -53,6 +68,18 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
     await deps.pool.query('SELECT 1');
     return { ok: true, data: { status: 'ready' }, requestId: request.id };
   });
+  if (deps.config.authBridgeKey) {
+    const bridge = createCloudBaseLoginBridge({ pool: deps.pool, appId: deps.config.appId,
+      key: deps.config.authBridgeKey, sessionTtlSeconds: deps.config.sessionTtlSeconds, isActive });
+    app.register(async scope => {
+      scope.removeAllContentTypeParsers();
+      scope.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 1024 },
+        (_request, body, done) => done(null, body));
+      scope.post(cloudBaseLoginPath, { bodyLimit: 1024 }, async request => ({ ok: true,
+        data: await loginAdmission.run(request.ip, () => bridge.login({ method: request.method,
+          path: request.url, rawHeaders: request.raw.rawHeaders, body: request.body as Buffer })), requestId: request.id }));
+    });
+  }
   app.post('/api/v1/auth/login', async request => {
     const input = z.strictObject({ code: z.string().min(1).max(256) }).parse(request.body);
     return { ok: true, data: await loginAdmission.run(request.ip, () => sessions.login(input.code)), requestId: request.id };

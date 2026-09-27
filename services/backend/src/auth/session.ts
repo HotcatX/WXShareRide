@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { Config } from '../config.ts';
 import { transaction } from '../db.ts';
 import { AppError } from '../errors.ts';
@@ -8,6 +8,7 @@ import type { CodeExchange } from './wechat.ts';
 import { ensureReferralCode } from '../referrals/service.ts';
 
 export type Identity = { id: string; openid: string };
+export type Session = { token: string; expiresAt: string; user: Identity & { referralCode: string } };
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 function bearer(request: FastifyRequest): string {
   const match = /^Bearer ([a-zA-Z0-9_-]{43})$/.exec(request.headers.authorization || '');
@@ -15,24 +16,27 @@ function bearer(request: FastifyRequest): string {
   return match[1];
 }
 
+/** Internal only: the caller must have verified identity and own this transaction.
+ * Both WeChat code exchange and the scoped CloudBase bridge use this one issuer. */
+export async function issueSession(client: PoolClient, config: Pick<Config, 'appId' | 'sessionTtlSeconds'>, openid: string): Promise<Session> {
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + config.sessionTtlSeconds * 1000);
+  const result = await client.query<Identity>(
+    `INSERT INTO users(app_id,openid) VALUES($1,$2)
+     ON CONFLICT(app_id,openid) DO UPDATE SET openid=EXCLUDED.openid RETURNING id,openid`,
+    [config.appId, openid]
+  );
+  await client.query('DELETE FROM sessions WHERE user_id=$1 AND expires_at<=now()', [result.rows[0].id]);
+  await client.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)', [tokenHash(token), result.rows[0].id, expiresAt]);
+  const referralCode = await ensureReferralCode(client, result.rows[0].id);
+  return { token, expiresAt: expiresAt.toISOString(), user: { ...result.rows[0], referralCode } };
+}
+
 export function sessionService(pool: Pool, config: Config, exchange: CodeExchange) {
   return {
     async login(code: string) {
       const identity = await exchange(code);
-      const token = randomBytes(32).toString('base64url');
-      const expiresAt = new Date(Date.now() + config.sessionTtlSeconds * 1000);
-      const user = await transaction(pool, async client => {
-        const result = await client.query<Identity>(
-          `INSERT INTO users(app_id,openid) VALUES($1,$2)
-           ON CONFLICT(app_id,openid) DO UPDATE SET openid=EXCLUDED.openid RETURNING id,openid`,
-          [config.appId, identity.openid]
-        );
-        await client.query('DELETE FROM sessions WHERE user_id=$1 AND expires_at<=now()', [result.rows[0].id]);
-        await client.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)', [tokenHash(token), result.rows[0].id, expiresAt]);
-        const referralCode = await ensureReferralCode(client, result.rows[0].id);
-        return { ...result.rows[0], referralCode };
-      });
-      return { token, expiresAt: expiresAt.toISOString(), user };
+      return transaction(pool, client => issueSession(client, config, identity.openid));
     },
     async requireUser(request: FastifyRequest): Promise<Identity> {
       const token = bearer(request);

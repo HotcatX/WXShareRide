@@ -30,7 +30,7 @@ test('profile HTTP responses stay private and waiting updates preserve timestamp
     const app = await createApp({
       pool: observedPool,
       config: { databaseUrl: process.env.BACKEND_TEST_DATABASE_URL!, host: '127.0.0.1', port: 3100,
-        appId: 'wx1234567890123456', sessionTtlSeconds: 3600 },
+        appId: 'wx1234567890123456', businessMode: 'active' as const, sessionTtlSeconds: 3600 },
       exchange: async code => ({ openid: `private-profile-fixture-${code}` }),
     });
     t.after(async () => { await app.close(); await database.close(); });

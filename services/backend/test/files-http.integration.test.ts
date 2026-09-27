@@ -11,7 +11,7 @@ import { MAX_IMAGE_UPLOAD_BYTES } from '../src/files/upload.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const options = { skip: !process.env.BACKEND_TEST_DATABASE_URL, timeout: 30000 };
-const config = { databaseUrl: '', host: '127.0.0.1', port: 3100, appId: 'files-http-test', sessionTtlSeconds: 3600 };
+const config = { databaseUrl: '', host: '127.0.0.1', port: 3100, appId: 'files-http-test', businessMode: 'active' as const, sessionTtlSeconds: 3600 };
 const origin = 'https://admin.example.test';
 const png = () => sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 30, g: 60, b: 90 } } }).png().toBuffer();
 type App = Awaited<ReturnType<typeof createApp>>;

@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260926-events
+    image: linkx-backend:20260926-avatar-login
     restart: unless-stopped
     init: true
     read_only: true
@@ -47,6 +47,7 @@ services:
       PORT: 3100
       DATABASE_URL_FILE: /run/secrets/database_url
       WECHAT_APP_ID: wx8a8a389199aa2a0e
+      BUSINESS_MODE: staged
     # Deliberately host-local until full business compatibility and import pass.
     ports: ["127.0.0.1:3101:3100"]
     volumes:

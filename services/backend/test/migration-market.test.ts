@@ -8,7 +8,7 @@ import type { MigrationIssue, UserRow } from '../src/migration/types.ts';
 const createdAt = '2026-09-01T12:00:00.000Z';
 const updatedAt = '2026-09-02T12:00:00.000Z';
 const user: UserRow = { id: 'bfbf7e2b-a8b7-4d82-91bf-c03845325d1b', appId: 'market-test', openid: 'fixture-owner',
-  name: 'Fixture', avatarUrl: '', profile: {}, createdAt, updatedAt };
+  name: 'Fixture', profile: {}, createdAt, updatedAt };
 const context = { appId: 'market-test', users: [user], adminOwners: [{ accountId: 'fixture-admin', ownerKey: 'fixture-admin-owner' }] };
 const fixture = (patch: Record<string, unknown> = {}): Record<string, unknown> => ({
   _id: 'market_fixture', _openid: user.openid, listingType: 'goods', title: 'Desk', desc: 'Good condition\nPickup available',

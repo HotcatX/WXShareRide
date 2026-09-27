@@ -191,7 +191,7 @@ test('referrals preserve stable public codes and immutable first bindings',
     await t.test('HTTP routes use authenticated identity, private responses and a bounded owner-only projection', async () => {
       const app = await createApp({ pool,
         config: { databaseUrl: process.env.BACKEND_TEST_DATABASE_URL!, host: '127.0.0.1', port: 3100,
-          appId: 'wx1234567890123456', sessionTtlSeconds: 3600 },
+          appId: 'wx1234567890123456', businessMode: 'active' as const, sessionTtlSeconds: 3600 },
         exchange: async code => ({ openid: `private-referral-fixture-${code}` }),
       });
       try {

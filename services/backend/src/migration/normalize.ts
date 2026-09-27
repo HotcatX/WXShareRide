@@ -20,6 +20,7 @@ import { validateMarketShadow } from './market-shadow.ts';
 import { normalizeAds } from './ads.ts';
 import { normalizeCommunity } from './community.ts';
 import { normalizeContentFiles } from './content-files.ts';
+import { normalizeAvatarFiles } from './avatar-files.ts';
 import { normalizeAdminAudit, validateLegacyMarketAdmins, validateLegacyMarketAdminSettings } from './admin-audit.ts';
 import { normalizeAdminMarket } from './admin-market.ts';
 import { normalizeMarketTemplates } from './market-templates.ts';
@@ -129,6 +130,8 @@ export function normalizeCloudBaseExport(input: unknown, options: { timeZone: 'A
       plan.files = files.files; plan.fileReferences = files.references;
     }
   }
+  const avatars = normalizeAvatarFiles({ users: plan.users, sourceUsers, files: plan.files, references: plan.fileReferences }, appId, issue);
+  plan.files = avatars.files; plan.fileReferences = avatars.references;
   const userByOpenid = new Map(plan.users.map(user => [user.openid, user]));
   if (docs.CarpoolTemplate !== undefined) plan.templates = normalizeTemplates(docs.CarpoolTemplate, plan.users, issue);
   if (docs.Notifications !== undefined) {

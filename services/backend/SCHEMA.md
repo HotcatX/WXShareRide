@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `023` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口、管理发布/模板、社区读写及广告存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `026` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口、管理发布/模板、社区读写及广告存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
 
 ## 唯一模型
 
@@ -8,7 +8,7 @@
 
 | 表 | 主键和核心字段 | 规则 |
 | --- | --- | --- |
-| `users` | UUID `id`，`app_id`，`openid`，`name`，`avatar_url`，`profile`，创建/更新时间 | `(app_id,openid)` 唯一。OpenID 只由可信微信登录/服务端迁移确定；不能作为客户端认证凭据。 |
+| `users` | UUID `id`，`app_id`，`openid`，`name`，`profile`，创建/更新时间 | `(app_id,openid)` 唯一。OpenID 只由可信微信登录/服务端迁移确定；不能作为客户端认证凭据。 |
 | `sessions` | `token_hash`，`user_id`，`expires_at`，`last_seen_at` | 只持久化 token 的 SHA-256，不保存原 token。过期由认证层校验；用户删除级联删除会话。 |
 | `rides` | 旧行程原 ID `id`，`kind`，`creator_id`，`city_key`，`status`，`seat_capacity`，`departure_at`，`time_zone`，`listed_price_cents`，`details`，`version`，创建/更新时间 | `kind=offer/request`；`status=open/cancelled/closed`。数据库保留旧 ID，跨旧集合 ID 冲突须先解决。 |
 | `ride_members` | `(ride_id,user_id)`，`role`，`seat_count`，`state`，`joined_at`，`left_at`，`details` | 每行程最多一位 active driver。司机占客座数 0，乘客 1–8；同账号同行人数用 seat_count 表示。 |
@@ -29,7 +29,7 @@
 | `admin_login_attempts` / `admin_origins`（014） | `(app_id,scope)` 和窗口/次数；`(app_id,origin)` | 原子15分钟窗口，每账号10次、每应用120次；scope为账号hash或global。来源必须精确HTTPS匹配，默认无授权来源。 |
 | `admin_audit` / `admin_requests`（014、021） | 审计UUID、app/account/action/details/time；幂等主键 `(app_id,owner_key,operation,request_key)`；payload_format | 管理写入、审计和永久回执同事务；旧审计actor不强制有账号，不由日志创造权限。canonical-v1与legacy-web-v1摘要不能互比。 |
 | `files`（015–016、018、023） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
-| `file_references`（015） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community；有序slot如image.0、thumbnail.0。引用事实是唯一依据，不另存refCount或attached状态。 |
+| `file_references`（015、025） | `(app_id,resource_kind,resource_id,slot)`、`file_id` | 资源类型listing/ad/community/user；有序slot如image.0、thumbnail.0，user仅允许UUID账号的avatar。引用事实是唯一依据，不另存refCount或attached状态。 |
 | `market_listings`（017） | `(app_id,id)`、两类owner恰一、`shared_admin_management`、`status`、`expires_at`、`version`、`content`、创建/更新时间 | content无images，图片只存引用。status允许online/offline/sold/deleted；删除留墓碑和永久幂等结果。version为0至JS安全整数上限。 |
 | `ads` / `ad_clicks`（019） | 广告 `(app_id,id)`、展示内容、contact目标、窗口及权重；点击 `(app_id,id)`、ad_id、位置、商品类型、可空actor/time | 点击不等于曝光或成功联系。ad_id无外键，保留已删除广告的历史。 |
 | `community_configs` / `community_revisions`（019） | 每app一份当前配置；修订 `(app_id,id)`、唯一version、previous_version、before/after、可空actor/time | 图片只存file_references。连续历史和内容一致由转换器校验，运行更新须锁当前配置并同事务写修订与引用；历史不自动发布。 |
@@ -60,7 +60,7 @@
 
 所有 JSONB 列数据库 CHECK 要求 object。具体字段和类型在服务边界验证，未知字段不能无声加入。
 
-`users.profile` 的 canonical 键与 `src/users/routes.ts` 一致：
+`users.profile` 的 canonical 键与 `src/users/service.ts` 一致：
 
 - `phone`、`phoneRegion`、`wechatId`、`bio`；
 - `vehicle: {plate,brand,model}`；`zelle: {name,account,public}`；
@@ -349,4 +349,15 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 图片 UUID 只标识对象，不授予权限。读取按同一应用、ready 状态、原上传者或当前可见业务引用授权，1–50个整批校验，不能返回部分越权结果。管理员共享范围继承实际 listing 管理权限；社区历史引用必须存在实际修订。成功才提供最长300秒的签名URL，短链可能在授权撤销后保持有效直至到期；不永久存为业务字段。
 
-COS adapter 的桶、地域及服务器密钥在唯一配置入口；客户端不传 provider/locator/owner。配置同桶旧 CloudBase 环境后可读取原 cloud:// 对象，无需重写不可变 locator 或复制、删除原图。新上传只写本应用 linkx/images 前缀，PUT 前确认桶从未启用版本控制，关闭重定向/隐式重试，读回严格限量。物理删除 worker 仍未接 provider、未启用。头像仍由 profile 的旧路径处理，不能把图片UUID或短期URL误写入 avatar_url。
+COS adapter 的桶、地域及服务器密钥在唯一配置入口；客户端不传 provider/locator/owner。配置同桶旧 CloudBase 环境后可读取原 cloud:// 对象，无需重写不可变 locator 或复制、删除原图。新上传只写本应用 linkx/images 前缀，PUT 前确认桶从未启用版本控制，关闭重定向/隐式重试，读回严格限量。物理删除 worker 仍未接 provider、未启用。头像复用同一文件体系；当前头像仅存在 user/avatar 引用中，不复制到 users 或 profile。GET/PATCH me、行程成员、拉黑列表和普通卖家都投影 avatarFileId|null；代发商品的联系人外链是另一个明确保留的业务快照。
+
+
+## 头像和登录桥（025–026）
+
+025 在持有 users 排他锁后检查旧 avatar_url：任何非空值会阻止升级，避免静默丢图；空列才删除。历史头像由中央导入器精确验证本应用云空间 userAvatar 路径，并复用 files/stableFileId 与 user/avatar 引用。只有精确默认图或空值可视为没有自定义头像，其他未知外链阻止导入；原资料始终归档。旧图片上传者、时间和元数据未知则保持未知，不因引用就授予上传归属。core-only 和完整导入都包含头像。
+
+PATCH me 的 avatarFileId 省略表示保留、null表示清空、新UUID必须是本人同应用ready文件。资料、头像引用及幂等回执同事务；更换只解除引用，不删除旧对象。当前已有只读旧图可原位保留，不能任意附加到别的用户。短期签名权限限本人、当前行程可见成员、当前可见普通卖家、本人有效黑名单目标；访客不因知道UUID就能取用户头像。
+
+026 的 auth_bridge_nonces(app_id,nonce,expires_at) 只记传输防重放，不是新身份库。CloudBase可信逐次调用上下文经独立用途密钥签名，固定POST /internal/v1/auth/cloudbase、login用途、AppID、原始正文、时间和nonce；窗口60秒、正文最多1KiB。nonce消费与既有users/sessions/referral_codes签发同事务。拒绝调用者传入OpenID、跨应用来源、采集token、过期或重放签名。原微信code换取身份的入口复用同一会话签发器，导入资料不会被空值覆盖。
+
+唯一部署状态 BUSINESS_MODE 默认staged：所有 /api/v1/ 和 /internal/v1/ 请求在解析/认证/业务副作用前返回503，health仍可检查DB。首导和旧writer交接完成后才可部署active；它不是跨数据库自动fallback。AUTH_BRIDGE_KEY_FILE 未配置则不注册身份桥路由；当前没有生产桥密钥、没有部署新的云函数、没有切换旧客户端。

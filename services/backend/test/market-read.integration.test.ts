@@ -10,8 +10,7 @@ const content = () => ({ listingType: 'goods', title: 'Desk', description: 'Synt
   category: '家具', condition: '99新', region: { state: 'NJ', county: 'Bergen', area: 'Fort Lee' },
   buildingName: '', location: null, startDate: '2030-09-01', endDate: '2030-09-30', sellerContact: null, sublet: null });
 async function user(pool: Pool, application = appId) {
-  return (await pool.query(`INSERT INTO users(app_id,openid,name,avatar_url,profile) VALUES($1,$2,'Synthetic seller',
-    'https://example.test/avatar.png',$3) RETURNING id`, [application, `internal-openid-${randomUUID()}`,
+  return (await pool.query(`INSERT INTO users(app_id,openid,name,profile) VALUES($1,$2,'Synthetic seller',$3) RETURNING id`, [application, `internal-openid-${randomUUID()}`,
     { wechatId: 'synthetic_wechat', phone: '2125550101', bio: 'Synthetic bio', region: { area: 'Fort Lee', label: 'Long label' },
       location: { residence: 'Synthetic building', address: 'private profile address', latitude: 40, longitude: -74 },
       vehicle: { plate: 'private plate' }, zelle: { account: 'private payment' }, privateExtra: 'do not expose' }])).rows[0].id as string;
@@ -82,7 +81,7 @@ test('market read: guest redaction and authenticated nested whitelists preserve 
   assert.ok('seller' in authenticated);
   if (!('seller' in authenticated)) return;
   assert.equal(authenticated.isOwner, false);
-  assert.deepEqual(authenticated.seller, { userId: owner, name: 'Synthetic seller', avatarUrl: 'https://example.test/avatar.png',
+  assert.deepEqual(authenticated.seller, { userId: owner, name: 'Synthetic seller', avatarFileId: null,
     regionLabel: 'Fort Lee', residence: 'Synthetic building', bio: 'Synthetic bio', wechatId: 'explicit_contact', phone: '2125550199' });
   assert.deepEqual(authenticated.sellerContact, { name: 'seller_marker', wechat: 'explicit_contact', phone: '2125550199',
     avatar: 'https://example.test/contact.png', note: 'seller note' });
@@ -97,7 +96,7 @@ test('market read: guest redaction and authenticated nested whitelists preserve 
   const managedItem = await getMarketListing(pool, appId, managed, viewer);
   assert.ok('seller' in managedItem);
   if ('seller' in managedItem) assert.deepEqual(managedItem.seller, { userId: null, name: 'seller_marker',
-    avatarUrl: 'https://example.test/contact.png', regionLabel: 'Fort Lee', residence: '', bio: 'seller note',
+    avatarFileId: null, avatarUrl: 'https://example.test/contact.png', regionLabel: 'Fort Lee', residence: '', bio: 'seller note',
     wechatId: 'explicit_contact', phone: '2125550199' });
   assert.ok(!JSON.stringify(managedItem).includes('private_owner_key'));
 });

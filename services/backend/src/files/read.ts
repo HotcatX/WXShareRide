@@ -51,6 +51,26 @@ export async function authorizeFileReads(pool: Pool, appId: string, fileIds: unk
         f.owner_user_id=$3::uuid OR
         (f.admin_owner_key=$4::text AND f.uploaded_by_admin_id=$5::text) OR
         EXISTS (
+          SELECT 1 FROM file_references avatar JOIN users avatar_user
+            ON avatar_user.app_id=avatar.app_id AND avatar_user.id::text=avatar.resource_id
+          WHERE avatar.app_id=f.app_id AND avatar.file_id=f.id AND avatar.resource_kind='user' AND avatar.slot='avatar'
+            AND $3::uuid IS NOT NULL AND (
+              avatar_user.id=$3::uuid OR EXISTS (
+                SELECT 1 FROM user_blocks b WHERE b.blocker_id=$3::uuid AND b.target_id=avatar_user.id AND b.active
+              ) OR EXISTS (
+                SELECT 1 FROM rides ride
+                JOIN ride_members mine ON mine.ride_id=ride.id AND mine.user_id=$3::uuid AND mine.state='active'
+                JOIN ride_members target ON target.ride_id=ride.id AND target.user_id=avatar_user.id AND target.state='active'
+                WHERE ride.status!='cancelled' AND
+                  (ride.kind='request' OR mine.role='driver' OR target.user_id=mine.user_id OR target.role='driver')
+              ) OR EXISTS (
+                SELECT 1 FROM market_listings listing WHERE listing.app_id=avatar.app_id
+                  AND listing.owner_user_id=avatar_user.id AND listing.admin_owner_key IS NULL AND NOT listing.shared_admin_management
+                  AND listing.status='online' AND listing.expires_at>clock.at
+              )
+            )
+        ) OR
+        EXISTS (
           SELECT 1 FROM file_references r
           JOIN market_listings l ON l.app_id=r.app_id AND l.id=r.resource_id
           WHERE r.app_id=f.app_id AND r.file_id=f.id AND r.resource_kind='listing'

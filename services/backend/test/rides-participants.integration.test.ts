@@ -14,8 +14,8 @@ test('private ride projections enforce current relationships and field boundarie
     const names = ['driver', 'passenger-a', 'passenger-b', 'replacement', 'outsider'] as const;
     const users = {} as Record<typeof names[number], string>;
     for (const name of names) {
-      const row = await pool.query(`INSERT INTO users(app_id,openid,name,avatar_url,profile) VALUES($1,$2,$3,$4,$5) RETURNING id`,
-        ['wx-fixture', `private-openid-${name}`, name, `https://example.invalid/${name}.png`, {
+      const row = await pool.query(`INSERT INTO users(app_id,openid,name,profile) VALUES($1,$2,$3,$4) RETURNING id`,
+        ['wx-fixture', `private-openid-${name}`, name, {
           phone: `phone-${name}`, phoneRegion: 'US', wechatId: `wechat-${name}`,
           vehicle: { plate: `plate-${name}`, brand: 'Fixture', model: 'Car', internal: 'vehicle-secret' },
           zelle: { name: `payee-${name}`, account: `account-${name}`, public: false, internal: 'zelle-secret' },
@@ -57,11 +57,12 @@ test('private ride projections enforce current relationships and field boundarie
       assert.equal(data.participants.length, 3);
       assert.equal(data.participants[0].role, 'driver');
       assert.deepEqual(participant(data, 'passenger-a'), {
-        id: users['passenger-a'], name: 'passenger-a', avatarUrl: 'https://example.invalid/passenger-a.png',
+        id: users['passenger-a'], name: 'passenger-a', avatarFileId: null,
         role: 'passenger', seatCount: 1, phone: 'phone-passenger-a', phoneRegion: 'US', wechatId: 'wechat-passenger-a',
         pickupAddress: 'pickup-passenger-a', dropoffAddress: 'dropoff-passenger-a',
         statistics: { completedTrips: 0, ratingCount: 0, averageRating: null, weightedRating: null },
       });
+      assert.equal(participant(data, 'driver').avatarFileId, null);
       assert.equal(participant(data, 'driver').pickupAddress, undefined);
       assert.equal(participant(data, 'driver').zelle, undefined);
       assert.equal(data.largeLuggageCount, undefined);

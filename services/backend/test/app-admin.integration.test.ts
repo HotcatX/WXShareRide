@@ -6,7 +6,7 @@ import type { Config } from '../src/config.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const config: Config = { databaseUrl: '', host: '127.0.0.1', port: 3100,
-  appId: 'wx8a8a389199aa2a0e', sessionTtlSeconds: 3600 };
+  appId: 'wx8a8a389199aa2a0e', businessMode: 'active' as const, sessionTtlSeconds: 3600 };
 const origin = 'https://admin.example.test';
 const password = 'synthetic-admin-password-only';
 

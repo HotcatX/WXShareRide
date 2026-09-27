@@ -12,7 +12,7 @@ export type FileRow = {
   createdAt: string | null; updatedAt: string | null;
 };
 export type FileReferenceRow = {
-  appId: string; resourceKind: 'listing' | 'ad' | 'community'; resourceId: string;
+  appId: string; resourceKind: 'listing' | 'ad' | 'community' | 'user'; resourceId: string;
   slot: string; fileId: string;
 };
 type Context = {

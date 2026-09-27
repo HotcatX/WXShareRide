@@ -26,8 +26,19 @@ Previously applied SQL files are immutable and checked by SHA-256.
 Only `src/config.ts` reads environment variables. `DATABASE_URL_FILE` is the
 alternative for a mounted secret; configure exactly one of it and `DATABASE_URL`.
 `WECHAT_APP_SECRET_FILE` enables real server-side `code2session` login. If absent,
-login returns `503 LOGIN_UNAVAILABLE`; no simulated or client-supplied identity
+an active deployment returns `503 LOGIN_UNAVAILABLE`; no simulated or client-supplied identity
 is ever accepted. `HOST`, `PORT` and `SESSION_TTL_SECONDS` are optional.
+
+`BUSINESS_MODE` defaults to `staged`, which rejects all business and internal
+API requests before side effects, while keeping `/healthz` available. Set
+`BUSINESS_MODE=active` only in an isolated test deployment or after the final
+production import and old-writer handoff. There is no automatic database fallback.
+`AUTH_BRIDGE_KEY_FILE` optionally loads a separate 64-hex secret for
+`POST /internal/v1/auth/cloudbase`. The bridge accepts only a signed, bounded
+CloudBase invocation identity and issues the same business session as code2session.
+No key means no bridge route. Its nonce and session commit atomically; unsigned,
+expired, cross-app and replayed requests are rejected. The companion
+`cloudfunctions/backend` source is not automatically deployed or enabled.
 
 Image storage is optional until provisioned: set all of `COS_BUCKET`,
 `COS_REGION`, and `COS_CREDENTIALS_FILE`. The mounted JSON secret contains only
@@ -48,7 +59,10 @@ only by the service UID. This server-only directory survives source replacements
 
 - `/api/v1/auth/login`: `POST {code}` from a fresh `wx.login` call.
 - `/api/v1/auth/logout`: `POST`, Bearer token.
-- `/api/v1/me`: authenticated `GET` and `PATCH` private profile.
+- `/api/v1/me`: authenticated `GET` and `PATCH` private profile. Avatars use
+  `avatarFileId` (omit to retain, null to clear), never a caller-supplied URL.
+  Upload first through the shared image endpoint, then attach the owned UUID.
+  Changing the reference does not delete the old file.
 - `/api/v1/rides`: public `GET`, authenticated `POST`; see [ride contract](src/rides/README.md).
 - `/api/v1/templates`: owner-scoped weekly offer templates; `GET`, `POST`, and
   `PATCH`/`DELETE /:id`. Weekdays and local clocks use `America/New_York`, including DST.

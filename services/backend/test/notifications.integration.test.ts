@@ -98,7 +98,7 @@ test('notifications preserve ownership, transaction atomicity, recipient rules a
 test('notification HTTP endpoints authenticate, reject injected owner fields and have no public send operation', async t => {
   const db = await createTestDatabase();
   const app = await createApp({ pool: db.pool, config: { databaseUrl: process.env.BACKEND_TEST_DATABASE_URL!, host: '127.0.0.1', port: 3100,
-    appId: 'wx1234567890123456', sessionTtlSeconds: 3600 }, exchange: async code => ({ openid: code }) });
+    appId: 'wx1234567890123456', businessMode: 'active' as const, sessionTtlSeconds: 3600 }, exchange: async code => ({ openid: code }) });
   t.after(async () => { await app.close(); await db.close(); });
   assert.equal((await app.inject({ url: '/api/v1/notifications' })).statusCode, 401);
   const login = (await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { code: 'synthetic-owner' } })).json().data;

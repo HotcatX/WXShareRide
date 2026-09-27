@@ -85,8 +85,8 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
     }
     const batchId = (await client.query(`INSERT INTO migration_batches(app_id,source_sha256,plan_sha256,imported_counts,observed_before)
       VALUES($1,$2,$3,$4,$5) RETURNING id`, [expectedAppId, plan.sourceSha256, planSha256, counts, plan.observedBefore])).rows[0].id as string;
-    await insertRows(client, 'users', ['id','app_id','openid','name','avatar_url','profile','created_at','updated_at'],
-      plan.users.map(row => [row.id,row.appId,row.openid,row.name,row.avatarUrl,row.profile,row.createdAt,row.updatedAt]));
+    await insertRows(client, 'users', ['id','app_id','openid','name','profile','created_at','updated_at'],
+      plan.users.map(row => [row.id,row.appId,row.openid,row.name,row.profile,row.createdAt,row.updatedAt]));
     await insertRows(client, 'referral_codes', ['user_id','code'], plan.referralCodes.map(row => [row.userId,row.code]));
     await insertRows(client, 'rides', ['id','kind','creator_id','city_key','status','seat_capacity','departure_at','time_zone','listed_price_cents','listed_price_label','details','version','created_at','updated_at'],
       plan.rides.map(row => [row.id,row.kind,row.creatorId,row.cityKey,row.status,row.seatCapacity,row.departureAt,row.timeZone,row.listedPriceCents,row.listedPriceLabel,row.details,row.version,row.createdAt,row.updatedAt]));

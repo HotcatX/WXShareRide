@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from 'pg';
 import { withIdempotency } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { blockUserSchema, listBlocksSchema, targetUserIdSchema } from './schemas.ts';
+import { avatarFileIdSql } from '../users/avatar.ts';
 
 /**
  * Block/unblock only take these pair locks. Join first locks its ride, then
@@ -65,7 +66,7 @@ export async function listBlocks(pool: Pool, userId: string, query: unknown) {
   const input = listBlocksSchema.parse(query);
   // An owner-only projection: never return sessions, OpenIDs, arbitrary profile
   // fields, or incoming blocks. Keep the existing blocked-list contact display.
-  const result = await pool.query(`SELECT b.target_id AS "targetUserId", u.name, u.avatar_url AS "avatarUrl",
+  const result = await pool.query(`SELECT b.target_id AS "targetUserId", u.name, ${avatarFileIdSql('u')} AS "avatarFileId",
     COALESCE(u.profile->>'wechatId', '') AS "wechatId", b.reason,
     b.blocked_at AS "blockedAt", b.updated_at AS "updatedAt"
     FROM user_blocks b JOIN users u ON u.id = b.target_id
@@ -74,4 +75,3 @@ export async function listBlocks(pool: Pool, userId: string, query: unknown) {
   return { blocks: result.rows.slice(0, input.limit),
     nextPage: input.page < 1000 && result.rows.length > input.limit ? input.page + 1 : null };
 }
-

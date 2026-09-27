@@ -169,7 +169,7 @@ test('community: active expired writes fail, old receipts replay, malformed bodi
 
 test('community routes: real assembled app origin, auth, parser errors, public projection and strict query', async t => {
   const db = await createTestDatabase();
-  const app = await createApp({ config: { databaseUrl: '', host: '127.0.0.1', port: 3100, appId, sessionTtlSeconds: 3600 }, pool: db.pool });
+  const app = await createApp({ config: { databaseUrl: '', host: '127.0.0.1', port: 3100, appId, businessMode: 'active' as const, sessionTtlSeconds: 3600 }, pool: db.pool });
   t.after(async () => { await app.close(); await db.close(); });
   const one = await admin(db.pool);
   await db.pool.query('INSERT INTO admin_origins VALUES($1,$2)', [appId, origin]);

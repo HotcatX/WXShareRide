@@ -8,6 +8,8 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   WECHAT_APP_ID: z.string().regex(/^wx[0-9a-f]{16}$/),
   WECHAT_APP_SECRET_FILE: z.string().min(1).optional(),
+  BUSINESS_MODE: z.enum(['staged', 'active']).default('staged'),
+  AUTH_BRIDGE_KEY_FILE: z.string().min(1).optional(),
   COS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}-[0-9]{5,20}$/).optional(),
   COS_REGION: z.string().regex(/^[a-z]{2}-[a-z]+(?:-[0-9]+)?$/).optional(),
   COS_CREDENTIALS_FILE: z.string().min(1).optional(),
@@ -21,6 +23,7 @@ export type CosConfig = { bucket: string; region: string; secretId: string; secr
 export type Config = {
   databaseUrl: string; host: string; port: number; appId: string;
   appSecret?: string; sessionTtlSeconds: number;
+  businessMode?: 'staged' | 'active'; authBridgeKey?: Buffer;
   cos?: CosConfig;
 };
 
@@ -35,6 +38,14 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Config
   if (!/^postgres(ql)?:\/\//.test(databaseUrl)) throw new Error('Invalid DATABASE_URL_FILE');
   const appSecret = env.WECHAT_APP_SECRET_FILE ? readFileSync(env.WECHAT_APP_SECRET_FILE, 'utf8').trim() : undefined;
   if (appSecret !== undefined && !/^[a-zA-Z0-9]{16,128}$/.test(appSecret)) throw new Error('Invalid WECHAT_APP_SECRET_FILE');
+  let authBridgeKey: Buffer | undefined;
+  if (env.AUTH_BRIDGE_KEY_FILE) {
+    try {
+      const key = readFileSync(env.AUTH_BRIDGE_KEY_FILE, 'utf8').trim();
+      if (!/^[a-f0-9]{64}$/.test(key)) throw new Error();
+      authBridgeKey = Buffer.from(key, 'hex');
+    } catch { throw new Error('Invalid AUTH_BRIDGE_KEY_FILE'); }
+  }
   let cos: CosConfig | undefined;
   if (env.COS_CREDENTIALS_FILE) {
     try {
@@ -45,6 +56,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Config
   }
   return {
     databaseUrl, host: env.HOST, port: env.PORT,
-    appId: env.WECHAT_APP_ID, appSecret, sessionTtlSeconds: env.SESSION_TTL_SECONDS, cos
+    appId: env.WECHAT_APP_ID, appSecret, sessionTtlSeconds: env.SESSION_TTL_SECONDS, cos,
+    businessMode: env.BUSINESS_MODE, authBridgeKey
   };
 }

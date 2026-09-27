@@ -13,8 +13,8 @@ const requestPassenger = { role: 'passenger', seatCount: 1 };
 const passenger = { ...requestPassenger, pickupAddress: 'Private pickup', dropoffAddress: 'Private dropoff' };
 
 async function account(pool: Pool, appId = 'blocks-fixture') {
-  return (await pool.query<{ id: string; openid: string }>(`INSERT INTO users(app_id, openid, name, avatar_url, profile)
-    VALUES ($1, $2, 'Fixture person', 'https://example.invalid/avatar.png',
+  return (await pool.query<{ id: string; openid: string }>(`INSERT INTO users(app_id, openid, name, profile)
+    VALUES ($1, $2, 'Fixture person',
       '{"wechatId":"fixture-wechat","phone":"private-phone","secret":"private-profile"}'::jsonb)
     RETURNING id, openid`, [appId, `private-openid-${randomUUID()}`])).rows[0];
 }
@@ -85,7 +85,8 @@ test('user blocks preserve relationship semantics and serialize with ride joins'
       assert.equal(list.blocks.length, 1);
       assert.equal(list.blocks[0].targetUserId, b.id);
       assert.equal(list.blocks[0].wechatId, 'fixture-wechat');
-      assert.deepEqual(Object.keys(list.blocks[0]).sort(), ['targetUserId', 'name', 'avatarUrl', 'wechatId', 'reason', 'blockedAt', 'updatedAt'].sort());
+      assert.equal(list.blocks[0].avatarFileId, null);
+      assert.deepEqual(Object.keys(list.blocks[0]).sort(), ['targetUserId', 'name', 'avatarFileId', 'wechatId', 'reason', 'blockedAt', 'updatedAt'].sort());
       const serialized = JSON.stringify(list);
       for (const secret of [a.openid, b.openid, c.id, 'private-phone', 'private-profile', 'Incoming private reason']) assert.equal(serialized.includes(secret), false);
       assert.equal((await listBlocks(pool, b.id, {})).blocks.length, 0);

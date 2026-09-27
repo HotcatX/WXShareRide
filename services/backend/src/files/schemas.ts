@@ -26,8 +26,12 @@ export const fileMetadataSchema = z.strictObject({
 export const confirmFileSchema = fileTargetSchema.extend({ owner: fileOwnerSchema, metadata: fileMetadataSchema });
 export const fileResourceSchema = z.strictObject({
   appId,
-  kind: z.enum(['listing', 'ad', 'community']),
+  kind: z.enum(['listing', 'ad', 'community', 'user']),
   id: exactString.regex(/^[a-zA-Z0-9:_-]{1,160}$/),
+}).superRefine((resource, context) => {
+  if (resource.kind === 'user' && (!z.uuid().safeParse(resource.id).success || resource.id !== resource.id.toLowerCase())) {
+    context.addIssue({ code: 'custom', path: ['id'], message: '用户头像归属无效' });
+  }
 });
 export const fileReferencesSchema = z.array(z.strictObject({
   slot: exactString.regex(/^[a-z][a-z0-9_.-]{0,63}$/),

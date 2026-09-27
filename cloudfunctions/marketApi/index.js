@@ -1472,6 +1472,19 @@ async function publicConfig(event = {}) {
 
   const docs = {}
   await Promise.all(collections.map(async collection => {
+    try {
+      const doc = require('./publicConfig.generated.js')[collection]
+      const entries = doc && doc[collection === 'cityTree' ? 'countries' : 'states']
+      if (!doc || doc._id !== PUBLIC_CONFIG_DOC_ID || !Array.isArray(entries) || !entries.length) {
+        throw new Error('invalid_public_config_asset')
+      }
+      docs[collection] = JSON.parse(JSON.stringify(doc))
+      return
+    } catch (_) {
+      // Temporary fallback for a missing/invalid standalone deployment asset.
+      // Remove after the generated catalog is verified in the released cloud
+      // bundle and legacy config reads are retired; CloudBase stays read-only.
+    }
     const doc = await db.collection(collection).doc(PUBLIC_CONFIG_DOC_ID).get().catch(() => null)
     docs[collection] = doc && doc.data ? doc.data : null
   }))

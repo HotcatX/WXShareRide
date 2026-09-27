@@ -74,6 +74,7 @@ function fixture(data = {}, options = {}) {
           return {
             async get() {
               calls.reads.push({ name, id })
+              if (options.failRead) throw new Error('private backend connection secret')
               const row = (data[name] || []).find(row => row._id === id)
               return { data: row ? { ...row } : null }
             },
@@ -98,13 +99,14 @@ function fixture(data = {}, options = {}) {
   return { db, cloud, calls, context, preview: previewModule.createPublicPreviewHandler({ db, cloud, now: () => NOW }) }
 }
 
-function entry(f) {
+function entry(f, { publicConfig = () => require('../cloudfunctions/marketApi/publicConfig.generated.js') } = {}) {
   const exports = {}
   const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     exports, require(name) {
       if (name === 'wx-server-sdk') return f.cloud
       if (name === './publicPreview') return previewModule
+      if (name === './publicConfig.generated.js') return publicConfig()
       if (name === 'crypto') return require('node:crypto')
       throw new Error(`Unexpected import: ${name}`)
     }, console, Date, Intl, Set, Map, Buffer, process
@@ -176,7 +178,8 @@ test('logged-in old list/config and ownership/admin checks keep their behavior',
   assert.equal(list.limit, 20)
   const config = await main({ action: 'publicConfig', collection: 'cityTree' })
   assert.equal(config.ok, true)
-  assert.equal(config.docs.cityTree.cities[0], 'ny_nj')
+  assert.equal(config.docs.cityTree.defaultCityKey, 'ny_nj')
+  assert.equal(f.calls.reads.filter(call => call.name === 'cityTree').length, 0)
   assert.equal((await main({ action: 'create', payload: {} })).error, 'missing_required_fields')
   for (const action of ['update', 'delete']) {
     assert.equal((await main({ action, id: 'goods-1', openid: 'seller-private-001', patch: { status: 'sold' } })).error, 'forbidden')
@@ -185,6 +188,59 @@ test('logged-in old list/config and ownership/admin checks keep their behavior',
     assert.equal((await main({ action })).error, 'unknown_action', action)
   }
   assert.equal(f.calls.writes.length, 0)
+})
+
+test('publicConfig returns the single-source old documents without database or delegated calls', async () => {
+  const source = require('../config/locationCatalog.json')
+  const f = fixture({}, { openid: 'signed-in-user', failRead: true })
+  const main = entry(f)
+  const result = await main({ action: 'publicConfig', collections: ['cityTree', 'regionTree', 'cityTree', 'userInfo'] })
+  const plain = value => JSON.parse(JSON.stringify(value))
+  assert.deepEqual(plain(result), { ok: true, docs: {
+    cityTree: { _id: 'default', ...source.cityTree },
+    regionTree: { _id: 'default', ...source.marketRegionTree }
+  }, data: plain(result.docs) })
+  const city = require('../utils/cityTree'), region = require('../utils/regionTree')
+  assert.deepEqual(plain(city.normalizeCityTree(result.docs.cityTree)), plain(city.normalizeCityTree(source.cityTree)))
+  assert.deepEqual(plain(region.normalizeRegionTree(result.docs.regionTree)), plain(region.normalizeRegionTree(source.marketRegionTree)))
+  assert.equal(result.docs.cityTree.version, undefined, 'do not invent the retired database revision')
+  assert.equal(result.docs.cityTree.updatedAt, undefined)
+  result.docs.cityTree.countries.length = 0
+  const next = await main({ action: 'publicConfig', name: 'cityTree' })
+  assert.deepEqual(plain(next.docs.cityTree.countries), source.cityTree.countries, 'responses cannot mutate the bundled catalog')
+  assert.deepEqual(f.calls, { collections: [], reads: [], writes: [], images: [], functions: [] })
+  for (const event of [{}, { collection: 'userInfo' }, { collections: ['__proto__', 'constructor'] }]) {
+    assert.equal((await main({ action: 'publicConfig', ...event })).error, 'invalid_config_collection')
+  }
+  assert.equal(f.calls.reads.length, 0)
+})
+
+test('publicConfig deployment-asset failure falls back once to the same old read only', async () => {
+  const original = { _id: 'default', countries: [{ label: 'old config' }], version: 12, updatedAt: { $date: NOW } }
+  for (const publicConfig of [() => { throw new Error('missing deployment asset') },
+    () => null, () => ({ cityTree: { _id: 'default', countries: [] } })]) {
+    const f = fixture({ cityTree: [original] }, { openid: 'signed-in-user' })
+    const result = await entry(f, { publicConfig })({ action: 'publicConfig', collections: ['cityTree', 'cityTree', 'userInfo'] })
+    assert.deepEqual(JSON.parse(JSON.stringify(result.docs.cityTree)), original)
+    assert.deepEqual(f.calls.reads, [{ name: 'cityTree', id: 'default' }])
+    assert.equal(result.data, result.docs)
+    assert.equal(f.calls.writes.length + f.calls.functions.length + f.calls.images.length, 0)
+  }
+})
+
+test('publicConfig keeps healthy assets when a different entry falls back and preserves old unavailable result', async () => {
+  const source = require('../cloudfunctions/marketApi/publicConfig.generated.js')
+  const original = { _id: 'default', states: [{ key: 'NY_NJ' }] }
+  const f = fixture({ regionTree: [original] }, { openid: 'signed-in-user' })
+  const result = await entry(f, { publicConfig: () => ({ cityTree: source.cityTree }) })({ action: 'publicConfig', collections: ['cityTree', 'regionTree'] })
+  assert.deepEqual(f.calls.reads, [{ name: 'regionTree', id: 'default' }])
+  assert.deepEqual(JSON.parse(JSON.stringify(result.docs.cityTree)), source.cityTree)
+  assert.deepEqual(JSON.parse(JSON.stringify(result.docs.regionTree)), original)
+  const failed = fixture({}, { openid: 'signed-in-user', failRead: true })
+  const unavailable = await entry(failed, { publicConfig: () => { throw Error('missing asset') } })({ action: 'publicConfig', collection: 'cityTree' })
+  assert.deepEqual(JSON.parse(JSON.stringify(unavailable)), { ok: true, docs: { cityTree: null }, data: { cityTree: null } })
+  assert.deepEqual(failed.calls.reads, [{ name: 'cityTree', id: 'default' }])
+  assert.equal(failed.calls.writes.length, 0)
 })
 
 test('the trusted original owner can still update with the old field allowlist', async () => {

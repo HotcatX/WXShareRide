@@ -211,7 +211,7 @@ test('a removal waiting for the ride lock rechecks the committed departure befor
 test('HTTP removal authenticates the actor, uses internal target UUID, and rejects ownership injection', enabled, async t => {
   const db = await createTestDatabase();
   const app = await createApp({ pool: db.pool, config: { databaseUrl: process.env.BACKEND_TEST_DATABASE_URL!, host: '127.0.0.1', port: 3100,
-    appId: 'wx1234567890123456', sessionTtlSeconds: 3600 }, exchange: async code => ({ openid: `private-${code}` }) });
+    appId: 'wx1234567890123456', sessionTtlSeconds: 3600 }, exchange: async code => ({ openid: `private-removal-${code}` }) });
   t.after(async () => { await app.close(); await db.close(); });
   const login = async (code: string) => (await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { code } })).json().data;
   const owner = await login('owner'), target = await login('target'), outsider = await login('outsider');

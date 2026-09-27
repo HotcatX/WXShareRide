@@ -8,6 +8,8 @@ replacement and must not receive production ride writes.**
 
 ```sh
 npm ci
+# The cross-service delivery test uses the existing collector's SQLite adapter.
+npm --prefix ../analytics-collector ci
 npm run check
 # A dedicated local PostgreSQL test database; suites create/drop only random schemas.
 BACKEND_TEST_DATABASE_URL=postgresql://localhost/linkx_test npm test
@@ -127,6 +129,27 @@ provider checks and mini-program/website DTO adaptation remain deployment gates.
 Avatars still use the separate legacy profile path; this file module does not
 yet authorize profile-avatar references. No storage deletion timer is enabled.
 See `SCHEMA.md`.
+
+## Ride event delivery
+
+Ride mutations freeze the collector's existing event contract in
+`business_events.collector_payload` in the same transaction as the ride,
+notification and request receipt. Before/after snapshots retain the mutation's
+version, identities and participant changes. Ratings stay in the business ledger
+without pretending to be a place event. Historical rows without snapshots remain
+unqueued; they must not be reconstructed from a later ride state.
+
+`deliverBusinessEvents` sends one bounded batch with a fresh HMAC nonce and marks
+only acknowledged event IDs. A receiver commit followed by a lost reply retries
+the same bytes; the existing collector deduplicates them. A session advisory lock
+prevents overlapping deliveries for one app without locking ride writes during
+network I/O. Errors preserve pending facts instead of switching databases.
+
+`startRideJobs` provides independent closure and delivery loops, bounded error
+backoff, and shutdown draining. **These functions are not yet connected to
+`main.ts` or enabled in production.** Activation must accompany the business
+write gate, completed import, old pending-event handoff and client compatibility.
+The existing collector remains authoritative for place and follow-up data.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 Keep the current mini-program on CloudBase until missing feature compatibility,

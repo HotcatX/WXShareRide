@@ -5,6 +5,7 @@ import { withIdempotency } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { assertNoBlockedMembers } from '../blocks/service.ts';
 import { advanceRideVersion, recordRideEvent } from './events.ts';
+import { captureRide } from './collector-event.ts';
 import { formatDriverStatistics, statisticsProjection } from '../statistics/service.ts';
 import { cancelRideSchema, createRideSchema, joinRideSchema, leaveRideSchema, listRidesSchema, rideIdSchema } from './schemas.ts';
 
@@ -71,7 +72,7 @@ export async function createRide(pool: Pool, userId: string, key: unknown, body:
     await client.query(`INSERT INTO ride_members(ride_id, user_id, role, seat_count, state, joined_at)
       VALUES ($1, $2, $3, $4, 'active', clock_timestamp())`,
     [rideId, userId, input.kind === 'offer' ? 'driver' : 'passenger', input.kind === 'offer' ? 0 : input.partySize]);
-    await recordRideEvent(client, ride, userId, 'created', { rideId, kind: input.kind, capacity });
+    await recordRideEvent(client, ride, userId, 'created', { rideId, kind: input.kind, capacity }, null);
     return { ...writeResult(ride), status: 201 };
   });
 }
@@ -116,13 +117,14 @@ export async function joinRide(pool: Pool, userId: string, key: unknown, id: unk
     }
     const occupied = members.reduce((sum, member) => sum + member.seat_count, 0);
     if (occupied + seatCount > ride.seat_capacity) throw new AppError(409, 'INSUFFICIENT_SEATS', '行程剩余座位不足');
+    const before = await captureRide(client, rideId);
     await client.query(`INSERT INTO ride_members(ride_id, user_id, role, seat_count, state, joined_at, details)
       VALUES ($1, $2, $3, $4, 'active', clock_timestamp(), $5::jsonb) ON CONFLICT (ride_id, user_id) DO UPDATE
       SET role = EXCLUDED.role, seat_count = EXCLUDED.seat_count, state = 'active',
         joined_at = EXCLUDED.joined_at, left_at = NULL, details = EXCLUDED.details`,
     [rideId, userId, input.role, seatCount, JSON.stringify(details)]);
     const changed = await advanceRideVersion(client, ride);
-    await recordRideEvent(client, changed, userId, 'joined', { role: input.role, seatCount });
+    await recordRideEvent(client, changed, userId, 'joined', { role: input.role, seatCount }, before);
     return writeResult(changed);
   });
 }
@@ -141,10 +143,11 @@ export async function leaveRide(pool: Pool, userId: string, key: unknown, id: un
     assertJoinable(ride);
     // now() is the transaction start, which can precede a join committed while
     // this transaction waited for the ride lock. Use the actual mutation time.
+    const before = await captureRide(client, rideId);
     await client.query(`UPDATE ride_members SET state = 'left', left_at = GREATEST(clock_timestamp(), joined_at)
       WHERE ride_id = $1 AND user_id = $2`, [rideId, userId]);
     const changed = await advanceRideVersion(client, ride);
-    await recordRideEvent(client, changed, userId, 'left', { role: member.role, seatCount: member.seat_count, reason: input.reason });
+    await recordRideEvent(client, changed, userId, 'left', { role: member.role, seatCount: member.seat_count, reason: input.reason }, before);
     return writeResult(changed);
   });
 }
@@ -170,10 +173,11 @@ export async function removeRideMember(pool: Pool, userId: string, key: unknown,
     // Keep the existing relationship and its private details as evidence.
     // All membership writes share the ride lock; seats are still derived from
     // active memberships, and removal does not create a separate counter/block.
+    const before = await captureRide(client, rideId);
     await client.query(`UPDATE ride_members SET state = 'left', left_at = GREATEST(clock_timestamp(), joined_at)
       WHERE ride_id = $1 AND user_id = $2`, [rideId, memberId]);
     const changed = await advanceRideVersion(client, ride);
-    await recordRideEvent(client, changed, userId, 'removed', { memberId, role: member.role, seatCount: member.seat_count, reason: input.reason });
+    await recordRideEvent(client, changed, userId, 'removed', { memberId, role: member.role, seatCount: member.seat_count, reason: input.reason }, before);
     return writeResult(changed);
   });
 }
@@ -186,12 +190,14 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
     if (ride.creator_id !== userId) throw new AppError(403, 'NOT_RIDE_CREATOR', '只有创建者可以取消行程');
     if (ride.status === 'cancelled') return writeResult(ride, false);
     assertJoinable(ride);
+    const before = await captureRide(client, rideId);
     await client.query(`UPDATE rides SET status = 'cancelled' WHERE id = $1`, [rideId]);
     const changed = await advanceRideVersion(client, { ...ride, status: 'cancelled' as const });
-    // Capture the active recipients before closing memberships, in this same transaction.
-    await recordRideEvent(client, changed, userId, 'cancelled', { reason: input.reason });
     await client.query(`UPDATE ride_members SET state = 'left', left_at = GREATEST(clock_timestamp(), joined_at)
       WHERE ride_id = $1 AND state = 'active'`, [rideId]);
+    // The event freezes the actual final state, while notifications use the
+    // active recipients captured under this same lock before cancellation.
+    await recordRideEvent(client, changed, userId, 'cancelled', { reason: input.reason }, before);
     return writeResult(changed);
   });
 }

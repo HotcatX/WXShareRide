@@ -8,7 +8,7 @@ import { clearNotifications, listNotifications, markAllNotificationsRead, markNo
 test('notifications preserve ownership, transaction atomicity, recipient rules and retry boundaries', async t => {
   const db = await createTestDatabase();
   t.after(() => db.close());
-  const user = async (openid: string) => (await db.pool.query("INSERT INTO users(app_id,openid) VALUES ('fixture',$1) RETURNING id", [openid])).rows[0].id as string;
+  const user = async (openid: string) => (await db.pool.query("INSERT INTO users(app_id,openid) VALUES ('fixture',$1) RETURNING id", [`notification-fixture-${openid}`])).rows[0].id as string;
   const owner = await user('owner'), passenger = await user('passenger'), other = await user('other'), driver = await user('driver');
   const body = { kind: 'offer', cityKey: 'ny_nj', timeZone: 'America/New_York',
     stops: [{ kind: 'departure', address: 'Fort Lee', departureAt: new Date(Date.now() + 86400000).toISOString() },

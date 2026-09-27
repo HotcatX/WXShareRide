@@ -61,12 +61,12 @@ export async function clearNotifications(pool: Pool, userId: string, key: unknow
 }
 
 type RideEvent = { eventId: string; rideId: string; kind: 'offer' | 'request'; creatorId: string;
-  actorId: string | null; action: string; payload: Record<string, unknown> };
+  actorId: string | null; action: string; payload: Record<string, unknown>; cancelledRecipients?: string[] };
 
 /** Called inside the ride mutation transaction, never through a public send endpoint. */
 export async function notifyRideEvent(client: PoolClient, event: RideEvent) {
   if (!['joined', 'left', 'cancelled', 'removed', 'rated', 'closed'].includes(event.action)) return;
-  const members = ['removed', 'rated'].includes(event.action) ? [] : (await client.query<{ user_id: string; role: string }>(
+  const members = ['removed', 'rated', 'cancelled'].includes(event.action) ? [] : (await client.query<{ user_id: string; role: string }>(
     "SELECT user_id,role FROM ride_members WHERE ride_id=$1 AND state='active'", [event.rideId])).rows;
   const driver = members.find(member => member.role === 'driver');
   const passengerChange = event.payload.role === 'passenger';
@@ -77,8 +77,8 @@ export async function notifyRideEvent(client: PoolClient, event: RideEvent) {
   const targets = event.action === 'rated' ? [z.uuid().parse(event.payload.targetId)]
     : event.action === 'closed' ? members.map(member => member.user_id)
     : event.action === 'removed' ? [z.uuid().parse(event.payload.memberId)]
-    : event.action === 'cancelled' || (event.kind === 'request' && !passengerChange)
-    ? members.map(member => member.user_id)
+    : event.action === 'cancelled' ? (event.cancelledRecipients ?? []).map(id => z.uuid().parse(id))
+    : event.kind === 'request' && !passengerChange ? members.map(member => member.user_id)
     : [event.creatorId, driver?.user_id];
   const recipients = [...new Set(targets.filter((id): id is string => !!id && id !== event.actorId))];
   if (!recipients.length) return;

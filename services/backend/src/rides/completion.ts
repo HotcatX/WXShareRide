@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { transaction } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { advanceRideVersion, recordRideEvent } from './events.ts';
+import { captureRide } from './collector-event.ts';
 
 type DueRide = { id: string; kind: 'offer' | 'request'; creator_id: string; version: number };
 type Member = { user_id: string; role: 'driver' | 'passenger'; seat_count: number };
@@ -33,9 +34,10 @@ export async function closeDueRides(pool: Pool, appId: string, batchSize = 100) 
       // matched driver/passenger pair and count each account once, not seats.
       const delta = driver ? Math.min(5, 1 + passengers.reduce((sum, member) => sum + member.seat_count, 0)) : 0;
       const completedMembers = driver && passengers.length ? [driver, ...passengers] : [];
+      const before = await captureRide(client, ride.id);
       await client.query("UPDATE rides SET status='closed' WHERE id=$1", [ride.id]);
       const changed = await advanceRideVersion(client, ride);
-      const eventId = await recordRideEvent(client, changed, null, 'closed', { servedDelta: delta });
+      const eventId = await recordRideEvent(client, changed, null, 'closed', { servedDelta: delta }, before);
       for (const member of completedMembers) {
         // Imported receipts can predate the current membership. Never change
         // the first recorded role or turn them into membership authority.

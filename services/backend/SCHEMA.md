@@ -14,7 +14,7 @@
 | `ride_members` | `(ride_id,user_id)`，`role`，`seat_count`，`state`，`joined_at`，`left_at`，`details` | 每行程最多一位 active driver。司机占客座数 0，乘客 1–8；同账号同行人数用 seat_count 表示。 |
 | `ride_stops` | `(ride_id,position)`，`kind`，`address`，`place_id`，`departure_at` | position 为整个行程内从 0 起的唯一顺序。出发站有时间；到达站当前可无时间。保留每一个出发和到达站，不裁成首尾。 |
 | `idempotency_requests` | `(user_id,operation,request_key)`，`payload_hash`，`response_status`，`response_body`，`created_at` | 同请求编号不同内容必须冲突。业务结果与幂等结果在同一事务提交；写超时不能改写独立旧库。 |
-| `business_events` | `id`，`ride_id`，`ride_version`，`action`，`actor_id`，`payload`，`created_at` | `(ride_id,ride_version)` 唯一。每次已提交业务变化记录一个事实事件，同事务写入。不是点击/曝光明细。 |
+| `business_events` | `id`，`ride_id`，`ride_version`，`action`，`actor_id`，`payload`，`created_at`，`collector_payload`，`collector_delivered_at` | `(ride_id,ride_version)` 唯一。每次已提交业务变化记录一个事实事件，同事务写入。不是点击/曝光明细。 |
 | `ride_templates`（002） | UUID `id`，`user_id`，`name`，`weekday`，`local_time`，`time_zone`，`definition`，创建/更新时间 | 本人私有的每周司机模板，weekday=0周日…6周六，HH:mm，纽约时区。绝对时间不存于模板。 |
 | `user_blocks`（003） | `(blocker_id,target_id)`，`active`，`reason`，`blocked_at`，`updated_at` | 每方向一个事实；重新启用复用原行。双向任意有效记录阻止新加入，不移除已有参与关系。 |
 | `migration_batches` / `migration_sources`（006、011、013） | 批次UUID/AppID/来源hash、`plan_sha256`、`imported_counts`、可空 `observed_before`；每批次 `(collection,source_id)` 和完整序列化JSON/hash | 私有迁移证据；转换指纹和数量回执成对保存。重复导入不覆盖运行态；不提供客户端API或授予业务权限。 |
@@ -75,7 +75,8 @@
 
 `ride_members.details` 只收供车乘客本次 `pickupAddress` / `dropoffAddress`，加入时要求两项非空、各最多60字符；求车拒绝这两项。姓名、头像、联系方式不由客户端注入成员记录，旧副本仅在来源归档保留。相同角色/席位/接送说明重复加入是no-op；已有关系变更返回409，退出再加入会替换旧说明。接送说明不进入公共投影或事件/通知。
 
-`business_events.payload` 是带版本业务事件的必要快照，由服务端构造；`idempotency_requests.response_body` 是已完成操作的响应。它们都不是第二个可编辑业务主库。
+`business_events.payload` 是服务端构造的动作详情。SQL024 的 `collector_payload` 是业务事务内冻结的 collector v1 前后状态 JSON 文本；原行程 ID、OpenID、版本沿用，原文与属性顺序不可改，ACK 只设置 `collector_delivered_at`。旧缺快照事件和评分事件保持 NULL，不从当前行程补造过去。前后参与者在同一行程锁下读取；取消先关闭成员，通知仍发给前态实际成员。纽约日期、末次出发时间和 closed→past 映射集中在 `rides/collector-event.ts`；地址/价格的接收端有界投影不改 PG 原值。只有已关闭导入历史可缺 city；评分不生成地点事实，仍可正常执行。`idempotency_requests.response_body` 是已完成操作的响应。它们都不是第二个可编辑业务主库。
+
 
 ## Schema 应用
 

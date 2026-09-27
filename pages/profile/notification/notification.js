@@ -68,13 +68,13 @@ Page({
     this._loadSequence = (this._loadSequence || 0) + 1
     this.setData({ loading: false })
     try {
-      await operation()
+      const result = await operation()
       if (!this.current(context)) return false
       // Re-read after the transaction: read-all/clear must preserve later arrivals.
       const refreshed = await this.loadList({ failureTitle: '操作已完成，刷新失败，请下拉重试' })
       if (!this.current(context)) return false
       this.notifyPrevPage()
-      if (refreshed && successTitle) wx.showToast({ title: successTitle, icon: 'success' })
+      if (refreshed && (result?.recovered || successTitle)) wx.showToast({ title: result?.recovered ? '已确认上次操作' : successTitle, icon: 'success' })
       return true
     } catch (error) {
       if (this.current(context)) wx.showToast({ title: error.message || '操作失败，请重试', icon: 'none' })

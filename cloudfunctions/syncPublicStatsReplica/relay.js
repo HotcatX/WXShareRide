@@ -17,6 +17,10 @@ function createLegacyTimer({ getKey, invoke, now = Date.now, getContext = getInv
     if (!authorized(event, getContext(invocationContext))) return { ok: false, error: 'TIMER_ONLY' }
     try {
       const response = await invoke({ name: 'statistics', data: makeRelay(getKey(), now()) })
+      // TEMPORARY FALLBACK — remove only after the next production release is verified.
+      // A retired canonical timer deliberately has no fabricated snapshot time.
+      if (response && response.result && response.result.ok === true && response.result.skipped === 'AUTHORITY_MOVED' &&
+        Object.keys(response.result).length === 2) return { ok: true, skipped: 'AUTHORITY_MOVED' }
       if (!response || !response.result || response.result.ok !== true || !Number.isSafeInteger(response.result.snapshotAt)) throw new Error('SYNC_FAILED')
       return { ok: true, snapshotAt: response.result.snapshotAt }
     } catch (_) {

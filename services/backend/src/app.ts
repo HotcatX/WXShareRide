@@ -29,6 +29,7 @@ import { cloudBaseLoginPath, createCloudBaseLoginBridge } from './auth/cloudbase
 import { registerLocationRoutes } from './locations/routes.ts';
 import { registerCityRequestRoutes } from './locations/requests.ts';
 import { createCollectionSessions } from './analytics/session.ts';
+import { compatBridgePath, createCompatBridge } from './compat/bridge.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage; collectorTransport?: typeof fetch }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
@@ -72,6 +73,13 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
     return { ok: true, data: { status: 'ready' }, requestId: request.id };
   });
   if (deps.config.authBridgeKey) {
+    const compat = createCompatBridge({ pool: deps.pool, appId: deps.config.appId, key: deps.config.authBridgeKey, isActive });
+    app.register(async scope => {
+      scope.removeAllContentTypeParsers();
+      scope.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 69632 }, (_request, body, done) => done(null, body));
+      scope.post(compatBridgePath, { bodyLimit: 69632 }, request => compat({
+        method: request.method, path: request.url, rawHeaders: request.raw.rawHeaders, body: request.body as Buffer }));
+    });
     const bridge = createCloudBaseLoginBridge({ pool: deps.pool, appId: deps.config.appId,
       key: deps.config.authBridgeKey, sessionTtlSeconds: deps.config.sessionTtlSeconds, isActive });
     app.register(async scope => {

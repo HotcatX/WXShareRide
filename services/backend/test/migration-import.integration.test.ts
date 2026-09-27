@@ -109,7 +109,7 @@ test('snapshot import stores all preserved facts and exact source evidence in on
   const receipt = await importSnapshot(pool, source, appId, observation);
   assert.equal(serializeSource(source), original, 'the importer must not mutate its source');
   assert.equal(receipt.sourceSha256, sourceSha256);
-  assert.deepEqual(receipt.counts, { cityRequests: 0, users: 2, rides: 2, members: 4, stops: 4, templates: 1,
+  assert.deepEqual(receipt.counts, { operationReceipts: 0, cityRequests: 0, users: 2, rides: 2, members: 4, stops: 4, templates: 1,
     notifications: 1, blocks: 1, ratings: 1, completions: 4, publicStatistics: 1, referralCodes: 1,
     adminAccounts: 0, adminOrigins: 0, adminAudit: 0, adminMarketBatches: 0, adminRequests: 0, marketTemplates: 0, listings: 0, files: 0, fileReferences: 0, marketViews: 0,
     ads: 0, adClicks: 0, communityConfigs: 0, communityRevisions: 0 });

@@ -87,6 +87,8 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
       VALUES($1,$2,$3,$4,$5) RETURNING id`, [expectedAppId, plan.sourceSha256, planSha256, counts, plan.observedBefore])).rows[0].id as string;
     await insertRows(client, 'users', ['id','app_id','openid','name','profile','created_at','updated_at'],
       plan.users.map(row => [row.id,row.appId,row.openid,row.name,row.profile,row.createdAt,row.updatedAt]));
+    await insertRows(client, 'idempotency_requests', ['user_id','operation','request_key','payload_hash','response_status','response_body','created_at'],
+      plan.operationReceipts.map(row => [row.userId,row.operation,row.requestKey,row.payloadHash,row.responseStatus,row.responseBody,row.createdAt]));
     await insertRows(client, 'city_requests', ['id','user_id','city_key','city_label','city_aliases','source_page','created_at'],
       plan.cityRequests.map(row => [row.id,row.userId,row.cityKey,row.cityLabel,row.cityAliases,row.sourcePage,row.createdAt]));
     await insertRows(client, 'referral_codes', ['user_id','code'], plan.referralCodes.map(row => [row.userId,row.code]));
@@ -145,7 +147,7 @@ export async function importSnapshot(pool: Pool, source: unknown, expectedAppId:
     await insertRows(client, 'migration_sources', ['batch_id','collection','source_id','document_json','sha256'],
       plan.sources.map(row => [batchId,row.collection,row.sourceId,row.documentJson,row.sha256]));
     // Read counts back inside the transaction, not from the intended input only.
-    const modelTables = { cityRequests:'city_requests', users:'users', rides:'rides', members:'ride_members', stops:'ride_stops', templates:'ride_templates',
+    const modelTables = { operationReceipts:'idempotency_requests', cityRequests:'city_requests', users:'users', rides:'rides', members:'ride_members', stops:'ride_stops', templates:'ride_templates',
       notifications:'notifications', blocks:'user_blocks', ratings:'ride_ratings', completions:'ride_completions', publicStatistics:'public_statistics', referralCodes:'referral_codes',
       adminAccounts:'admin_accounts', adminOrigins:'admin_origins', adminAudit:'admin_audit', listings:'market_listings', files:'files', fileReferences:'file_references', marketViews:'market_views',
       adminMarketBatches:'market_import_batches', adminRequests:'admin_requests', marketTemplates:'market_templates',

@@ -14,8 +14,13 @@ function withoutPlatformMetadata(event) {
 }
 
 function createStatisticsHandler({ participation, getSyncKey, readPublicStats, send = push,
-  synchronizePlaces, now = Date.now, log = () => {}, getContext = getInvocationContext }) {
+  synchronizePlaces, authority = 'cloudbase', now = Date.now, log = () => {}, getContext = getInvocationContext }) {
   const publicStats = createPublicHandler(readPublicStats)
+  // TEMPORARY FALLBACK — remove only after the next production release is verified.
+  // Retire old projection writers after handoff, including authenticated relays.
+  // Keep invocation checks below: migration must not turn a caller into a timer.
+  const retired = () => authority === 'cloudbase' ? null : authority === 'server'
+    ? { ok: true, skipped: 'AUTHORITY_MOVED' } : { ok: false, error: 'AUTHORITY_UNAVAILABLE' }
   async function synchronize() {
     try {
       const key = getSyncKey()
@@ -41,6 +46,7 @@ function createStatisticsHandler({ participation, getSyncKey, readPublicStats, s
     const context = getContext(invocationContext) || {}
     if (action === 'placeBusinessTimer' || (!action && event && event.TriggerName === PLACE_TRIGGER)) {
       if (!authorizedPlaceTimer(event, context)) return { ok: false, error: 'TIMER_ONLY' }
+      if (retired()) return retired()
       if (typeof synchronizePlaces !== 'function') throw new Error('PLACE_BUSINESS_SYNC_UNAVAILABLE')
       return synchronizePlaces()
     }
@@ -48,10 +54,12 @@ function createStatisticsHandler({ participation, getSyncKey, readPublicStats, s
       let verified = false
       try { verified = verifyRelay(event, context, getSyncKey(), now()) } catch (_) {}
       if (!verified) return { ok: false, error: 'RELAY_UNAUTHORIZED' }
+      if (retired()) return retired()
       return synchronize()
     }
     if (action === 'publicStatsHourlyTimer' || (!action && event && ['Timer','timer'].includes(event.Type))) {
       if (!authorized(event, context)) return { ok: false, error: 'TIMER_ONLY' }
+      if (retired()) return retired()
       return synchronize()
     }
     return { ok: false, error: 'INVALID_ACTION' }

@@ -4,6 +4,8 @@ const path = require('path')
 const { createHandler } = require('./bridge')
 const { createStatisticsHandler } = require('./handler')
 const { createPlaceSynchronizer } = require('./placesSync')
+const { createPublicStatsReader } = require('./provider')
+const authority = require('./authority')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -16,6 +18,7 @@ function getKeys() {
 }
 const participation = createHandler({ getKeys })
 exports.main = createStatisticsHandler({
+  authority,
   participation,
   synchronizePlaces: createPlaceSynchronizer({ db, getKey: () => getKeys().bridge,
     log: value => console.log(JSON.stringify(value)) }),
@@ -24,9 +27,9 @@ exports.main = createStatisticsHandler({
     if (!/^[a-f0-9]{64}$/.test(value)) throw new Error('KEY_UNAVAILABLE')
     return Buffer.from(value, 'hex')
   },
-  readPublicStats: async () => {
+  readPublicStats: createPublicStatsReader({ authority, readCloudStats: async () => {
     const result = await db.collection('PublicStats').doc('home').field({ servedTrips: true, coverageText: true }).get()
     return result.data
-  },
+  } }),
   log: value => console.log(JSON.stringify(value))
 })

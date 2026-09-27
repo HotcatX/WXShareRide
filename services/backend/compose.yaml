@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260927-client-integration
+    image: linkx-backend:20260927-handoff-compat
     restart: unless-stopped
     init: true
     read_only: true

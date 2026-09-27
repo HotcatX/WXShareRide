@@ -40,6 +40,19 @@ No key means no bridge route. Its nonce and session commit atomically; unsigned,
 expired, cross-app and replayed requests are rejected. The companion
 `cloudfunctions/backend` source is not automatically deployed or enabled.
 
+The temporary `POST /internal/v1/compat/cloudbase` bridge reuses that mounted key
+with a separate signing purpose. It supports only the finite deployed template,
+notification and saved-address contract. It looks up an existing migrated user;
+it cannot create identities or issue sessions. Its nonce, canonical mutation and
+permanent receipt share one transaction. Completed CloudBase `OperationReceipts`
+are imported into the existing `idempotency_requests` table without re-executing
+their bodies. Incomplete or inconsistent receipts block the whole import.
+After handoff a pending cloud request retains its original action, key and body;
+neither a timeout nor an unavailable bridge permits a write back to CloudBase.
+Generate the isolated cloud bundles' authority files from `config/backend.js`
+with `node scripts/sync-cloud-authority.mjs`; `--check` detects stale copies.
+This repository remains in CloudBase mode until the single-writer handoff.
+
 Collection authorization reuses the existing collector's grant store and account
 derivation. `COLLECTOR_BRIDGE_KEY_FILE` and `COLLECTOR_SUBJECT_KEY_FILE` must contain
 the existing, distinct 64-hex keys; replacing the subject key would split accounts.
@@ -143,8 +156,8 @@ user-wide driver/passenger role and no duplicate active/history trip arrays.
 
 ## Migration boundary
 
-[SCHEMA.md](SCHEMA.md) defines the only canonical fields. Old aliases are accepted
-only by the import normalizer. A complete CloudBase export is required; the
+[SCHEMA.md](SCHEMA.md) defines the only canonical fields. Old aliases are confined
+to the import normalizer and isolated temporary compatibility boundaries. A complete CloudBase export is required; the
 analytics snapshot is not sufficient. Audit unknown values rather than silently
 dropping them or guessing timestamps. The dry-run CLI prints aggregate issue
 codes and counts only; it does not import or transmit personal data.

@@ -33,20 +33,25 @@ async function list() {
 }
 async function markRead(id) {
   requireAccount(); validId(id)
-  if (backend.isBackendEnabled()) return backend.mutate(`notifications.read:${id}`, 'POST', `/api/v1/notifications/${encodeURIComponent(id)}/read`, {},
+  if (backend.isBackendEnabled()) return mutate(`notifications.read:${id}`, 'POST', `/api/v1/notifications/${encodeURIComponent(id)}/read`,
     { validate: result => result && result.id === id && result.read === true })
   return backend.cloudMutate(`notifications.read:${id}`, 'notifications.read', { id }, { validate: row => row && row.id === id && row.read === true })
 }
 async function markAllRead() {
   const openid = requireAccount()
-  if (backend.isBackendEnabled()) return backend.mutate('notifications.readAll', 'POST', '/api/v1/notifications/read-all', {},
+  if (backend.isBackendEnabled()) return mutate('notifications.readAll', 'POST', '/api/v1/notifications/read-all',
     { validate: result => result && Number.isSafeInteger(result.changed) && result.changed >= 0 })
   return backend.cloudMutate('notifications.readAll', 'notifications.readAll', {}, { validate: row => row && Number.isSafeInteger(row.changed) && row.changed >= 0 })
 }
 async function clear() {
   requireAccount()
-  if (backend.isBackendEnabled()) return backend.mutate('notifications.clear', 'DELETE', '/api/v1/notifications', {},
+  if (backend.isBackendEnabled()) return mutate('notifications.clear', 'DELETE', '/api/v1/notifications',
     { validate: result => result && Number.isSafeInteger(result.deleted) && result.deleted >= 0 })
   return backend.cloudMutate('notifications.clear', 'notifications.clear', {}, { validate: row => row && Number.isSafeInteger(row.deleted) && row.deleted >= 0 })
+}
+async function mutate(scope, method, path, options) {
+  const recovered = await backend.retryCloudPending(scope, { ...options, ifPresent: true })
+  if (recovered) return { ...recovered, recovered: true }
+  return backend.mutate(scope, method, path, {}, options)
 }
 module.exports = { identity, signedIn, list, markRead, markAllRead, clear }

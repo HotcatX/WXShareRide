@@ -10,12 +10,12 @@ const cursorValue = z.strictObject({ at: z.string().datetime({ precision: 6 }), 
 const listQuery = z.strictObject({ limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().min(1).max(512).regex(/^[a-zA-Z0-9_-]+$/).optional() });
 
-export async function unreadNotifications(pool: Pool, userId: string) {
+export async function unreadNotifications(pool: Pool | PoolClient, userId: string) {
   const result = await pool.query('SELECT count(*)::integer AS count FROM notifications WHERE user_id=$1 AND read=false', [userId]);
   return { unreadCount: result.rows[0].count as number };
 }
 
-export async function listNotifications(pool: Pool, userId: string, query: unknown) {
+export async function listNotifications(pool: Pool | PoolClient, userId: string, query: unknown) {
   const input = listQuery.parse(query);
   let cursor: z.infer<typeof cursorValue> | undefined;
   if (input.cursor) {
@@ -34,30 +34,31 @@ export async function listNotifications(pool: Pool, userId: string, query: unkno
   return { items, nextCursor, ...await unreadNotifications(pool, userId) };
 }
 
-export async function markNotificationRead(pool: Pool, userId: string, key: unknown, id: unknown, body: unknown) {
+export async function markNotificationReadInTransaction(client: PoolClient, userId: string, id: unknown) {
   const parsedId = notificationId.parse(id);
-  emptyBody.parse(body ?? {});
-  return withIdempotency(pool, userId, 'notifications.read', key, { id: parsedId }, async client => {
-    const result = await client.query('UPDATE notifications SET read=true WHERE id=$1 AND user_id=$2 RETURNING id', [parsedId, userId]);
-    if (!result.rowCount) throw new AppError(404, 'NOTIFICATION_NOT_FOUND', '通知不存在');
-    return { status: 200, data: { id: parsedId, read: true } };
-  });
+  const result = await client.query('UPDATE notifications SET read=true WHERE id=$1 AND user_id=$2 RETURNING id', [parsedId, userId]);
+  if (!result.rowCount) throw new AppError(404, 'NOTIFICATION_NOT_FOUND', '通知不存在');
+  return { status: 200, data: { id: parsedId, read: true } };
 }
-
+export async function markNotificationRead(pool: Pool, userId: string, key: unknown, id: unknown, body: unknown) {
+  const parsedId = notificationId.parse(id); emptyBody.parse(body ?? {});
+  return withIdempotency(pool, userId, 'notifications.read', key, { id: parsedId }, client => markNotificationReadInTransaction(client, userId, parsedId));
+}
+export async function markAllNotificationsReadInTransaction(client: PoolClient, userId: string) {
+  const result = await client.query('UPDATE notifications SET read=true WHERE user_id=$1 AND read=false', [userId]);
+  return { status: 200, data: { changed: result.rowCount ?? 0 } };
+}
 export async function markAllNotificationsRead(pool: Pool, userId: string, key: unknown, body: unknown) {
   emptyBody.parse(body ?? {});
-  return withIdempotency(pool, userId, 'notifications.readAll', key, {}, async client => {
-    const result = await client.query('UPDATE notifications SET read=true WHERE user_id=$1 AND read=false', [userId]);
-    return { status: 200, data: { changed: result.rowCount ?? 0 } };
-  });
+  return withIdempotency(pool, userId, 'notifications.readAll', key, {}, client => markAllNotificationsReadInTransaction(client, userId));
 }
-
+export async function clearNotificationsInTransaction(client: PoolClient, userId: string) {
+  const result = await client.query('DELETE FROM notifications WHERE user_id=$1', [userId]);
+  return { status: 200, data: { deleted: result.rowCount ?? 0 } };
+}
 export async function clearNotifications(pool: Pool, userId: string, key: unknown, body: unknown) {
   emptyBody.parse(body ?? {});
-  return withIdempotency(pool, userId, 'notifications.clear', key, {}, async client => {
-    const result = await client.query('DELETE FROM notifications WHERE user_id=$1', [userId]);
-    return { status: 200, data: { deleted: result.rowCount ?? 0 } };
-  });
+  return withIdempotency(pool, userId, 'notifications.clear', key, {}, client => clearNotificationsInTransaction(client, userId));
 }
 
 type RideEvent = { eventId: string; rideId: string; kind: 'offer' | 'request'; creatorId: string;

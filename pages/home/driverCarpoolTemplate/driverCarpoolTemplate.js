@@ -193,13 +193,7 @@ Page({
     const account = wx.getStorageSync("openid")
     const revision = this._userReadRevision = (this._userReadRevision || 0) + 1
     try {
-      let user
-      if (profileApi.isBackendEnabled()) user = profileApi.legacyDocument(await profileApi.getUserInfo())
-      else {
-        // TEMPORARY FALLBACK: original CloudBase user read in legacy mode.
-        const r = await wx.cloud.database().collection("userInfo").where({ _openid: account }).get()
-        user = r && r.data && r.data[0]
-      }
+      const user = profileApi.legacyDocument(await profileApi.getUserInfo())
       if (!this.isCurrentAccount(account) || revision !== this._userReadRevision) return
       if (!user) throw new Error("用户信息缺失，请先完善个人信息")
       this._userInfoAccount = account
@@ -423,6 +417,12 @@ Page({
 
       const saved = await templatesApi.saveRideTemplate(payload, { id: editMode ? templateId : undefined, previous: this._loadedTemplate })
       if (!this.isCurrentAccount(account)) return
+      if (saved.recovered) {
+        this._loadedTemplate = saved.deleted ? null : saved
+        this.setData({ editMode: !saved.deleted, templateId: saved.deleted ? '' : saved._id })
+        this.showError(saved.deleted ? '上次模板已被删除，请再保存以新建模板' : '已确认上次模板，请再保存当前内容')
+        return
+      }
       this._loadedTemplate = saved
       this.setData({ editMode: true, templateId: saved._id })
 
@@ -455,9 +455,9 @@ Page({
           if (recovered) {
             // Reconcile the old creation/update under its original key. Keep
             // current form input; another explicit save PATCHes this same ID.
-            this._loadedTemplate = recovered
-            this.setData({ editMode: true, templateId: recovered._id })
-            this.showError('已找回上次模板，请再保存当前内容')
+            this._loadedTemplate = recovered.deleted ? null : recovered
+            this.setData({ editMode: !recovered.deleted, templateId: recovered.deleted ? '' : recovered._id })
+            this.showError(recovered.deleted ? '上次模板已被删除，请再保存以新建模板' : '已找回上次模板，请再保存当前内容')
             return
           }
         } catch (_) { /* Keep the uncertain receipt and the current form. */ }

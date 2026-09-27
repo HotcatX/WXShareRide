@@ -2,6 +2,8 @@
 // operation; an HTTP failure never reads or writes the old database.
 const backend = require('../backendClient')
 const { resolvePlaceId } = require('../placeCatalog')
+const { templateId } = require('./templateIdentity.generated.js')
+const { sha256 } = require('../hash')
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value)
@@ -88,9 +90,15 @@ function toTemplateInput(form, previous) {
 }
 function validLegacyReceipt(row, account, expectedId) {
   if (!object(row) || typeof row._id !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(row._id) ||
-    row._openid !== account || expectedId && row._id !== expectedId || row.weekdayText !== WEEKDAYS[row.weekdayIndex]) return false
+    row._openid !== account || expectedId && !sameTemplate(row._id, expectedId) || row.weekdayText !== WEEKDAYS[row.weekdayIndex]) return false
   toTemplateInput(row)
   return true
+}
+function sameTemplate(sourceId, id) {
+  return typeof sourceId === 'string' && (sourceId === id || templateId('wx8a8a389199aa2a0e', sourceId, sha256) === id)
+}
+function matchingTemplate(action, id) {
+  return request => !!id && request.path === action && object(request.body) && sameTemplate(request.body.id, id)
 }
 function createRideTemplateClient(options = {}) {
   const api = options.backend || backend, platform = options.wx || (typeof wx !== 'undefined' ? wx : null)
@@ -151,6 +159,8 @@ function createRideTemplateClient(options = {}) {
         { ...(id ? { id } : {}), form }, { validate: row => validLegacyReceipt(row, account, id) })
       current(account); return row
     }
+    const recovered = await recoverCloudTemplate(id)
+    if (recovered) return recovered
     if (id && (!uuid(id) || previous?._id !== id || previous?._ownerAccount !== account || !previous.backendTemplate)) throw invalid()
     const input = toTemplateInput(form, previous?.backendTemplate)
     let body = input
@@ -171,6 +181,8 @@ function createRideTemplateClient(options = {}) {
         { validate: row => validLegacyReceipt(row, account, id) })
       current(account); return row
     }
+    const cloud = await recoverCloudTemplate(id)
+    if (cloud) return cloud
     if (id && !uuid(id)) throw invalid()
     const row = await api.retryPending(id ? `templates.update:${id}` : 'templates.create', { validate: row => { checked(row); return !id || row.id === id } })
     current(account)
@@ -181,12 +193,35 @@ function createRideTemplateClient(options = {}) {
   async function deleteRideTemplate(id) {
     const account = owner()
     if (api.isBackendEnabled()) {
+      const recovered = await api.retryCloudPending(`templates.delete:${id}`,
+        { ifPresent: true, match: matchingTemplate('templates.delete', id), validate: row => object(row) && sameTemplate(row.id, id) && row.deleted === true })
+      current(account)
+      if (recovered) return { ...recovered, recovered: true }
       if (!uuid(id)) throw invalid()
       const result = await api.mutate(`templates.delete:${id}`, 'DELETE', `/api/v1/templates/${id}`, {}, { validate: row => object(row) && row.id === id && row.deleted === true })
       if (!object(result) || result.id !== id || result.deleted !== true) throw invalid()
     } else await api.cloudMutate(`templates.delete:${id}`, 'templates.delete', { id },
       { validate: row => object(row) && row.id === id && row.deleted === true }) // TEMPORARY CloudBase writer.
     current(account)
+  }
+  async function recoverCloudTemplate(id) {
+    const account = owner()
+    return api.retryCloudPending(id ? `templates.update:${id}` : 'templates.create', {
+      ifPresent: true, validate: row => validLegacyReceipt(row, account, id),
+      match: matchingTemplate('templates.update', id),
+      async resolve(original) {
+        // ACK is immutable; current state is a separate owner-authorized read.
+        try {
+          const row = await api.get(`/api/v1/templates/legacy/${encodeURIComponent(original._id)}`)
+          current(account)
+          return { ...toLegacyTemplate(row, account), recovered: true }
+        } catch (error) {
+          current(account)
+          if (error.code === 'TEMPLATE_NOT_FOUND') return { recovered: true, deleted: true }
+          throw error
+        }
+      }
+    })
   }
   return { loadRideTemplates, getRideTemplate, saveRideTemplate, recoverRideTemplate, deleteRideTemplate }
 }

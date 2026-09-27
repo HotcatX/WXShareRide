@@ -223,9 +223,9 @@ Page({
     if (!this.isCurrentAccount(account) || this._deletingTemplate) return
     this._deletingTemplate = true
     try {
-      await templatesApi.deleteRideTemplate(id)
+      const result = await templatesApi.deleteRideTemplate(id)
       if (!this.isCurrentAccount(account)) return
-      wx.showToast({ title: "已删除", icon: "success", duration: 1200 })
+      wx.showToast({ title: result?.recovered ? "已确认上次删除" : "已删除", icon: "success", duration: 1200 })
       await this.loadTemplateList()
     } catch (e) {
       if (!this.isCurrentAccount(account)) return

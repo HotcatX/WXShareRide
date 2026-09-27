@@ -11,7 +11,7 @@ function harness(options={}) {
  const wx={getStorageSync:key=>storage[key],setStorageSync:(key,value)=>{storage[key]=value;state.badges.push(value)},getWindowInfo:()=>({statusBarHeight:24}),
   showToast:input=>state.toasts.push(input.title),showModal:input=>{state.modal=input},navigateTo:input=>state.navigation.push(input.url),navigateBack(){},stopPullDownRefresh(){},
   cloud:options.cloud||{database(){state.cloud.push('database');throw Error('legacy DB forbidden')},callFunction(){state.cloud.push('function');throw Error('legacy cloud forbidden')}}}
- const backend={isBackendEnabled:()=>options.server!==false,get:async url=>{state.gets.push(url);return {items,nextCursor:null,unreadCount:102}},
+ const backend={isBackendEnabled:()=>options.server!==false,retryCloudPending:async()=>null,get:async url=>{state.gets.push(url);return {items,nextCursor:null,unreadCount:102}},
   mutate:async(...args)=>{state.mutations.push(plain(args));return {}},...options.backend}
  const apiModule={exports:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../utils/compat/notifications.js'),'utf8'),{module:apiModule,wx,require:name=>name==='../backendClient'?backend:require('../utils/hash')})
  let definition;vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../pages/profile/notification/notification.js'),'utf8'),{wx,Page:page=>{definition=page},getCurrentPages:()=>[{loadUnreadCount(){state.refreshes++}},{}],require:()=>apiModule.exports})

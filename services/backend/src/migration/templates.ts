@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { createTemplateSchema, templateIdSchema } from '../templates/schemas.ts';
+import { createTemplateSchema } from '../templates/schemas.ts';
+import { templateId } from '../templates/identity.ts';
 import type { TemplateDefinition } from '../templates/schemas.ts';
 import { parseListedPrice } from '../prices.ts';
 import { serializeSource } from './source.ts';
@@ -19,17 +19,6 @@ const fields = new Set(['_id', '_openid', 'templateName', 'departureAddress', 'd
 const archivedStrings = ['carBrand', 'carModel', 'carNumber', 'driverID'] as const;
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const identity = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value === value.trim();
-
-/** App-scoped source identity, independent of owner/profile changes. Not an authentication mechanism. */
-function templateId(appId: string, sourceId: string): string {
-  // PostgreSQL uuid ignores letter case; collision checks must use its identity.
-  if (templateIdSchema.safeParse(sourceId).success) return sourceId.toLowerCase();
-  const bytes = createHash('sha256').update(JSON.stringify(['linkx-template-v1', appId, sourceId])).digest().subarray(0, 16);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x80;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 /**
  * Pure, private candidate mapping. The parent must archive every source document

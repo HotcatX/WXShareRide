@@ -65,8 +65,16 @@ export async function withIdempotency(
   pool: Pool, userId: string, operation: string, key: unknown, payload: unknown,
   work: (client: PoolClient) => Promise<MutationResult>
 ): Promise<MutationResult> {
+  return transaction(pool, client => withIdempotencyInTransaction(client, userId, operation, key, payload, work));
+}
+
+/** Trusted bridges already own a transaction for nonce, identity and receipt. */
+export async function withIdempotencyInTransaction(
+  client: PoolClient, userId: string, operation: string, key: unknown, payload: unknown,
+  work: (client: PoolClient) => Promise<MutationResult>
+): Promise<MutationResult> {
   const input = idempotencyInput(key, payload);
-  return transaction(pool, client => runIdempotentMutation(client, {
+  return runIdempotentMutation(client, {
     lockKey: [userId, operation, input.key], hash: input.hash,
     read: async () => (await client.query<MutationReceipt>(
       'SELECT payload_hash, response_status, response_body FROM idempotency_requests WHERE user_id=$1 AND operation=$2 AND request_key=$3',
@@ -76,5 +84,5 @@ export async function withIdempotency(
       'INSERT INTO idempotency_requests(user_id,operation,request_key,payload_hash,response_status,response_body) VALUES($1,$2,$3,$4,$5,$6)',
       [userId, operation, input.key, input.hash, result.status, result.data]
     ); }
-  }, work));
+  }, work);
 }

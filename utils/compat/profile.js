@@ -119,13 +119,16 @@ async function getUnreadCount(openid) {
 async function updateSpot(field, value, remove = false) {
   if (!['pickupSpot', 'dropoffSpot'].includes(field) || typeof value !== 'string' || !value.trim()) throw new Error('地点无效')
   const owner = identity()
+  const scope = `profile.spots:${field}`, options = { validate: row => row && row.field === field && Array.isArray(row.values) && row.values.every(item => typeof item === 'string') }
   if (backend.isBackendEnabled()) {
+    const recovered = await backend.retryCloudPending(scope, { ...options, ifPresent: true })
+    if (owner !== identity()) throw new Error('当前操作已取消')
+    if (recovered) return { ...recovered, recovered: true }
     const info = legacyDocument(await getUserInfo())
     if (owner !== identity()) throw new Error('当前操作已取消')
     const values = remove ? (info?.[field] || []).filter(item => item !== value) : [...new Set([...(info?.[field] || []), value])]
     await updateUser({ [field]: values }); return { field, values }
   }
-  const scope = `profile.spots:${field}`, options = { validate: row => row && row.field === field && Array.isArray(row.values) && row.values.every(item => typeof item === 'string') }
   try { return await backend.cloudMutate(scope, remove ? 'profile.spots.remove' : 'profile.spots.add', { field, value }, options) }
   catch (error) {
     if (error.code !== 'PENDING_OPERATION') throw error

@@ -15,7 +15,7 @@ const delay = () => { let resolve; const promise = new Promise(r => { resolve = 
 function clientHarness(server = true) {
   const state = { account, requests: [], writes: [], cloud: 0, get: async () => ({ items: [row()], page: 1, limit: 100, hasMore: false }) }
   const wx = { getStorageSync: key => key === 'openid' ? state.account : false, cloud: { database() { state.cloud++; throw Error('CloudBase must not be used') } } }
-  const backend = { isBackendEnabled: () => server, get: async route => { state.requests.push(route); return state.get(route) },
+  const backend = { isBackendEnabled: () => server, retryCloudPending: async () => null, get: async route => { state.requests.push(route); return state.get(route) },
     mutate: async (...args) => { state.writes.push(args); return row() }, retryPending: async () => row() }
   return { state, wx, backend, api: createRideTemplateClient({ wx, backend }) }
 }
@@ -176,4 +176,18 @@ test('profile refresh preserves in-progress vehicle edits and account changes cl
   h.page.onShow()
   assert.equal(h.page.data.referencePrice, ''); assert.equal(h.page.data.carNumber, '')
   assert.equal(h.page._loadedTemplate, null)
+})
+
+test('a cutover recovery binds the canonical template and keeps current edits until a second explicit save', async () => {
+  const h = pageHarness('driverCarpoolTemplate')
+  await h.page.loadUserInfo()
+  h.page.setData({ ...form({ departureTime: '17:00' }), templateName: 'Edited title', carNumber: 'UNCHANGED-DRAFT' })
+  h.api.saveRideTemplate = async () => ({ ...toLegacyTemplate(row(), account), recovered: true })
+  await h.page.submitTemplate('Edited title')
+  assert.equal(h.page.data.editMode, true)
+  assert.equal(h.page.data.templateId, id)
+  assert.equal(h.page.data.departureTime, '17:00')
+  assert.equal(h.page.data.carNumber, 'UNCHANGED-DRAFT')
+  assert.equal(h.page._loadedTemplate.backendTemplate.localTime, '15:00')
+  assert.equal(h.profileWrites.length, 0)
 })

@@ -49,14 +49,18 @@ async function readUser(client: Pool | PoolClient, userId: string) {
 }
 
 /** The caller supplies an authenticated identity, never a client OpenID. */
-export function getUser(pool: Pool, userId: string) {
+export function getUser(pool: Pool | PoolClient, userId: string) {
   return readUser(pool, z.uuid().parse(userId));
 }
 
 export async function updateUser(pool: Pool, userId: string, key: unknown, body: unknown) {
   const actorId = z.uuid().transform(value => value.toLowerCase()).parse(userId);
   const patch = updateUserSchema.parse(body);
-  return withIdempotency(pool, actorId, 'users.update', key, patch, async client => {
+  return withIdempotency(pool, actorId, 'users.update', key, patch, client => updateUserInTransaction(client, actorId, patch));
+}
+
+export async function updateUserInTransaction(client: PoolClient, actorId: string, body: unknown) {
+    const patch = updateUserSchema.parse(body);
     const previous = (await client.query<{ app_id: string; name: string; profile: Record<string, unknown> }>(
       'SELECT app_id,name,profile FROM users WHERE id=$1 FOR UPDATE', [actorId])).rows[0];
     if (!previous) throw new AppError(404, 'USER_NOT_FOUND', '账号不存在');
@@ -64,8 +68,23 @@ export async function updateUser(pool: Pool, userId: string, key: unknown, body:
       await replaceFileReferences(client, { appId: previous.app_id, kind: 'user', id: actorId },
         patch.avatarFileId === null ? [] : [{ slot: 'avatar', fileId: patch.avatarFileId }], { userId: actorId });
     }
-    await client.query(`UPDATE users SET name=$2,profile=$3,updated_at=clock_timestamp() WHERE id=$1`,
-      [actorId, patch.name ?? previous.name, mergeProfile(previous.profile, patch.profile ?? {})]);
-    return { status: 200, data: await readUser(client, actorId) };
-  });
+    return saveUserProfile(client, actorId, patch.name ?? previous.name, mergeProfile(previous.profile, patch.profile ?? {}));
+}
+
+async function saveUserProfile(client: PoolClient, actorId: string, name: string, profile: Record<string, unknown>) {
+  await client.query(`UPDATE users SET name=$2,profile=$3,updated_at=clock_timestamp() WHERE id=$1`, [actorId, name, profile]);
+  return { status: 200, data: await readUser(client, actorId) };
+}
+
+export async function updateUserAddressInTransaction(client: PoolClient, actorId: string, field: 'pickupAddresses' | 'dropoffAddresses', value: string, add: boolean) {
+  const row = (await client.query<{ name: string; profile: z.infer<typeof profileSchema> }>('SELECT name,profile FROM users WHERE id=$1 FOR UPDATE', [actorId])).rows[0];
+  if (!row) throw new AppError(404, 'USER_NOT_FOUND', '账号不存在');
+  // Imported strings remain exact. The new single value is strictly validated
+  // by the finite compat contract; parsing the stored profile would trim old
+  // entries and turn an unrelated addition into a silent historical rewrite.
+  const old = z.array(z.string().max(300)).max(20).parse(row.profile.preferences?.[field] ?? []);
+  const values = add ? [...new Set([...old, value])] : old.filter(item => item !== value);
+  if (values.length > 20) throw new AppError(400, 'TOO_MANY_ADDRESSES', '常用地址最多20条');
+  await saveUserProfile(client, actorId, row.name, mergeProfile(row.profile, { preferences: { [field]: values } }));
+  return values;
 }

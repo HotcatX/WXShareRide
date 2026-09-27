@@ -141,6 +141,10 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 空目标保护与SQL runner共用schema advisory lock，在锁内从PG目录发现并锁定当前schema全部数据表（仅排除schema_migrations）。不维护会随新增功能遗漏的表名清单；目录标识符由PG quote_ident引用。目标须是专用应用schema，新增的管理员/文件表或其他非空表同样阻止首导。这不代表新表已经支持业务导入。
 
+`OperationReceipts` 是交接期间的有限云写回执来源，不另建 PostgreSQL 表。只接受已完成回执：可信 app/OpenID 先匹配既有用户，原 action 映射到 `compat.<action>`，原 key、原 body 的规范摘要和成功响应进入既有 `idempotency_requests`；仍保存完整原始来源。模板响应中经实际云调用确认的 `createdAt/updatedAt` 从导出的 `$date` 转成旧调用返回的 ISO 字符串，其他字段不递归改写。prepared、身份/摘要/进度不一致或未知协议均阻止整批导入，不能靠删收据使导入通过。显式空集合可以导入，但最终一致快照必须包含当前所有集合。
+
+有限兼容桥命中上述回执时直接返回原结果；未命中才在同一事务内执行规范业务内核并写回执。模板旧 ID 通过唯一 `templates/identity.ts` 映射，不从当前实体重建历史成功响应。新客户端恢复旧请求后可经仅本人可读的模板 legacy 路径获得完整当前 DTO。这些兼容边界不增加业务字段或第二权威库。
+
 ## 管理员与文件基础（014–016、018）
 
 管理员账号不伪造OpenID，也不进入users。登录使用现有账户算法的异步scrypt（N=16384、r=8、p=1、32字节salt、64字节hash）；事务外计算后再次锁账号核对凭据。业务事务按账号→会话顺序锁定，并在等待后读取数据库clock_timestamp核验过期。凭据、归属或停用操作永久撤销原会话，重新启用不恢复旧token。无公开开户/重设密码/临时口令API；旧sessions不导入。

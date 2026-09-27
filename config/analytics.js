@@ -4,7 +4,7 @@ const { purposeVersion, noticeVersion } = require('../utils/compat/analyticsLega
 
 module.exports = Object.freeze({
   enabled: true,
-  buildVersion: '2026.09.23.4',
+  buildVersion: '5.1.0',
   endpoint: 'https://collect.linkx.ink/v1/batches',
   rolloutPercent: Object.freeze({ develop: 100, trial: 100, release: 100 }),
   purposeVersion,

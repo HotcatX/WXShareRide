@@ -1,4 +1,5 @@
 const defaults = require('../config/backend')
+const authority = require('./backendAuthority')
 const { sha256, sha256Bytes, utf8ByteLength } = require('./hash')
 
 const SESSION_KEY = 'linkx.backend.session.v1'
@@ -23,12 +24,24 @@ function ordered(value) {
 function createBackendClient(options = {}) {
   const api = options.wx || (typeof wx !== 'undefined' ? wx : null)
   const config = Object.assign({}, defaults, options.config || {})
+  // Explicit injection keeps isolated transport tests deterministic. Production
+  // never treats the bundled CloudBase value as a successful handshake.
+  const source = options.authority || (options.config && Object.hasOwn(options.config, 'mode') ? null : authority)
   const now = options.now || Date.now, random = options.random || Math.random
   const setTimer = options.setTimeout || setTimeout, clearTimer = options.clearTimeout || clearTimeout
   let generation = 0, loginFlight = null, session = null, sessionRead = false, loggedOut = false, sequence = 0, cacheAccount = ''
   const inFlight = new Map(), imageCache = new Map()
-  const enabled = () => config.mode === 'server'
+  const mode = () => source ? source.getMode() : config.mode
+  const enabled = () => mode() === 'server'
+  if (source) source.subscribe(state => {
+    if (!['restart_required', 'handoff_blocked'].includes(state.phase)) return
+    generation++; inFlight.clear(); loginFlight = null; imageCache.clear(); cacheAccount = ''
+  })
+  function requireReady() {
+    if (source && !source.isReady()) throw failure('BACKEND_NOT_READY', '服务连接尚未确认，请稍后重试')
+  }
   function requireEnabled() {
+    requireReady()
     if (!enabled() || config.origin !== 'https://collect.linkx.ink') throw failure('BACKEND_DISABLED', '业务服务尚未切换')
   }
   function requirePath(path) {
@@ -147,7 +160,8 @@ function createBackendClient(options = {}) {
     return data
   }
   function requireCloudAction(action, write = false, recovery = false) {
-    if (config.mode !== 'cloudbase' && !(recovery && enabled())) throw failure('BACKEND_DISABLED', '旧业务入口已停用')
+    requireReady()
+    if (mode() !== 'cloudbase' && !(recovery && enabled())) throw failure('BACKEND_DISABLED', '旧业务入口已停用')
     if (!(write ? CLOUD_WRITES : CLOUD_READS).has(action)) throw failure('INVALID_REQUEST', '操作类型无效')
   }
   async function cloudCall(action, body, key, recovery = false) {
@@ -389,10 +403,10 @@ function createBackendClient(options = {}) {
     if (!previous) { try { const stored = read(SESSION_KEY); if (validSession(stored)) previous = stored } catch (_) {} }
     generation++; inFlight.clear(); session = null; sessionRead = true; loggedOut = true; loginFlight = null; imageCache.clear(); cacheAccount = ''
     try { save(SESSION_KEY, null) } catch (_) { /* In-memory invalidation is immediate even if storage is unavailable. */ }
-    if (enabled() && previous) return http('/api/v1/auth/logout', 'POST', {}, previous.token).then(() => {}, () => {})
+    if ((!source || source.isReady()) && enabled() && previous) return http('/api/v1/auth/logout', 'POST', {}, previous.token).then(() => {}, () => {})
     return Promise.resolve()
   }
-  return { isBackendEnabled: enabled, login, logout, get: (path, options) => request(path, 'GET', undefined, options),
+  return { isBackendEnabled: enabled, ready: () => source ? source.ready() : Promise.resolve(mode()), login, logout, get: (path, options) => request(path, 'GET', undefined, options),
     // This existing protocol carries its own stable requestId and status version;
     // activation reconciles through status and withdrawals already persist intent.
     // Do not add a second generic mutation receipt/queue for a collector grant.
@@ -404,5 +418,5 @@ function createBackendClient(options = {}) {
 let singleton
 function client() { if (!singleton) singleton = createBackendClient(); return singleton }
 module.exports = { createBackendClient, SESSION_KEY, PENDING_KEY,
-  isBackendEnabled: () => defaults.mode === 'server',
-  ...Object.fromEntries(['login', 'logout', 'get', 'mutate', 'retryPending', 'uploadImage', 'resolveImages', 'collectionSession', 'submitLocationRequest', 'cloudLogin', 'cloudRead', 'cloudMutate', 'retryCloudPending'].map(name => [name, (...args) => client()[name](...args)])) }
+  isBackendEnabled: () => authority.getMode() === 'server',
+  ...Object.fromEntries(['ready', 'login', 'logout', 'get', 'mutate', 'retryPending', 'uploadImage', 'resolveImages', 'collectionSession', 'submitLocationRequest', 'cloudLogin', 'cloudRead', 'cloudMutate', 'retryCloudPending'].map(name => [name, (...args) => client()[name](...args)])) }

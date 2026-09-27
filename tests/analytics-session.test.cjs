@@ -37,7 +37,7 @@ function harness(options = {}) {
       return { result: copy(state.remote) }
     } }
   }
-  const manager = createAnalyticsSession({ wx, now: () => state.now, random: () => 0.123,
+  const manager = createAnalyticsSession({ wx, backend: { isBackendEnabled: () => false }, now: () => state.now, random: () => 0.123,
     config: { rolloutPercent: { develop: 0, trial: 0, release: 5 }, ...options.config },
     setTimeout(fn, delay) { const id = ++state.next; state.timers.set(id, { fn, at: state.now + delay }); return id },
     clearTimeout: id => state.timers.delete(id),

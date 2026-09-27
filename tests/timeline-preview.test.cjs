@@ -66,7 +66,7 @@ function helper(callFunction, timers = {}) {
   const module = { exports: {} }
   vm.runInNewContext(helperSource, {
     module,
-    require(name) { return name === './backendClient' ? { isBackendEnabled: () => false } : name === './cityTree' ? require('../utils/cityTree') : require('../utils/rideTime') },
+    require(name) { return name === './backendClient' ? { ready: async () => 'cloudbase', isBackendEnabled: () => false } : name === './cityTree' ? require('../utils/cityTree') : require('../utils/rideTime') },
     wx: { cloud: { callFunction } },
     setTimeout: timers.setTimeout || setTimeout,
     clearTimeout: timers.clearTimeout || clearTimeout
@@ -140,6 +140,7 @@ test('a stalled cloud call times out with a retryable message and ignores a late
   })
   const result = call({ action: 'tripList' })
   const rejection = assert.rejects(result, error => error.code === 'TIMEOUT' && error.retryable)
+  await flush()
   assert.equal(delay, 15000)
   timeout()
   await rejection

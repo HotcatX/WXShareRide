@@ -127,6 +127,9 @@ test('App restores after the first page is ready, preserving page callbacks and 
     Page(config) { pages.push(config) },
     getCurrentPages: () => [],
     require(name) {
+      if (name === './utils/backendPageGate') return require('../utils/backendPageGate')
+      if (name === './utils/backendAuthority') return { getMode: () => 'cloudbase', isReady: () => true, ready: async () => 'cloudbase',
+        refresh: async () => 'cloudbase', subscribe: () => () => {} }
       if (name === './utils/rideTelemetry') return require('./helpers/load-ride-telemetry.cjs')()
       if (name === './utils/rideDiagnostics') return { install() {}, beginForeground() {}, endForeground() {}, captureError() {} }
       if (name === './utils/tripFollowup') return { beginForeground() {}, endForeground() {} }
@@ -145,9 +148,9 @@ test('App restores after the first page is ready, preserving page callbacks and 
   app.onLaunch(launch)
   app.onShow(launch)
   context.Page({ onReady() { readyCount += 1; return 'page ready' } })
-  const page = { ...pages[0], route: HOME }
+  const page = { ...pages[0], route: HOME, setData() {} }
   assert.equal(h.navigation.length, 0)
-  assert.equal(page.onReady(), 'page ready')
+  page.onLoad({}); page.onShow(); page.onReady()
   assert.equal(readyCount, 1)
   assert.equal(h.navigation[0].url, '/pages/market/market')
   app.onShow(launch)

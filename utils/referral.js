@@ -108,13 +108,13 @@ function flushReferralVisits() {
   } catch (_) { visitError = 'storage_unavailable'; return { ok: false, error: visitError } }
   finally { flushing = false }
 }
-function captureReferral(options = {}, source = '') {
+function captureReferral(options = {}, source = '', capturedAt = Date.now()) {
   if (isTimelinePreview()) return ''
   syncIdentity()
   const query = options.query && typeof options.query === 'object' ? options.query : options
   const code = sanitizeReferralCode(query.ref || query.referralCode || query.invite || query.inviter)
   if (!code || code === getMyReferralCodeSync()) return ''
-  const now = Date.now(), old = readPending()
+  const now = Number.isSafeInteger(capturedAt) && capturedAt > 0 && capturedAt <= Date.now() ? capturedAt : Date.now(), old = readPending()
   if (!transport.isBackendEnabled()) {
     const payload = { referralCode: code, source: normalizeText(source), scene: options.scene || '',
       path: normalizeText(options.path), query, capturedAtMs: now, owner: account() }

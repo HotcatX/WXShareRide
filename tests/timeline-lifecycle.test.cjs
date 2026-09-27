@@ -348,6 +348,8 @@ function makeAppHarness(scene = 1001) {
       init(config) { cloudInit.push(plain(config)) },
       callFunction(config) {
         cloudCalls.push(plain(config))
+        if (config.name === 'backend' && config.data.action === 'authority') return Promise.resolve({ result: {
+          ok: true, data: { appId: 'wx8a8a389199aa2a0e', authority: 'cloudbase' } } })
         return Promise.resolve({ result: { ok: true, referralCode: 'generated_code' } })
       }
     }
@@ -406,13 +408,13 @@ test('App and referral hooks perform no referral requests or storage writes in p
   await harness.referral.ensureReferralCode()
   await harness.referral.bindPendingReferral()
   harness.referral.withReferralShare({ title: 'Preview', query: 'id=trip_1' })
-  assert.deepEqual(harness.cloudCalls, [])
+  assert.deepEqual(harness.cloudCalls, [{ name: 'backend', data: { action: 'authority' } }])
   assert.deepEqual(harness.storageWrites, [])
   assert.equal(harness.cloudInit.length, 1)
   assert.equal(harness.cloudInit[0].traceUser, false)
 })
 
-test('normal share integration keeps original metadata and one timeline marker, without altering friend shares', () => {
+test('normal share integration keeps original metadata and one timeline marker, without altering friend shares', async () => {
   const harness = makeAppHarness()
   harness.storage.set('openid', 'viewer_1')
   harness.storage.set('userInfo', { _openid: 'viewer_1', referralCode: 'viewer_ref' })
@@ -424,6 +426,8 @@ test('normal share integration keeps original metadata and one timeline marker, 
     onShareAppMessage() { return friendShare }
   })
   page.onLoad({ id: 'trip_1' })
+  page.onShow()
+  await new Promise(resolve => setImmediate(resolve))
   const share = page.onShareTimeline()
   const query = new URLSearchParams(share.query)
   assert.equal(share.title, 'Original title')
@@ -434,13 +438,14 @@ test('normal share integration keeps original metadata and one timeline marker, 
   assert.equal(page.onShareAppMessage(), friendShare)
   const defaultPage = harness.register({}, PUBLIC_REQUEST)
   defaultPage.onLoad({ id: 'request_1', ref: 'incoming_ref' })
+  defaultPage.onShow()
   const defaultQuery = new URLSearchParams(defaultPage.onShareTimeline().query)
   assert.equal(defaultQuery.get('id'), 'request_1')
   assert.deepEqual(defaultQuery.getAll('ref'), ['viewer_ref'])
   assert.deepEqual(defaultQuery.getAll('timelineShare'), ['1'])
 })
 
-test('preview shares do not invoke the original callback with private page state', () => {
+test('preview shares do not invoke the original callback with private page state', async () => {
   const harness = makeAppHarness(1154)
   harness.enter({ scene: 1154 })
   const page = harness.register({
@@ -448,10 +453,12 @@ test('preview shares do not invoke the original callback with private page state
     onShareTimeline() { throw new Error('Preview must not call a normal-mode share callback') }
   }, PRIVATE_DRIVER)
   page.onLoad({ id: 'trip_1' })
+  page.onShow()
+  await new Promise(resolve => setImmediate(resolve))
   const share = page.onShareTimeline()
   assert.equal(new URLSearchParams(share.query).get('id'), 'trip_1')
   assert.equal(JSON.stringify(share).includes('private-contact'), false)
-  assert.deepEqual(harness.cloudCalls, [])
+  assert.deepEqual(harness.cloudCalls, [{ name: 'backend', data: { action: 'authority' } }])
 })
 
 test('App scene transition restores page referral attribution from original preview options', async () => {
@@ -463,7 +470,7 @@ test('App scene transition restores page referral attribution from original prev
   page.onReady()
   harness.enter({ scene: 1001 }, 'onShow')
   page.onShow()
-  await Promise.resolve()
+  await new Promise(resolve => setImmediate(resolve))
   assert.equal(harness.timeline.isTimelinePreview(), false)
   assert.deepEqual(originalLoads, [{ id: 'trip_1', ref: 'original_ref', scene: '1154' }])
   const visit = harness.cloudCalls.find(call => call.name === 'referralApi' && call.data.action === 'trackVisit')

@@ -138,7 +138,8 @@ function normalizeResult(result, data) {
   }
 }
 
-function callPublicPreview(options) {
+async function callPublicPreview(options) {
+  await backend.ready()
   if (backend.isBackendEnabled()) {
     let data
     try { data = requestData(options) } catch (error) { return Promise.reject(error) }

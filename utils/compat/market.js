@@ -7,7 +7,10 @@ const profile = require('./profile')
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)
 const fail = (code, message) => Object.assign(new Error(message), { code })
 const identity = () => backend.isBackendEnabled() ? profile.identity() : 'cloudbase'
-const current = (page, owner) => !page._marketUnloaded && owner === identity()
+const current = (page, owner) => {
+  try { return !page._marketUnloaded && owner === identity() }
+  catch (_) { return false } // authority is being rechecked; discard stale UI work
+}
 const loggedIn = () => !!wx.getStorageSync('openid') && !wx.getStorageSync('isGuest')
 function query(values) {
   return Object.entries(values).filter(([, value]) => value !== undefined && value !== '' && value !== '全部' && value !== 'ALL')
@@ -212,7 +215,8 @@ async function refreshImages(page, options = {}) {
 // Scope page writes to one lifetime/account and refresh expiring presentation
 // links while visible. The backend's own identity guards also reject late I/O.
 function page(definition) {
-  if (!backend.isBackendEnabled()) { definition.onMarketImageError = () => {}; return definition }
+  // Module registration precedes the handshake. Always install these wrappers;
+  // only lifecycle calls inspect the runtime's fixed authority.
   const originalLoad = definition.onLoad, originalShow = definition.onShow
   const originalHide = definition.onHide, originalUnload = definition.onUnload
   const initial = JSON.parse(JSON.stringify(definition.data || {}))

@@ -10,7 +10,7 @@ function harness(overrides = {}) {
   const store = { openid: 'synthetic_market_client', isGuest: false }, calls = []
   const wx = { getStorageSync:key=>store[key],setStorageSync:(key,value)=>{store[key]=value},removeStorageSync:key=>{delete store[key]},
     cloud:{callFunction(){assert.fail('server mode must never use legacy cloud functions')},getTempFileURL(){assert.fail('no cloud image resolver')},uploadFile(){assert.fail('no cloud upload')}} }
-  const backend = { isBackendEnabled:()=>true, retryPending:async()=>null,
+  const backend = { ready:async()=>'server', isBackendEnabled:()=>true, retryPending:async()=>null,
     get:async(url,options)=>{calls.push(['get',url,options]);return {items:[],hasMore:false,nextOffset:0}},
     resolveImages:async(fileIds,options)=>{calls.push(['images',fileIds,options]);return fileIds.map(fileId=>({fileId,url:`https://images.example.test/${fileId}?signed=1`}))},
     mutate:async(...args)=>{calls.push(['mutate',...args.slice(0,4)]);return {id:'listing',version:1,status:'online'}},...overrides }

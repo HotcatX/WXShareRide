@@ -30,7 +30,7 @@ function harness(name, type = /Request/.test(name) ? 'request' : 'carpool') {
     Page: value => { definition = value }, wx, setTimeout,
     console: { error() {}, warn() {} },
     require(moduleName) {
-      if (moduleName.endsWith('/compat/rideContacts')) return require('../utils/compat/rideContacts')
+      if (moduleName.endsWith('/compat/rideContacts')) return require('./helpers/legacy-ride-contacts.cjs')()
       if (moduleName.endsWith('rideTelemetry')) return helper
       if (moduleName.endsWith('tripManage')) return tripManage
       if (moduleName.endsWith('error')) return { showDataError() {} }

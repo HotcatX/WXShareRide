@@ -5,6 +5,16 @@ const analytics = require("./utils/analyticsSession")
 const rideTelemetry = require("./utils/rideTelemetry")
 const rideDiagnostics = require("./utils/rideDiagnostics")
 const tripFollowup = require("./utils/tripFollowup")
+const authority = require('./utils/backendAuthority')
+const { createBackendPageGate } = require('./utils/backendPageGate')
+let lastAuthorityNotice = 0
+function authorityUnavailable(error) {
+  if (Date.now() - lastAuthorityNotice < 3000) return
+  lastAuthorityNotice = Date.now()
+  if (typeof wx.showToast === 'function') wx.showToast({ icon: 'none',
+    title: error && error.code === 'BACKEND_RESTART_REQUIRED' ? '请重新打开小程序' : '服务连接失败，请重新打开小程序' })
+}
+const pageGate = createBackendPageGate({ authority, unavailable: authorityUnavailable })
 
 function serializeQuery(query = {}) {
   if (!query || typeof query !== "object") return ""
@@ -89,7 +99,7 @@ function installDefaultShare() {
       getRoute: getCurrentRoute,
       onNormalLoad(page, options) {
         page.__referralShareOptions = options
-        referral.captureReferral({ path: getCurrentRoute(page), query: options }, "pageLoad")
+        referral.captureReferral({ path: getCurrentRoute(page), query: options }, 'pageLoad', page.__backendPage && page.__backendPage.capturedAt)
       }
     })
 
@@ -100,7 +110,7 @@ function installDefaultShare() {
       return result
     }
 
-    return originalPage(config)
+    return originalPage(pageGate.wrapPage(config))
   }
   Page.__referralDefaultShareInstalled = true
 }
@@ -109,6 +119,9 @@ installDefaultShare()
 
 App({
   onLaunch(options = {}) {
+    this._authorityVisible = false
+    this._authorityEpoch = 0
+    this._authorityLaunch = { options, capturedAt: Date.now() }
     timeline.updateLaunchContext(options)
     tabMemory.prepareLaunch(options)
 
@@ -123,12 +136,21 @@ App({
       traceUser: !timeline.isTimelinePreview()
     })
 
-    if (timeline.isTimelinePreview()) return
-
-    rideDiagnostics.install(wx, analytics)
-
-    referral.captureReferral(options, "appLaunch")
-    referral.ensureReferralCode().then(() => referral.bindPendingReferral())
+    authority.subscribe(state => {
+      if (!['restart_required', 'handoff_blocked'].includes(state.phase)) return
+      this._authorityVisible = false; this._authorityEpoch++
+      this.stopAuthorityForeground()
+      if (typeof wx.hideLoading === 'function') wx.hideLoading()
+      if (state.phase !== 'restart_required' || this._authorityRestarting) return
+      this._authorityRestarting = true
+      if (typeof wx.restartMiniProgram !== 'function') { authorityUnavailable({ code: 'BACKEND_RESTART_REQUIRED' }); return }
+      // A real JS-runtime restart avoids reinterpreting old forms, image IDs or
+      // late CloudBase responses in place. Never substitute reLaunch here.
+      try { wx.restartMiniProgram({ path: 'pages/home/home', fail() { authorityUnavailable({ code: 'BACKEND_RESTART_REQUIRED' }) } }) }
+      catch (_) { authorityUnavailable({ code: 'BACKEND_RESTART_REQUIRED' }) }
+    })
+    authority.ready().catch(authorityUnavailable)
+    if (!timeline.isTimelinePreview()) rideDiagnostics.install(wx, analytics)
 
     // 强制重新登录（可保留）
     // wx.clearStorageSync()
@@ -136,15 +158,37 @@ App({
 
   onShow(options = {}) {
     timeline.updateLaunchContext(options)
-    if (timeline.isTimelinePreview()) return
-    rideDiagnostics.beginForeground()
-    tripFollowup.beginForeground()
-    analytics.beginForeground()
-    referral.captureReferral(options, "appShow")
-    referral.ensureReferralCode().then(() => referral.bindPendingReferral())
+    const epoch = ++this._authorityEpoch, capturedAt = Date.now()
+    this._authorityVisible = true
+    const ready = authority.refresh()
+    if (!authority.isReady() && typeof wx.showLoading === 'function') wx.showLoading({ title: '连接服务中', mask: true })
+    ready.then(() => {
+      if (!this._authorityVisible || this._authorityEpoch !== epoch || !authority.isReady()) return
+      if (timeline.isTimelinePreview()) return
+      this._authorityForeground = true
+      rideDiagnostics.beginForeground(); tripFollowup.beginForeground(); analytics.beginForeground()
+      if (this._authorityLaunch) {
+        const launch = this._authorityLaunch; this._authorityLaunch = null
+        referral.captureReferral(launch.options, 'appLaunch', launch.capturedAt)
+      }
+      referral.captureReferral(options, 'appShow', capturedAt)
+      referral.ensureReferralCode().then(() => {
+        if (this._authorityVisible && this._authorityEpoch === epoch && authority.isReady()) return referral.bindPendingReferral()
+      }).catch(() => {})
+    }, authorityUnavailable).finally(() => {
+      if (this._authorityEpoch === epoch && typeof wx.hideLoading === 'function') wx.hideLoading()
+    })
   },
 
   onHide() {
+    this._authorityVisible = false; this._authorityEpoch++
+    if (typeof wx.hideLoading === 'function') wx.hideLoading()
+    this.stopAuthorityForeground()
+  },
+
+  stopAuthorityForeground() {
+    if (!this._authorityForeground) return
+    this._authorityForeground = false
     rideDiagnostics.endForeground()
     tripFollowup.endForeground()
     analytics.endForeground()
@@ -154,6 +198,7 @@ App({
   onUnhandledRejection(event) { rideDiagnostics.captureError('unhandled_rejection', event && event.reason) },
 
   withReferralShare(config = {}) {
+    if (!authority.isReady()) return { title: config.title || '志远共享', path: '/pages/home/home', query: '' }
     return referral.withReferralShare(config)
   }
 })

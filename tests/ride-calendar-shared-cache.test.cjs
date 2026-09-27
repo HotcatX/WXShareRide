@@ -41,6 +41,9 @@ function harness() {
   const modules = new Map()
   function load(filename) {
     const absolute = path.resolve(filename)
+    // Calendars run after a confirmed legacy handshake; startup has its own tests.
+    if (absolute === path.join(ROOT, 'utils/backendAuthority.js')) return { getMode: () => 'cloudbase', isReady: () => true,
+      ready: async () => 'cloudbase', subscribe: () => () => {} }
     if (absolute === path.join(ROOT, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
     if (absolute === path.join(ROOT, 'utils/error.js')) return { showDataError() {} }
     if (modules.has(absolute)) return modules.get(absolute).exports

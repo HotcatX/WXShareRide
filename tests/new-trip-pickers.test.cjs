@@ -82,6 +82,9 @@ function harness() {
   const modules = new Map()
   function loadModule(filename) {
     const absolute = path.resolve(filename)
+    // This fixture isolates already-selected legacy page behavior, not startup.
+    if (absolute === path.join(ROOT, 'utils/backendAuthority.js')) return { getMode: () => 'cloudbase', isReady: () => true,
+      ready: async () => 'cloudbase', subscribe: () => () => {} }
     if (absolute === path.join(ROOT, 'utils/analyticsSession.js')) return {
       getCollectionScope: () => 'test:' + state.store.openid,
       recordEvent: (name, data) => { state.telemetry.push({ name, data: plain(data) }); return { ok: true } },

@@ -7,10 +7,15 @@ cloud.init({
 const db = cloud.database()
 
 exports.main = async (event, context) => {
-  const { type } = event // 传入 'Departure' 或 'Arrival'
+  const type = event && typeof event === 'object' && !Array.isArray(event) ? event.type : undefined
 
   if (!type) {
     return { success: false, message: '缺少参数 type' }
+  }
+
+  // Older passenger clients use the two *_Request public address collections.
+  if (!['Departure', 'Arrival', 'Departure_Request', 'Arrival_Request'].includes(type)) {
+    return { success: false, message: '不支持的地址类型' }
   }
 
   try {

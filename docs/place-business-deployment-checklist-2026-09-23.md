@@ -1,6 +1,8 @@
-# 地点推荐业务账本部署清单
+# 地点推荐业务账本历史部署清单
 
-当前部署状态以[2026-09-24 后台部署记录](backend-deployment-2026-09-24.md)为准：采集服务器、五个业务函数、`getTripList` 和 `statistics` 已更新，客户端台账写入已禁止，真实定时触发已送达合成业务事实。本文保留依赖顺序与验证要求，不再表示这些后台功能仍待部署。
+本文记录 2026-09-23 至 24 日的部署过程，不是当前上线操作单。2026-09-29 实际云端读回：`statistics`、`syncPublicStatsReplica` 和 `syncTripStatus` 均没有定时触发器，不能据下文历史记录推定仍在运行。采集命名升级使用 schema 5 和私有 `analytics.secret.json`；当前操作要求见[命名迁移说明](../services/analytics-collector/ops/naming-migration.md)。升级必须将新入口、依赖和对应私有密钥文件一起打包，不能单独覆盖入口。
+
+当时部署状态见[2026-09-24 后台部署记录](backend-deployment-2026-09-24.md)：采集服务器、五个业务函数、`getTripList` 和 `statistics` 已更新，客户端台账写入已禁止，真实定时触发已送达合成业务事实。本文保留当时的依赖顺序与验证证据。
 
 ## 2026-09-24 地点增补（后台已部署）
 
@@ -50,7 +52,7 @@
 
 `handler.js` 在加载时就依赖 `placesSync.js`，`placesSync.js` 又依赖 `businessOutbox.js`，必须先部署依赖。`index.js` 最后接入同步器。**上传 config.json 文件本身不证明平台定时器已创建**，需要实际触发器信息或执行日志核验。
 
-保留已部署的 `participation.secret.json`、`sync.secret` 及现有授权、首页统计文件。优先增量部署；若完整部署，必须通过既有安全打包流程保留私密文件，不得直接用缺少私密文件的本地目录覆盖。保留 `syncPublicStatsReplica` 的整点 25 分定时触发器。
+必须保留与入口代码匹配的私有凭据及 `sync.secret`，不得直接用缺少私密文件的本地目录覆盖。当前凭据文件名为 `analytics.secret.json`；命名升级采用完整私有代码包，原密钥值保持不变。定时器须以实时平台读回为准，不得按本文历史配置自动创建。
 
 ### 3. 五个业务函数各自先 helper、后 index
 

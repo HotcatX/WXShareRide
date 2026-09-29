@@ -1,83 +1,75 @@
 # 出行行为采集接口与数据合同
 
-数据语义初版：2026-09-23。当前运行读回见[后端部署记录](backend-foundation-deployment-2026-09-25.md)，不以代码存在推断真实用户已在上传。实时协议以采集服务 README 和校验器为准。
+更新：2026-09-29，按当前源码核对。本文描述接入范围与数据语义，不以配置或代码存在推断所有用户已升级、所有事件已送达。历史研究提案见[选题与研究协议](../research/paper-feasibility-2026-09-22/decision-and-protocol.md)，其中未实施的输入和实验不属于当前能力。
 
-## 当前产品范围
+唯一配置及协议来源：[客户端配置](../config/analytics.js)、[客户端事件校验](../utils/analyticsSchema.js)、[服务端事件校验](../services/analytics-collector/src/validation.mjs)、[服务端协议](../services/analytics-collector/src/protocol.mjs)、[表结构迁移](../services/analytics-collector/src/schema.mjs)。运维接口、保留和恢复流程以[采集服务说明](../services/analytics-collector/README.md)为准。
 
-用户要求仅更新现有隐私政策，不新增同意引导、弹窗、按钮、采集设置或管理页。旧方案的主动报名要求已被本期产品指令替代。本期是 `privacy_notice` 下的首期行为观测与研究准备，**技术启用不是用户明确同意研究的证据**；后续正式研究再利用/发表按实际用途另行评估。
+## 当前范围与覆盖
 
-研究仅 `release` 5%，`develop/trial` 0%；共用publicStats匿名安装桶，但公共统计自己的develop/trial仍100%。桶仅本地工程分流，不是平台版本灰度、研究随机化或用户同意。首次服务端 `none` 可自动 `activate`；`active` 复用当前技术授权；`revoked` 绝不自动重开。
+沿用现有隐私声明，不新增隐私同意弹窗、采集按钮或设置页。技术授权状态不能作为用户主动报名研究的证据。已有“是／否”回访不询问成交金额。
 
-本期页面只接入出行 `page_view`、明确日期的显式 `search_submitted`、无候选明细且 `candidatesComplete=false` 的 `result_set_rendered`。不采卡片几何曝光，不把搜索当明确出行意向，不从past/点击/访问推断成行。P0业务outbox、可信tripKey结果回访、明确意向/时间窗、完整候选和价格实验均是后续工作。
+客户端 `develop/trial/release` 的配置比例均为100%，适用于符合条件的已登录账号；开发与体验版使用独立测试身份和合成数据标记，正式版使用真实数据模式。访客、服务端未启用或已关闭的账号、未取得有效会话、队列故障和未成功补传均可能没有事件。**100%配置不等于100%用户覆盖或送达率**，旧版和新版须按版本分别统计。
 
-## 事件与字段
+首次服务端状态 `none` 可自动启用；`active` 复用当前授权；`revoked` 不自动重新启用。前台产生的行为先进入本地持久队列，再批量直传采集服务器；业务成功事实另从服务端事务台账异步同步，两者不能互相替代。
 
-批次为 `{schemaVersion:1,batchId,events:[...]}`。事件包含 `eventId,eventName,schemaVersion,occurredAt,data`，`sessionId`可选。时间为Unix毫秒，服务器另记接收时间；事件允许最近7天及最多未来5分钟。一个批次内eventId不可重复。
+## 已接入的行为事件
 
-以下是接收器协议白名单，**只有前三项在本期页面触发**，其余存在不等于已采集：
+批次为 `{schemaVersion:1,batchId,events:[...]}`。SDK事件带 `eventId,eventName,schemaVersion,occurredAt,sessionId,data`，以及客户端版本、构建模式、平台和基础库版本等可用上下文。服务端另记接收时间。账号关系来自可信会话，不接受客户端自报OpenID。
 
-| 事件 | 必填data | 可选data |
+| 类别／事件 | 当前实际触发与主要字段 | 解释边界 |
 | --- | --- | --- |
-| page_view | page | 无 |
-| search_submitted | searchId,tripType,serviceDate | originArea,destinationArea,partySize,intentId |
-| result_set_rendered | searchId,selectionSetId,source,renderedCount,loadedDateCount,hasMore,candidatesComplete | zeroReason,candidates（本期不填candidates） |
-| result_card_visible | selectionSetId,tripKey,tripType,position,visibilityBucket | 无 |
-| trip_detail_opened | tripKey,tripType,source | 无 |
-| contact_entry_clicked | tripKey,tripType,method | 无 |
-| no_suitable_option | searchId,reason | intentId |
-| collection_diagnostic | reason,droppedCount | 无 |
+| 页面 `page_view` | 首页、拼车列表、发车／求车详情、历史行程；页面名、会话与时间 | 不是完整的全应用页面统计；当前路由没有接入协议中允许的market/profile |
+| 搜索 `search_submitted` | 显式修改筛选且选定单一日期；searchId、类型、日期、起终地区、隐藏满员选项 | 自动加载和多日范围不算一次明确搜索；不是独立出行需求或时间弹性 |
+| 列表 `result_set_rendered`／`list_snapshot` | selectionSetId、网络／缓存来源、条数、hasMore、候选完整性；有明确搜索关联时另带searchId | 候选快照最多前50条；仅全部候选均可记录且不超过50条时标完整，不能把截断列表当完整机会集 |
+| 曝光 `result_card_visible` | 至少半张卡片连续可见1秒；行程ID／类型、位置、selectionSetId和当时快照 | 依赖可见性观察器；渲染不等于曝光，曝光也不证明注意或理解 |
+| 点击／详情 `trip_card_clicked`、`detail_viewed` | 行程、列表位置／来源、当时快照；详情来源为列表／历史／分享／其他 | 查看或点击不等于预约或成行 |
+| 联系 `contact_action` | 复制微信／电话／Zelle；行程、目标角色、渠道、copy动作及attempt/success/failure | 只证明复制操作；不记录复制内容，不证明实际联系、付款或成交 |
+| 地点选择器 `place_picker_*` | 打开、渲染／可见、选择、自选确认／取消、关闭；起终点侧、城市、候选ID／位置／来源、目录／排序／偏好版本、可用榜单快照、圈、缓存年龄 | 可见阶段按至少半项可见，无1秒停留条件；行为事件不传自选地址原文；未知地点不会直接公开给其他人 |
+| 回访 `followup_presented/answer/dismissed` | followupId、行程、司机／乘客角色；回答yes/no、答案范围及可用牌面价 | 详见下节；未回答不是“否”，入队成功也不等于服务器已经收到 |
+| 诊断 `service_request/client_error` | 指定云函数／动作、行程、成功／业务错／网络错、错误码及可用请求ID；运行异常为清洗后位置摘要 | 不传原始报错正文；每次前台有上限。当前包装wx.cloud.callFunction，不能据此声称新的wx.request后端也有完整客户端调用轨迹 |
+| 引荐 `referral_visit` | 新后端模式下，登录后补传有效引荐码、入口与首次观察时间 | 访客不构成完整分母；CloudBase模式仍走原引荐记录链，不能混成同一份采集器日志 |
 
-未知字段和自由文本拒绝。标识符为16–80位A–Z/a–z/0–9/_/-不透明字符串；格式通过不证明去标识化。原始openid、姓名、电话、微信号、车牌、支付账号、聊天、精确住址和备注不得编码塞进标识符或载荷。粗区域仅fort_lee/columbia/other/unknown，日期为2000–2099有效YYYY-MM-DD，人数1–8，行程类型carpool/request，搜索还可all。
+行程快照按可用字段记录地点ID、地区、日期／出发分钟、业务版本、余位、数据生成时间及来源、客户端采样时间、参考价整数分与币种。地区包括Fort Lee、哥大、法拉盛、三个机场、LIC、JSQ、Inwood、中城、下城、Queens及other/unknown；标准地点由[地点目录](../utils/placeCatalog.js)统一定义。
 
-渲染来源区分network/cache；真实加载范围、hasMore和零结果/错误语义必须保留。预取不算展示，渲染不等于注意力。候选协议最多50项，若将来candidatesComplete=true必须数组存在且长度等于renderedCount；本期恒false，不能据此复原完整选择集。参考价整数分仅是参考价，currency为USD或unknown，不是支付或成交事实。
+价格来自现有牌面价，标为 `listed_reference`；缺失时保持缺失。回访“是”不会将牌面价变成实际成交价。`snapshotAt` 是客户端采样时间，不能替代服务端生成时间或业务发生时间。
 
-## 云身份与技术授权
+## 回访的实际触发限制
 
-统一CloudBase入口为 `statistics`，分派公共统计读取、定时同步和 `status/activate/withdraw`。旧getPublicStats/syncPublicStatsReplica兼容旧包/旧timer，可能多一次函数执行；业务事务内评分与累计更新不拆出。已有文件/内部服务名research-collector不因此代表全部业务迁移。
+[回访控制器](../utils/tripFollowup.js)目前只由[历史行程页](../pages/profile/tripHistory/tripHistory.js)在本账号历史数据新鲜、页面可见且不处于指定评分入口时调用。用户仅打开首页不会因此收到回访。
 
-身份只来自本次 `context.environment/environ` 的平台字段：固定当前AppID、wx_client/wx_devtools来源、本人OPENID，拒绝客户端自报身份、跨应用身份与process.env/getWXContext全局回退。云端生成用途隔离的HMAC账号假名accountSubject，原始OPENID不传入collector。subject密钥存在于CloudBase私有包及主机root专用运维目录，不挂容器；客户端不持有任何服务密钥。
+- 仅本人参与的发车／求车记录；状态为past或close，排除明确取消、删除或缺失记录，并核对司机／乘客身份。
+- 从最晚计划出发时刻算，须同时超过4小时且到纽约次日09:00，最长在出发后7天内。每次前台最多一次，相邻提示至少间隔24小时，优先最近的未回答行程。
+- 司机问“您接到乘客了吗？”，yes表示至少接到一位；乘客问“您坐上车了吗？”，yes仅属于该回答者的预约。不能把司机的yes扩写为全部乘客均履约。
+- 展示、关闭和回答分别记录；客户端只在持久队列接受后标记回答成功。未展示、未回答、关闭、传输丢失和明确no必须区分。系统past/close不是物理成行证据。
 
-SQLite保存技术启用、grant和关闭状态。`confirmed=true`、`acceptedPurposeVersion`是SDK兼容字段名，仅说明服务端技术授权，不证明主动研究同意。日志和分析不得把activate改记成consent。目的为ride-research-v1，当前说明版本ride-research-notice-2026-09-23。
+服务端另有 `place_followup_population` 保存从可信业务记录推导的合格参与关系、可询问时间和过期时间。但目前没有完整的“用户有展示机会却未展示的原因／规则版本”事件。历史页入口、7天窗口、每日上限和不回应均会造成结果缺失与样本选择，不能用已回答者成功率代表全平台。
 
-token为Ed25519 JWT：固定alg=EdDSA/typ=JWT/kid，claims包含iss,aud,sub,grantId,statusVersion,purposeVersion,iat,exp,jti。sub为participantKey，默认有效900秒、配置60–900秒；客户端接收tokenExpiresAtMs且只存内存。验签固定公钥，拒绝客户端指定算法/远程密钥；短token不代替实时授权检查。
+## 业务事实、OpenID与地址范围
 
-同一participant的statusVersion单调递增，synthetic类别不可改变；旧授权撤回后不可再激活，重新启用须新grant。当前前端没有重新启用已revoked账号的入口或自动流程。批次事务同时核对当前active/grant/用途/版本，因此旧token即使未过期也不能在撤回后写入。
+CloudBase的发布、加入、接单、退出、剔除、删除和状态变更已接入事务内 `TripActions` 台账，随后由 `statistics` 同步。它保存事件ID、动作、服务端事件时间、行程ID／类型／版本、操作者及受影响OpenID、变动前后快照。快照包括原业务地点文本及地点ID、计划时间、状态、牌面价、余位、乘客数量和司机／乘客关系；这是受限业务数据，不是匿名点击流。参考[台账实现](../cloudfunctions/createTrip/businessLedger.js)和[同步器](../cloudfunctions/statistics/placesSync.js)。
 
-## 接口与幂等
+服务端可信桥将当前平台身份的OpenID与采集账号关联，支持本人问题排查及业务联结；行为载荷不另填OpenID、电话、微信号、支付账号或聊天内容。新后端从已认证业务身份生成同一关联；不接受客户端提交别人的OpenID。分析导出应按需要去关联，不能把可回查账号的数据称为完全匿名。
 
-| 接口 | 用途与认证 |
-| --- | --- |
-| GET /healthz | 只返回健康，不暴露账号/载荷 |
-| POST /v1/batches | Bearer短期token；返回ok,batchId,payloadHash,eventCount,receivedAt,duplicate |
-| POST /internal/v1/research/participation | 独立HMAC，仅可信云桥与root运维工具使用；status/activate/withdraw |
-| UNIX socket /v1/status、/v1/participants/state、/v1/tokens、/v1/recovery/complete | 独立管理密钥；不发布公网 |
+业务事务成功、台账待同步、采集服务器已经接收是不同状态。历史导入 `legacy_snapshot` 只是某时点的状态，不能补造之前的退出和修改。接收器允许update/cancel动作不代表现有CloudBase每类修改都有发出事件；当前台账的外层reason也没有随业务投影完整进入采集器。新后端的事务事件与冻结投影见[事件实现](../services/backend/src/rides/events.ts)和[投影实现](../services/backend/src/rides/collector-event.ts)，是否承担线上业务以实际authority为准。
 
-参与客户端请求严格为action/requestId/expectedStatusVersion/purposeVersion/noticeVersion。云桥另加accountSubject，客户端不能指定它。预期版本0表示尚无状态。签名正文最大8192字节；三个头各一次：毫秒X-Linkx-Timestamp、16字节随机数的32位小写hex X-Linkx-Nonce、X-Linkx-Signature。签名为HMAC-SHA256(keyBytes,timestamp+'\n'+nonce+'\n'+rawBody)，key为专用hex解码的32字节，不复用公共统计密钥。时间窗±5分钟，nonce持久化至timestamp+5分钟，重复拒绝。
+地点服务另保存目录、业务参与关系、地点确认票、结果与排名快照。热度票按“账号×地点×起终点侧×纽约日”去重，不能当成原始点击次数；圈是历史平台业务关联，不表示住址。未知地点须完成公共性归类才可进入其他人的候选。
 
-操作按(accountSubject,requestId)及摘要幂等；同ID异内容拒绝，已被后续版本取代返回OPERATION_SUPERSEDED。新操作必须匹配当前版本。重试可用新nonce但保留原requestId/动作/预期版本，不能重新取最新版本自动执行旧操作。未启用账号的withdraw也建立版本化关闭标记，阻断迟到activate。status可返回active但无session（停采/恢复隔离等），不能因此允许上传，可信停止操作仍可执行。
+## 协议、兼容与可靠性
 
-批次只接受未压缩UTF-8 application/json，1–50条、最大65,536字节；必须为紧凑JSON.stringify原始字符串，重复键/额外空白导致重序列化不同则拒绝。收到正文后再次验证token有效期。无效token401，当前授权不符403，冲突409，事件字段422，超限413，不支持类型415，限流429，存储或恢复隔离503。
+统一云入口为 `statistics`；标准账号桥为 `/internal/v1/analytics/accounts`，批次入口为 `/v1/batches`。标准purpose/notice/JWT标识由[protocol.mjs](../services/analytics-collector/src/protocol.mjs)定义。旧客户端wire和本地队列键集中保留在[客户端兼容模块](../utils/compat/analyticsLegacy.js)，服务端旧wire兼容见[legacy.mjs](../services/analytics-collector/src/compat/legacy.mjs)。兼容是同一账号、同一授权和同一批次链，不另建用户或重开关闭状态；历史请求正文、收据hash与身份派生不得因改名改变。
 
-SQLite WAL+synchronous=FULL；BEGIN IMMEDIATE中完成当前授权核对、收据与载荷提交，再ACK。批次唯一(participantKey,batchId)，原始UTF-8字节SHA-256相同才允许幂等重试；相同ID不同内容/授权冲突。event_receipts按(participantKey,eventId)另做跨批去重，事件摘要对键排序；eligible_events只取首次接收，不能把重试增加为新观测。400/401等拒绝不等于业务行程失败。
+云桥使用独立HMAC密钥、防重放nonce及版本比较；客户端只持短期Ed25519会话token。批次接收同时核对当前active状态、grant、用途和版本，token未过期也不代表关闭后仍可写入。账号表的正式名称及一次性原地改名以[schema.mjs](../services/analytics-collector/src/schema.mjs)为准。
 
-## 客户端与停止
+客户端队列上限500条／256KiB／7天，每批最多50条／64KiB，前台最小发送间隔15秒、每次前台最多40次上传。不承诺后台持续上传。只有ACK的batchId、hash和条数匹配才出队；丢ACK保留原批次重试。401续期，403停队列并清理，409/422停止自动重试，限流／服务故障退避。跨批eventId去重；重试不能增加观测数，SDK入队成功不能冒充落库成功。
 
-本地队列ride_research_queue_v1按participant/grant/版本/用途隔离，切账号或授权改变清旧队列。仅正式版资格、有效技术授权和前台允许入队。缺token时已授权事件可暂存但不上传；401需续期、403停队列并清理、409/422停自动重试、429/5xx退避。配置前台15秒合批、首批尽快，一次仅一个在途；不承诺后台持续上传。
+服务端持久化及当前授权校验在SQLite事务中完成后才ACK。真实行为载荷默认保留180天，合成载荷14天；默认本机滚动备份7天，收据、账号状态和业务派生表各有不同保留规则，具体以服务实现及运维说明为准。分析时间窗可能先于物理清理排除过期记录；长期研究需提前制定去关联导出与保留计划，不能假定原始事件永久存在。
 
-队列最多500条、256KiB、7天；每批≤50条且≤64KiB。只有ACK的ok/batchId/hash/count匹配才出队，丢ACK保留原批次字节。持久化失败不冒充成功；过期不可变批次整批放弃并记丢失，不改原batchId正文。
+不新增停止按钮；本人通过既有客服提出请求后，按[停止采集工具](../services/analytics-collector/ops/stop-collection.md)核验执行服务端停止。仅清本地队列不等于跨设备停止。恢复必须经过隔离gate及关闭状态保护，不能只凭SQLite完整性检查就视为恢复到最新授权状态。
 
-本期没有新增停止按钮或管理页。用户从个人中心既有客服提出请求，核验本人后管理员运行[stop-collection工具](../services/analytics-collector/ops/stop-collection.md)：原openid仅stdin或root-owned0600文件；root-only subject/bridge副本；固定loopback status→单次withdraw CAS；未知账号可写关闭标记，不activate、不重试冲突，不输出ID/key/token/正文。底层SDK withdraw只清本地，不能代替服务端停止；只有服务端确认才能确认跨设备停止。
+## 尚缺数据与研究解释边界
 
-## 保留与恢复
+协议允许但目前无对应真实页面触发的项目包括：`no_suitable_option`、旧事件名 `trip_detail_opened/contact_entry_clicked`（实际使用detail_viewed/contact_action）；搜索的partySize/intentId、结果zeroReason、电话call动作等也不能因schema允许就声称已采集。队列丢失统计尚不能视作完整自动上报的全局分母。
 
-真实载荷从receivedAt计保留策略180天；分析视图先排除过期项，物理清理有维护周期尾差。本机备份滚动7天。真实事件/批次收据在载荷已清且超过187天后清理；操作收据187天，nonce按时间窗清理。合成载荷14天/收据30天。账号假名映射、当前状态、撤回grant标记当前不自动到期删除，用于维持可靠关闭，不当作行为观测。
+目前已具备曝光—点击—预约业务变化—部分结果自报的关联基础，仍缺明确的独立出行意向及可接受时间范围、完整失败原因、所有决策时刻的完整候选、充分覆盖的结果回访。没有实际付款价、支付证明、连续GPS轨迹、真实联系内容或平台外解决结果。不应由牌面价估计支付意愿，也不应由浏览次数凑独立样本。
 
-撤回事务删在线载荷并保存最少阻断信息；不承诺WAL/旧备份/介质所有副本瞬时物理擦除。本机每日备份采用SQLite在线备份及integrity_check，0600；不是直接复制运行中的主文件。容量默认数据库页1GiB、剩余空间保护256MiB，WAL/备份另计；磁盘满不ACK。当前没有COS异机备份，ACK不保证整盘丢失时零数据损失。
-
-restore-check仅生成新候选、不覆盖运行库；候选先关闭恢复gate，再校验/原子发布。gate关闭时接收、签token和分析视图受阻。恢复完成会删除旧真实载荷、撤销旧真实grant并递增版本，**无条件锁旧说明版本，空旧备份也一样**，防止备份后发生但丢失的停止被旧请求复活。新说明版本同步云/服务/客户端，但不自动重开revoked；恢复后的重新启用另行处理。不能仅凭integrity_check就认定已恢复最新状态。
-
-## 验证与上线缺项
-
-有效回归覆盖丢ACK原样重试、重启、撤回、满盘不ACK、HMAC、CAS、恢复空库阻断和保留验证。部署读回以[后端部署记录](backend-foundation-deployment-2026-09-25.md)为准，旧测试不能证明后续版本发布完成。
-
-Caddy只代理明确路径，collector Node仅宿主机loopback，管理socket不公开；独立公开统计另有sidecar。实际开关、statistics部署、正式包审核/发布、首个真实批次、维护任务与root停止工具安装仍由部署负责人记录。三类观测不构成完整论文数据：P0outbox、结果回访、可信关联、时间窗和选择集仍需补采；无回答永远不能补成否。
+当前地点排序是产品规则，不是随机分配实验；没有记录的处理分配与展示概率就不能宣称排序、价格或提醒的因果效果。论文是否足够取决于独立用户／行程／意向、结果覆盖、有效变异和研究设计，不能由事件总数或固定采集天数保证。

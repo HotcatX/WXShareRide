@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { openStore } from '../src/store.mjs';
 import { validateBatch } from '../src/validation.mjs';
+import { accountResponseForRequest, LEGACY_PURPOSE_VERSION, LEGACY_NOTICE_VERSION } from '../src/compat/legacy.mjs';
 const require = createRequire(import.meta.url);
 const { createAnalyticsClient } = require('../../../utils/analyticsClient.js');
 
@@ -16,9 +17,9 @@ test('referral visit uses the existing SDK queue and SQLite event ledger with or
   const store = openStore(join(dir, 'store.sqlite'), { realEnabled: true });
   t.after(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
   const now = Date.now(), occurredAt = now - 60000, openid = 'synthetic_referral_visitor_123';
-  const p = store.participate({ accountSubject: randomBytes(32).toString('hex'), openid, action: 'activate',
-    requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion: 'ride-research-v1',
-    noticeVersion: 'ride-research-notice-2026-09-23' }, now).participant;
+  const p = store.updateAccount({ accountSubject: randomBytes(32).toString('hex'), openid, action: 'activate',
+    requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion: 'ride-analytics-v1',
+    noticeVersion: 'ride-analytics-notice-2026-09-23' }, now).participant;
   const claims = { sub: p.participantKey, ...p }, saved = new Map(), uploads = [];
   const client = createAnalyticsClient({ now: () => now, storage: {
     get: key => saved.get(key), set: (key, value) => saved.set(key, structuredClone(value)), remove: key => saved.delete(key)
@@ -26,8 +27,12 @@ test('referral visit uses the existing SDK queue and SQLite event ledger with or
     const body = JSON.parse(request.body); validateBatch(body, now); uploads.push(body);
     return { statusCode: 200, data: store.receive(claims, Buffer.from(request.body), body, now) };
   } });
-  assert.equal(client.setSession({ accountKey: 'synthetic-local-account', ...p, confirmed: true,
-    acceptedPurposeVersion: p.purposeVersion, token: 'synthetic-token', tokenExpiresAtMs: now + 600000 }).ok, true);
+  // The deployed SDK still expects its original metadata. Server-side naming
+  // changes keep its existing account, sealed queue and authorization intact.
+  const session = accountResponseForRequest({ session: { ...p, confirmed: true,
+    acceptedPurposeVersion: p.purposeVersion, token: 'synthetic-token', tokenExpiresAtMs: now + 600000 } },
+  { purposeVersion: LEGACY_PURPOSE_VERSION, noticeVersion: LEGACY_NOTICE_VERSION }).session;
+  assert.equal(client.setSession({ accountKey: 'synthetic-local-account', ...session }).ok, true);
   client.beginForeground();
   const eventId = randomUUID(), metadata = client.getEventMetadata();
   assert.notEqual(metadata.sessionId, eventId);

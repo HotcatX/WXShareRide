@@ -1,5 +1,6 @@
-import { DEFAULT_PURPOSE_VERSION, DEFAULT_NOTICE_VERSION, BRIDGE_ROUTE, SUBJECT_SCOPE,
-  SUBJECT_KEY_FILE, BRIDGE_KEY_FILE } from '../src/compat/legacy.mjs';
+import { DEFAULT_PURPOSE_VERSION, DEFAULT_NOTICE_VERSION, BRIDGE_ROUTE,
+  SUBJECT_KEY_FILE, BRIDGE_KEY_FILE } from '../src/protocol.mjs';
+import { SUBJECT_SCOPE } from '../src/compat/legacy.mjs';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import { openSync, fstatSync, readSync, closeSync, constants } from 'node:fs';

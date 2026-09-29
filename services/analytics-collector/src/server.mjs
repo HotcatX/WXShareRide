@@ -1,4 +1,4 @@
-import { TABLES } from './compat/legacy.mjs';
+import { TABLES } from './schema.mjs';
 import http from 'node:http';
 import net from 'node:net';
 import { mkdirSync, chmodSync, existsSync, lstatSync, unlinkSync, statfsSync } from 'node:fs';
@@ -9,8 +9,9 @@ import { createTokenService, sameSecret } from './auth.mjs';
 import { ApiError, requireThat } from './errors.mjs';
 import { readSafeMetrics } from './metrics.mjs';
 import { DIAGNOSTIC_ROUTE, readAccountDiagnostics } from './diagnostics.mjs';
-import { BRIDGE_ROUTE, DEFAULT_NOTICE_VERSION } from './compat/legacy.mjs';
-import { isNoticeVersion, verifyBridgeRequest, validateParticipationRequest } from './bridge.mjs';
+import { BRIDGE_ROUTE, DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonicalPurposeVersion, canonicalNoticeVersion } from './protocol.mjs';
+import { LEGACY_BRIDGE_ROUTE, accountResponseForRequest } from './compat/legacy.mjs';
+import { isNoticeVersion, verifyBridgeRequest, validateAccountRequest } from './bridge.mjs';
 import { MAX_BYTES, validateBatch, validateState, validateTokenRequest, shape, purpose } from './validation.mjs';
 import { PLACE_ROUTE, BUSINESS_ROUTE } from './places.mjs';
 
@@ -60,7 +61,9 @@ function limiter(max, capacity = 4096) {
 }
 
 export function createCollector(config) {
-  config = { noticeVersion: DEFAULT_NOTICE_VERSION, bridgeKey: null, ...config };
+  config = { noticeVersion: DEFAULT_NOTICE_VERSION, purposeVersion: DEFAULT_PURPOSE_VERSION, bridgeKey: null, ...config };
+  config.noticeVersion = canonicalNoticeVersion(config.noticeVersion);
+  config.purposeVersion = canonicalPurposeVersion(config.purposeVersion);
   requireThat(isNoticeVersion(config.noticeVersion), 500, 'INVALID_NOTICE_CONFIGURATION');
   requireThat(config.bridgeKey === null || (Buffer.isBuffer(config.bridgeKey) && config.bridgeKey.length === 32), 500, 'INVALID_BRIDGE_CONFIGURATION');
   requireThat(purpose(config.purposeVersion), 500, 'INVALID_PURPOSE_CONFIGURATION');
@@ -94,18 +97,18 @@ export function createCollector(config) {
     const { raw, body } = await readJSON(req, 8192);
     const now = Date.now();
     const authenticated = verifyBridgeRequest(req, config.bridgeKey, raw, now);
-    const request = validateParticipationRequest(body, config.purposeVersion, config.noticeVersion);
+    const request = validateAccountRequest(body, config.purposeVersion, config.noticeVersion);
     // Only authenticated callers consume authorization capacity; batch capacity is separate.
     bridgeGlobal('bridge'); bridgeAccount(request.accountSubject);
     store.consumeBridgeNonce(authenticated.nonce, authenticated.expiresAt, now);
-    const { participant, ...response } = store.participate(request, now);
+    const { participant, ...response } = store.updateAccount(request, now);
     if (participant) response.session = {
       participantKey: participant.participantKey, grantId: participant.grantId,
       statusVersion: participant.statusVersion, status: 'active', confirmed: true,
       purposeVersion: participant.purposeVersion, acceptedPurposeVersion: participant.purposeVersion,
       ...tokens.issue(participant),
     };
-    reply(res, 200, response);
+    reply(res, 200, accountResponseForRequest(response, request));
   });
   const batchHandler = wrap(async (req, res) => {
     if (req.method === 'GET' && req.url === '/healthz') {
@@ -138,7 +141,7 @@ export function createCollector(config) {
     reply(res, 200, store.places.ingestBusiness(body, now));
   });
   const publicServer = http.createServer({ maxHeaderSize: 8192 }, (req, res) =>
-    req.url === BRIDGE_ROUTE ? bridgeHandler(req, res) : req.url === BUSINESS_ROUTE ? businessHandler(req, res) : batchHandler(req, res));
+    [BRIDGE_ROUTE, LEGACY_BRIDGE_ROUTE].includes(req.url) ? bridgeHandler(req, res) : req.url === BUSINESS_ROUTE ? businessHandler(req, res) : batchHandler(req, res));
   const adminServer = http.createServer({ maxHeaderSize: 8192 }, wrap(async (req, res) => {
     requireThat(/^Bearer [A-Za-z0-9_-]+$/.test(req.headers.authorization || '')
       && sameSecret(req.headers.authorization.slice(7), config.adminToken), 401, 'ADMIN_UNAUTHORIZED');

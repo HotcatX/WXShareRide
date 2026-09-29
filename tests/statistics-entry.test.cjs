@@ -13,10 +13,10 @@ const KEY = Buffer.alloc(32, 8)
 const timer = { Type: 'Timer', TriggerName: 'publicStatsHourly' }
 const context = (source, identity = {}) => ({ environment: JSON.stringify({ TCB_SOURCE: source, ...identity }) })
 function setup() {
-  const state = { reads: 0, sends: [], participation: [], logs: [] }
+  const state = { reads: 0, sends: [], account: [], logs: [] }
   const deps = { getSyncKey: () => KEY,
     readPublicStats: async () => { state.reads++; return { servedTrips: '12.9', coverageText: 'NY / NJ', _openid: 'private', lastTripId: 'private' } },
-    participation: async (event, invocation) => { state.participation.push([event,invocation]); return { ok: true, marker: 'participation' } },
+    account: async (event, invocation) => { state.account.push([event,invocation]); return { ok: true, marker: 'account' } },
     send: async (snapshot, key) => state.sends.push({ snapshot, key }), now: () => NOW, log: value => state.logs.push(value) }
   return { state, deps, run: (event, ctx) => createStatisticsHandler(deps)(event, ctx) }
 }
@@ -38,8 +38,8 @@ test('authorization actions preserve the exact existing request/context and do n
   const h = setup(); const ctx = context('wx_client')
   for (const action of ['status','activate','withdraw']) {
     const event = { action, requestId: 'operation_identifier', expectedStatusVersion: 0 }
-    assert.equal((await h.run(event, ctx)).marker, 'participation')
-    assert.equal(h.state.participation.at(-1)[0], event); assert.equal(h.state.participation.at(-1)[1], ctx)
+    assert.equal((await h.run(event, ctx)).marker, 'account')
+    assert.equal(h.state.account.at(-1)[0], event); assert.equal(h.state.account.at(-1)[1], ctx)
   }
   assert.equal((await h.run({ action: 'consent' }, ctx)).error, 'INVALID_ACTION')
   assert.equal(h.state.reads, 0); assert.equal(h.state.sends.length, 0)
@@ -131,15 +131,15 @@ test('reserved userInfo and tcbContext are ignored without reading them, mutatin
 })
 
 test('status/activate/withdraw accept platform metadata but authenticate only invocation context',async()=>{
-  const {createHandler,PURPOSE,NOTICE}=require('../cloudfunctions/statistics/bridge')
+  const {createAccountHandler,PURPOSE,NOTICE}=require('../cloudfunctions/statistics/bridge')
   const {APPID}=require('../cloudfunctions/statistics/context')
   const keys={bridge:Buffer.alloc(32,1),subject:Buffer.alloc(32,2)}
   const realOpenid='authenticated_account_123456'
   const trusted=context('wx_client',{WX_APPID:APPID,WX_OPENID:realOpenid})
   const none={ok:true,status:'none',statusVersion:0,purposeVersion:PURPOSE,noticeVersion:NOTICE}
   const transmitted=[]
-  const participation=createHandler({getKeys:()=>keys,transport:async(body)=>{transmitted.push(body);return none}})
-  const h=setup();h.deps.participation=participation
+  const account=createAccountHandler({getKeys:()=>keys,transport:async(body)=>{transmitted.push(body);return none}})
+  const h=setup();h.deps.account=account
   for(const action of ['status','activate','withdraw']) {
     const event={action,requestId:'platform_event_request_123',expectedStatusVersion:0,purposeVersion:PURPOSE,noticeVersion:NOTICE,
       userInfo:{openId:'spoofed_account_123456',appId:'another-app',phone:'never-transmitted'},

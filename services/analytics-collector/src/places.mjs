@@ -1,4 +1,4 @@
-import { TABLES } from './compat/legacy.mjs';
+import { TABLES } from './schema.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { requireThat } from './errors.mjs';
 import { shape } from './validation.mjs';
@@ -69,13 +69,13 @@ export function initializePlaces(db) {
       trip_id TEXT NOT NULL, trip_type TEXT NOT NULL, version INTEGER NOT NULL, event_at INTEGER NOT NULL, received_at INTEGER NOT NULL,
       payload TEXT NOT NULL, PRIMARY KEY(synthetic,event_id), UNIQUE(synthetic,trip_type,trip_id,version)) STRICT;
     CREATE INDEX IF NOT EXISTS place_business_age ON place_business_events(received_at);
-    CREATE TABLE IF NOT EXISTS place_participation_history (synthetic INTEGER NOT NULL, openid TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS place_membership_history (synthetic INTEGER NOT NULL, openid TEXT NOT NULL,
       event_id TEXT NOT NULL, trip_id TEXT NOT NULL, trip_type TEXT NOT NULL, version INTEGER NOT NULL,
       event_at INTEGER NOT NULL, city_key TEXT NOT NULL, service_date TEXT NOT NULL, role TEXT NOT NULL,
       active INTEGER NOT NULL, origin_id TEXT NOT NULL, destination_id TEXT NOT NULL, source TEXT NOT NULL,
       PRIMARY KEY(synthetic,openid,event_id)) STRICT;
-    CREATE INDEX IF NOT EXISTS place_participation_account ON place_participation_history(synthetic,openid,event_at);
-    CREATE INDEX IF NOT EXISTS place_participation_trip_version ON place_participation_history(synthetic,openid,trip_type,trip_id,version,event_at);
+    CREATE INDEX IF NOT EXISTS place_membership_account ON place_membership_history(synthetic,openid,event_at);
+    CREATE INDEX IF NOT EXISTS place_membership_trip_version ON place_membership_history(synthetic,openid,trip_type,trip_id,version,event_at);
     CREATE TABLE IF NOT EXISTS place_public_usage (synthetic INTEGER NOT NULL, event_id TEXT NOT NULL, place_id TEXT NOT NULL,
       city_key TEXT NOT NULL, field TEXT NOT NULL, openid TEXT NOT NULL, occurred_at INTEGER NOT NULL,
       circle_ids TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY(synthetic,event_id,place_id,field)) STRICT;
@@ -112,9 +112,9 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
   const circles = (openid, synthetic, cityKey, at, counterpart = '') => {
     // Latest state at the observation time, not today's eventual state. Versions
     // make delayed/out-of-order outbox deliveries deterministic.
-    const rows = db.prepare(`SELECT h.* FROM place_participation_history h WHERE h.synthetic=? AND h.openid=? AND h.city_key=?
+    const rows = db.prepare(`SELECT h.* FROM place_membership_history h WHERE h.synthetic=? AND h.openid=? AND h.city_key=?
       AND h.event_at<=? AND h.service_date>=? AND h.service_date<=? AND NOT EXISTS
-      (SELECT 1 FROM place_participation_history n WHERE n.synthetic=h.synthetic AND n.openid=h.openid
+      (SELECT 1 FROM place_membership_history n WHERE n.synthetic=h.synthetic AND n.openid=h.openid
        AND n.trip_id=h.trip_id AND n.trip_type=h.trip_type AND n.event_at<=? AND n.version>h.version)
       ORDER BY h.event_at DESC LIMIT 1001`).all(Number(synthetic), openid, cityKey, at, dayAt(at - 90 * DAY), dayAt(at + 90 * DAY), at);
     requireThat(rows.length <= 1000, 503, 'PLACE_HISTORY_CAPACITY');
@@ -191,7 +191,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
       for (const [account, p] of all) {
         affected.set(`${Number(e.synthetic)}:${account}`, { account, synthetic: e.synthetic });
         const active = activeStatus && current.has(account);
-        db.prepare('INSERT INTO place_participation_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(Number(e.synthetic), account, e.eventId, e.tripId, e.tripType,
+        db.prepare('INSERT INTO place_membership_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(Number(e.synthetic), account, e.eventId, e.tripId, e.tripType,
           e.version, e.eventAtMs, s.cityKey, s.serviceDate, p.role, Number(active), pointId(s.departures[0], s.cityKey), pointId(s.destinations[0], s.cityKey), e.source || 'transaction');
         // Same qualification clock as client: max(last departure +4h, next NY day 09h).
         // A lower-bound marker is retained even when precise departure is unknown.
@@ -333,7 +333,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
   });
   const prune = now => {
     const counts = {};
-    for (const [table, time, days] of [['place_business_events', 'received_at', 180], ['place_participation_history', 'event_at', 180],
+    for (const [table, time, days] of [['place_business_events', 'received_at', 180], ['place_membership_history', 'event_at', 180],
       ['place_public_usage', 'occurred_at', 180], ['place_selection_votes', 'occurred_at', 180], ['place_outcomes', 'occurred_at', 180],
       ['place_rank_snapshots', 'generated_at', 180]]) {
       counts[table] = db.prepare(`DELETE FROM ${table} WHERE (synthetic=1 AND ${time}<=?) OR (synthetic=0 AND ${time}<=?)`).run(now - 14 * DAY, now - days * DAY).changes;

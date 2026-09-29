@@ -1,4 +1,4 @@
-import { DEFAULT_PURPOSE_VERSION } from '../src/compat/legacy.mjs';
+import { DEFAULT_PURPOSE_VERSION } from '../src/protocol.mjs';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';

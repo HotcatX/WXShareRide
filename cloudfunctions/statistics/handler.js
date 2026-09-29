@@ -13,7 +13,7 @@ function withoutPlatformMetadata(event) {
   return Object.fromEntries(Object.keys(event).filter(key => key !== 'userInfo' && key !== 'tcbContext').map(key => [key, event[key]]))
 }
 
-function createStatisticsHandler({ participation, getSyncKey, readPublicStats, send = push,
+function createStatisticsHandler({ account, getSyncKey, readPublicStats, send = push,
   synchronizePlaces, authority = 'cloudbase', now = Date.now, log = () => {}, getContext = getInvocationContext }) {
   const publicStats = createPublicHandler(readPublicStats)
   // TEMPORARY FALLBACK — remove only after the next production release is verified.
@@ -42,7 +42,7 @@ function createStatisticsHandler({ participation, getSyncKey, readPublicStats, s
       if (Object.keys(event).length !== 1) return { success: false, errorMsg: 'INVALID_REQUEST', data: { _id: 'home', servedTrips: null, coverageText: 'N/A' } }
       return publicStats()
     }
-    if (['status', 'activate', 'withdraw'].includes(action)) return participation(event, invocationContext)
+    if (['status', 'activate', 'withdraw'].includes(action)) return account(event, invocationContext)
     const context = getContext(invocationContext) || {}
     if (action === 'placeBusinessTimer' || (!action && event && event.TriggerName === PLACE_TRIGGER)) {
       if (!authorizedPlaceTimer(event, context)) return { ok: false, error: 'TIMER_ONLY' }

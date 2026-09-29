@@ -1,7 +1,7 @@
 const cloud = require('wx-server-sdk')
 const fs = require('fs')
 const path = require('path')
-const { createHandler } = require('./bridge')
+const { createAccountHandler } = require('./bridge')
 const { createStatisticsHandler } = require('./handler')
 const { createPlaceSynchronizer } = require('./placesSync')
 const { createPublicStatsReader } = require('./provider')
@@ -12,14 +12,14 @@ const db = cloud.database()
 function getKeys() {
   // Private deployment files only. The identity key may also exist in a separate
   // root-only operations directory; it is never mounted into the collector.
-  const secret = JSON.parse(fs.readFileSync(path.join(__dirname, 'participation.secret.json'), 'utf8'))
+  const secret = JSON.parse(fs.readFileSync(path.join(__dirname, 'analytics.secret.json'), 'utf8'))
   if (!secret || !/^[a-f0-9]{64}$/.test(secret.bridge) || !/^[a-f0-9]{64}$/.test(secret.subject)) throw new Error('KEY_UNAVAILABLE')
   return { bridge: Buffer.from(secret.bridge, 'hex'), subject: Buffer.from(secret.subject, 'hex') }
 }
-const participation = createHandler({ getKeys })
+const account = createAccountHandler({ getKeys })
 exports.main = createStatisticsHandler({
   authority,
-  participation,
+  account,
   synchronizePlaces: createPlaceSynchronizer({ db, getKey: () => getKeys().bridge,
     log: value => console.log(JSON.stringify(value)) }),
   getSyncKey() {

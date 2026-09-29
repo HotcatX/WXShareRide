@@ -351,7 +351,7 @@ function createAnalyticsClient(options = {}) {
         return { ok: true, batchId: pending.batchId, eventCount: pending.eventIds.length, duplicate: result.duplicate === true }
       }
       if (statusCode === 401) { token = ''; tokenExpiresAtMs = 0; return { ok: false, reason: 'token_required' } }
-      if (statusCode === 403) { session = null; const cleared = purge(); return { ok: false, reason: 'participation_inactive', cleared } }
+      if (statusCode === 403) { session = null; const cleared = purge(); return { ok: false, reason: 'account_inactive', cleared } }
       if (statusCode === 409 || statusCode === 422) {
         halted = statusCode === 409 ? 'batch_conflict' : 'invalid_batch'
         save({ ...clone(state), halted })

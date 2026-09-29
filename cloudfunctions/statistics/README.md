@@ -26,12 +26,12 @@ Deploy the receiver's optional signed flag support before deploying this cloud b
 
 Provision **only in a private server-side deployment artifact**, not this repository or the client bundle:
 
-- `participation.secret.json`: `{ "bridge":"<64 lower hex>", "subject":"<different 64 lower hex>" }`, matching the existing deployed participation bridge and pseudonym scope.
+- `analytics.secret.json`: `{ "bridge":"<64 lower hex>", "subject":"<different 64 lower hex>" }`, matching the existing deployed account bridge and pseudonym scope.
 - `sync.secret`: the existing public-stats synchronization key, 64 lowercase hex characters. A configured server-side `PUBLIC_STATS_SYNC_KEY` remains supported for compatibility.
 
-The subject key may also be present in `/etc/linkx-research-ops/subject.key` on the host, strictly root-only for an already verified customer-service stop request. The corresponding root-only bridge key copy allows the host helper to perform only status/withdraw. Neither operations directory nor subject key is mounted into the collector container. The collector's own `/etc/linkx-collector/bridge.key` remains its separate UID-1000, mode-0600 bridge credential.
+The subject key may also be present in `/etc/linkx-analytics-ops/subject.key` on the host, strictly root-only for an already verified customer-service stop request. The corresponding root-only bridge key copy allows the host helper to perform only status/withdraw. Neither operations directory nor subject key is mounted into the collector container. The collector's own `/etc/linkx-collector/bridge.key` remains its separate UID-1000, mode-0600 bridge credential.
 
-For internal account debugging, the bridge now also includes **`openid` from the authenticated invocation**, inside its signed request. A client-supplied OpenID is still rejected. Receiver schema v3 stores it once on `research_accounts`, binds only an empty or identical account link, and rejects identity conflicts. Legacy internal requests without OpenID remain accepted, and the new field is excluded from operation hashes so historical retries keep working. Existing accounts are linked on their next authenticated status/activation; old HMAC subjects cannot be reversed to recover a missing original OpenID. `operational_events` joins the account link for authorized internal lookup; `eligible_real_events` remains free of OpenID for research extraction. Deploy the schema-v3 receiver before this bridge. Identity-bearing operational data and backups require restricted access; pseudonymous event IDs do not make the linked database anonymous.
+For internal account debugging, the bridge now also includes **`openid` from the authenticated invocation**, inside its signed request. A client-supplied OpenID is still rejected. Receiver schema v5 stores it once on `analytics_accounts`, binds only an empty or identical account link, and rejects identity conflicts. Legacy internal requests without OpenID remain accepted, and the new field is excluded from operation hashes so historical retries keep working. Existing accounts are linked on their next authenticated status/activation; old HMAC subjects cannot be reversed to recover a missing original OpenID. `operational_events` joins the account link for authorized internal lookup; `eligible_real_events` remains free of OpenID for research extraction. Deploy the compatible schema-v5 receiver before this bridge. Identity-bearing operational data and backups require restricted access; pseudonymous event IDs do not make the linked database anonymous.
 
 ## Legacy timer relay protocol
 
@@ -70,4 +70,8 @@ From repository root:
 node --test tests/statistics-entry.test.cjs tests/public-stats-sync.test.cjs tests/public-stats-context.test.cjs tests/analytics-bridge.test.cjs
 ```
 
-Tests use dependency injection and synthetic keys; they do not query cloud data or deploy. They cover public response compatibility/projection, unchanged participation dispatch, trusted Timer validation, domain-separated relay verification/skew/no-user context, legacy wrapper boundaries, and sanitized failures.
+Tests use dependency injection and synthetic keys; they do not query cloud data or deploy. They cover public response compatibility/projection, account dispatch with exact legacy operation labels, trusted Timer validation, domain-separated relay verification/skew/no-user context, legacy wrapper boundaries, and sanitized failures.
+
+## Canonical account protocol
+
+`protocol.js` owns `/internal/v1/analytics/accounts`, `ride-analytics-v1` and the analytics notice identifier. `compat.js` only retains the already-published client labels and immutable HMAC identity separators. Requests keep their original purpose/notice fields so retry hashes remain valid; response metadata uses that same dialect. Tokens are issued by the collector with its current analytics issuer. No new account, grant or consent is created merely because a name changed. Deploy the compatible receiver and Caddy route first, then update this function code atomically while preserving its authority, timeout, timer configuration and keys.

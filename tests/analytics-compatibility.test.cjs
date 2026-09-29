@@ -7,25 +7,29 @@ const { join } = require('node:path')
 
 // These deployable packages cannot import each other's production files. Lock
 // their compatibility boundary together without introducing a shared runtime.
-test('independent client, cloud bridge and collector preserve one deployed protocol and identity namespace', async () => {
+test('canonical cloud and collector protocol retains the published client at an isolated compatibility boundary', async () => {
   const client = require('../utils/compat/analyticsLegacy')
-  const cloud = require('../cloudfunctions/statistics/compat')
-  const server = await import('../services/analytics-collector/src/compat/legacy.mjs')
+  const cloud = require('../cloudfunctions/statistics/protocol')
+  const server = await import('../services/analytics-collector/src/protocol.mjs')
+  const legacy = await import('../services/analytics-collector/src/compat/legacy.mjs')
   assert.equal(client.purposeVersion, 'ride-research-v1')
   assert.equal(client.noticeVersion, 'ride-research-notice-2026-09-23')
-  assert.equal(cloud.PURPOSE, client.purposeVersion)
-  assert.equal(server.DEFAULT_PURPOSE_VERSION, client.purposeVersion)
-  assert.equal(cloud.NOTICE, client.noticeVersion)
-  assert.equal(server.DEFAULT_NOTICE_VERSION, client.noticeVersion)
+  assert.equal(cloud.PURPOSE, 'ride-analytics-v1')
+  assert.equal(server.DEFAULT_PURPOSE_VERSION, cloud.PURPOSE)
+  assert.equal(cloud.NOTICE, 'ride-analytics-notice-2026-09-23')
+  assert.equal(server.DEFAULT_NOTICE_VERSION, cloud.NOTICE)
+  assert.equal(cloud.validVersions(client.purposeVersion, client.noticeVersion), true)
+  assert.equal(legacy.LEGACY_PURPOSE_VERSION, client.purposeVersion)
+  assert.equal(legacy.LEGACY_NOTICE_VERSION, client.noticeVersion)
   assert.equal(new URL(cloud.ENDPOINT).pathname, server.BRIDGE_ROUTE)
-  assert.equal(server.BRIDGE_ROUTE, '/internal/v1/research/participation')
+  assert.equal(server.BRIDGE_ROUTE, '/internal/v1/analytics/accounts')
   assert.equal(cloud.SUBJECT_SCOPE, 'linkx-research-account-v1')
   assert.equal(cloud.TEST_SUBJECT_SCOPE, 'linkx-research-test-account-v1')
-  assert.equal(server.SUBJECT_SCOPE, cloud.SUBJECT_SCOPE)
-  assert.equal(server.TEST_SUBJECT_SCOPE, cloud.TEST_SUBJECT_SCOPE)
+  assert.equal(legacy.SUBJECT_SCOPE, cloud.SUBJECT_SCOPE)
+  assert.equal(legacy.TEST_SUBJECT_SCOPE, cloud.TEST_SUBJECT_SCOPE)
 })
 
-test('renamed service verifies an already-issued token without changing issuer, audience or purpose', async () => {
+test('renamed service accepts an already-issued signature and normalizes only the verified purpose', async () => {
   const { createTokenService } = await import('../services/analytics-collector/src/auth.mjs')
   const keys = generateKeyPairSync('ed25519')
   const privatePem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' })
@@ -35,7 +39,7 @@ test('renamed service verifies an already-issued token without changing issuer, 
   const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url')
   const raw = `${encode({ alg: 'EdDSA', typ: 'JWT', kid: 'local-v1' })}.${encode(claims)}`
   const token = `${raw}.${sign(null, Buffer.from(raw), keys.privateKey).toString('base64url')}`
-  assert.deepEqual(createTokenService(privatePem).verify(token, 1800000001000), claims)
+  assert.deepEqual(createTokenService(privatePem).verify(token, 1800000001000), {...claims, purposeVersion:'ride-analytics-v1'})
 })
 
 test('renamed configuration still reads the existing host environment and bridge key file', async t => {
@@ -50,8 +54,8 @@ test('renamed configuration still reads the existing host environment and bridge
     RESEARCH_BRIDGE_KEY_FILE: join(dir, 'bridge.key'), RESEARCH_NOTICE_VERSION: 'ride-research-notice-2026-09-24',
     REAL_COLLECTION_ENABLED: 'true', DB_PATH: join(dir, 'collector.sqlite'), ADMIN_SOCKET: join(dir, 'admin.sock') })
   assert.deepEqual(config.bridgeKey, bridge)
-  assert.equal(config.noticeVersion, 'ride-research-notice-2026-09-24')
-  assert.equal(config.purposeVersion, 'ride-research-v1')
+  assert.equal(config.noticeVersion, 'ride-analytics-notice-2026-09-24')
+  assert.equal(config.purposeVersion, 'ride-analytics-v1')
   assert.equal(config.realEnabled, true)
   assert.equal(config.dbPath, join(dir, 'collector.sqlite'))
   assert.equal(config.adminSocket, join(dir, 'admin.sock'))

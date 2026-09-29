@@ -1,7 +1,7 @@
 const crypto = require('crypto')
 const https = require('https')
 const { getIdentity } = require('./context')
-const { ENDPOINT, PURPOSE, NOTICE, SUBJECT_SCOPE, TEST_SUBJECT_SCOPE } = require('./compat')
+const { ENDPOINT, PURPOSE, NOTICE, SUBJECT_SCOPE, TEST_SUBJECT_SCOPE, validVersions } = require('./protocol')
 
 const ID = /^[A-Za-z0-9_-]{16,80}$/
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
@@ -17,16 +17,18 @@ function validRequest(event) {
   return object(event) && Object.keys(event).every(k => fields.includes(k) || k === 'collectionMode') && fields.every(k => own(event, k)) &&
     (!own(event, 'collectionMode') || event.collectionMode === 'test') &&
     ['status', 'activate', 'withdraw'].includes(event.action) && typeof event.requestId === 'string' && ID.test(event.requestId) &&
-    version(event.expectedStatusVersion) && event.purposeVersion === PURPOSE && event.noticeVersion === NOTICE
+    version(event.expectedStatusVersion) && validVersions(event.purposeVersion, event.noticeVersion)
 }
 
-function projectResponse(value, now = Date.now(), expectedSynthetic = false) {
+function projectResponse(value, now = Date.now(), expectedSynthetic = false, expected = { purposeVersion: PURPOSE, noticeVersion: NOTICE }) {
+  const { purposeVersion, noticeVersion } = expected
   if (!object(value) || value.ok !== true || !['none', 'active', 'revoked'].includes(value.status) ||
-    !version(value.statusVersion) || value.purposeVersion !== PURPOSE || value.noticeVersion !== NOTICE ||
+    !validVersions(purposeVersion, noticeVersion) || !version(value.statusVersion) ||
+    value.purposeVersion !== purposeVersion || value.noticeVersion !== noticeVersion ||
     (own(value, 'synthetic') && typeof value.synthetic !== 'boolean') ||
     (value.synthetic === true) !== expectedSynthetic) throw new Error('BAD_RESPONSE')
   const result = { ok: true, status: value.status, statusVersion: value.statusVersion,
-    purposeVersion: PURPOSE, noticeVersion: NOTICE }
+    purposeVersion, noticeVersion }
   if (own(value, 'synthetic')) result.synthetic = value.synthetic
   if (value.status !== 'none') {
     if (typeof value.participantKey !== 'string' || !ID.test(value.participantKey) || value.statusVersion < 1) throw new Error('BAD_RESPONSE')
@@ -38,13 +40,13 @@ function projectResponse(value, now = Date.now(), expectedSynthetic = false) {
     const s = value.session
     if (!object(s) || typeof s.participantKey !== 'string' || typeof s.grantId !== 'string' ||
       !ID.test(s.participantKey) || s.participantKey !== value.participantKey || !ID.test(s.grantId) || s.status !== 'active' || value.statusVersion < 1 ||
-      s.statusVersion !== value.statusVersion || s.confirmed !== true || s.purposeVersion !== PURPOSE ||
-      s.acceptedPurposeVersion !== PURPOSE || typeof s.token !== 'string' || s.token.length > 2048 ||
+      s.statusVersion !== value.statusVersion || s.confirmed !== true || s.purposeVersion !== purposeVersion ||
+      s.acceptedPurposeVersion !== purposeVersion || typeof s.token !== 'string' || s.token.length > 2048 ||
       !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(s.token) ||
       !Number.isSafeInteger(s.tokenExpiresAtMs) || s.tokenExpiresAtMs <= now ||
       s.tokenExpiresAtMs > now + 930000) throw new Error('BAD_RESPONSE')
     result.session = { participantKey: s.participantKey, grantId: s.grantId, status: 'active',
-      statusVersion: s.statusVersion, confirmed: true, purposeVersion: PURPOSE, acceptedPurposeVersion: PURPOSE,
+      statusVersion: s.statusVersion, confirmed: true, purposeVersion, acceptedPurposeVersion: purposeVersion,
       token: s.token, tokenExpiresAtMs: s.tokenExpiresAtMs }
   }
   return result
@@ -80,7 +82,7 @@ function send(body, key, { request = https.request, now = Date.now, nonce = () =
         res.on('end', () => {
           try {
             const reply = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-            if (res.statusCode === 200) return finish(false, projectResponse(reply, Date.now(), body.synthetic === true))
+            if (res.statusCode === 200) return finish(false, projectResponse(reply, Date.now(), body.synthetic === true, body))
             // Do not forward arbitrary upstream diagnostics, IDs or credentials.
             if ([400, 401, 403, 409, 422, 429, 500, 503].includes(res.statusCode) && reply.ok === false) {
               return finish(false, { ok: false, error: ERRORS.has(reply.error) ? reply.error : 'BRIDGE_UNAVAILABLE', statusCode: res.statusCode })
@@ -96,7 +98,7 @@ function send(body, key, { request = https.request, now = Date.now, nonce = () =
   })
 }
 
-function createHandler({ getKeys, transport = send, identity = getIdentity }) {
+function createAccountHandler({ getKeys, transport = send, identity = getIdentity }) {
   return async (event, context) => {
     const user = identity(context)
     if (!user) return { ok: false, error: 'LOGIN_REQUIRED', statusCode: 401 }
@@ -112,14 +114,14 @@ function createHandler({ getKeys, transport = send, identity = getIdentity }) {
       // Only the authenticated invocation supplies the operational account link.
       // Caller-supplied identities and all other client extra fields stop here.
       const body = { accountSubject, openid: user.openid, action: event.action, requestId: event.requestId,
-        expectedStatusVersion: event.expectedStatusVersion, purposeVersion: PURPOSE, noticeVersion: NOTICE }
+        expectedStatusVersion: event.expectedStatusVersion, purposeVersion: event.purposeVersion, noticeVersion: event.noticeVersion }
       // Test is an explicitly requested namespace, not proof of a WeChat build channel.
       // Preserve real request bytes/hash shape and the customer-service helper contract.
       if (synthetic) body.synthetic = true
       const response = await transport(body, keys.bridge)
-      return response?.ok === true ? projectResponse(response, Date.now(), synthetic) : response
+      return response?.ok === true ? projectResponse(response, Date.now(), synthetic, event) : response
     } catch (_) { return { ok: false, error: 'BRIDGE_UNAVAILABLE', statusCode: 503 } }
   }
 }
 
-module.exports = { createHandler, validRequest, projectResponse, send, PURPOSE, NOTICE, ENDPOINT }
+module.exports = { createAccountHandler, validRequest, projectResponse, send, PURPOSE, NOTICE, ENDPOINT }

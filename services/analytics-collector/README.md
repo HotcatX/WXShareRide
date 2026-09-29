@@ -4,15 +4,15 @@ This service receives bounded client telemetry using Node.js and local SQLite. R
 
 ## Naming and deployment compatibility
 
-The source directory and package are `services/analytics-collector` / `linkx-analytics-collector`. `src/compat/legacy.mjs` is the single source of deployed SQLite table/index names, JWT issuer/audience, purpose/notice versions, bridge route, account HMAC scopes, environment keys and operations key paths. SQL uses these immutable identifiers; there is no renamed duplicate database, account mapping or grant state.
+The source directory and package are `services/analytics-collector` / `linkx-analytics-collector`. `src/protocol.mjs` defines the current analytics table names, protocol versions, bridge route, token claims, environment keys and operations paths. Startup migrates the existing SQLite database in place; it does not create a second account database or regenerate participant/grant IDs.
 
-`TEMPORARY COMPATIBILITY` values cannot be removed just because the directory changed. First verify the next production release, then explicitly migrate old clients, tokens, grants, stored queues, database/backup readers and host operations. Table names and account scopes need a data migration; changing their spelling would disconnect existing users. The CloudBase package keeps its own deployable `compat.js`, with a cross-package contract test to prevent drift.
+`src/compat/legacy.mjs` isolates the old wire values still accepted from deployed clients, cloud bridges and tokens. The original account HMAC scopes remain there because changing that cryptographic input would change an existing user's identity. Compatibility aliases are not another source of account state. The CloudBase package has its own deployable compatibility module and cross-package contract tests.
 
-The Compose image tag remains the last deployed image until the deployment owner builds and pins a replacement. Keep the existing `/opt/linkx-collector` host directory, Compose project identity, data/secret mounts, socket and backup jobs during this rename. Do not start a second Compose project against the same SQLite file. Directory or package changes alone are not a deployment.
+Keep the existing `/opt/linkx-collector` directory, Compose project, data/secret mounts, socket and backup jobs. Only the root-only operations key directory becomes `/etc/linkx-analytics-ops`; copy the existing key bytes without changing them or widening permissions. Do not start a second collector against the same database. Follow [the naming migration procedure](ops/naming-migration.md) before replacing a production image; source edits alone are not a deployment.
 
 ## Boundaries
 
-- Public listener: `GET /healthz`, `POST /v1/batches`, and the strictly HMAC-authenticated `POST /internal/v1/research/participation`. Default native binding is `127.0.0.1:3000`; Docker binds internally to all interfaces but publishes only host loopback.
+- Public listener: `GET /healthz`, `POST /v1/batches`, and the strictly HMAC-authenticated `POST /internal/v1/analytics/accounts`. Default native binding is `127.0.0.1:3000`; Docker binds internally to all interfaces but publishes only host loopback.
 - Management: HTTP over a mode-0600 Unix socket, authenticated by a random admin token. It has no TCP port. Never proxy it, copy its token into the mini program, or expose it to Caddy.
 - Default `REAL_COLLECTION_ENABLED=false` rejects enrollment and ingestion for non-synthetic participants. Tests generate random identifiers and no real users.
 - Event bodies allow only opaque generated event identifiers. **Never put an OpenID, name, phone, WeChat ID, raw residential address, exact coordinate, or a personal value encoded as an ID in an event.** The trusted account bridge separately stores the original OpenID once for restricted operational lookup. Schema validation cannot determine that an opaque event ID was derived improperly.
@@ -51,8 +51,8 @@ COLLECTOR_UID=1000
 COLLECTOR_GID=1000
 REAL_COLLECTION_ENABLED=false
 # Set only after generating this independent 32-byte hex key on the destination:
-RESEARCH_BRIDGE_KEY_FILE=/secrets/bridge.key
-RESEARCH_NOTICE_VERSION=ride-research-notice-2026-09-23
+ANALYTICS_BRIDGE_KEY_FILE=/secrets/bridge.key
+ANALYTICS_NOTICE_VERSION=ride-analytics-notice-2026-09-23
 COLLECTOR_PORT=3000
 COLLECTOR_DOMAIN=collect.linkx.ink
 ```
@@ -70,7 +70,7 @@ docker compose exec -T collector node scripts/admin.mjs status
 
 Adapt the explicit secrets path in the first command if using a different host layout. `docker compose run` may still need the data/backup host directories to exist and be writable by the configured UID.
 
-Caddy is an optional **`https` profile**, so ordinary `up -d collector` does not open ports 80/443 or request a certificate. Only after the domain/DNS, HTTPS and mini-program server-domain requirements are confirmed, `docker compose --profile https up -d` starts it. Caddy stores certificates/config in separate persistent volumes and sees no SQLite, management socket, or signing key. Its configuration proxies only exact health, batch, HMAC participation, public-statistics read and statistics-sync routes. The public-statistics sidecar and its separate sync secret remain isolated from the collector. HTTP plaintext is suitable only for host-loopback tests.
+Caddy is an optional **`https` profile**, so ordinary `up -d collector` does not open ports 80/443 or request a certificate. Only after the domain/DNS, HTTPS and mini-program server-domain requirements are confirmed, `docker compose --profile https up -d` starts it. Caddy stores certificates/config in separate persistent volumes and sees no SQLite, management socket, or signing key. Its configuration proxies only exact health, batch, HMAC account, public-statistics read and statistics-sync routes. The public-statistics sidecar and its separate sync secret remain isolated from the collector. HTTP plaintext is suitable only for host-loopback tests.
 
 ## Configuration
 
@@ -81,9 +81,9 @@ Caddy is an optional **`https` profile**, so ordinary `up -d collector` does not
 | `ADMIN_SOCKET` | `./data/run/admin.sock` | Management Unix socket |
 | `SIGNING_KEY_FILE`, `ADMIN_TOKEN_FILE` | `./secrets/signing.pem`, `./secrets/admin.token` | Private readable files, no built-in fallback secrets |
 | `REAL_COLLECTION_ENABLED` | `false` | Controls real activation, token issuance and batch ingestion; state lookup/withdrawal remain available |
-| `RESEARCH_BRIDGE_KEY_FILE` | unset | Independent 64-hex-character key file, decoded to 32 bytes; absent disables the bridge |
-| `RESEARCH_NOTICE_VERSION` | `ride-research-notice-2026-09-23` | Current privacy-notice version; restore requires a newly deployed version |
-| `PURPOSE_VERSION` | `ride-research-v1` | Exact accepted purpose |
+| `ANALYTICS_BRIDGE_KEY_FILE` | unset | Independent 64-hex-character key file, decoded to 32 bytes; absent disables the bridge |
+| `ANALYTICS_NOTICE_VERSION` | `ride-analytics-notice-2026-09-23` | Current privacy-notice version; restore requires a newly deployed version |
+| `PURPOSE_VERSION` | `ride-analytics-v1` | Exact accepted purpose |
 | `TOKEN_TTL_SECONDS` | `900` | 60–900 seconds; refresh through the authenticated bridge or local management |
 | `SIGNING_KEY_ID` | `local-v1` | Pinned JWT key ID; no remote key lookup |
 | `MAX_DATABASE_MB` | `1024` | SQLite page cap; WAL, backups and logs require additional disk |
@@ -110,7 +110,7 @@ Same participant + batch ID + grant + same bytes returns the original receipt wi
 
 Across different batches, `(participant,eventId)` is indexed with a canonical event-content hash. Identical events may be stored in a retransmitted raw batch but appear only once in **`eligible_events`**; differing content/grant returns `409 EVENT_CONFLICT` and rolls back the whole batch. Do not count raw `ingest_batches` or expand `eligible_batches` without deduplication. Payloads remain client reports, not trusted business evidence.
 
-Error body: `{"ok":false,"error":"CODE"}`. Important classes: `400 INVALID_JSON/NON_CANONICAL_JSON`, `401 INVALID_TOKEN/TOKEN_EXPIRED`, `403 PARTICIPATION_INACTIVE/STALE_GRANT`, `409 BATCH_CONFLICT/EVENT_CONFLICT`, `413 BATCH_TOO_LARGE`, `415 JSON_REQUIRED/ENCODING_NOT_SUPPORTED`, `422 INVALID_BATCH`, `429 RATE_LIMITED`, `503 COLLECTION_DISABLED/RESTORE_QUARANTINE/STORAGE_UNAVAILABLE`. Retry 429/503 with backoff and the identical sealed batch; respect `Retry-After`. On 401 refresh trusted authentication; on 403 stop collecting and purge that grant's queue. Conflicts require quarantine/diagnosis, not a new batch ID containing the same disputed event.
+Error body: `{"ok":false,"error":"CODE"}`. Important classes: `400 INVALID_JSON/NON_CANONICAL_JSON`, `401 INVALID_TOKEN/TOKEN_EXPIRED`, `403 ACCOUNT_INACTIVE/STALE_GRANT`, `409 BATCH_CONFLICT/EVENT_CONFLICT`, `413 BATCH_TOO_LARGE`, `415 JSON_REQUIRED/ENCODING_NOT_SUPPORTED`, `422 INVALID_BATCH`, `429 RATE_LIMITED`, `503 COLLECTION_DISABLED/RESTORE_QUARANTINE/STORAGE_UNAVAILABLE`. Retry 429/503 with backoff and the identical sealed batch; respect `Retry-After`. On 401 refresh trusted authentication; on 403 stop collecting and purge that grant's queue. Conflicts require quarantine/diagnosis, not a new batch ID containing the same disputed event.
 
 ## Event data allowlist
 
@@ -132,9 +132,9 @@ Pages: `home/carpool_list/trip_detail/request_detail/trip_history/market/profile
 
 Rendered-set source: `network/cache`; `renderedCount` 0–500, loaded dates 0–31, `hasMore` and `candidatesComplete` boolean. Zero reason: `none/empty/filtered/load_error`. A candidate list has at most 50 entries; each contains `tripKey/tripType/position/availableSeats`, optional `tripVersion/referencePriceCents/currency/priceKind`. Positions are 0–999, seats 0–20, integer cents 0–100000; currency is `USD/unknown`; price kind is `driverReference/configuredRequestReference/unknown`. `candidatesComplete:true` requires a list whose length equals renderedCount; `false` explicitly represents a partial or unrecorded snapshot. Reference price is not actual payment, agreed price, or willingness to pay. Missing currency stays unknown in analysis.
 
-## Trusted participation bridge
+## Trusted account bridge
 
-`POST /internal/v1/research/participation` accepts compact UTF-8 JSON up to 8192 bytes. This is a server-to-server route, not a way for a mini-program to claim its own identity. CloudBase derives the account subject from the authenticated invocation identity using a separate scoped HMAC identity key and supplies its trusted `openid` for internal account debugging. The identity key can also be kept in a root-only host operations directory for verified customer-service requests; it is **not** mounted into the collector or bundled in the mini-program. The research `accountSubject` and random `participantKey` remain pseudonymous identifiers; the operational database is explicitly linked to original OpenIDs.
+`POST /internal/v1/analytics/accounts` accepts compact UTF-8 JSON up to 8192 bytes. This is a server-to-server route, not a way for a mini-program to claim its own identity. CloudBase derives the account subject from the authenticated invocation identity using a separate scoped HMAC identity key and supplies its trusted `openid` for internal account debugging. The identity key can also be kept in a root-only host operations directory for verified customer-service requests; it is **not** mounted into the collector or bundled in the mini-program. The `accountSubject` and random `participantKey` remain pseudonymous identifiers; the operational database is explicitly linked to original OpenIDs.
 
 The independent **bridge** key file is 64 hexadecimal characters, decoded to 32 raw bytes. It must differ from the identity key, public-statistics sync key, local admin token and Ed25519 signing key. Required headers, exactly once each:
 
@@ -144,9 +144,9 @@ The independent **bridge** key file is 64 hexadecimal characters, decoded to 32 
 
 The request contains `accountSubject` (64 lowercase hex), `action` (`status|activate|withdraw`), `requestId` (opaque 16–80-character ID), `expectedStatusVersion` (0–2147483647), `purposeVersion` and `noticeVersion`, plus optional `synthetic:true` and `openid` (`[A-Za-z0-9_-]{16,128}`). Old requests may omit both. Explicit false/non-boolean synthetic flags are rejected. Both versions must match server configuration. Unknown fields, the obsolete `consent` action and pretty/ambiguous JSON are rejected. Only the authenticated cloud invocation may supply `openid`; a client-provided identity is never forwarded.
 
-On startup, schema v3 atomically adds nullable `research_accounts.openid` and its lookup index without changing participant IDs, tokens or grants. A trusted request fills an existing empty link or checks an identical link; another OpenID or a duplicate OpenID assigned to a different account in the same real/test namespace returns `ACCOUNT_IDENTITY_CONFLICT`. Unknown `status` still creates no account. Existing records are linked on their next trusted status/activation, and OpenID is excluded from the operation-content hash to preserve older idempotent retries. The legacy customer-service helper remains compatible without sending the new field. Deploy this receiver before the updated cloud bridge.
+The account table stores a nullable `analytics_accounts.openid` and lookup index without changing participant IDs or grants. A trusted request fills an existing empty link or checks an identical link; another OpenID or a duplicate OpenID assigned to a different account in the same real/test namespace returns `ACCOUNT_IDENTITY_CONFLICT`. Unknown `status` still creates no account. Existing records are linked on their next trusted status/activation, and OpenID is excluded from the operation-content hash to preserve older idempotent retries. The legacy customer-service helper remains compatible without sending the new field. Deploy this receiver before the updated cloud bridge.
 
-For development/trial verification, the cloud bridge accepts optional client `collectionMode:'test'`, derives `accountSubject` using the distinct HMAC domain `linkx-research-test-account-v1` and adds `synthetic:true` inside its authenticated body. Real callers retain `linkx-research-account-v1` and omit the mode/type flags; the updated bridge supplies trusted `openid` in either mode. This is an explicitly requested test namespace, not server attestation of a WeChat build channel. Identity still comes exclusively from the authenticated current invocation. Existing account type is immutable for status, activation and withdrawal; test and real subject namespaces have independent random participant/grant IDs and state. Batch bodies cannot select or change type. Test responses always include outer `synthetic:true`, including unknown status, while real responses preserve the original shape. Clients must reject a wrong-mode reply and clear/partition queued data when switching modes.
+For development/trial verification, the cloud bridge accepts optional client `collectionMode:'test'`, derives `accountSubject` using the stable test account HMAC domain from `src/compat/legacy.mjs` and adds `synthetic:true` inside its authenticated body. Real callers retain the stable real account HMAC domain and omit the mode/type flags; the updated bridge supplies trusted `openid` in either mode. This is an explicitly requested test namespace, not server attestation of a WeChat build channel. Identity still comes exclusively from the authenticated current invocation. Existing account type is immutable for status, activation and withdrawal; test and real subject namespaces have independent random participant/grant IDs and state. Batch bodies cannot select or change type. Test responses always include outer `synthetic:true`, including unknown status, while real responses preserve the original shape. Clients must reject a wrong-mode reply and clear/partition queued data when switching modes.
 
 Synthetic activation/token issuance is available even when `REAL_COLLECTION_ENABLED=false`, but still requires the signed bridge, current notice/purpose, exact CAS and open restore gate. The conservative recovered-real-notice block applies to real grants; it is not a test authorization shortcut around quarantine. The original customer-service helper remains real-only without any protocol changes. Deploy this receiver before the updated cloud bridge and trial package.
 
@@ -158,7 +158,7 @@ State mutation and operation receipts use one immediate SQLite transaction. Same
 
 Responses contain `ok,status,statusVersion,purposeVersion,noticeVersion`; active/revoked also include the stable outer `participantKey`. A currently enabled active grant adds `session:{participantKey,grantId,statusVersion,status:'active',confirmed:true,purposeVersion,acceptedPurposeVersion,token,tokenExpiresAtMs}`. `confirmed` means **server authorization confirmed**, and the legacy `acceptedPurposeVersion` field identifies the authorized purpose; neither field claims an express user-consent event. Tokens are Ed25519 JWTs with fixed issuer/audience/algorithm/key ID and a default 15-minute lifetime. During a global pause, restore quarantine or notice mismatch, `status` can still return active metadata but omits `session`; clients must stop collection without a valid session and may still request withdrawal.
 
-Bridge errors use the ordinary `{ok:false,error}` envelope. Relevant errors include `BRIDGE_DISABLED`, `BRIDGE_UNAUTHORIZED`, `BRIDGE_REPLAY`, `BRIDGE_CAPACITY`, `INVALID_PARTICIPATION_REQUEST`, `NOTICE_VERSION_MISMATCH`, `STATE_CONFLICT`, `OPERATION_CONFLICT`, `OPERATION_SUPERSEDED`, `VERSION_EXHAUSTED`, `COLLECTION_DISABLED` and `RESTORE_QUARANTINE`. The compatibility error identifier `RECOVERY_RECONSENT_NOTICE_REQUIRED` means recovery requires a new notice deployment; it is a legacy code, not a record of user consent. `CONSENT_REQUIRED` likewise denotes missing server account/notice authorization for a real grant. No secret, body, original account ID, IP or token is logged.
+Bridge errors use the ordinary `{ok:false,error}` envelope. Relevant errors include `BRIDGE_DISABLED`, `BRIDGE_UNAUTHORIZED`, `BRIDGE_REPLAY`, `BRIDGE_CAPACITY`, `INVALID_ACCOUNT_REQUEST`, `NOTICE_VERSION_MISMATCH`, `STATE_CONFLICT`, `OPERATION_CONFLICT`, `OPERATION_SUPERSEDED`, `VERSION_EXHAUSTED`, `COLLECTION_DISABLED` and `RESTORE_QUARANTINE`. The compatibility error identifier `RECOVERY_RECONSENT_NOTICE_REQUIRED` means recovery requires a new notice deployment; it is a legacy code, not a record of user consent. `CONSENT_REQUIRED` likewise denotes missing server account/notice authorization for a real grant. No secret, body, original account ID, IP or token is logged.
 
 ## Local management and customer-service stop requests
 
@@ -197,9 +197,9 @@ Use **`eligible_real_events`** for authorized, deduplicated real research extrac
 
 ## Validation and remaining work
 
-`npm test` covers public/admin separation, unknown/default-off participation, hash retries/conflicts, cross-batch event deduplication and rollback, monotone withdrawal/reactivation, restart persistence, input/privacy allowlists, candidate coverage, concurrent withdrawal, online backup/quarantined restore, and recovery after a real child process SIGKILL.
+`npm test` covers public/admin separation, unknown/default-off account authorization, hash retries/conflicts, cross-batch event deduplication and rollback, monotone withdrawal/reactivation, restart persistence, input/privacy allowlists, candidate coverage, concurrent withdrawal, online backup/quarantined restore, and recovery after a real child process SIGKILL.
 
-The participation tests additionally cover signed bridge bodies/times, persisted nonce replay rejection, CAS races, true action receipts, stale operations, paused token suppression, empty-backup recovery, 180/187-day retention and seven-day backup rotation. Run them with the pinned Node 24 container runtime (or its matching local runtime), rather than changing global native dependencies.
+The account bridge tests additionally cover signed bridge bodies/times, persisted nonce replay rejection, CAS races, true action receipts, stale operations, paused token suppression, empty-backup recovery, 180/187-day retention and seven-day backup rotation. Run them with the pinned Node 24 container runtime (or its matching local runtime), rather than changing global native dependencies.
 
 Deployment must wire the matching cloud bridge, privacy notice, current mini-program domain, existing customer-service stop process and limited page hooks before enabling the real switch. Business transaction outbox, actual-ride follow-up, full candidate/trip pseudonym mapping, COS archive and external export deletion remain separate tasks. No booking behavior is modified by deploying this service.
 

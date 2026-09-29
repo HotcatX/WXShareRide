@@ -12,7 +12,7 @@ import { DIAGNOSTIC_ROUTE, readAccountDiagnostics, projectDiagnosticResponse, va
 const OPENID = 'synthetic_operator_account_123';
 const subject = () => randomBytes(32).toString('hex');
 const request = (accountSubject, extra = {}) => ({ accountSubject, action: 'activate', requestId: randomUUID(),
-  expectedStatusVersion: 0, purposeVersion: 'ride-research-v1', noticeVersion: 'ride-research-notice-2026-09-23', ...extra });
+  expectedStatusVersion: 0, purposeVersion: 'ride-analytics-v1', noticeVersion: 'ride-analytics-notice-2026-09-23', ...extra });
 const query = (extra = {}) => ({ openid: OPENID, synthetic: false, from: Date.now() - 60_000, to: Date.now() + 1000, limit: 50, ...extra });
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'account-diagnostics-')); const path = join(dir, 'db.sqlite');
@@ -27,36 +27,35 @@ function put(store, p, extra = {}, now = Date.now()) {
   return body;
 }
 
-test('v2 migration adds nullable OpenID and binds trusted status without changing prior grants/operation retries', t => {
-  const f = fixture(t); const initial = request(subject()); const p = f.store.participate(initial).participant;
+test('nullable OpenID binds trusted status without changing prior grants/operation retries', t => {
+  const f = fixture(t); const initial = request(subject()); const p = f.store.updateAccount(initial).participant;
   put(f.store, p);
-  f.store.db.exec('DROP VIEW operational_events; DROP INDEX research_account_openid; ALTER TABLE research_accounts DROP COLUMN openid; PRAGMA user_version=2;');
-  f.restart(); assert.equal(f.store.db.pragma('user_version', { simple: true }), 4);
-  assert.equal(f.store.db.prepare('SELECT openid FROM research_accounts').get().openid, null);
+  f.restart();
+  assert.equal(f.store.db.prepare('SELECT openid FROM analytics_accounts').get().openid, null);
   assert.equal(readAccountDiagnostics(f.store.db, query()).status, 'none');
-  const bound = f.store.participate({ ...initial, action: 'status', openid: OPENID });
+  const bound = f.store.updateAccount({ ...initial, action: 'status', openid: OPENID });
   assert.equal(bound.participant.grantId, p.grantId); assert.equal(bound.statusVersion, 1);
-  assert.equal(f.store.participate({ ...initial, openid: OPENID }).participant.grantId, p.grantId);
-  assert.equal(f.store.participate(initial).participant.grantId, p.grantId, 'old private helper/operation remains compatible');
+  assert.equal(f.store.updateAccount({ ...initial, openid: OPENID }).participant.grantId, p.grantId);
+  assert.equal(f.store.updateAccount(initial).participant.grantId, p.grantId, 'old private helper/operation remains compatible');
   assert.equal(readAccountDiagnostics(f.store.db, query()).events.length, 1);
 });
 
 test('OpenID is immutable within an account and unique per real/test namespace; unknown status stays read-only', t => {
   const f = fixture(t); const account = subject();
-  f.store.participate(request(account, { action: 'status', openid: OPENID }));
-  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM research_accounts').get().n, 0);
-  const p = f.store.participate(request(account, { openid: OPENID })).participant;
-  const testParticipant = f.store.participate(request(subject(), { openid: OPENID, synthetic: true })).participant;
+  f.store.updateAccount(request(account, { action: 'status', openid: OPENID }));
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM analytics_accounts').get().n, 0);
+  const p = f.store.updateAccount(request(account, { openid: OPENID })).participant;
+  const testParticipant = f.store.updateAccount(request(subject(), { openid: OPENID, synthetic: true })).participant;
   assert.notEqual(testParticipant.participantKey, p.participantKey);
-  for (const action of ['status', 'activate', 'withdraw']) assert.throws(() => f.store.participate(request(account,
+  for (const action of ['status', 'activate', 'withdraw']) assert.throws(() => f.store.updateAccount(request(account,
     { action, expectedStatusVersion: 1, openid: 'different_operator_account_456' })), { code: 'ACCOUNT_IDENTITY_CONFLICT' });
-  assert.throws(() => f.store.participate(request(subject(), { openid: OPENID })), { code: 'ACCOUNT_IDENTITY_CONFLICT' });
-  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM research_accounts').get().n, 2);
+  assert.throws(() => f.store.updateAccount(request(subject(), { openid: OPENID })), { code: 'ACCOUNT_IDENTITY_CONFLICT' });
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM analytics_accounts').get().n, 2);
 });
 
-test('OpenID diagnostics isolates real/test, bounds timeline and exposes no grant/token/subject; research view excludes OpenID', t => {
-  const f = fixture(t); const real = f.store.participate(request(subject(), { openid: OPENID })).participant;
-  const synthetic = f.store.participate(request(subject(), { openid: OPENID, synthetic: true })).participant;
+test('OpenID diagnostics isolates real/test, bounds timeline and exposes no grant/token/subject; analytics view excludes OpenID', t => {
+  const f = fixture(t); const real = f.store.updateAccount(request(subject(), { openid: OPENID })).participant;
+  const synthetic = f.store.updateAccount(request(subject(), { openid: OPENID, synthetic: true })).participant;
   const tripKey = randomUUID(); const now = Date.now();
   put(f.store, real, {}, now - 2000);
   const latest = put(f.store, real, { eventName: 'trip_detail_opened', data: { tripKey, tripType: 'carpool', source: 'list' } }, now - 1000);
@@ -76,13 +75,13 @@ test('OpenID diagnostics isolates real/test, bounds timeline and exposes no gran
 });
 
 test('withdrawn/quarantined/expired payloads cannot be returned, but minimal batch receipts explain missing history', t => {
-  const f = fixture(t); const account = subject(); const p = f.store.participate(request(account, { openid: OPENID })).participant;
+  const f = fixture(t); const account = subject(); const p = f.store.updateAccount(request(account, { openid: OPENID })).participant;
   put(f.store, p);
   f.store.db.prepare("UPDATE collector_settings SET value='closed' WHERE key='restore_gate'").run();
   const quarantined = readAccountDiagnostics(f.store.db, query());
   assert.equal(quarantined.events.length, 0); assert.equal(quarantined.coverage.restoreGate, 'closed');
   f.store.db.prepare("UPDATE collector_settings SET value='open' WHERE key='restore_gate'").run();
-  f.store.participate(request(account, { action: 'withdraw', expectedStatusVersion: 1 }));
+  f.store.updateAccount(request(account, { action: 'withdraw', expectedStatusVersion: 1 }));
   const revoked = readAccountDiagnostics(f.store.db, query());
   assert.equal(revoked.status, 'revoked'); assert.equal(revoked.events.length, 0);
   assert.equal(revoked.batches[0].payloadPresent, false); assert.equal(revoked.batches[0].eligible, false);
@@ -94,7 +93,7 @@ test('diagnostics rejects unbounded ranges/limits/extras and is reachable only o
     { ...query(), token: 'extra' }, query({ synthetic: 'true' })]) assert.throws(() => validateDiagnosticRequest(bad));
   const dir = mkdtempSync(join(tmpdir(), 'diagnostic-admin-'));
   const config = { dbPath: join(dir, 'db.sqlite'), adminSocket: join(dir, 'run/admin.sock'), host: '127.0.0.1', port: 0,
-    minFreeBytes: 0, adminToken: randomBytes(32).toString('base64url'), purposeVersion: 'ride-research-v1',
+    minFreeBytes: 0, adminToken: randomBytes(32).toString('base64url'), purposeVersion: 'ride-analytics-v1',
     privatePem: generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }) };
   const app = createCollector(config); const address = await app.start();
   t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });

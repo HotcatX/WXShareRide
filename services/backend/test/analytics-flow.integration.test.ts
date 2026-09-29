@@ -65,7 +65,7 @@ test('committed ride facts survive a lost ACK and update the actual collector on
     });
     assert.deepEqual(result, { sent: 5, delivered: 5, lockSkipped: 0 });
     assert.equal(store.db.prepare('SELECT count(*) n FROM place_business_events').get().n, 5);
-    assert.deepEqual(store.db.prepare('SELECT openid,active FROM place_participation_history WHERE event_id=? ORDER BY openid').all(last.eventId),
+    assert.deepEqual(store.db.prepare('SELECT openid,active FROM place_membership_history WHERE event_id=? ORDER BY openid').all(last.eventId),
       [{ openid: driverOpenid, active: 0 }, { openid: passengerOpenid, active: 0 }]);
     assert.equal(store.db.prepare('SELECT count(*) n FROM place_followup_population WHERE active=1').get().n, 0);
     assert.deepEqual((await pool.query<{ collector_payload: string }>(

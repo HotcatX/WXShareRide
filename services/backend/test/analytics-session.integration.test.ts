@@ -8,12 +8,12 @@ import { join } from 'node:path';
 import { createApp } from '../src/app.ts';
 import { createCollectionSessions } from '../src/analytics/session.ts';
 import { createSignedCollectorRequest } from '../src/analytics/transport.ts';
-import { collectionProtocol as protocol } from '../src/analytics/compat.ts';
+import { collectionProtocol as protocol } from '../src/analytics/protocol.ts';
 import { createTestDatabase } from './helpers/database.ts';
 import type { Config } from '../src/config.ts';
 
 const require = createRequire(import.meta.url);
-const { createHandler } = require('../../../cloudfunctions/statistics/bridge.js');
+const { createAccountHandler } = require('../../../cloudfunctions/statistics/bridge.js');
 const oldProtocol = require('../../../cloudfunctions/statistics/compat.js');
 const { createBackendClient, SESSION_KEY } = require('../../../utils/backendClient.js');
 // @ts-expect-error Existing collector remains an independent JavaScript service.
@@ -42,15 +42,16 @@ test('normal analytics route reuses the existing CloudBase account/grant with ac
     const config:Config = {databaseUrl:'',host:'127.0.0.1',port:3100,appId,sessionTtlSeconds:3600,businessMode:'active',
       collector:{origin:'https://collector.example.test',key,subjectKey}};
     const app = await createApp({pool:db.pool,config,exchange:async()=>({openid}),collectorTransport:transport});t.after(()=>app.close());
-    // Activate with the old deployed function's exact derivation first.
-    assert.equal(oldProtocol.ENDPOINT,`https://collect.linkx.ink${protocol.path}`);
+    // An already-published client sends its original labels through the updated cloud bridge.
+    assert.notEqual(oldProtocol.ENDPOINT,`https://collect.linkx.ink${protocol.path}`);
     assert.equal(oldProtocol.SUBJECT_SCOPE,protocol.subject);assert.equal(oldProtocol.TEST_SUBJECT_SCOPE,protocol.testSubject);
     const post = createSignedCollectorRequest(config.collector!,protocol.path,transport);
-    const old = createHandler({getKeys:()=>({bridge:key,subject:subjectKey}),identity:()=>({appid:appId,openid}),
+    const old = createAccountHandler({getKeys:()=>({bridge:key,subject:subjectKey}),identity:()=>({appid:appId,openid}),
       transport:async(body:unknown)=> (await post(JSON.stringify(body))).body});
-    const activated = await old(input('activate'),{});assert.equal(activated.ok,true);
+    const legacyInput = (action='status', expectedStatusVersion=0) => input(action, expectedStatusVersion, {purposeVersion:oldProtocol.PURPOSE,noticeVersion:oldProtocol.NOTICE});
+    const activated = await old(legacyInput('activate'),{});assert.equal(activated.ok,true);
     const account = createHmac('sha256',subjectKey).update(`${protocol.subject}\n${appId}\n${openid}`).digest('hex');
-    assert.equal(collector.store.db.prepare('SELECT COUNT(*) AS n FROM research_accounts WHERE account_subject=?').get(account).n,1);
+    assert.equal(collector.store.db.prepare('SELECT COUNT(*) AS n FROM analytics_accounts WHERE account_subject=?').get(account).n,1);
     const session = (await app.inject({method:'POST',url:'/api/v1/auth/login',payload:{code:'synthetic'}})).json().data;
     const storage = new Map<string,unknown>([['openid',openid],['isGuest',false],[SESSION_KEY,session]]);
     const sdk = createBackendClient({config:{mode:'server'},wx:{getStorageSync:(k:string)=>storage.get(k),
@@ -61,7 +62,7 @@ test('normal analytics route reuses the existing CloudBase account/grant with ac
       }}});
     const status = await sdk.collectionSession(input());
     assert.equal(status.participantKey,activated.participantKey);assert.equal(status.session.grantId,activated.session.grantId);
-    assert.equal(collector.store.db.prepare('SELECT COUNT(*) AS n FROM research_accounts').get().n,1);
+    assert.equal(collector.store.db.prepare('SELECT COUNT(*) AS n FROM analytics_accounts').get().n,1);
     const synthetic = await sdk.collectionSession(input('activate',0,{collectionMode:'test'}));
     assert.equal(synthetic.synthetic,true);assert.notEqual(synthetic.participantKey,status.participantKey);
     const withdrawal=input('withdraw',1);lose=true;
@@ -69,7 +70,7 @@ test('normal analytics route reuses the existing CloudBase account/grant with ac
     const withdrawn=await sdk.collectionSession(withdrawal);assert.equal(withdrawn.status,'revoked');assert.equal(withdrawn.statusVersion,2);
     assert.equal((await sdk.collectionSession(input())).status,'revoked');
     assert.equal((await sdk.collectionSession(input('status',0,{collectionMode:'test'}))).status,'active');
-    const oldStatus=await old(input(),{});assert.equal(oldStatus.status,'revoked');assert.equal(oldStatus.participantKey,status.participantKey);
+    const oldStatus=await old(legacyInput(),{});assert.equal(oldStatus.status,'revoked');assert.equal(oldStatus.participantKey,status.participantKey);
     const before=calls;
     for(const extra of [{openid:'forged'}, {accountSubject:account}, {appId:'another'}, {synthetic:true}]) {
       await assert.rejects(sdk.collectionSession({...input(),...extra}),{code:'INVALID_INPUT'});

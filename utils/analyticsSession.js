@@ -137,7 +137,7 @@ function createAnalyticsSession(options = {}) {
       reply = response && response.result
     }
     if (!reply || reply.ok !== true) {
-      const failure = new Error('participation_request_failed')
+      const failure = new Error('account_request_failed')
       failure.conflict = !!(reply && reply.statusCode === 409)
       throw failure
     }
@@ -202,7 +202,7 @@ function createAnalyticsSession(options = {}) {
       firstBatch = false
       if (result.ok) queuedSince = client.getStatus().queuedCount ? now() : 0
       if (result.reason === 'token_required') { tokenExpiresAt = 0; lastTokenRefresh = now() }
-      if (result.reason === 'participation_inactive') { verified = false; known = false; error = 'participation_inactive' }
+      if (result.reason === 'account_inactive') { verified = false; known = false; error = 'account_inactive' }
       return result
     })().finally(() => {
       if (uploadFlight !== flight) return

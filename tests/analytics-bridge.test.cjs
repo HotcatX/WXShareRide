@@ -3,12 +3,32 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const { EventEmitter } = require('node:events')
 const { getIdentity, APPID } = require('../cloudfunctions/statistics/context')
-const { createHandler, validRequest, projectResponse, send, PURPOSE, NOTICE, ENDPOINT } = require('../cloudfunctions/statistics/bridge')
+const { createAccountHandler, validRequest, projectResponse, send, PURPOSE, NOTICE, ENDPOINT } = require('../cloudfunctions/statistics/bridge')
 const environment = { TCB_SOURCE: 'wx_client', WX_OPENID: 'test_account_openid_123456', WX_APPID: APPID }
 const context = { environment: JSON.stringify(environment) }
 const event = { action: 'status', requestId: 'status_request_123456', expectedStatusVersion: 0, purposeVersion: PURPOSE, noticeVersion: NOTICE }
 const keys = { bridge: Buffer.alloc(32, 1), subject: Buffer.alloc(32, 2) }
 const none = { ok: true, status: 'none', statusVersion: 0, purposeVersion: PURPOSE, noticeVersion: NOTICE }
+
+test('published clients keep exact operation labels and identity through the canonical account bridge', async () => {
+  const legacy = require('../cloudfunctions/statistics/compat')
+  const request = { ...event, action: 'withdraw', purposeVersion: legacy.PURPOSE, noticeVersion: legacy.NOTICE }
+  let sent
+  const handler = createAccountHandler({ getKeys: () => keys, transport: async body => {
+    sent = body
+    return { ...none, purposeVersion: body.purposeVersion, noticeVersion: body.noticeVersion }
+  } })
+  const reply = await handler(request, context)
+  assert.equal(reply.ok, true)
+  assert.equal(reply.purposeVersion, request.purposeVersion)
+  assert.equal(reply.noticeVersion, request.noticeVersion)
+  for (const field of ['action', 'requestId', 'expectedStatusVersion', 'purposeVersion', 'noticeVersion']) {
+    assert.equal(sent[field], request[field])
+  }
+  assert.equal(validRequest({ ...request, noticeVersion: NOTICE }), false)
+  assert.equal(validRequest({ ...request, purposeVersion: PURPOSE }), false)
+  assert.throws(() => projectResponse(none, Date.now(), false, request), /BAD_RESPONSE/)
+})
 
 test('trusted identity is invocation-local; client, environment fallback and cross-app cannot impersonate', () => {
   assert.deepEqual(getIdentity(context), { appid: APPID, openid: environment.WX_OPENID })
@@ -38,7 +58,7 @@ test('request rejects identity injection, extra fields, bad action/version/purpo
 
 test('same authenticated account gets separate test subject and signed kind without changing the real helper scope', async () => {
   const bodies=[]
-  const handler=createHandler({getKeys:()=>keys,transport:async body=>{bodies.push(body);return body.synthetic ? {...none,synthetic:true}:none}})
+  const handler=createAccountHandler({getKeys:()=>keys,transport:async body=>{bodies.push(body);return body.synthetic ? {...none,synthetic:true}:none}})
   assert.deepEqual(await handler(event,context),none)
   const testReply=await handler({...event,collectionMode:'test'},context)
   assert.equal(testReply.synthetic,true)
@@ -58,14 +78,14 @@ test('upstream namespace must match requested mode and cannot silently route tes
   assert.equal(projectResponse({...none,synthetic:true},Date.now(),true).synthetic,true)
   assert.equal(projectResponse({...none,synthetic:false}).synthetic,false)
   for(const [request,reply] of [[{...event,collectionMode:'test'},none],[event,{...none,synthetic:true}]]) {
-    const handler=createHandler({getKeys:()=>keys,transport:async()=>reply})
+    const handler=createAccountHandler({getKeys:()=>keys,transport:async()=>reply})
     assert.equal((await handler(request,context)).error,'BRIDGE_UNAVAILABLE')
   }
 })
 
 test('bridge sends only trusted account identity with its scoped pseudonym, never caller identity or subject key', async () => {
   let transmitted
-  const handler=createHandler({getKeys:()=>keys, transport:async(body,key)=>{transmitted={body,key};return none}})
+  const handler=createAccountHandler({getKeys:()=>keys, transport:async(body,key)=>{transmitted={body,key};return none}})
   assert.deepEqual(await handler(event,context), none)
   assert.match(transmitted.body.accountSubject,/^[a-f0-9]{64}$/)
   assert.equal(transmitted.body.openid,environment.WX_OPENID)
@@ -80,7 +100,7 @@ test('bridge sends only trusted account identity with its scoped pseudonym, neve
 
 test('unavailable or accidentally reused keys fail closed without details',async()=>{
   for(const getKeys of [()=>{throw Error('secret/private/path')},()=>({bridge:keys.bridge,subject:keys.bridge}),()=>({})]) {
-    const response=await createHandler({getKeys,transport:()=>{throw Error('must not send')}})(event,context)
+    const response=await createAccountHandler({getKeys,transport:()=>{throw Error('must not send')}})(event,context)
     assert.deepEqual(response,{ok:false,error:'BRIDGE_UNAVAILABLE',statusCode:503})
   }
 })

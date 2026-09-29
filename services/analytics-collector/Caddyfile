@@ -9,9 +9,8 @@
     }
     @analyticsBridge {
         method POST
-        # TEMPORARY COMPATIBILITY: legacy bridge path from src/compat/legacy.mjs.
-        # Existing cloud deployments keep this route until coordinated migration.
-        path /internal/v1/research/participation /internal/v1/places/business-events
+        # TEMPORARY COMPATIBILITY: the final path serves older cloud bridges.
+        path /internal/v1/analytics/accounts /internal/v1/places/business-events /internal/v1/research/participation
     }
     @publicStats {
         method GET

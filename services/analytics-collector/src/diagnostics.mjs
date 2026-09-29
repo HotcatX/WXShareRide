@@ -1,4 +1,5 @@
-import { TABLES, PURPOSE_PATTERN, NOTICE_PATTERN } from './compat/legacy.mjs';
+import { TABLES } from './schema.mjs';
+import { isPurposeVersion, isNoticeVersion, canonicalPurposeVersion, canonicalNoticeVersion } from './protocol.mjs';
 import { requireThat } from './errors.mjs';
 import { shape, id, validateBatch } from './validation.mjs';
 
@@ -42,7 +43,7 @@ export function readAccountDiagnostics(db, input, now = Date.now()) {
     const eventRetentionDays = synthetic ? 14 : 180;
     const result = { ok: true, synthetic, status: p?.status || 'none',
       account: p ? { openid: p.openid, participantKey: p.participant_key, statusVersion: p.status_version,
-        purposeVersion: p.purpose_version, noticeVersion: p.notice_version, updatedAt: p.updated_at } : null,
+        purposeVersion: canonicalPurposeVersion(p.purpose_version), noticeVersion: canonicalNoticeVersion(p.notice_version), updatedAt: p.updated_at } : null,
       coverage: { timeBasis: 'receivedAt', from, to, limit, sampledAt: now,
         eventRetentionDays, receiptRetentionDays: synthetic ? 30 : 187,
         retentionCutoff: now - eventRetentionDays * DAY, windowStartsBeforeRetention: from < now - eventRetentionDays * DAY,
@@ -103,8 +104,7 @@ export function projectDiagnosticResponse(value, expectedSynthetic) {
   else {
     const a = value.account;
     if (!object(a) || typeof a.openid !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(a.openid) || !id(a.participantKey) || !integer(a.statusVersion, 1, 2_147_483_647) ||
-      typeof a.purposeVersion !== 'string' || !PURPOSE_PATTERN.test(a.purposeVersion) ||
-      typeof a.noticeVersion !== 'string' || !NOTICE_PATTERN.test(a.noticeVersion) || !epoch(a.updatedAt)) bad();
+      !isPurposeVersion(a.purposeVersion) || !isNoticeVersion(a.noticeVersion) || !epoch(a.updatedAt)) bad();
     account = { openid: a.openid, participantKey: a.participantKey, statusVersion: a.statusVersion,
       purposeVersion: a.purposeVersion, noticeVersion: a.noticeVersion, updatedAt: a.updatedAt };
   }

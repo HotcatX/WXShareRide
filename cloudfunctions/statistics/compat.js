@@ -1,9 +1,6 @@
-// TEMPORARY COMPATIBILITY — this cloud function deploys independently, so its
-// deployed protocol identifiers must stay local to its package. The contract test
-// checks them against the collector/client; do not create new account subjects or
-// grants by changing a prefix. No fallback or second authorization state lives here.
-// Remove only after the next production release is verified AND the server/client
-// identity, route and authorization migration is complete, including old callers.
+// TEMPORARY WIRE COMPATIBILITY for already-published clients.
+// HMAC separators preserve existing opaque identities and withdrawal records.
+// Keep these bytes until an explicit identity migration; active names live in protocol.js.
 module.exports = Object.freeze({
   ENDPOINT: 'https://collect.linkx.ink/internal/v1/research/participation',
   PURPOSE: 'ride-research-v1',

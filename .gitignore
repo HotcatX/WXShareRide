@@ -47,3 +47,4 @@ miniprogram_npm/
 /cloudfunctions/statistics/participation.secret.json
 /cloudfunctions/statistics/sync.secret
 /cloudfunctions/backend/auth-bridge.secret
+/cloudfunctions/statistics/analytics.secret.json

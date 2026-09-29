@@ -107,7 +107,7 @@ test('the existing client cloud fallback reaches the same PG authority and never
         });
       }),
     }),
-    participation() { throw Error('public reads must not use participation'); },
+    account() { throw Error('public reads must not use account state'); },
     getSyncKey() { throw Error('public reads must not use timer credentials'); },
   });
 

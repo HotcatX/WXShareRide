@@ -40,7 +40,7 @@ test('compiled DevTools pages use isolated real HTTP/PG after the fail-closed bo
           });
         }),
       }),
-      participation() { throw Error('public read must not access participation'); },
+      account() { throw Error('public read must not access account state'); },
       getSyncKey() { throw Error('public read must not load a key'); },
     });
     let session: any;

@@ -1,9 +1,9 @@
-import { TABLES } from '../src/compat/legacy.mjs';
+import { TABLES } from '../src/schema.mjs';
 import Database from 'better-sqlite3';
 import { chmodSync, existsSync, mkdirSync, linkSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
-import { sqliteIsPatched } from '../src/store.mjs';
+import { openStore, sqliteIsPatched } from '../src/store.mjs';
 
 // Creates a quarantined RESTORE CANDIDATE; never overwrites the live database.
 process.umask(0o077);
@@ -19,7 +19,9 @@ try {
   await db.backup(pending);
 } finally { db.close(); }
 chmodSync(pending, 0o600);
-const restored = new Database(pending);
+// Upgrade old backups only in the private candidate before it is published.
+const candidate = openStore(pending);
+const restored = candidate.db;
 let summary;
 try {
   restored.pragma('synchronous = FULL');
@@ -28,7 +30,8 @@ try {
   const participants = restored.prepare(`SELECT COUNT(*) AS n FROM ${TABLES.participants}`).get().n;
   const batches = restored.prepare('SELECT COUNT(*) AS n FROM ingest_batches').get().n;
   summary = { ok: true, target, restoreGate: 'closed', participants, batches };
-} finally { restored.close(); }
+  restored.pragma('wal_checkpoint(TRUNCATE)');
+} finally { candidate.close(); }
 // Publish only an already-quarantined, closed candidate; link fails if target exists.
 linkSync(pending, target);
 unlinkSync(pending);

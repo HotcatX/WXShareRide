@@ -2,10 +2,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { openSync, fstatSync, readSync, closeSync, constants } from 'node:fs';
 import { requireThat } from './errors.mjs';
 import { shape, id, purpose } from './validation.mjs';
-import { NOTICE_PATTERN } from './compat/legacy.mjs';
+import { isNoticeVersion, samePurposeVersion, sameNoticeVersion } from './protocol.mjs';
+import { isLegacyVersion } from './compat/legacy.mjs';
 
 export const BRIDGE_WINDOW_MS = 300_000;
-export const isNoticeVersion = value => typeof value === 'string' && NOTICE_PATTERN.test(value);
+export { isNoticeVersion } from './protocol.mjs';
 export function loadBridgeKey(path) {
   if (!path) return null;
   let fd;
@@ -37,14 +38,15 @@ export function verifyBridgeRequest(req, key, raw, now = Date.now()) {
   requireThat(timingSafeEqual(expected, Buffer.from(signature, 'hex')), 401, 'BRIDGE_UNAUTHORIZED');
   return { nonce, expiresAt: at + BRIDGE_WINDOW_MS };
 }
-export function validateParticipationRequest(body, purposeVersion, noticeVersion) {
+export function validateAccountRequest(body, purposeVersion, noticeVersion) {
   requireThat(shape(body, {
     accountSubject: value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value),
     action: value => ['status', 'activate', 'withdraw'].includes(value), requestId: id,
     expectedStatusVersion: value => Number.isSafeInteger(value) && value >= 0 && value <= 2_147_483_647,
     purposeVersion: purpose, noticeVersion: isNoticeVersion, synthetic: value => value === true,
     openid: value => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(value),
-  }, ['accountSubject', 'action', 'requestId', 'expectedStatusVersion', 'purposeVersion', 'noticeVersion']), 422, 'INVALID_PARTICIPATION_REQUEST');
-  requireThat(body.purposeVersion === purposeVersion && body.noticeVersion === noticeVersion, 409, 'NOTICE_VERSION_MISMATCH');
+  }, ['accountSubject', 'action', 'requestId', 'expectedStatusVersion', 'purposeVersion', 'noticeVersion'])
+    && isLegacyVersion(body.purposeVersion) === isLegacyVersion(body.noticeVersion), 422, 'INVALID_ACCOUNT_REQUEST');
+  requireThat(samePurposeVersion(body.purposeVersion, purposeVersion) && sameNoticeVersion(body.noticeVersion, noticeVersion), 409, 'NOTICE_VERSION_MISMATCH');
   return body;
 }

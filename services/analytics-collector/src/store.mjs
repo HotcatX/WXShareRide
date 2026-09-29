@@ -1,11 +1,12 @@
-import { TABLES } from './compat/legacy.mjs';
+import { TABLES, SCHEMA_VERSION, migrateTableNames } from './schema.mjs';
+import { purposeVersionSql } from './compat/legacy.mjs';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { requireThat } from './errors.mjs';
 import { validateBatch } from './validation.mjs';
-import { DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION } from './compat/legacy.mjs';
+import { DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonicalPurposeVersion, canonicalNoticeVersion, samePurposeVersion, sameNoticeVersion } from './protocol.mjs';
 import { initializePlaces, createPlacesStore } from './places.mjs';
 
 const DAY_MS = 86_400_000;
@@ -24,11 +25,13 @@ export function sqliteIsPatched(version) {
 }
 
 export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_PURPOSE_VERSION, maxDatabaseMB = 1024, noticeVersion = DEFAULT_NOTICE_VERSION } = {}) {
+  purposeVersion = canonicalPurposeVersion(purposeVersion);
+  noticeVersion = canonicalNoticeVersion(noticeVersion);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new Database(path, { timeout: 3000 });
   const sqliteVersion = db.prepare('SELECT sqlite_version() AS version').get().version;
   if (!sqliteIsPatched(sqliteVersion)) { db.close(); throw new Error('SQLite must include the WAL-reset fix (3.51.3+ or documented backport)'); }
-  if (db.pragma('user_version', { simple: true }) > 4) { db.close(); throw new Error('Unsupported database schema version'); }
+  if (db.pragma('user_version', { simple: true }) > SCHEMA_VERSION) { db.close(); throw new Error('Unsupported database schema version'); }
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = FULL');
   db.pragma('foreign_keys = ON');
@@ -38,7 +41,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   const pageSize = db.pragma('page_size', { simple: true });
   db.pragma(`max_page_count = ${Math.floor(maxDatabaseMB * 1024 * 1024 / pageSize)}`);
   chmodSync(path, 0o600);
-  db.transaction(() => { db.exec(`
+  try { db.transaction(() => { migrateTableNames(db); db.exec(`
     CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     INSERT OR IGNORE INTO collector_settings VALUES ('restore_gate', 'open');
     CREATE TABLE IF NOT EXISTS ${TABLES.participants} (
@@ -70,7 +73,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       notice_version TEXT NOT NULL, created_at INTEGER NOT NULL,
       FOREIGN KEY(participant_key) REFERENCES ${TABLES.participants}(participant_key)
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS participation_operations (
+    CREATE TABLE IF NOT EXISTS analytics_operations (
       account_subject TEXT NOT NULL, request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
       action TEXT NOT NULL, status_version INTEGER NOT NULL, purpose_version TEXT NOT NULL,
       notice_version TEXT NOT NULL, created_at INTEGER NOT NULL,
@@ -78,7 +81,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     ) STRICT;
     CREATE TABLE IF NOT EXISTS bridge_nonces (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL) STRICT;
     CREATE INDEX IF NOT EXISTS bridge_nonce_expiry ON bridge_nonces(expires_at);
-    CREATE INDEX IF NOT EXISTS participation_operation_age ON participation_operations(created_at);
+    CREATE INDEX IF NOT EXISTS analytics_operation_age ON analytics_operations(created_at);
     CREATE INDEX IF NOT EXISTS ingest_batch_age ON ingest_batches(received_at);
     DROP VIEW IF EXISTS operational_events;
     DROP VIEW IF EXISTS eligible_real_events;
@@ -87,7 +90,8 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     DROP VIEW IF EXISTS eligible_batches;
     CREATE VIEW eligible_batches AS
       SELECT b.* FROM ingest_batches b JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key
-      WHERE p.status='active' AND p.grant_id=b.grant_id AND p.purpose_version=b.purpose_version
+      WHERE p.status='active' AND p.grant_id=b.grant_id
+        AND ${purposeVersionSql('p.purpose_version')} = ${purposeVersionSql('b.purpose_version')}
         AND (SELECT value FROM collector_settings WHERE key='restore_gate')='open'
         AND b.received_at > (CAST(strftime('%s','now') AS INTEGER)*1000 - CASE p.synthetic WHEN 1 THEN 14 ELSE 180 END*86400000);
     CREATE VIEW eligible_events AS
@@ -111,25 +115,27 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
         SELECT a.openid,p.synthetic,json_extract(e.event_json,'$.data.tripKey') AS tripKey,e.*
         FROM eligible_events e JOIN ${TABLES.accounts} a ON a.participant_key=e.participant_key
         JOIN ${TABLES.participants} p ON p.participant_key=e.participant_key;
-      PRAGMA user_version = 4;`);
+      PRAGMA user_version = ${SCHEMA_VERSION};`);
     initializePlaces(db);
-  }).immediate();
+    if (db.pragma('foreign_key_check').length) throw new Error('Collector schema has foreign key violations');
+  }).immediate(); } catch (error) { db.close(); throw error; }
   const places = createPlacesStore(db, { realEnabled });
   const getParticipant = key => db.prepare(`SELECT * FROM ${TABLES.participants} WHERE participant_key=?`).get(key);
   const normalize = p => ({ participantKey: p.participant_key, grantId: p.grant_id, status: p.status,
-    statusVersion: p.status_version, purposeVersion: p.purpose_version, synthetic: Boolean(p.synthetic) });
+    statusVersion: p.status_version, purposeVersion: canonicalPurposeVersion(p.purpose_version), synthetic: Boolean(p.synthetic) });
   const assertActive = (p, claims) => {
     requireThat(db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value === 'open', 503, 'RESTORE_QUARANTINE');
-    requireThat(p && p.status === 'active', 403, 'PARTICIPATION_INACTIVE');
+    requireThat(p && p.status === 'active', 403, 'ACCOUNT_INACTIVE');
     requireThat(realEnabled || p.synthetic === 1, 503, 'COLLECTION_DISABLED');
-    requireThat(p.purpose_version === purposeVersion, 403, 'STALE_GRANT');
-    if (!p.synthetic) requireThat(db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value !== noticeVersion, 503, 'RECOVERY_RECONSENT_NOTICE_REQUIRED');
-    if (!p.synthetic) requireThat(db.prepare(`SELECT 1 FROM ${TABLES.accounts} WHERE participant_key=? AND notice_version=?`)
-      .get(p.participant_key, noticeVersion), 403, 'CONSENT_REQUIRED');
+    requireThat(samePurposeVersion(p.purpose_version, purposeVersion), 403, 'STALE_GRANT');
+    if (!p.synthetic) requireThat(!sameNoticeVersion(db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value, noticeVersion), 503, 'RECOVERY_RECONSENT_NOTICE_REQUIRED');
+    if (!p.synthetic) requireThat(sameNoticeVersion(db.prepare(`SELECT notice_version FROM ${TABLES.accounts} WHERE participant_key=?`)
+      .get(p.participant_key)?.notice_version, noticeVersion), 403, 'CONSENT_REQUIRED');
     if (claims) requireThat(p.grant_id === claims.grantId && p.status_version === claims.statusVersion
-      && p.purpose_version === claims.purposeVersion, 403, 'STALE_GRANT');
+      && samePurposeVersion(p.purpose_version, claims.purposeVersion), 403, 'STALE_GRANT');
   };
   const stateTransaction = db.transaction((state, now) => {
+    state = { ...state, purposeVersion: canonicalPurposeVersion(state.purposeVersion) };
     const current = getParticipant(state.participantKey);
     if (current) {
       requireThat(state.statusVersion >= current.status_version, 409, 'STALE_STATE');
@@ -140,7 +146,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       requireThat(state.synthetic === Boolean(current.synthetic), 409, 'PARTICIPANT_KIND_IMMUTABLE');
       if (state.status === 'revoked') requireThat(state.grantId === current.grant_id, 409, 'GRANT_MISMATCH');
       if (state.status === 'active' && current.status === 'active') {
-        requireThat(state.grantId === current.grant_id && state.purposeVersion === current.purpose_version, 409, 'REVOKE_BEFORE_NEW_GRANT');
+        requireThat(state.grantId === current.grant_id && samePurposeVersion(state.purposeVersion, current.purpose_version), 409, 'REVOKE_BEFORE_NEW_GRANT');
       }
     }
     if (state.status === 'active') {
@@ -168,20 +174,20 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   const getAccount = subject => db.prepare(`SELECT p.*, a.notice_version, a.openid FROM ${TABLES.accounts} a
     JOIN ${TABLES.participants} p ON p.participant_key=a.participant_key WHERE a.account_subject=?`).get(subject);
   const gateOpen = () => db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value === 'open';
-  const participationStatus = (subject, synthetic = false) => {
+  const accountStatus = (subject, synthetic = false) => {
     const p = getAccount(subject);
     const kind = synthetic ? { synthetic: true } : {};
     if (!p) return { ok: true, status: 'none', statusVersion: 0, purposeVersion, noticeVersion, ...kind };
     requireThat(Boolean(p.synthetic) === synthetic, 409, 'PARTICIPANT_KIND_IMMUTABLE');
     const response = { ok: true, participantKey: p.participant_key, status: p.status, statusVersion: p.status_version,
       purposeVersion, noticeVersion, ...kind };
-    if (p.status === 'active' && p.notice_version === noticeVersion && gateOpen() && (realEnabled || synthetic)
-      && (synthetic || db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value !== noticeVersion)) {
+    if (p.status === 'active' && sameNoticeVersion(p.notice_version, noticeVersion) && gateOpen() && (realEnabled || synthetic)
+      && (synthetic || !sameNoticeVersion(db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value, noticeVersion))) {
       assertActive(p); response.participant = normalize(p);
     }
     return response;
   };
-  const participationTransaction = db.transaction((request, now) => {
+  const accountTransaction = db.transaction((request, now) => {
     const { accountSubject, action, requestId, expectedStatusVersion } = request;
     const synthetic = request.synthetic === true;
     const current = getAccount(accountSubject);
@@ -192,27 +198,27 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
         WHERE a.openid=? AND p.synthetic=? AND a.account_subject<>?`).get(request.openid, Number(synthetic), accountSubject), 409, 'ACCOUNT_IDENTITY_CONFLICT');
       if (current && !current.openid) db.prepare(`UPDATE ${TABLES.accounts} SET openid=? WHERE account_subject=?`).run(request.openid, accountSubject);
     }
-    if (action === 'status') return participationStatus(accountSubject, synthetic);
+    if (action === 'status') return accountStatus(accountSubject, synthetic);
     // Identity is separately checked/bound above, not an operation argument.
     // Omitting it from the hash keeps pre-migration operation retries compatible.
     const { openid: _openid, ...operation } = request;
     const hash = createHash('sha256').update(canonical(operation)).digest('hex');
-    const prior = db.prepare('SELECT * FROM participation_operations WHERE account_subject=? AND request_id=?').get(accountSubject, requestId);
+    const prior = db.prepare('SELECT * FROM analytics_operations WHERE account_subject=? AND request_id=?').get(accountSubject, requestId);
     if (prior) {
       requireThat(prior.request_hash === hash, 409, 'OPERATION_CONFLICT');
       requireThat(current && prior.status_version === current.status_version, 409, 'OPERATION_SUPERSEDED');
-      return participationStatus(accountSubject, synthetic);
+      return accountStatus(accountSubject, synthetic);
     }
     requireThat(expectedStatusVersion === (current?.status_version || 0), 409, 'STATE_CONFLICT');
     if (action === 'activate') {
       requireThat(realEnabled || synthetic, 503, 'COLLECTION_DISABLED');
       requireThat(gateOpen(), 503, 'RESTORE_QUARANTINE');
-      requireThat(synthetic || db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value !== noticeVersion,
+      requireThat(synthetic || !sameNoticeVersion(db.prepare("SELECT value FROM collector_settings WHERE key='recovery_blocked_notice'").get()?.value, noticeVersion),
         503, 'RECOVERY_RECONSENT_NOTICE_REQUIRED');
     }
     let participant = current ? normalize(current) : { participantKey: randomUUID(), grantId: randomUUID(),
       status: 'revoked', statusVersion: 0, purposeVersion, synthetic };
-    if (action === 'activate' && (!current || current.status !== 'active' || current.notice_version !== noticeVersion)) {
+    if (action === 'activate' && (!current || current.status !== 'active' || !sameNoticeVersion(current.notice_version, noticeVersion))) {
       if (current?.status === 'active') {
         requireThat(participant.statusVersion < MAX_VERSION - 1, 409, 'VERSION_EXHAUSTED');
         participant = { ...participant, status: 'revoked', statusVersion: participant.statusVersion + 1 };
@@ -233,9 +239,9 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       notice_version=CASE WHEN ?='activate' THEN excluded.notice_version ELSE notice_version END,
       openid=COALESCE(${TABLES.accounts}.openid,excluded.openid)`).run(
       accountSubject, participant.participantKey, noticeVersion, now, request.openid ?? null, action);
-    db.prepare('INSERT INTO participation_operations VALUES (?,?,?,?,?,?,?,?)').run(
+    db.prepare('INSERT INTO analytics_operations VALUES (?,?,?,?,?,?,?,?)').run(
       accountSubject, requestId, hash, action, participant.statusVersion, purposeVersion, noticeVersion, now);
-    return participationStatus(accountSubject, synthetic);
+    return accountStatus(accountSubject, synthetic);
   });
   const receiveTransaction = db.transaction((claims, raw, body, now) => {
     // BEGIN IMMEDIATE covers authorization, receipt and payload; no awaits inside.
@@ -260,7 +266,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     }
     db.prepare('INSERT INTO batch_receipts VALUES (?,?,?,?,?,?)').run(claims.sub, body.batchId, claims.grantId, hash, body.events.length, now);
     db.prepare('INSERT INTO ingest_batches VALUES (?,?,?,?,?,?,?)').run(claims.sub, body.batchId, claims.grantId,
-      claims.statusVersion, claims.purposeVersion, now, raw);
+      claims.statusVersion, canonicalPurposeVersion(claims.purposeVersion), now, raw);
     return { ok: true, batchId: body.batchId, payloadHash: hash, eventCount: body.events.length, receivedAt: now, duplicate: false };
   });
   return {
@@ -278,7 +284,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
         db.prepare('INSERT INTO bridge_nonces VALUES (?,?)').run(nonce, expiresAt);
       }).immediate();
     },
-    participate(request, now = Date.now()) { return participationTransaction.immediate(request, now); },
+    updateAccount(request, now = Date.now()) { return accountTransaction.immediate(request, now); },
     applyState(state, now = Date.now()) { return stateTransaction.immediate(state, now); },
     activeParticipant(key) { const p = getParticipant(key); assertActive(p); return normalize(p); },
     receive(claims, raw, body, now = Date.now()) { return receiveTransaction.immediate(claims, raw, body, now); },
@@ -291,7 +297,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
           OR (participant_key IN (SELECT participant_key FROM ${TABLES.participants} WHERE synthetic=0) AND received_at <= ?)`)
           .run(now - 14 * DAY_MS, now - 180 * DAY_MS).changes;
         // Keep deduplication metadata while a payload still exists, then at least
-        // the seven-day upload retry window. No receipt becomes a research observation.
+        // the seven-day upload retry window. A receipt is not a separate event.
         const expiredReceipt = `((participant_key IN (SELECT participant_key FROM ${TABLES.participants} WHERE synthetic=1) AND received_at <= ?)
           OR (participant_key IN (SELECT participant_key FROM ${TABLES.participants} WHERE synthetic=0) AND received_at <= ?))`;
         const events = db.prepare(`DELETE FROM event_receipts WHERE ${expiredReceipt}
@@ -301,7 +307,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
           AND NOT EXISTS (SELECT 1 FROM ingest_batches b WHERE b.participant_key=batch_receipts.participant_key AND b.batch_id=batch_receipts.batch_id)`)
           .run(now - 30 * DAY_MS, now - 187 * DAY_MS).changes;
         const nonces = db.prepare('DELETE FROM bridge_nonces WHERE expires_at < ?').run(now).changes;
-        const operations = db.prepare('DELETE FROM participation_operations WHERE created_at <= ?').run(now - 187 * DAY_MS).changes;
+        const operations = db.prepare('DELETE FROM analytics_operations WHERE created_at <= ?').run(now - 187 * DAY_MS).changes;
         return { payloads, events, receipts, nonces, operations, places: places.prune(now) };
       }).immediate();
     },

@@ -1,4 +1,4 @@
-import { TABLES } from './compat/legacy.mjs';
+import { TABLES } from './schema.mjs';
 export function readSafeMetrics(db) {
   const count = sql => db.prepare(sql).get().n;
   return {

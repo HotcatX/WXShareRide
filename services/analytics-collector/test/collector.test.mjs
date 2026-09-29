@@ -10,7 +10,7 @@ import { createCollector } from '../src/server.mjs';
 import { openStore } from '../src/store.mjs';
 import { createTokenService } from '../src/auth.mjs';
 
-function state(extra = {}) { return { participantKey: randomUUID(), grantId: randomUUID(), status: 'active', statusVersion: 1, purposeVersion: 'ride-research-v1', synthetic: true, ...extra }; }
+function state(extra = {}) { return { participantKey: randomUUID(), grantId: randomUUID(), status: 'active', statusVersion: 1, purposeVersion: 'ride-analytics-v1', synthetic: true, ...extra }; }
 function batch(extra = {}) { return { schemaVersion: 1, batchId: randomUUID(), events: [{ eventId: randomUUID(), eventName: 'page_view', schemaVersion: 1, occurredAt: Date.now(), data: { page: 'home' } }], ...extra }; }
 
 async function fixture(t, overrides = {}) {
@@ -18,7 +18,7 @@ async function fixture(t, overrides = {}) {
   const config = { dbPath: join(dir, 'store.sqlite'), host: '127.0.0.1', port: 0,
     adminSocket: join(dir, 'run', 'admin.sock'), adminToken: randomBytes(32).toString('base64url'),
     privatePem: generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }),
-    minFreeBytes: 0, realEnabled: false, purposeVersion: 'ride-research-v1', ...overrides };
+    minFreeBytes: 0, realEnabled: false, purposeVersion: 'ride-analytics-v1', ...overrides };
   let app = createCollector(config); let address = await app.start();
   const admin = (path, body, secret = config.adminToken) => new Promise((resolve, reject) => {
     const raw = JSON.stringify(body);
@@ -83,7 +83,7 @@ test('signature, issuer, audience, expiry, purpose and state version are enforce
     createTokenService(generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' })).issue(p).token,
   ];
   for (const token of invalid) assert.equal((await f.send(batch(), token)).status, 401);
-  assert.equal((await f.send(batch(), f.app.tokens.issue({ ...p, purposeVersion: 'ride-research-v2' }).token)).body.error, 'STALE_GRANT');
+  assert.equal((await f.send(batch(), f.app.tokens.issue({ ...p, purposeVersion: 'ride-analytics-v2' }).token)).body.error, 'STALE_GRANT');
   assert.equal((await f.send(batch(), f.app.tokens.issue({ ...p, statusVersion: 2 }).token)).body.error, 'STALE_GRANT');
 });
 
@@ -100,13 +100,13 @@ test('database full returns no successful ACK or partial receipt/event state', a
   assert.equal(f.app.store.db.prepare('SELECT COUNT(*) AS n FROM ingest_batches').get().n, 0);
 });
 
-test('monotone participation state, withdrawal, old token and new grant isolation', async t => {
+test('monotone account state, withdrawal, old token and new grant isolation', async t => {
   const f = await fixture(t); const { state: p, token } = await f.enroll(); const b = batch();
   assert.equal((await f.send(b, token)).status, 200);
   const reordered = { synthetic: true, purposeVersion: p.purposeVersion, statusVersion: 1, status: 'active', grantId: p.grantId, participantKey: p.participantKey };
   assert.equal((await f.admin('/v1/participants/state', reordered)).body.duplicate, true);
   assert.equal((await f.admin('/v1/participants/state', { ...p, status: 'revoked', statusVersion: 2 })).status, 200);
-  assert.equal((await f.send(b, token)).body.error, 'PARTICIPATION_INACTIVE');
+  assert.equal((await f.send(b, token)).body.error, 'ACCOUNT_INACTIVE');
   assert.equal(f.app.store.db.prepare('SELECT COUNT(*) AS n FROM ingest_batches').get().n, 0);
   assert.equal((await f.admin('/v1/participants/state', p)).body.error, 'STALE_STATE');
   assert.equal((await f.admin('/v1/participants/state', { ...p, statusVersion: 3 })).body.error, 'GRANT_REVOKED');
@@ -187,7 +187,7 @@ test('online backup and published restore candidate are consistent and quarantin
     assert.equal(restored.db.prepare('SELECT COUNT(*) AS n FROM eligible_events').get().n, 0);
     restored.applyState({ ...p, status: 'revoked', statusVersion: 2 });
     restored.recoveryComplete();
-    assert.throws(() => restored.activeParticipant(p.participantKey), /PARTICIPATION_INACTIVE/);
+    assert.throws(() => restored.activeParticipant(p.participantKey), /ACCOUNT_INACTIVE/);
     assert.equal(restored.db.prepare('SELECT COUNT(*) AS n FROM ingest_batches').get().n, 0);
   } finally { restored.close(); }
 });
@@ -213,7 +213,7 @@ test('prune keeps distinct synthetic14/30-day and real180/187-day retention', t 
     for (const synthetic of [true, false]) {
       let p = state({ synthetic }); const b = batch();
       if (synthetic) s.applyState(p);
-      else p = s.participate({ accountSubject: randomBytes(32).toString('hex'), action: 'activate', requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion: 'ride-research-v1', noticeVersion: 'ride-research-notice-2026-09-23' }).participant;
+      else p = s.updateAccount({ accountSubject: randomBytes(32).toString('hex'), action: 'activate', requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion: 'ride-analytics-v1', noticeVersion: 'ride-analytics-notice-2026-09-23' }).participant;
       s.receive({ sub: p.participantKey, ...p }, Buffer.from(JSON.stringify(b)), b);
     }
     assert.equal(s.prune(Date.now() + 15 * 86_400_000).payloads, 1);

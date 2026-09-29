@@ -1,4 +1,4 @@
-import { PURPOSE_PATTERN } from './compat/legacy.mjs';
+import { isPurposeVersion } from './protocol.mjs';
 import { requireThat } from './errors.mjs';
 
 export const MAX_BYTES = 65_536;
@@ -15,7 +15,7 @@ const tripType = values('carpool', 'request');
 const page = values('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile');
 const serviceDate = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v)
   && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
-export const purpose = v => typeof v === 'string' && PURPOSE_PATTERN.test(v);
+export const purpose = isPurposeVersion;
 export const version = integer(1, 2_147_483_647);
 
 export function shape(value, fields, required = Object.keys(fields)) {

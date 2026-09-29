@@ -1,4 +1,4 @@
-import { DEFAULT_PURPOSE_VERSION, DEFAULT_NOTICE_VERSION } from '../src/compat/legacy.mjs';
+import { DEFAULT_PURPOSE_VERSION, DEFAULT_NOTICE_VERSION } from '../src/protocol.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes } from 'node:crypto';

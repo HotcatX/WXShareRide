@@ -165,6 +165,20 @@ function createFollowupController(options = {}) {
     }
     return outcomes
   }
+  async function readUnpromptedTrips(trips) {
+    const account = identity(), currentScope = scope()
+    if (!account || !currentScope || !Array.isArray(trips)) return null
+    const candidates = trips.filter(trip => eligibleTrip(trip, account, now()))
+    const outcomes = await readHistoryOutcomes(candidates)
+    if (!outcomes || identity() !== account || scope() !== currentScope) return null
+    // A recorded presentation or hidden prompt is still unanswered, but its
+    // positive timestamp proves this trip was already asked on another device.
+    return candidates.filter(trip => {
+      const item = eligibleTrip(trip, account, now())
+      return item && outcomes.some(value => value.tripKey === item.tripKey && value.tripType === item.tripType &&
+        value.role === item.role && value.source === 'unanswered' && value.occurredAt === 0)
+    })
+  }
   function reportHistory(trip, outcome, page) {
     const item = historyItem(trip)
     if (!foreground || !item || !['yes', 'no'].includes(outcome)) return { ok: false }
@@ -280,13 +294,13 @@ function createFollowupController(options = {}) {
   function dispose(page) { hide(page); disposed.add(page) }
   function beginForeground() { if (!foreground) { foreground = true; usedThisForeground = false } }
   function endForeground() { if (active) hide(active.page); foreground = false }
-  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground, readHistoryOutcomes, reportHistory, thank }
+  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground, readHistoryOutcomes, readUnpromptedTrips, reportHistory, thank }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createFollowupController(); return singleton }
 const exported = { createFollowupController, eligibleTrip, referencePrice, STORAGE_PREFIX }
-;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground', 'readHistoryOutcomes', 'reportHistory', 'thank'].forEach(name => {
+;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground', 'readHistoryOutcomes', 'readUnpromptedTrips', 'reportHistory', 'thank'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

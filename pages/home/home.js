@@ -490,7 +490,9 @@ Page({
         const response = await loadRideHistory(identity)
         if (!current()) return false
         if (!response || !response.result || response.result.ok !== true || !Array.isArray(response.result.data)) return false
-        this._homeFollowup = { key, identity, at: Date.now(), trips: response.result.data }
+        const trips = await followup.readUnpromptedTrips(response.result.data)
+        if (!current() || !Array.isArray(trips)) return false
+        this._homeFollowup = { key, identity, at: Date.now(), trips }
         this._considerHomeFollowup()
       })
     } catch (_) {

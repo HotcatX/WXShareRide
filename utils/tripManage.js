@@ -159,36 +159,13 @@ function addRatedTarget(map, value) {
 
 function buildRatedTargetMap(detailResult = {}) {
   const map = {}
-  const ratingState = detailResult.ratingState || {}
-  const sources = [
-    detailResult.ratedTargetUserIds,
-    detailResult.ratedTargetOpenids,
-    ratingState.ratedTargetOpenids,
-    detailResult.ratedTargets,
-    ratingState.ratedTargets
-  ]
-
-  sources.forEach(source => {
-    if (Array.isArray(source)) {
-      source.forEach(item => {
-        if (typeof item === "string") addRatedTarget(map, item)
-        else addRatedTarget(map, item && (item.targetOpenid || item.openid || item._openid))
-      })
-      return
-    }
-
-    if (source && typeof source === "object") {
-      Object.keys(source).forEach(key => {
-        if (source[key]) addRatedTarget(map, key)
-      })
-    }
-  })
-
+  const targets = detailResult.ratedTargetUserIds
+  if (Array.isArray(targets)) targets.forEach(target => { if (typeof target === "string") addRatedTarget(map, target) })
   return map
 }
 
-function isTargetRated(ratedTargetMap, targetOpenid) {
-  const id = cleanText(targetOpenid)
+function isTargetRated(ratedTargetMap, targetUserId) {
+  const id = cleanText(targetUserId)
   if (!id || !ratedTargetMap) return false
   if (Array.isArray(ratedTargetMap)) return ratedTargetMap.some(item => cleanText(item) === id)
   return !!ratedTargetMap[id]
@@ -196,13 +173,9 @@ function isTargetRated(ratedTargetMap, targetOpenid) {
 
 async function rateTripUser(options = {}) {
   const targetUserId = cleanText(options.targetUserId)
-  const targetOpenid = cleanText(options.targetOpenid)
-  const target = rides.isBackendEnabled() ? targetUserId : targetOpenid
   const tripId = cleanText(options.tripId || options.requestId || options.id)
-  const type = cleanText(options.type || "carpool") || "carpool"
-  const targetRole = cleanText(options.targetRole)
 
-  if (!target) {
+  if (!targetUserId) {
     wx.showToast({ title: "缺少评价对象", icon: "none" })
     return false
   }
@@ -210,7 +183,7 @@ async function rateTripUser(options = {}) {
     wx.showToast({ title: "缺少路线ID", icon: "none" })
     return false
   }
-  if (options.hasRated || isTargetRated(options.ratedTargetMap || options.ratedTargets, target)) {
+  if (options.hasRated || isTargetRated(options.ratedTargetMap || options.ratedTargets, targetUserId)) {
     wx.showToast({ title: "已经评价过", icon: "none" })
     return false
   }
@@ -224,12 +197,8 @@ async function rateTripUser(options = {}) {
     wx.showLoading({ title: "正在提交...", mask: true })
     const result = await callTripManage({
       action: "rateUser",
-      type,
       tripId,
-      requestId: tripId,
-      targetOpenid,
       targetUserId,
-      targetRole,
       score: rating.score
     })
     wx.hideLoading()
@@ -252,14 +221,9 @@ async function rateTripUser(options = {}) {
 
 async function blockRideUser(options = {}) {
   const targetUserId = cleanText(options.targetUserId)
-  const targetOpenid = cleanText(options.targetOpenid)
-  const target = rides.isBackendEnabled() ? targetUserId : targetOpenid
   const targetName = cleanText(options.targetName || options.name) || "该用户"
-  const type = cleanText(options.type || "carpool") || "carpool"
-  const tripId = cleanText(options.tripId || options.id)
-  const requestId = cleanText(options.requestId || options.tripId || options.id)
 
-  if (!target) {
+  if (!targetUserId) {
     wx.showToast({ title: "缺少拉黑对象", icon: "none" })
     return false
   }
@@ -281,10 +245,6 @@ async function blockRideUser(options = {}) {
           wx.showLoading({ title: "正在处理...", mask: true })
           const result = await callTripManage({
             action: "blockUser",
-            type,
-            tripId,
-            requestId,
-            targetOpenid,
             targetUserId
           })
           wx.hideLoading()

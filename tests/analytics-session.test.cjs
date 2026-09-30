@@ -1,6 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { createAnalyticsSession, PENDING_KEY } = require('../utils/analyticsSession')
+const { createBackendClient, SESSION_KEY } = require('../utils/backendClient')
 const { STORAGE_KEY } = require('../utils/analyticsClient')
 const { COHORT_KEY } = require('../utils/rolloutCohort')
 const { sha256 } = require('../utils/hash')
@@ -19,25 +20,25 @@ function reply(status, key = 'participant_00000001', version = status === 'none'
 }
 function harness(options = {}) {
   const store = options.store || { openid: 'account-a', [COHORT_KEY]: { version: 1, bucket: 100 } }
-  const state = { now: T, calls: [], batches: [], env: 'release', timers: new Map(), next: 0,
+  const state = { now: T, calls: [], cloud: [], batches: [], env: 'release', timers: new Map(), next: 0,
     remote: options.remote || reply('none'), fail: false, httpStatus: 200 }
   const wx = {
     getStorageSync: key => copy(store[key]),
     setStorageSync: (key, value) => { store[key] = copy(value) },
     removeStorageSync: key => { delete store[key] },
     getAccountInfoSync: () => ({ miniProgram: { envVersion: state.env } }),
-    cloud: { callFunction: async args => {
-      assert.equal(args.name, 'statistics')
-      state.calls.push(copy(args.data))
-      if (options.call) return options.call(args.data, state)
-      if (state.fail) throw new Error('offline')
-      if (args.data.action === 'activate') state.remote = reply('active', undefined, 1, state.now)
-      if (args.data.action === 'withdraw') state.remote = reply('revoked', state.remote.participantKey, state.remote.statusVersion + 1)
-      if (args.data.action === 'status' && state.remote.session) state.remote.session.tokenExpiresAtMs = state.now + 60000
-      return { result: copy(state.remote) }
-    } }
+    cloud: { callFunction: async args => { state.cloud.push(copy(args)); throw new Error('No fresh statistics cloud transport') } }
   }
-  const manager = createAnalyticsSession({ wx, backend: { isBackendEnabled: () => false }, now: () => state.now, random: () => 0.123,
+  const backend = { collectionSession: async data => {
+    state.calls.push(copy(data))
+    if (options.call) return options.call(data, state)
+    if (state.fail) throw Object.assign(new Error('offline'), { code: 'NETWORK_ERROR', status: 0 })
+    if (data.action === 'activate') state.remote = reply('active', undefined, 1, state.now)
+    if (data.action === 'withdraw') state.remote = reply('revoked', state.remote.participantKey, state.remote.statusVersion + 1)
+    if (data.action === 'status' && state.remote.session) state.remote.session.tokenExpiresAtMs = state.now + 60000
+    return copy(state.remote)
+  } }
+  const manager = createAnalyticsSession({ wx, backend, now: () => state.now, random: () => 0.123,
     config: { rolloutPercent: { develop: 0, trial: 0, release: 5 }, ...options.config },
     setTimeout(fn, delay) { const id = ++state.next; state.timers.set(id, { fn, at: state.now + delay }); return id },
     clearTimeout: id => state.timers.delete(id),
@@ -59,7 +60,7 @@ function harness(options = {}) {
     }
   }
   const start = async () => { const ready = manager.beginForeground(); manager.pageShown('pages/home/home'); await ready; await tick() }
-  return { manager, state, store, wx, advance, start }
+  return { manager, backend, state, store, wx, advance, start }
 }
 
 test('first in-cohort visit activates once then immediately uploads the current page; no popups or extra identity calls', async () => {
@@ -75,6 +76,56 @@ test('first in-cohort visit activates once then immediately uploads the current 
   assert.equal(h.state.calls.length, 2)
   assert.equal(JSON.stringify(h.state.calls).includes('account-a'), false)
   assert.equal(JSON.stringify(h.store[STORAGE_KEY]).includes('opaque-test-token'), false)
+  assert.deepEqual(h.state.cloud, [])
+})
+
+test('unready authority rejects a collection session before either transport starts', async () => {
+  const h = harness()
+  h.wx.request = () => assert.fail('unready authority cannot send HTTP')
+  const backend = createBackendClient({ wx: h.wx, authority: {
+    getMode() { throw Object.assign(new Error('not ready'), { code: 'BACKEND_NOT_READY' }) },
+    isReady: () => false, subscribe() {}
+  } })
+  Object.assign(h.backend, backend)
+  await assert.rejects(backend.collectionSession({ action: 'status' }), { code: 'BACKEND_NOT_READY' })
+  await h.start()
+  assert.equal(h.manager.getState().error, 'status_unavailable')
+  assert.equal(h.manager.getState().participating, false)
+  assert.deepEqual(h.state.cloud, []); assert.deepEqual(h.state.batches, [])
+})
+
+test('non-server authority cannot use the retired statistics call for a fresh session', async () => {
+  for (const mode of ['cloudbase', 'invalid']) {
+    const h = harness()
+    h.wx.request = () => assert.fail('non-server authority cannot send HTTP')
+    const backend = createBackendClient({ wx: h.wx, authority: {
+      getMode: () => mode, isReady: () => true, subscribe() {}
+    } })
+    Object.assign(h.backend, backend)
+    await assert.rejects(backend.collectionSession({ action: 'status' }), { code: 'BACKEND_DISABLED' })
+    await h.start()
+    assert.equal(h.manager.getState().error, 'status_unavailable')
+    assert.equal(h.manager.getState().participating, false)
+    assert.deepEqual(h.state.cloud, []); assert.deepEqual(h.state.batches, [])
+  }
+})
+
+test('canonical session network failure never falls back to statistics or issues another grant', async () => {
+  const h = harness(), requests = []
+  h.store.openid = 'synthetic-analytics-account-a'
+  h.store[SESSION_KEY] = { token: 'a'.repeat(43), expiresAt: new Date(T + 3600000).toISOString(),
+    user: { id: '00000000-0000-4000-8000-000000000001', openid: h.store.openid, referralCode: 'ref_0123456789ab' } }
+  h.wx.request = input => { requests.push(copy({ url: input.url, data: input.data })); input.fail() }
+  Object.assign(h.backend, createBackendClient({ wx: h.wx, now: () => h.state.now,
+    authority: { getMode: () => 'server', isReady: () => true, subscribe() {} } }))
+  await h.start()
+  assert.equal(h.manager.getState().error, 'status_unavailable')
+  assert.equal(h.manager.getState().participating, false)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, 'https://collect.linkx.ink/api/v1/analytics/session')
+  assert.equal(requests[0].data.action, 'status')
+  assert.deepEqual(h.state.cloud, []); assert.deepEqual(h.state.batches, [])
+  assert.equal(h.store[PENDING_KEY], undefined)
 })
 
 test('revoked, outside cohort, preview and unknown environment never activate or collect', async () => {
@@ -93,7 +144,7 @@ test('revoked, outside cohort, preview and unknown environment never activate or
 
 test('none activation failure refreshes status once without an activation loop', async () => {
   const h = harness({ call: async data => data.action === 'activate'
-    ? { result: { ok: false, statusCode: 409 } } : { result: reply('none') } })
+    ? Promise.reject(Object.assign(new Error('conflict'), { status: 409 })) : reply('none') })
   await h.start(); await tick(); await h.advance(60000)
   assert.deepEqual(h.state.calls.map(x => x.action), ['status', 'activate', 'status'])
   assert.equal(h.state.timers.size, 0); assert.equal(h.state.batches.length, 0)
@@ -116,13 +167,13 @@ test('foreground status is singleflight and market/profile pages produce no stud
   const a = h.manager.beginForeground(), b = h.manager.refreshStatus()
   h.manager.pageShown('pages/market/market'); await tick()
   assert.equal(a, b); assert.equal(h.state.calls.length, 1)
-  held.resolve({ result: reply('active') }); await a; await tick()
+  held.resolve(reply('active')); await a; await tick()
   assert.equal(h.manager.getState().queuedCount, 0)
   h.manager.pageShown('pages/profile/profile'); await h.advance(60000)
   assert.equal(h.state.batches.length, 0)
 })
 
-test('401 respects token-refresh cooldown rather than spinning; expiry alone does not call CloudBase', async () => {
+test('401 respects token-refresh cooldown rather than spinning; idle expiry does not refresh authorization', async () => {
   const h = harness({ remote: reply('active') }); await h.start()
   h.state.httpStatus = 401; await h.advance(0)
   assert.equal(h.state.batches.length, 1)
@@ -200,16 +251,17 @@ test('pending withdrawal follows participant ownership, including outside cohort
 
 test('account switch discards a late grant and clears old queued data', async () => {
   const held = deferred()
-  const h = harness({ call: data => data.action === 'status' ? held.promise : Promise.resolve({ result: reply('active') }) })
+  const h = harness({ call: data => data.action === 'status' ? held.promise : Promise.resolve(reply('active')) })
   const starting = h.manager.beginForeground(); h.manager.pageShown('pages/home/home'); await tick()
   h.store.isGuest = true; h.store.openid = ''; h.manager.identityChanged()
-  held.resolve({ result: reply('active') }); await starting; await tick()
+  held.resolve(reply('active')); await starting; await tick()
   assert.equal(h.manager.getState().loggedIn, false); assert.equal(h.state.batches.length, 0)
   assert.equal(h.state.calls.some(x => x.action === 'activate'), false)
 })
 
 test('withdraw conflict stays locally stopped and requires a new explicit operation after status refresh', async () => {
-  const h = harness({ call: async data => ({ result: data.action === 'withdraw' ? { ok: false, statusCode: 409 } : reply('active') }) })
+  const h = harness({ call: async data => data.action === 'withdraw'
+    ? Promise.reject(Object.assign(new Error('conflict'), { status: 409 })) : reply('active') })
   await h.start(); await h.manager.withdraw(); await tick()
   assert.equal(h.manager.getState().withdrawalConflict, true)
   assert.equal(h.manager.getState().participating, false)
@@ -243,9 +295,9 @@ test('environment becomes unavailable before a scheduled upload: no transport an
 
 test('a late activation rechecks the current login identity even without a page/login hook', async () => {
   const held = deferred()
-  const h = harness({ call: async data => data.action === 'activate' ? held.promise : { result: reply('none') } })
+  const h = harness({ call: async data => data.action === 'activate' ? held.promise : reply('none') })
   await h.start(); h.store.openid = 'account-b'
-  held.resolve({ result: reply('active') }); await tick(); await h.advance(0)
+  held.resolve(reply('active')); await tick(); await h.advance(0)
   assert.equal(h.manager.getState().participating, false)
   assert.equal(h.state.batches.length, 0)
 })
@@ -264,7 +316,7 @@ test('100 percent includes every installation without requiring a cohort bucket'
 test('development and trial use test-only grants and upload the current page through the same client', async () => {
   for (const env of ['develop', 'trial']) {
     const h = harness({ config: { rolloutPercent: defaults.rolloutPercent }, call: async data => ({
-      result: { ...reply(data.action === 'status' ? 'none' : 'active'), synthetic: true }
+      ...reply(data.action === 'status' ? 'none' : 'active'), synthetic: true
     }) })
     h.state.env = env
     await h.start(); await h.advance(0)
@@ -278,7 +330,7 @@ test('development and trial use test-only grants and upload the current page thr
 test('test and release reject a grant from the other dataset', async () => {
   for (const env of ['develop', 'trial', 'release']) {
     const h = harness({ config: { rolloutPercent: defaults.rolloutPercent }, call: async () => ({
-      result: { ...reply('active'), synthetic: env === 'release' }
+      ...reply('active'), synthetic: env === 'release'
     }) })
     h.state.env = env
     await h.start(); await h.advance(0)
@@ -291,11 +343,11 @@ test('test and release reject a grant from the other dataset', async () => {
 test('changing build mode while authorization is in flight discards the old grant and queued events', async () => {
   const held = deferred()
   const h = harness({ config: { rolloutPercent: defaults.rolloutPercent }, call: data => data.collectionMode === 'test'
-    ? held.promise : Promise.resolve({ result: reply('revoked') }) })
+    ? held.promise : Promise.resolve(reply('revoked')) })
   h.state.env = 'trial'
   const starting = h.manager.beginForeground(); h.manager.pageShown('pages/home/home'); await tick()
   h.state.env = 'release'; await h.manager.identityChanged()
-  held.resolve({ result: { ...reply('active'), synthetic: true } }); await starting; await tick(); await h.advance(0)
+  held.resolve({ ...reply('active'), synthetic: true }); await starting; await tick(); await h.advance(0)
   assert.equal(h.manager.getState().status, 'revoked')
   assert.equal(h.manager.getState().participating, false)
   assert.equal(h.state.batches.length, 0)

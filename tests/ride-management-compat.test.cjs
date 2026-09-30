@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 const tripManage = require('../utils/tripManage')
+const { createRideClient } = require('../utils/compat/rides')
 const plain = value => JSON.parse(JSON.stringify(value))
 const id = '00000000-0000-4000-8000-000000000001'
 const driverId = '00000000-0000-4000-8000-000000000002'
@@ -156,4 +157,72 @@ test('missing historical luggage is not a confirmed zero; new requests with an e
   await h.load(); assert.equal(h.page.data.largeLuggageCount, null)
   h.state.result.data.largeLuggageCount = 0
   await h.load(); assert.equal(h.page.data.largeLuggageCount, 0)
+})
+
+function managementActions() {
+  const state = { owner: 'synthetic-owner-a', writes: [], sheets: [], modals: [], toasts: [], storage: {} }
+  const wx = { getStorageSync: key => key === 'openid' ? state.owner : state.storage[key],
+    setStorageSync: (key, value) => { state.storage[key] = value },
+    showActionSheet: input => state.sheets.push(input), showModal: input => state.modals.push(input),
+    showToast: input => state.toasts.push(input), showLoading() {}, hideLoading() {},
+    cloud: { callFunction() { assert.fail('management cannot use the old cloud writer') } } }
+  const backend = { isBackendEnabled: () => true, async mutate(scope, method, url, body, options) {
+    state.writes.push(plain({ scope, method, url, body }))
+    const result = url.endsWith('/ratings') ? { ratingId: otherId, rideId: id, targetId: body.targetId, score: body.score }
+      : { targetUserId: body.targetUserId, active: true }
+    assert.equal(options.validate(result), true)
+    return state.submit ? state.submit(result) : result
+  } }
+  const rides = createRideClient({ wx, backend }), module = { exports: {} }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/tripManage.js'), 'utf8'), {
+    module, wx, require: name => { assert.equal(name, './compat/rides'); return rides }, console: { error() {} }
+  })
+  return { state, api: module.exports }
+}
+
+test('rating and block helpers keep canonical UUID targets, operation scopes and selected scores', async () => {
+  const h = managementActions()
+  const rating = h.api.rateTripUser({ tripId: id, targetUserId: driverId, targetOpenid: 'retired-target', type: 'request', targetRole: 'driver' })
+  h.state.sheets[0].success({ tapIndex: 1 })
+  assert.equal(await rating, true)
+  assert.deepEqual(h.state.writes[0], { scope: `rides.rate:${id}:${driverId}`, method: 'POST',
+    url: `/api/v1/rides/${id}/ratings`, body: { targetId: driverId, score: 4 } })
+  const block = h.api.blockRideUser({ tripId: id, targetUserId: driverId, targetOpenid: 'retired-target', targetName: 'Driver' })
+  await h.state.modals[0].success({ confirm: true })
+  assert.equal(await block, true)
+  assert.deepEqual(h.state.writes[1], { scope: `blocks.add:${driverId}`, method: 'POST',
+    url: '/api/v1/blocks', body: { targetUserId: driverId } })
+})
+
+test('management helpers reject former OpenID targets and keep canonical already-rated and UUID guards', async () => {
+  const h = managementActions()
+  assert.equal(await h.api.rateTripUser({ tripId: id, targetOpenid: driverId }), false)
+  assert.equal(await h.api.blockRideUser({ targetOpenid: driverId }), false)
+  const map = h.api.buildRatedTargetMap({ ratedTargetUserIds: [driverId], ratedTargetOpenids: [otherId], ratingState: { ratedTargetOpenids: [passengerId] } })
+  assert.deepEqual(plain(map), { [driverId]: true })
+  assert.equal(await h.api.rateTripUser({ tripId: id, targetUserId: driverId, ratedTargetMap: map }), false)
+  assert.equal(h.state.sheets.length, 0); assert.equal(h.state.modals.length, 0)
+  const invalid = h.api.rateTripUser({ tripId: id, targetUserId: 'not-a-uuid' })
+  h.state.sheets[0].success({ tapIndex: 0 })
+  assert.equal(await invalid, false)
+  assert.deepEqual(h.state.writes, [])
+})
+
+test('rating and block helper confirmations and delayed responses remain account scoped', async () => {
+  for (const action of ['rateTripUser', 'blockRideUser']) {
+    const h = managementActions(), pending = h.api[action]({ tripId: id, targetUserId: driverId })
+    h.state.owner = 'synthetic-owner-b'
+    if (action === 'rateTripUser') h.state.sheets[0].success({ tapIndex: 0 })
+    else await h.state.modals[0].success({ confirm: true })
+    assert.equal(await pending, false); assert.deepEqual(h.state.writes, [])
+  }
+  const h = managementActions(), held = deferred()
+  h.state.submit = () => held.promise
+  const pending = h.api.rateTripUser({ tripId: id, targetUserId: driverId })
+  h.state.sheets[0].success({ tapIndex: 0 })
+  await new Promise(setImmediate)
+  h.state.owner = 'synthetic-owner-b'
+  held.resolve({ ratingId: otherId, rideId: id, targetId: driverId, score: 5 })
+  assert.equal(await pending, false)
+  assert.equal(h.state.toasts.some(value => value.icon === 'success'), false)
 })

@@ -127,15 +127,8 @@ function createAnalyticsSession(options = {}) {
     }
     if (collectionMode === 'test') data.collectionMode = 'test'
     let reply
-    if (business.isBackendEnabled()) {
-      try { reply = await business.collectionSession(data) }
-      catch (error) { error.conflict = error.status === 409; throw error }
-    } else {
-      // TEMPORARY FALLBACK: selected CloudBase mode only; server errors never
-      // create another grant or retry a write against a different identity store.
-      const response = await wxApi.cloud.callFunction({ name: 'statistics', data })
-      reply = response && response.result
-    }
+    try { reply = await business.collectionSession(data) }
+    catch (error) { error.conflict = error.status === 409; throw error }
     if (!reply || reply.ok !== true) {
       const failure = new Error('account_request_failed')
       failure.conflict = !!(reply && reply.statusCode === 409)

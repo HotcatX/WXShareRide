@@ -26,12 +26,39 @@ function createPlacePickerSession(context, snapshot) {
   } }
   record(session, 'place_picker_open'); return session
 }
+function refreshPlacePickerSession(session, snapshot) {
+  if (!session || session.closed || session.viewer !== currentViewer()) return false
+  let scope = ''
+  try { scope = analytics().getCollectionScope() || '' } catch (_) {}
+  if (session.scope && session.scope !== scope) return false
+  session.scope = scope
+  const { snapshotId, preferenceVersion, ...common } = session.common
+  const next = { ...common,
+    catalogVersion: snapshot.catalogVersion || CATALOG_VERSION, rankingVersion: snapshot.rankingVersion || 'fixed-recent-v1',
+    ...(snapshot.snapshotId ? { snapshotId: snapshot.snapshotId } : {}),
+    ...(snapshot.preferenceVersion ? { preferenceVersion: snapshot.preferenceVersion } : {}),
+    circleIds: (snapshot.circles || []).slice(0, 2).map(circle => circle.circleId),
+    generatedAt: snapshot.generatedAt || Date.now(), cacheAgeMs: Math.min(86400000, snapshot.cacheAgeMs || 0)
+  }
+  if (['catalogVersion', 'rankingVersion', 'snapshotId', 'preferenceVersion', 'generatedAt'].some(key => next[key] !== session.common[key]) || JSON.stringify(next.circleIds) !== JSON.stringify(session.common.circleIds)) {
+    session.rendered = ''
+    session.visible.clear()
+  }
+  session.common = next
+  return true
+}
 function itemData(row, position) {
   const id = row.placeId || resolvePlaceId(row.value)
   return { placeId: id === 'unknown' ? 'custom' : id, position: Number.isInteger(row.position) ? row.position : position, source: row.source || 'fixed' }
 }
 function renderPlaces(session, rows, stage = 'rendered') {
-  const items = (rows || []).filter(row => !row.filterToken).slice(0, 20).map(itemData)
+  let items = (rows || []).filter(row => !row.filterToken).slice(0, 20).map(itemData)
+  if (stage === 'visible' && session) items = items.filter(item => {
+    const key = item.position + ':' + item.placeId
+    if (session.visible.has(key)) return false
+    session.visible.add(key)
+    return true
+  })
   if (!items.length) return
   const signature = JSON.stringify(items)
   if (stage === 'rendered' && session && session.rendered === signature) return
@@ -55,19 +82,18 @@ function closePlacePicker(session, reason) {
 function observePlaces(host, session, selector) {
   if (!host || !session || session.closed) return
   if (session.observer) { try { session.observer.disconnect() } catch (_) {} }
+  session.observer = null
   if (typeof host.createIntersectionObserver !== 'function') return
   try {
     const observer = host.createIntersectionObserver({ observeAll: true, thresholds: [0, 0.5] })
+    const common = session.common
     session.observer = observer
     observer.relativeToViewport().observe(selector, result => {
-      if (session.closed || result.intersectionRatio < 0.5) return
+      if (session.closed || session.observer !== observer || session.common !== common || result.intersectionRatio < 0.5) return
       const data = result.dataset || {}, position = Number(data.position)
       if (!Number.isInteger(position) || position < 0 || position > 49 || !data.placeId || data.filterToken === true || data.filterToken === 'true') return
-      const key = position + ':' + data.placeId
-      if (session.visible.has(key)) return
-      session.visible.add(key)
       renderPlaces(session, [{ placeId: data.placeId, position, source: data.source || 'fixed' }], 'visible')
     })
   } catch (_) {}
 }
-module.exports = { createPlacePickerSession, renderPlaces, selectPlace, closePlacePicker, customCancelled, observePlaces }
+module.exports = { createPlacePickerSession, refreshPlacePickerSession, renderPlaces, selectPlace, closePlacePicker, customCancelled, observePlaces }

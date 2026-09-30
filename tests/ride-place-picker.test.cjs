@@ -11,7 +11,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function utilityHarness() { return { api: require('../utils/ridePlaceOptions') } }
-function componentHarness(properties = {}) {
+function componentHarness(properties = {}, presentation = () => {}) {
   const { api } = utilityHarness()
   let definition
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../components/ride-place-picker/index.js'), 'utf8'), {
@@ -21,9 +21,9 @@ function componentHarness(properties = {}) {
   const component = {
     ...definition.methods,
     properties: { ...defaults, visible: true, ...properties },
-    data: plain(definition.data), events: [],
-    setData(patch) { Object.assign(this.data, patch) },
-    triggerEvent(name, detail) { if (name === 'presentation' || name === 'customcancel') return; this.events.push({ name, detail: detail && plain(detail) }) }
+    data: plain(definition.data), events: [], presentations: [],
+    setData(patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) },
+    triggerEvent(name, detail) { if (name === 'presentation') { this.presentations.push(plain(detail)); presentation(detail); return }; if (name === 'customcancel') return; this.events.push({ name, detail: detail && plain(detail) }) }
   }
   definition.observers.visible.call(component, true)
   return { component, definition }
@@ -160,4 +160,53 @@ test('hidden picker cannot navigate by confirming stale input or request retries
   component.properties.loading = false
   component.onRetry()
   assert.equal(component.events[0].name, 'retry')
+})
+
+test('asynchronous option refresh preserves the current search, custom draft and selected value', () => {
+  const { component, definition } = componentHarness({ value: '原有地点', options: ['公共旧车站'] })
+  component.onSearch(input('公共'))
+  component.onOpenCustom()
+  component.onCustomInput(input('我正在输入的新地点'))
+  component.properties.options = [{ value: '公共新车站', label: '公共新车站', placeId: 'poi_new_station', source: 'new' }]
+  component.properties.fixedOptions = ['Fort Lee', '哥大', '新固定地点']
+  definition.observers['options, fixedOptions, value'].call(component)
+  assert.equal(component.properties.value, '原有地点')
+  assert.equal(component.data.keyword, '公共')
+  assert.equal(component.data.customVisible, true)
+  assert.equal(component.data.customValue, '我正在输入的新地点')
+  assert.deepEqual(plain(component.data.suggestions.map(row => row.value)), ['公共新车站'])
+  assert.ok(component.presentations.at(-1).items.some(row => row.placeId === 'poi_new_station'), 'refreshed choices generate their own rendered exposure')
+  component.onConfirmCustom()
+  assert.equal(component.events[0].detail.value, '我正在输入的新地点')
+})
+
+test('reobserving refreshed component rows records visible exposure once per session snapshot', () => {
+  const events = []
+  const modules = require('./helpers/load-place-modules.cjs')({ wx: { getStorageSync: key => key === 'openid' ? 'viewer-a' : '' } }, {
+    getCollectionScope: () => 'test:viewer-a', recordEvent: (name, data) => { events.push({ name, data: plain(data) }) }
+  })
+  const telemetry = modules('placePickerTelemetry')
+  const snapshot = { catalogVersion: 'places-v1', rankingVersion: 'circle-selection-v1', snapshotId: 'snapshot_first_0001', generatedAt: Date.now() }
+  const session = telemetry.createPlacePickerSession({ field: 'departure', mode: 'driver', cityKey: 'ny_nj' }, snapshot)
+  const { component, definition } = componentHarness({}, detail => telemetry.renderPlaces(session, detail.items, detail.stage))
+  let onVisible
+  component.createIntersectionObserver = () => ({ disconnect() {}, relativeToViewport() { return this }, observe(selector, callback) { onVisible = callback } })
+  const seen = { intersectionRatio: 1, dataset: { placeId: 'fort_lee', position: 0, source: 'fixed' } }
+  component.observeVisible()
+  const oldObserver = onVisible
+  onVisible(seen)
+  definition.observers['options, fixedOptions, value'].call(component)
+  const beforeLate = component.presentations.length
+  oldObserver({ ...seen, dataset: { ...seen.dataset, placeId: 'poi_stale_option' } })
+  assert.equal(component.presentations.length, beforeLate, 'replaced DOM observers cannot emit late rows')
+  onVisible(seen)
+  component.onSearch(input('Fort'))
+  onVisible(seen)
+  const visible = () => events.filter(event => event.name === 'place_picker_rendered' && event.data.stage === 'visible')
+  assert.equal(visible().length, 1)
+  telemetry.refreshPlacePickerSession(session, { ...snapshot, snapshotId: 'snapshot_second_0002' })
+  component.refreshOptions()
+  onVisible(seen)
+  assert.equal(visible().length, 2)
+  assert.equal(visible().at(-1).data.snapshotId, 'snapshot_second_0002')
 })

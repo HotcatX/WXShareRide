@@ -431,11 +431,9 @@ Page({
       placePickerValue: isDeparture ? this.data.departureAddress : this.data.destinationAddress,
       placePickerOptions: this._placeSuggestions.places
     })
-    // The visible order is frozen. A completed refresh is used on the next open.
+    // Show cached choices immediately, then update this panel when the read completes.
     return this.loadPlaceSuggestions()
   },
-
-  updatePlacePickerData() {},
 
   async loadPlaceSuggestions(options = {}) {
     if (!this.data.placePickerVisible || this._calendarDisposed) return
@@ -445,10 +443,24 @@ Page({
       return
     }
     const session = this._placeSession
-    const [, config] = await Promise.all([placeRecommendations.loadPlaceRecommendations({ ...context, force: !!options.force }), loadRideAddressConfig({ force: !!options.force }).catch(() => null)])
-    if (config && !this._calendarDisposed && this.data.placePickerVisible && session === this._placeSession && context.viewerKey === this.getListViewerKey()) {
-      this.setData({ departureAddresses: [...config.fromPlaces, "其他"], arrivalAddresses: [...config.toPlaces, "其他"] })
+    const [snapshot, config] = await Promise.all([placeRecommendations.loadPlaceRecommendations({ ...context, force: true }), loadRideAddressConfig({ force: !!options.force }).catch(() => null)])
+    if (this._calendarDisposed || !this.data.placePickerVisible || session !== this._placeSession || session.closed || JSON.stringify(context) !== JSON.stringify(this.getPlaceRecommendationContext())) return
+    const patch = {}
+    if (config) {
+      patch.departureAddresses = [...config.fromPlaces, "其他"]
+      patch.arrivalAddresses = [...config.toPlaces, "其他"]
+      const fixed = context.field === 'destination' ? config.toPlaces : config.fromPlaces
+      patch.placePickerFixedOptions = fixed.filter(value => !["全部", "其他", "自选"].includes(value)).map(value => ({ value, label: shortRidePlaceLabel(value) }))
     }
+    if (!snapshot.localFallback) {
+      const picker = typeof this.selectComponent === 'function' && this.selectComponent('#departure-place-picker')
+      if (picker && typeof picker.stopObserving === 'function') picker.stopObserving()
+      if (placePickerTelemetry.refreshPlacePickerSession(session, snapshot)) {
+        this._placeSuggestions = snapshot
+        patch.placePickerOptions = snapshot.places
+      }
+    }
+    this.setData(patch)
   },
 
   onRetryPlaceSuggestions() { return this.loadPlaceSuggestions({ force: true }) },

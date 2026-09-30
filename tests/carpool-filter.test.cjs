@@ -21,7 +21,9 @@ function harness() {
   let definition
   const state = { now: Date.parse('2030-01-01T10:00:00'), calls: [], store: {}, configReads: [],
     config: plain(require('../utils/locationCatalog.generated')),
-    configFailure: false, holdConfig: null
+    configFailure: false, holdConfig: null, placeRequests: [], holdPlaces: null,
+    places: { ok: true, catalogVersion: 'places-v1', rankingVersion: 'circle-selection-v1', generatedAt: Date.parse('2030-01-01T10:00:00'),
+      places: [{ placeId: 'poi_station_123', label: '公共车站', source: 'new' }] }
   }
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [state.now])) }
@@ -46,7 +48,9 @@ function harness() {
         return context._placeModules(name)
       }
       if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('analyticsSession'), { wx: context.wx, Date: typeof Clock === 'undefined' ? Date : Clock })
-      if (name.includes('analyticsSession')) return { recordSearch: () => '', recordResults: () => ({ ok: false }) }
+      if (name.includes('analyticsSession')) return { recordSearch: () => '', recordResults: () => ({ ok: false }),
+        getCollectionScope: () => state.store.openid ? 'test:' + state.store.openid : '',
+        requestPlaceSuggestions: data => { state.placeRequests.push(plain(data)); return state.holdPlaces || Promise.resolve(plain(state.places)) } }
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
@@ -391,4 +395,43 @@ test('concurrent fixed-place opens coalesce; a failed or late update preserves t
   release()
   await late
   assert.deepEqual(plain(page.data), beforeUnload)
+})
+
+test('a cold filter picker shows fresh public places without clearing the selected filter or search', async () => {
+  const { page, state } = harness()
+  state.store.openid = 'viewer-a'
+  let release
+  state.holdPlaces = new Promise(resolve => { release = resolve })
+  page.data.selectedFromPlace = '公共旧自选地点'
+  const opening = page.onOpenPlacePicker(event('field', 'from'))
+  page.onPlaceSearchInput({ detail: { value: '公共' } })
+  release(plain(state.places))
+  await opening
+  assert.equal(page.data.placeSearchKeyword, '公共')
+  assert.equal(page.data.selectedFromPlace, '公共旧自选地点')
+  assert.ok(page.data.placePickerOptions.some(row => row.value === '公共旧自选地点' && row.selected))
+  assert.ok(page.data.placePickerOptions.some(row => row.placeId === 'poi_station_123'))
+  state.holdPlaces = null
+  state.places.places = [{ placeId: 'poi_just_published', label: '新公开地点', source: 'new' }]
+  await page.onOpenPlacePicker(event('field', 'from'))
+  assert.equal(state.placeRequests.length, 2, 'reopening revalidates before the five-minute display cache expires')
+  assert.ok(page.data.placePickerOptions.some(row => row.placeId === 'poi_just_published'))
+})
+
+test('filter recommendation responses cannot cross account, closed panel, or mutation boundaries', async () => {
+  for (const change of ['account', 'close', 'mutation']) {
+    const { page, state } = harness()
+    state.store.openid = 'viewer-a'
+    await page.loadFilterPlaceConfig()
+    let release
+    state.holdPlaces = new Promise(resolve => { release = resolve })
+    const opening = page.onOpenPlacePicker(event('field', 'from'))
+    if (change === 'account') state.store.openid = 'viewer-b'
+    else if (change === 'close') page.onClosePlacePicker()
+    else state.store.rideListShouldRefreshAt = state.now + 1
+    const before = plain(page.data.placePickerOptions)
+    release(plain(state.places))
+    await opening
+    assert.deepEqual(plain(page.data.placePickerOptions), before, change)
+  }
 })

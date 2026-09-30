@@ -1417,21 +1417,37 @@ Page({
     })
   },
 
-  onOpenPlacePicker(e) {
+  getPlaceRecommendationContext() {
+    return { cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, viewerKey: this.getListViewerKey(), revision: this.getRideListRefreshAt(),
+      field: this._placePickerField === 'to' ? 'destination' : 'departure', mode: 'filter',
+      counterpartPlaceId: resolvePlaceId(this.getSelectedFilterPlace(this._placePickerField === 'to' ? 'from' : 'to')) }
+  },
+
+  async onOpenPlacePicker(e) {
     rideTelemetry.stopList(this)
     placePickerTelemetry.closePlacePicker(this._placeSession, "replaced")
     const field = e && e.currentTarget && e.currentTarget.dataset.field
     this._placePickerField = field === "to" ? "to" : "from"
     this.syncFilterUi()
-    this._placeContext = { cityKey: this.data.activeCityKey || RIDE_DEFAULT_CITY_KEY, viewerKey: this.getListViewerKey(),
-      field: this._placePickerField === 'to' ? 'destination' : 'departure', mode: 'filter',
-      counterpartPlaceId: resolvePlaceId(this.getSelectedFilterPlace(this._placePickerField === 'to' ? 'from' : 'to')) }
+    this._placeContext = this.getPlaceRecommendationContext()
     const snapshot = placeRecommendations.getCachedPlaceRecommendations(this._placeContext)
     this._placeSession = placePickerTelemetry.createPlacePickerSession(this._placeContext, snapshot)
+    this.setData({ placePickerVisible: true, calendarVisible: false, cityPickerVisible: false, refineFiltersVisible: false,
+      placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地", placeSearchKeyword: ""
+    })
+    this.updatePlacePickerData(snapshot)
+    const context = this._placeContext, session = this._placeSession
+    const [fresh] = await Promise.all([placeRecommendations.loadPlaceRecommendations({ ...context, force: true }), this.loadFilterPlaceConfig()])
+    if (this._listDisposed || !this.data.placePickerVisible || session !== this._placeSession || session.closed || JSON.stringify(context) !== JSON.stringify(this.getPlaceRecommendationContext())) return
+    const next = fresh.localFallback ? snapshot : fresh
+    if (placePickerTelemetry.refreshPlacePickerSession(session, next)) this.updatePlacePickerData(next)
+  },
+
+  updatePlacePickerData(snapshot) {
     const configured = this.data[this._placePickerField === 'to' ? 'toPlaceList' : 'fromPlaceList']
     const fixed = configured.length ? configured : getStaticRideAddressConfig().fromPlaces
     const seen = new Set()
-    this._frozenPlaceOptions = [{ value: '', label: this._placePickerField === 'to' ? '不限目的地' : '不限出发地', placeId: 'unknown', source: 'fixed', filterToken: true },
+    this._placeOptions = [{ value: '', label: this._placePickerField === 'to' ? '不限目的地' : '不限出发地', placeId: 'unknown', source: 'fixed', filterToken: true },
       ...fixed.map(value => ({ value: this.normalizeFilterPlace(value), label: shortRidePlaceLabel(value), placeId: resolvePlaceId(value), source: 'fixed' })),
       ...snapshot.places.map(row => ({ ...row, value: this.normalizeFilterPlace(row.value) })),
       { value: '其他', label: '其他', placeId: 'unknown', source: 'fixed', filterToken: true }].filter(row => {
@@ -1440,30 +1456,25 @@ Page({
         seen.add(id); return true
       })
     const selected = this.getSelectedFilterPlace(this._placePickerField)
-    if (selected && !this._frozenPlaceOptions.some(row => row.value === selected)) this._frozenPlaceOptions.splice(-1, 0, { value: selected, label: selected, placeId: resolvePlaceId(selected), source: 'personal' })
+    if (selected && !this._placeOptions.some(row => row.value === selected)) this._placeOptions.splice(-1, 0, { value: selected, label: selected, placeId: resolvePlaceId(selected), source: 'personal' })
     let placeCount = 0
-    this._frozenPlaceOptions = this._frozenPlaceOptions.filter(row => row.filterToken || ++placeCount <= 20)
-    this.setData({ placePickerVisible: true, calendarVisible: false, cityPickerVisible: false, refineFiltersVisible: false,
-      placePickerTitle: this._placePickerField === "to" ? "选择目的地" : "选择出发地", placeSearchKeyword: ""
-    }, () => {
-      this.updatePlacePickerOptions()
-      placePickerTelemetry.renderPlaces(this._placeSession, this.data.placePickerOptions)
-      placePickerTelemetry.observePlaces(this, this._placeSession, '.list-place-option')
-    })
-    // Keep the current panel stable while new data warms the next opening.
-    return Promise.all([placeRecommendations.loadPlaceRecommendations(this._placeContext), this.loadFilterPlaceConfig()])
+    this._placeOptions = this._placeOptions.filter(row => row.filterToken || ++placeCount <= 20)
+    this.updatePlacePickerOptions()
   },
 
   updatePlacePickerOptions() {
     const field = this._placePickerField === "to" ? "to" : "from"
     const selected = this.getSelectedFilterPlace(field)
     const keyword = String(this.data.placeSearchKeyword || "").trim().toLowerCase()
-    const options = (this._frozenPlaceOptions || []).filter(option => {
+    const options = (this._placeOptions || []).filter(option => {
       if (!keyword || option.value === "") return true
       return option.label.toLowerCase().includes(keyword) || placeIdentity(option.value) === placeIdentity(keyword) || makeRidePlaceMatcher(keyword)(option.value)
     }).map((option, position) => ({ ...option, position, selected: option.value === selected,
       groupLabel: { personal: '我的最近', circle: '同圈常用', city: '本区常用', new: '新公共地点' }[option.source] || '' }))
-    this.setData({ placePickerOptions: options })
+    this.setData({ placePickerOptions: options }, () => {
+      placePickerTelemetry.renderPlaces(this._placeSession, this.data.placePickerOptions)
+      placePickerTelemetry.observePlaces(this, this._placeSession, '.list-place-option')
+    })
   },
 
   onPlaceSearchInput(e) {

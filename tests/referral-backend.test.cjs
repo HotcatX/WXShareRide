@@ -117,6 +117,16 @@ test('preview does no storage/network/analytics work and strict server codes are
   assert.equal(h.storage.pending_referral,undefined)
 })
 
+test('non-server capture cannot create an old visit payload or accept the retired referral format',()=>{
+  const h=harness({isBackendEnabled:()=>false})
+  assert.equal(capture(h), '')
+  assert.equal(h.api.setMyReferralCode('old_code-123'), '')
+  assert.equal(h.storage.pending_referral,undefined)
+  assert.equal(h.storage.my_referral_code,undefined)
+  assert.deepEqual(h.state.cloud,[]);assert.deepEqual(h.state.records,[])
+  assert.deepEqual(h.state.gets,[]);assert.deepEqual(h.state.mutations,[])
+})
+
 test('bounded pending visits report queue overflow and expiry through existing diagnostics',()=>{
   const h=harness()
   for(let i=0;i<34;i++){h.state.now+=11000;capture(h)}

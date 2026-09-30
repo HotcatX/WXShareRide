@@ -23,8 +23,7 @@ function current(epoch) { return !isTimelinePreview() && syncIdentity() === epoc
 function normalizeText(value) { return String(value || '').trim() }
 function sanitizeReferralCode(value) {
   const text = normalizeText(value)
-  if (transport.isBackendEnabled()) return /^ref_[a-f0-9]{12}$/.test(text) ? text : ''
-  return text.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)
+  return /^ref_[a-f0-9]{12}$/.test(text) ? text : ''
 }
 function getMyReferralCodeSync() {
   if (isTimelinePreview()) return ''
@@ -109,19 +108,12 @@ function flushReferralVisits() {
   finally { flushing = false }
 }
 function captureReferral(options = {}, source = '', capturedAt = Date.now()) {
-  if (isTimelinePreview()) return ''
+  if (isTimelinePreview() || !transport.isBackendEnabled()) return ''
   syncIdentity()
   const query = options.query && typeof options.query === 'object' ? options.query : options
   const code = sanitizeReferralCode(query.ref || query.referralCode || query.invite || query.inviter)
   if (!code || code === getMyReferralCodeSync()) return ''
   const now = Number.isSafeInteger(capturedAt) && capturedAt > 0 && capturedAt <= Date.now() ? capturedAt : Date.now(), old = readPending()
-  if (!transport.isBackendEnabled()) {
-    const payload = { referralCode: code, source: normalizeText(source), scene: options.scene || '',
-      path: normalizeText(options.path), query, capturedAtMs: now, owner: account() }
-    writePending(payload)
-    transport.call('trackVisit', payload).catch(() => {})
-    return code
-  }
   pruneVisits(old, now)
   const entry = entryRoutes[normalizeText(options.path).replace(/^\//, '')] || 'other'
   const visits = Array.isArray(old.visits) ? old.visits : []
@@ -172,8 +164,7 @@ function bindPendingReferral() {
     if (!current(epoch)) return { ok: false, error: 'ACCOUNT_CHANGED' }
     const latest = readPending()
     if (result && result.ok && intent === JSON.stringify([latest.referralCode, latest.capturedAtMs, latest.owner])) {
-      if (transport.isBackendEnabled()) writePending({ ...latest, bound: true })
-      else wx.removeStorageSync(PENDING_REFERRAL_KEY)
+      writePending({ ...latest, bound: true })
     }
     return result
   }).catch(error => ({ ok: false, error: error && /^[A-Z_]+$/.test(error.code) ? error.code : 'REFERRAL_UNAVAILABLE' }))

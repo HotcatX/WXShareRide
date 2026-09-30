@@ -37,7 +37,6 @@ Component({
   observers: {
     visible: function (visible) {
       if (!visible) { this.stopObserving(); return }
-      this._initialPresentation = false
       this.setData({ keyword: '', customVisible: false, customValue: '', customError: '', canConfirmCustom: false })
       this.refreshOptions()
     },
@@ -71,8 +70,7 @@ Component({
         suggestions: suggestions.map((entry, index) => ({ ...entry, position: fixed.length + index, showGroup: !index || suggestions[index - 1].source !== entry.source })),
         canUseSearch: !!keyword && suggestions.length === 0
       }, () => {
-        if (this.properties.visible && !this._initialPresentation) {
-          this._initialPresentation = true
+        if (this.properties.visible) {
           this.present('rendered')
           this.observeVisible()
         }
@@ -87,9 +85,10 @@ Component({
       if (typeof this.createIntersectionObserver !== 'function') return
       this._visiblePlaces = new Set()
       try {
-        this._placeObserver = this.createIntersectionObserver({ observeAll: true, thresholds: [0, 0.5] })
-        this._placeObserver.relativeToViewport().observe('.place-observed', result => {
-          if (!this.properties.visible || result.intersectionRatio < 0.5) return
+        const observer = this.createIntersectionObserver({ observeAll: true, thresholds: [0, 0.5] })
+        this._placeObserver = observer
+        observer.relativeToViewport().observe('.place-observed', result => {
+          if (this._placeObserver !== observer || !this.properties.visible || result.intersectionRatio < 0.5) return
           const row = result.dataset || {}, position = Number(row.position), key = position + ':' + row.placeId
           if (!row.placeId || !Number.isInteger(position) || this._visiblePlaces.has(key)) return
           this._visiblePlaces.add(key)

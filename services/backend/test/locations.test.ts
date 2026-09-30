@@ -56,7 +56,7 @@ test('empty or contradictory static configuration is rejected rather than publis
 
 test('public location HTTP route returns the validated catalog and rejects selector/query injection', async t => {
   const app = Fastify(); t.after(() => app.close());
-  app.setErrorHandler((error, _request, reply) => reply.code(400).send({ ok: false }));
+  app.setErrorHandler((_error, _request, reply) => reply.code(400).send({ ok: false }));
   registerLocationRoutes(app);
   const result = await app.inject({ method: 'GET', url: '/api/v1/locations' });
   assert.equal(result.statusCode, 200);

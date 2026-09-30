@@ -3,9 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { Pool, PoolClient } from 'pg';
 import { normalizeAds } from '../src/migration/ads.ts';
-import type { AdRow, AdClickRow } from '../src/migration/ads.ts';
+import type { AdRow } from '../src/migration/ads.ts';
 import { normalizeCommunity } from '../src/migration/community.ts';
-import type { CommunityContent, CommunityRow, CommunityRevisionRow } from '../src/migration/community.ts';
+import type { CommunityContent } from '../src/migration/community.ts';
 import type { UserRow } from '../src/migration/types.ts';
 import { createTestDatabase } from './helpers/database.ts';
 

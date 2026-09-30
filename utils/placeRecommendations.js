@@ -73,13 +73,14 @@ function validate(response) {
 }
 function loadPlaceRecommendations(options = {}) {
   const ctx = context(options)
+  const revision = storage('rideListShouldRefreshAt') || ''
   // A status/activation response can establish the scope while an identical
   // first request is already waiting. Share that request across the transition.
   const previous = cache.get(ctx.key) || [...cache.values()].find(entry => entry.promise && !entry.scope && entry.baseKey === ctx.baseKey)
   if (!ctx.viewer || ctx.viewer !== currentViewer()) return Promise.resolve(compose(ctx, null, 0))
   if (previous && previous.promise) return previous.promise.then(data => compose({ ...ctx, scope: previous.scope || ctx.scope }, data, previous.at))
   if (!options.force && previous && previous.data && Date.now() - previous.at >= 0 && Date.now() - previous.at < CACHE_MS) return Promise.resolve(compose(ctx, previous.data, previous.at))
-  const entry = { key: ctx.key, scope: ctx.scope, baseKey: ctx.baseKey, at: 0, data: null, promise: null }; cache.set(ctx.key, entry)
+  const entry = { key: ctx.key, scope: ctx.scope, baseKey: ctx.baseKey, at: previous && previous.at || 0, data: previous && previous.data || null, promise: null }; cache.set(ctx.key, entry)
   while (cache.size > 20) cache.delete(cache.keys().next().value)
   entry.promise = (async () => {
     const api = require('./analyticsSession')
@@ -87,7 +88,7 @@ function loadPlaceRecommendations(options = {}) {
     const result = await api.requestPlaceSuggestions({ schemaVersion: 1, cityKey: ctx.cityKey, field: ctx.field, mode: ctx.mode, ...(ctx.counterpartPlaceId ? { counterpartPlaceId: ctx.counterpartPlaceId } : {}) })
     if (!result) return fallback()
     const data = validate(result)
-    if (activeViewer !== ctx.viewer || currentViewer() !== ctx.viewer) return fallback()
+    if (activeViewer !== ctx.viewer || currentViewer() !== ctx.viewer || (storage('rideListShouldRefreshAt') || '') !== revision) return fallback()
     const ready = context(options)
     if (!ready.scope || (ctx.scope && ready.scope !== ctx.scope) || ready.baseKey !== ctx.baseKey) return fallback()
     if (cache.get(entry.key) === entry) {

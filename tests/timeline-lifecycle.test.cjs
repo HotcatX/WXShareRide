@@ -415,14 +415,15 @@ test('App and referral hooks perform no referral requests or storage writes in p
 })
 
 test('normal share integration keeps original metadata and one timeline marker, without altering friend shares', async () => {
-  const harness = makeAppHarness()
-  harness.storage.set('openid', 'viewer_1')
-  harness.storage.set('userInfo', { _openid: 'viewer_1', referralCode: 'viewer_ref' })
-  harness.storage.set('my_referral_code', 'viewer_ref')
+  const harness = makeAppHarness(1001, { authority: 'server' })
+  const code = 'ref_0123456789ab'
   harness.enter({ scene: 1001 })
-  const friendShare = { title: 'Friend title', path: `/${PUBLIC_CARPOOL}?id=trip_1&ref=viewer_ref` }
+  await new Promise(resolve => setImmediate(resolve))
+  harness.storage.set('openid', 'viewer_1')
+  harness.storage.set('my_referral_code', { openid: 'viewer_1', code })
+  const friendShare = { title: 'Friend title', path: `/${PUBLIC_CARPOOL}?id=trip_1&ref=${code}` }
   const page = harness.register({
-    onShareTimeline() { return { title: 'Original title', imageUrl: '/images/share_ride.png', query: 'id=trip_1&ref=viewer_ref&timelineShare=0' } },
+    onShareTimeline() { return { title: 'Original title', imageUrl: '/images/share_ride.png', query: `id=trip_1&ref=${code}&timelineShare=0` } },
     onShareAppMessage() { return friendShare }
   })
   page.onLoad({ id: 'trip_1' })
@@ -433,15 +434,15 @@ test('normal share integration keeps original metadata and one timeline marker, 
   assert.equal(share.title, 'Original title')
   assert.equal(share.imageUrl, '/images/share_ride.png')
   assert.equal(query.get('id'), 'trip_1')
-  assert.equal(query.get('ref'), 'viewer_ref')
+  assert.equal(query.get('ref'), code)
   assert.deepEqual(query.getAll('timelineShare'), ['1'])
   assert.equal(page.onShareAppMessage(), friendShare)
   const defaultPage = harness.register({}, PUBLIC_REQUEST)
-  defaultPage.onLoad({ id: 'request_1', ref: 'incoming_ref' })
+  defaultPage.onLoad({ id: 'request_1', ref: 'ref_abcdef123456' })
   defaultPage.onShow()
   const defaultQuery = new URLSearchParams(defaultPage.onShareTimeline().query)
   assert.equal(defaultQuery.get('id'), 'request_1')
-  assert.deepEqual(defaultQuery.getAll('ref'), ['viewer_ref'])
+  assert.deepEqual(defaultQuery.getAll('ref'), [code])
   assert.deepEqual(defaultQuery.getAll('timelineShare'), ['1'])
 })
 

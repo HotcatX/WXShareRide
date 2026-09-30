@@ -71,6 +71,29 @@ test('own recent addresses persist per account, exclude fixed duplicates and nev
   assert.equal(state.calls.length, calls)
 })
 
+test('opening can revalidate a warm list while identical reads coalesce and mutation revisions reject late responses', async () => {
+  const { api, state, response } = harness()
+  await api.loadPlaceRecommendations(context)
+  const fresh = held()
+  state.response = fresh.promise
+  const one = api.loadPlaceRecommendations({ ...context, force: true })
+  const two = api.loadPlaceRecommendations({ ...context, force: true })
+  assert.equal(state.calls.length, 2, 'a warm cache does not block explicit revalidation')
+  assert.equal(api.getCachedPlaceRecommendations(context).places[0].placeId, 'poi_station_a', 'refreshing does not erase the immediate display cache')
+  fresh.resolve({ ...response(), places: [{ placeId: 'poi_new_route', label: '新公开路线地点', source: 'new' }] })
+  for (const result of await Promise.all([one, two])) assert.equal(result.places[0].placeId, 'poi_new_route')
+  const late = held()
+  state.response = late.promise
+  const pending = api.loadPlaceRecommendations({ ...context, revision: 0, force: true })
+  state.storage.rideListShouldRefreshAt = 1
+  late.resolve(response())
+  assert.equal((await pending).localFallback, true, 'an explicitly pinned old revision cannot accept a late pre-mutation snapshot')
+  assert.equal(api.getCachedPlaceRecommendations(context).places.length, 0)
+  state.response = null
+  await api.loadPlaceRecommendations(context)
+  assert.equal(state.calls.length, 4)
+})
+
 test('old-account responses, malformed service results and offline failures fall back without leaking candidates', async () => {
   const { api, state, response } = harness(), wait = held()
   state.response = wait.promise
@@ -121,6 +144,49 @@ test('All and Other filter controls do not masquerade as place impressions or ra
   assert.deepEqual(state.telemetry.at(-1).data.items, [{ placeId: 'fort_lee', source: 'fixed', position: 1 }])
   telemetry.selectPlace(session, rows[0], 0)
   assert.equal(state.telemetry.some(event => event.name === 'place_picker_selected'), false)
+})
+
+test('a refreshed picker keeps one open session while rendered and selected events use the new snapshot', () => {
+  const { api, telemetry, state, response } = harness()
+  state.scope = ''
+  const session = telemetry.createPlacePickerSession(context, api.getCachedPlaceRecommendations(context))
+  const pickerSessionId = session.common.pickerSessionId
+  state.scope = 'test:participant_12345678:1'
+  assert.equal(telemetry.refreshPlacePickerSession(session, response()), true)
+  const row = { placeId: 'poi_station_a', source: 'circle' }
+  telemetry.renderPlaces(session, [row])
+  const rendered = state.telemetry.length
+  assert.equal(telemetry.refreshPlacePickerSession(session, { ...response(), cacheAgeMs: 1 }), true)
+  telemetry.renderPlaces(session, [row])
+  assert.equal(state.telemetry.length, rendered, 'joining the same pending refresh does not duplicate the rendered exposure')
+  telemetry.selectPlace(session, row, 0)
+  assert.equal(state.telemetry.filter(event => event.name === 'place_picker_open').length, 1)
+  for (const event of state.telemetry.slice(1)) {
+    assert.equal(event.data.pickerSessionId, pickerSessionId)
+    assert.equal(event.data.snapshotId, response().snapshotId)
+  }
+  assert.equal(telemetry.refreshPlacePickerSession(session, response()), false, 'selection closes the session')
+  const another = telemetry.createPlacePickerSession(context, response())
+  state.scope = 'test:participant_12345678:3'
+  assert.equal(telemetry.refreshPlacePickerSession(another, response()), false)
+})
+
+test('late list observer callbacks cannot attach older rows to a refreshed snapshot', () => {
+  const { telemetry, state, response } = harness()
+  const session = telemetry.createPlacePickerSession(context, response())
+  const callbacks = []
+  const host = { createIntersectionObserver: () => ({ disconnect() {}, relativeToViewport() { return this }, observe(selector, callback) { callbacks.push(callback) } }) }
+  telemetry.observePlaces(host, session, '.option')
+  const seen = { intersectionRatio: 1, dataset: { placeId: 'poi_station_a', position: 0, source: 'circle' } }
+  telemetry.refreshPlacePickerSession(session, { ...response(), snapshotId: 'snapshot_new_0000001' })
+  const before = state.telemetry.length
+  callbacks[0](seen)
+  assert.equal(state.telemetry.length, before, 'the old DOM observer is invalid before the new DOM attaches')
+  telemetry.observePlaces(host, session, '.option')
+  callbacks[0](seen)
+  assert.equal(state.telemetry.length, before)
+  callbacks[1](seen)
+  assert.equal(state.telemetry.at(-1).data.snapshotId, 'snapshot_new_0000001')
 })
 
 test('cold authorization migrates one cached response to the ready scope without a second server request', async () => {

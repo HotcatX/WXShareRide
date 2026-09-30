@@ -344,3 +344,66 @@ test('an upload ACK during an older query cannot erase a legacy queued answer', 
   const result = await pending
   assert.equal(result[0].outcome, 'no'); assert.equal(result[0].source, 'self_report')
 })
+
+test('a fresh device only prompts when the collector proves the trip has never been presented or answered', async () => {
+  const current = trip()
+  for (const remote of [
+    { source: 'self_report', outcome: 'yes', occurredAt: T - 1 },
+    { source: 'self_report', outcome: 'no', occurredAt: T - 1 },
+    { source: 'dismissed_default', outcome: 'yes', occurredAt: T - 1 },
+    { source: 'unanswered', outcome: null, occurredAt: T - 1 },
+    { source: 'unanswered', outcome: null, occurredAt: 0 }
+  ]) {
+    const h = harness()
+    h.analytics.requestFollowupOutcomes = async payload => ({ ok: true,
+      outcomes: payload.trips.map(value => ({ ...value, ...remote })) })
+    const candidates = await h.controller.readUnpromptedTrips([current])
+    assert.deepEqual(candidates, remote.occurredAt === 0 ? [current] : [])
+    assert.equal(h.controller.considerTrips(h.page, candidates), remote.occurredAt === 0)
+    assert.equal(h.state.events.length, remote.occurredAt === 0 ? 1 : 0)
+    assert.equal(Object.keys(h.store).filter(key => key.startsWith(STORAGE_PREFIX)).length, remote.occurredAt === 0 ? 1 : 0,
+      'reading remote history does not invent a local answer or default')
+  }
+})
+
+test('home queries only eligible seven-day trips and matches the exact trip type and role', async () => {
+  const h = harness(), current = trip(), no = trip({ _id: 'answered-trip' })
+  const old = trip({ _id: 'old-trip', departures: [], departureAtMs: T - 8 * DAY })
+  const cancelled = trip({ _id: 'cancelled-trip', cancelled: true })
+  const queried = []
+  h.analytics.requestFollowupOutcomes = async payload => {
+    queried.push(payload)
+    return { ok: true, outcomes: payload.trips.slice().reverse().map(value => ({ ...value,
+      source: value.tripKey === no._id ? 'self_report' : 'unanswered', outcome: value.tripKey === no._id ? 'no' : null,
+      occurredAt: value.tripKey === no._id ? T - 1 : 0 })) }
+  }
+  assert.deepEqual(await h.controller.readUnpromptedTrips([old, current, cancelled, no]), [current])
+  assert.deepEqual(queried[0].trips.map(row => row.tripKey), [current._id, no._id])
+  assert.deepEqual(await h.controller.readUnpromptedTrips([old, cancelled]), [])
+  assert.equal(queried.length, 1)
+})
+
+test('failed, incomplete, or account/scope-stale remote history never makes home infer an unasked trip', async () => {
+  for (const response of [null, { ok: true, outcomes: [] }, { ok: false, outcomes: [] }]) {
+    const h = harness(); h.analytics.requestFollowupOutcomes = async () => response
+    assert.equal(await h.controller.readUnpromptedTrips([trip()]), null)
+    assert.equal(h.state.events.length, 0)
+  }
+  for (const change of [h => { h.store.openid = 'other' }, h => { h.state.scope = SCOPE.replace(':1', ':2') }]) {
+    const h = harness(); h.analytics.requestFollowupOutcomes = async payload => {
+      change(h); return { ok: true, outcomes: payload.trips.map(value => ({ ...value, outcome: null, source: 'unanswered', occurredAt: 0 })) }
+    }
+    assert.equal(await h.controller.readUnpromptedTrips([trip()]), null)
+  }
+})
+
+test('an accepted local answer pending upload suppresses home even when the server read predates its ACK', async () => {
+  const h = harness(), current = trip(); let resolve
+  let queued = [{ tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: 'no', source: 'self_report', occurredAt: T }]
+  h.analytics.getPendingFollowupOutcomes = () => queued
+  h.analytics.requestFollowupOutcomes = async () => new Promise(done => { resolve = done })
+  const pending = h.controller.readUnpromptedTrips([current]); queued = []
+  resolve({ ok: true, outcomes: [{ tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: null, source: 'unanswered', occurredAt: 0 }] })
+  assert.deepEqual(await pending, [])
+  assert.equal(h.state.events.length, 0)
+})

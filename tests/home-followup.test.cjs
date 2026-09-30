@@ -13,10 +13,14 @@ function deferred() {
 function harness() {
   const state = { account: 'account-a', guest: false, scope: true, used: false, eligible: true, history: [], calls: [], considered: [],
     listeners: new Set(), timers: new Map(), timerId: 0, revision: 0, hides: 0, dismisses: 0, answers: [],
-    notice: null, communityPending: null, cardsPending: null, now: 1800000000000 }
+    notice: null, communityPending: null, cardsPending: null, outcomeReads: [], outcomesPending: null, now: 1800000000000 }
   class Clock extends Date { static now() { return state.now } }
   const followup = {
     canConsider: () => !!(state.account && !state.guest && state.scope && !state.used),
+    readUnpromptedTrips(list) {
+      state.outcomeReads.push({ account: state.account, list })
+      return state.outcomesPending || Promise.resolve(list)
+    },
     considerTrips(page, list) {
       state.considered.push({ account: state.account, list })
       if (state.eligible && list.length && followup.canConsider()) { state.used = true; page.setData({ followupVisible: true }) }
@@ -223,4 +227,45 @@ test('explicit close uses dismiss while page hiding is only an interruption', as
   const markup = fs.readFileSync(path.join(__dirname, '../pages/home/home.wxml'), 'utf8')
   assert.match(markup, /仅询问一次，关闭后不再提醒/)
   assert.doesNotMatch(markup, /稍后回答/)
+})
+
+test('home waits for the remote prompt history and never displays an already answered or presented trip', async () => {
+  const h = harness(), outcomes = deferred(); h.state.outcomesPending = outcomes.promise
+  h.page.onShow(); h.refreshTimer(); await tick(); h.resolve(0); await tick()
+  assert.equal(h.state.outcomeReads.length, 1)
+  assert.equal(h.state.considered.length, 0)
+  assert.equal(h.page.data.followupVisible, false)
+  outcomes.resolve([]); await tick()
+  assert.equal(h.page.data.followupVisible, false)
+  assert.equal(h.page._homeFollowup.trips.length, 0)
+  for (let i = 0; i < 3; i++) { h.state.now += 31000; h.state.listeners.forEach(fn => fn()); await tick() }
+  assert.equal(h.state.outcomeReads.length, 1, 'a successful no-new-question result is not periodically polled')
+})
+
+test('unknown remote prompt state stays quiet and a later ordinary read retries', async () => {
+  for (const failure of [null, new Error('unavailable')]) {
+    const h = harness(), outcomes = deferred(); h.state.outcomesPending = outcomes.promise
+    h.page.onShow(); h.refreshTimer(); await tick(); h.resolve(0); await tick()
+    failure ? outcomes.reject(failure) : outcomes.resolve(null); await tick()
+    assert.equal(h.page.data.followupVisible, false)
+    assert.equal(h.state.considered.length, 0)
+    assert.equal(h.page._homeFollowup, null)
+    assert.equal(h.page._homeReads.followup.at, 0)
+    h.state.outcomesPending = null
+    const retry = h.page.loadHomeFollowup(); await tick(); h.resolve(1); await retry
+    assert.equal(h.state.outcomeReads.length, 2)
+    assert.equal(h.page.data.followupVisible, true)
+  }
+})
+
+test('late remote prompt state cannot open after account changes, hiding, or a ride mutation', async () => {
+  for (const change of [h => { h.state.account = 'account-b'; h.page.syncLoginState() },
+    h => h.page.onHide(), h => { h.state.revision++ }]) {
+    const h = harness(), outcomes = deferred(); h.state.outcomesPending = outcomes.promise
+    h.page.onShow(); h.refreshTimer(); await tick(); h.resolve(0); await tick()
+    change(h); outcomes.resolve([{ _id: 'old-account-trip' }]); await tick()
+    assert.equal(h.page.data.followupVisible, false)
+    assert.equal(h.state.considered.length, 0)
+    assert.equal(h.page._homeFollowup, null)
+  }
 })

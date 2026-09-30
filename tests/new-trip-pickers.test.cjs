@@ -220,23 +220,17 @@ test('switching months reads that month and a failed read keeps counts unknown u
   assert.deepEqual(calendarCalls().map(call => call.data.month), ['2030-01', '2030-02', '2030-02'])
 })
 
-test('the two fields use distinct snapshots and refreshed options only appear on the next opening', async () => {
+test('the two fields use distinct snapshots in the current opening and preserve their selected values', async () => {
   const { page, start, placeCalls } = harness()
   await start('driver')
   Object.assign(page.data, { departureAddress: '出发自选', destinationAddress: '到达自选' })
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(page.data.placePickerValue, '出发自选')
-  assert.deepEqual(page.data.placePickerOptions, [], 'first order is frozen while the public response arrives')
-  page.onClosePlacePicker()
-  await page.onOpenPlacePicker(placeEvent('departure'))
   assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共出发站'])
   page.onClosePlacePicker()
   await page.onOpenPlacePicker(placeEvent('destination'))
   assert.equal(page.data.placePickerTitle, '选择目的地')
   assert.equal(page.data.placePickerValue, '到达自选')
-  assert.deepEqual(page.data.placePickerOptions, [])
-  page.onClosePlacePicker()
-  await page.onOpenPlacePicker(placeEvent('destination'))
   assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共到达站'])
   assert.deepEqual(placeCalls().map(row => row.field), ['departure', 'destination'])
 })
@@ -318,9 +312,6 @@ test('account change closes the private panel and late responses cannot repopula
   old.resolve(placeResponse(['旧账号公共地点']))
   await opened
   await page.onOpenPlacePicker(placeEvent('departure'))
-  assert.deepEqual(page.data.placePickerOptions, [])
-  page.onClosePlacePicker()
-  await page.onOpenPlacePicker(placeEvent('departure'))
   assert.deepEqual(page.data.placePickerOptions.map(row => row.label), ['公共出发站'])
   assert.equal(placeCalls().length, 2)
 })
@@ -377,19 +368,17 @@ test('address responses after unload cannot modify the page or show an obsolete 
   }
 })
 
-test('both forms show the twelve fixed places and keep a completed background response for next opening', async () => {
+test('both forms show the twelve fixed places and display cold recommendations in the current picker', async () => {
   for (const mode of ['driver', 'passenger']) {
     const { page, start, state, hold } = harness()
     await start(mode)
     const suggestions = hold('places:independent')
     const opened = page.onOpenPlacePicker(placeEvent('departure'))
     const labels = page.data.placePickerFixedOptions.map(item => item.label)
+    assert.deepEqual(page.data.placePickerOptions, [])
     suggestions.resolve(placeResponse(['公共车站']))
     await opened
     assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens'])
-    assert.deepEqual(page.data.placePickerOptions, [])
-    page.onClosePlacePicker()
-    await page.onOpenPlacePicker(placeEvent('departure'))
     assert.deepEqual(page.data.placePickerOptions.map(row => row.value), ['公共车站'])
     await page.onConfirmPlace(valueEvent('EWR 机场'))
     assert.equal(page.data.departureAddress, 'EWR 机场')
@@ -399,22 +388,64 @@ test('both forms show the twelve fixed places and keep a completed background re
   }
 })
 
-test('expired fixed configuration refreshes underlying data while the open panel stays stable', async () => {
+test('expired fixed configuration updates the current list while preserving the selected place', async () => {
   const { page, start, state } = harness()
   await start('driver')
   await page.onOpenPlacePicker(placeEvent('departure'))
-  const frozen = plain(page.data.placePickerFixedOptions)
+  page.data.departureAddress = '原自选地址'
   page.onClosePlacePicker()
   state.addressConfig = { fromPlaces: [...defaults, '博物馆'], toPlaces: [...defaults, '新目的地'] }
   state.now += 300000
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(state.configReads.length, 2)
-  assert.deepEqual(page.data.placePickerFixedOptions, frozen)
-  page.onClosePlacePicker()
-  await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(page.data.placePickerFixedOptions.at(-1).label, '博物馆')
   assert.equal(page.data.placePickerFixedOptions.length, 13)
+  assert.equal(page.data.departureAddress, '原自选地址')
+  assert.equal(page.data.placePickerValue, '原自选地址')
   assert.equal(state.configReads.length, 2)
+})
+
+test('reopening revalidates warm suggestions and a newer trip revision wins over a late response', async () => {
+  const { page, start, state, hold, placeCalls } = harness()
+  await start('driver')
+  page.data.departureAddress = '已经选择的地点'
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  page.onClosePlacePicker()
+  const fresh = hold('places:independent')
+  const opened = page.onOpenPlacePicker(placeEvent('departure'))
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.value), ['公共出发站'])
+  const duplicate = page.loadPlaceSuggestions()
+  assert.equal(placeCalls().length, 2)
+  fresh.resolve(placeResponse(['刚刚公开的地点']))
+  await Promise.all([opened, duplicate])
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.value), ['刚刚公开的地点'])
+  assert.equal(page.data.placePickerValue, '已经选择的地点')
+  assert.equal(page.data.departureAddress, '已经选择的地点')
+  const late = hold('places:independent')
+  const loading = page.loadPlaceSuggestions()
+  state.store.rideListShouldRefreshAt = state.now + 1
+  await page.loadPlaceSuggestions()
+  late.resolve(placeResponse(['发布前的旧地点']))
+  await loading
+  assert.deepEqual(page.data.placePickerOptions.map(row => row.value), ['公共出发站'])
+  assert.equal(state.configReads.length, 1)
+})
+
+test('a failed refresh retains the displayed public choices and the user\'s unpublished recent place', async () => {
+  const { page, start, hold } = harness()
+  await start('driver')
+  await page.onOpenPlacePicker(placeEvent('departure'))
+  await page.onConfirmPlace(valueEvent('自己刚输入的地点'))
+  const failure = hold('places:independent')
+  const opening = page.onOpenPlacePicker(placeEvent('departure'))
+  const initial = plain(page.data.placePickerOptions)
+  assert.equal(initial[0].value, '自己刚输入的地点')
+  assert.equal(initial[0].source, 'personal')
+  assert.ok(initial.some(row => row.value === '公共出发站'))
+  failure.reject(new Error('temporarily unavailable'))
+  await opening
+  assert.deepEqual(page.data.placePickerOptions, initial)
+  assert.equal(page.data.departureAddress, '自己刚输入的地点')
 })
 
 test('short airport labels resolve the server passenger price catalog with one read and prefer an exact configured pair', async () => {

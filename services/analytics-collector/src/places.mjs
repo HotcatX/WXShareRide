@@ -21,7 +21,8 @@ const nullable = predicate => value => value === null || predicate(value);
 const text = max => value => typeof value === 'string' && value.length <= max && !/[\u0000-\u001f]/.test(value);
 const uniqueList = (predicate, max) => value => Array.isArray(value) && value.length <= max && value.every(predicate) && new Set(value).size === value.length;
 const normalize = value => value.trim().replace(/\s+/g, '').toLowerCase();
-const dayAt = time => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time));
+const dayFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+const dayAt = time => dayFormatter.format(new Date(time));
 const privateLooking = label => /(?:\b(?:apt|apartment|unit|suite|room)\b|房号|单元|室|\+?\d[\d ()-]{8,}\d|@)/i.test(label);
 // Only successful public route stops reach this path. A person's profile,
 // saved pickup instructions or unsubmitted picker text is never a POI source.
@@ -252,30 +253,33 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     // A versioned projection upgrade, never a replay/ACK of business events.
     // Bound work before any writes; opening fails atomically if an operator must
     // investigate capacity or corrupt source evidence on an isolated backup.
-    const rows = db.prepare(`SELECT * FROM place_business_events WHERE synthetic=0
+    const rows = db.prepare(`SELECT event_id FROM place_business_events WHERE synthetic=0
       AND received_at>=? ORDER BY event_at,version,event_id LIMIT 10001`).all(now - 180 * DAY);
     requireThat(rows.length <= 10000, 503, 'PLACE_BACKFILL_CAPACITY');
-    const events = rows.map(row => {
-      const event = JSON.parse(row.payload);
-      // Records without a supported business action cannot prove a public
-      // publication and remain untouched.
-      if (!['publish', 'legacy_snapshot', 'join', 'accept', 'quit', 'kick', 'delete', 'status', 'update', 'cancel'].includes(event.action)) return null;
-      validateBusinessEvents({ schemaVersion: 1, events: [event] });
-      requireThat(!event.synthetic && event.eventId === row.event_id && event.tripId === row.trip_id
-        && event.tripType === row.trip_type && event.version === row.version && event.eventAtMs === row.event_at
-        && hash(row.payload) === row.event_hash, 409, 'PLACE_BACKFILL_SOURCE_CONFLICT');
-      return event;
-    }).filter(Boolean);
-    for (const event of events) promoteRoute(event, now);
+    const source = db.prepare('SELECT * FROM place_business_events WHERE synthetic=0 AND event_id=?');
+    function* events() {
+      for (const key of rows) {
+        const row = source.get(key.event_id), event = JSON.parse(row.payload);
+        // Records without a supported business action cannot prove a public
+        // publication and remain untouched.
+        if (!['publish', 'legacy_snapshot', 'join', 'accept', 'quit', 'kick', 'delete', 'status', 'update', 'cancel'].includes(event.action)) continue;
+        validateBusinessEvents({ schemaVersion: 1, events: [event] });
+        requireThat(!event.synthetic && event.eventId === row.event_id && event.tripId === row.trip_id
+          && event.tripType === row.trip_type && event.version === row.version && event.eventAtMs === row.event_at
+          && hash(row.payload) === row.event_hash, 409, 'PLACE_BACKFILL_SOURCE_CONFLICT');
+        yield event;
+      }
+    }
+    for (const event of events()) promoteRoute(event, now);
     const affected = new Set();
-    for (const event of events) {
+    for (const event of events()) {
       const s = event.after || event.before;
       const members = db.prepare('SELECT openid FROM place_membership_history WHERE synthetic=0 AND event_id=?').all(event.eventId);
       for (const member of members) affected.add(member.openid);
       db.prepare(`UPDATE place_membership_history SET origin_id=?,destination_id=? WHERE synthetic=0 AND event_id=?`)
         .run(pointId(s.departures[0], s.cityKey), pointId(s.destinations[0], s.cityKey), event.eventId);
     }
-    for (const event of events) activateUsage(event);
+    for (const event of events()) activateUsage(event);
     for (const account of affected) reconcile(account, false, now);
   };
   const ingestBusiness = db.transaction((body, now) => {

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
+import { openDatabase } from '../src/database.mjs';
+import { SCHEMA_VERSION } from '../src/schema.mjs';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +20,10 @@ const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(
   : value !== null && typeof value === 'object' ? `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}` : JSON.stringify(value);
 const hash = value => createHash('sha256').update(value).digest('hex');
 const readTables = db => Object.fromEntries(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-  .all().map(({ name }) => [names[name] || name, db.prepare(`SELECT rowid,* FROM ${name} ORDER BY rowid`).all()]));
+  .all().map(({ name }) => [names[name] || name, db.prepare(`SELECT rowid,* FROM ${name} ORDER BY rowid`).all().map(row => {
+    if (name === 'ingest_batches') { const { codec, raw_bytes, ...original } = row; return original; }
+    return row;
+  })]));
 
 function legacyFixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'collector-schema-')); const path = join(dir, 'db.sqlite');
@@ -59,7 +64,9 @@ test('v4 rename preserves every stored value, rowid, data root, receipt, account
   const f = legacyFixture(t); let store = openStore(f.path, { realEnabled: true });
   try {
     assert.deepEqual(readTables(store.db), f.rows);
-    assert.equal(store.db.pragma('user_version', { simple: true }), 5);
+    assert.deepEqual(store.db.prepare('SELECT codec,raw_bytes FROM ingest_batches').all(), [{ codec: 'json', raw_bytes: null }],
+      'startup adds metadata without rewriting any legacy payload bytes');
+    assert.equal(store.db.pragma('user_version', { simple: true }), SCHEMA_VERSION);
     assert.deepEqual(store.db.pragma('foreign_key_check'), []);
     assert.equal(store.db.pragma('integrity_check', { simple: true }), 'ok');
     for (const { name, rootpage } of f.roots) assert.equal(store.db.prepare('SELECT rootpage FROM sqlite_schema WHERE name=?').get(names[name] || name).rootpage, rootpage, 'table pages are renamed, never copied');
@@ -156,6 +163,7 @@ test('a failure after table renames rolls back names, version and every row, and
   const check = new Database(f.path);
   try {
     assert.equal(check.pragma('user_version', { simple: true }), 4); assert.deepEqual(readTables(check), f.rows);
+    assert.equal(check.prepare('PRAGMA table_info(ingest_batches)').all().length, 7, 'failed migration also rolls back added codec columns');
     assert.equal(check.prepare("SELECT COUNT(*) n FROM sqlite_schema WHERE type='table' AND name LIKE 'analytics_%'").get().n, 0);
     check.exec('BEGIN EXCLUSIVE; ROLLBACK;');
   } finally { check.close(); }
@@ -166,7 +174,7 @@ for (const [name, mutate] of [
   ['incomplete v4', 'DROP TABLE place_participation_history'],
   ['missing receipt table', 'DROP TABLE event_receipts'],
   ['unexpected canonical index', 'CREATE INDEX analytics_operation_age ON participation_operations(created_at)'],
-  ['future schema', 'PRAGMA user_version=6'],
+  ['future schema', `PRAGMA user_version=${SCHEMA_VERSION + 1}`],
   ['mislabelled schema', 'PRAGMA user_version=5'],
 ]) test(`${name} fails closed without changing data or schema`, t => {
   const f = legacyFixture(t), old = new Database(f.path); old.exec(mutate);
@@ -191,9 +199,9 @@ test('restore-check upgrades a v4 backup only in a quarantined candidate and lea
   const summary = JSON.parse(execFileSync(process.execPath, [new URL('../scripts/restore-check.mjs', import.meta.url).pathname, f.path, target], { encoding: 'utf8' }));
   assert.equal(summary.ok, true); assert.equal(summary.restoreGate, 'closed'); assert.equal(summary.participants, 1); assert.equal(summary.batches, 1);
   assert.equal(hash(readFileSync(f.path)), sourceHash);
-  const source = new Database(f.path, { readonly: true }), restored = new Database(target, { readonly: true });
+  const source = new Database(f.path, { readonly: true }), restored = openDatabase(target, { readonly: true });
   try {
-    assert.equal(source.pragma('user_version', { simple: true }), 4); assert.equal(restored.pragma('user_version', { simple: true }), 5);
+    assert.equal(source.pragma('user_version', { simple: true }), 4); assert.equal(restored.pragma('user_version', { simple: true }), SCHEMA_VERSION);
     assert.equal(restored.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value, 'closed');
     assert.equal(restored.prepare('SELECT COUNT(*) n FROM eligible_real_events').get().n, 0);
     const expected = { ...f.rows, collector_settings: f.rows.collector_settings.map(row => row.key === 'restore_gate' ? { ...row, value: 'closed' } : row) };

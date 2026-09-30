@@ -1,6 +1,7 @@
-import { TABLES, SCHEMA_VERSION, migrateTableNames } from './schema.mjs';
+import { TABLES, SCHEMA_VERSION, migrateTableNames, migratePayloadColumns } from './schema.mjs';
 import { purposeVersionSql } from './compat/legacy.mjs';
-import Database from 'better-sqlite3';
+import { openDatabase } from './database.mjs';
+import { encodePayload } from './payload.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -28,7 +29,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   purposeVersion = canonicalPurposeVersion(purposeVersion);
   noticeVersion = canonicalNoticeVersion(noticeVersion);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const db = new Database(path, { timeout: 3000 });
+  const db = openDatabase(path, { timeout: 3000 });
   const sqliteVersion = db.prepare('SELECT sqlite_version() AS version').get().version;
   if (!sqliteIsPatched(sqliteVersion)) { db.close(); throw new Error('SQLite must include the WAL-reset fix (3.51.3+ or documented backport)'); }
   if (db.pragma('user_version', { simple: true }) > SCHEMA_VERSION) { db.close(); throw new Error('Unsupported database schema version'); }
@@ -41,7 +42,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   const pageSize = db.pragma('page_size', { simple: true });
   db.pragma(`max_page_count = ${Math.floor(maxDatabaseMB * 1024 * 1024 / pageSize)}`);
   chmodSync(path, 0o600);
-  try { db.transaction(() => { migrateTableNames(db); db.exec(`
+  try { db.transaction(() => { migrateTableNames(db); migratePayloadColumns(db); db.exec(`
     CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     INSERT OR IGNORE INTO collector_settings VALUES ('restore_gate', 'open');
     CREATE TABLE IF NOT EXISTS ${TABLES.participants} (
@@ -60,7 +61,9 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     CREATE TABLE IF NOT EXISTS ingest_batches (
       participant_key TEXT NOT NULL, batch_id TEXT NOT NULL, grant_id TEXT NOT NULL,
       status_version INTEGER NOT NULL, purpose_version TEXT NOT NULL, received_at INTEGER NOT NULL,
-      payload BLOB NOT NULL, PRIMARY KEY(participant_key, batch_id),
+      payload BLOB NOT NULL, codec TEXT NOT NULL DEFAULT 'json' CHECK(codec IN ('json','gzip')),
+      raw_bytes INTEGER CHECK((raw_bytes IS NULL AND codec='json') OR (raw_bytes IS NOT NULL AND raw_bytes BETWEEN 1 AND 65536)),
+      PRIMARY KEY(participant_key, batch_id),
       FOREIGN KEY(participant_key, batch_id) REFERENCES batch_receipts(participant_key, batch_id)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS event_receipts (
@@ -89,7 +92,9 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     DROP VIEW IF EXISTS eligible_events;
     DROP VIEW IF EXISTS eligible_batches;
     CREATE VIEW eligible_batches AS
-      SELECT b.* FROM ingest_batches b JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key
+      SELECT b.participant_key,b.batch_id,b.grant_id,b.status_version,b.purpose_version,b.received_at,
+        payload_json(b.payload,b.codec,b.raw_bytes) AS payload
+      FROM ingest_batches b JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key
       WHERE p.status='active' AND p.grant_id=b.grant_id
         AND ${purposeVersionSql('p.purpose_version')} = ${purposeVersionSql('b.purpose_version')}
         AND (SELECT value FROM collector_settings WHERE key='restore_gate')='open'
@@ -97,8 +102,8 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     CREATE VIEW eligible_events AS
       SELECT b.participant_key, b.grant_id, b.purpose_version, b.batch_id, b.received_at,
         json_extract(e.value,'$.eventId') AS event_id, e.value AS event_json
-      FROM eligible_batches b, json_each(CAST(b.payload AS TEXT),'$.events') e
-      JOIN event_receipts r ON r.participant_key=b.participant_key
+      FROM eligible_batches b CROSS JOIN json_each(b.payload,'$.events') e
+      CROSS JOIN event_receipts r WHERE r.participant_key=b.participant_key
         AND r.event_id=json_extract(e.value,'$.eventId') AND r.first_batch_id=b.batch_id;
     CREATE VIEW eligible_real_batches AS
       SELECT b.* FROM eligible_batches b JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key WHERE p.synthetic=0;
@@ -255,6 +260,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     }
     // Recheck age at commit; expired-but-previously-accepted retries remain idempotent.
     validateBatch(body, now);
+    const encoded = encodePayload(raw);
     for (const event of body.events) {
       const eventHash = createHash('sha256').update(canonical(event)).digest('hex');
       const old = db.prepare('SELECT grant_id,event_hash FROM event_receipts WHERE participant_key=? AND event_id=?').get(claims.sub, event.eventId);
@@ -265,8 +271,10 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       }
     }
     db.prepare('INSERT INTO batch_receipts VALUES (?,?,?,?,?,?)').run(claims.sub, body.batchId, claims.grantId, hash, body.events.length, now);
-    db.prepare('INSERT INTO ingest_batches VALUES (?,?,?,?,?,?,?)').run(claims.sub, body.batchId, claims.grantId,
-      claims.statusVersion, canonicalPurposeVersion(claims.purposeVersion), now, raw);
+    db.prepare(`INSERT INTO ingest_batches
+      (participant_key,batch_id,grant_id,status_version,purpose_version,received_at,payload,codec,raw_bytes)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(claims.sub, body.batchId, claims.grantId,
+      claims.statusVersion, canonicalPurposeVersion(claims.purposeVersion), now, encoded.payload, encoded.codec, encoded.rawBytes);
     return { ok: true, batchId: body.batchId, payloadHash: hash, eventCount: body.events.length, receivedAt: now, duplicate: false };
   });
   return {

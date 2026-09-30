@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 export const TABLES = Object.freeze({
   participants: 'analytics_participants',
   accounts: 'analytics_accounts',
@@ -34,7 +34,7 @@ export function migrateTableNames(db) {
   const fail = () => { throw new Error('Unsupported mixed or incomplete collector schema'); };
   if (old.length && current.length) fail();
   if (current.length) {
-    if (version !== SCHEMA_VERSION || current.length !== tableRenames.length
+    if (![5, 6].includes(version) || current.length !== tableRenames.length
       || current.some(([, name]) => objects.get(name).type !== 'table')
       || [...baseTables, ...placeTables].some(name => objects.get(name)?.type !== 'table')
       || indexes.some(([name]) => objects.has(name))) fail();
@@ -44,7 +44,7 @@ export function migrateTableNames(db) {
     if (version !== 0 || objects.size) fail();
     return;
   }
-  if (version === SCHEMA_VERSION || old.some(([name]) => objects.get(name).type !== 'table')
+  if (version >= 5 || old.some(([name]) => objects.get(name).type !== 'table')
     || tableRenames.slice(0, 3).some(([name]) => !objects.has(name))
     || baseTables.some(name => objects.get(name)?.type !== 'table')
     || (version >= 4 && old.length !== tableRenames.length)
@@ -57,4 +57,28 @@ export function migrateTableNames(db) {
   if (db.pragma('foreign_key_check').length) throw new Error('Collector schema has foreign key violations');
   for (const [name] of indexes) db.exec(`DROP INDEX IF EXISTS ${name}`);
   for (const [oldName, newName] of old) db.exec(`ALTER TABLE ${oldName} RENAME TO ${newName}`);
+}
+
+// Add metadata only. Existing JSON bytes and receipts stay untouched; bulk
+// compression is an explicit, separately audited offline operation.
+export function migratePayloadColumns(db) {
+  if (!db.inTransaction) throw new Error('Schema migration requires an enclosing transaction');
+  const version = db.pragma('user_version', { simple: true });
+  const columns = new Map(db.prepare('PRAGMA table_info(ingest_batches)').all().map(column => [column.name, column]));
+  if (!columns.size) {
+    if (version !== 0) throw new Error('Unsupported incomplete collector schema');
+    return;
+  }
+  const codec = columns.get('codec'), rawBytes = columns.get('raw_bytes');
+  if (version === SCHEMA_VERSION) {
+    if (!codec || !rawBytes || codec.type !== 'TEXT' || codec.notnull !== 1 || codec.dflt_value !== "'json'"
+      || rawBytes.type !== 'INTEGER' || rawBytes.notnull !== 0 || rawBytes.dflt_value !== null) {
+      throw new Error('Unsupported payload schema');
+    }
+    return;
+  }
+  if (codec || rawBytes) throw new Error('Unsupported mixed payload schema');
+  db.exec(`ALTER TABLE ingest_batches ADD COLUMN codec TEXT NOT NULL DEFAULT 'json' CHECK(codec IN ('json','gzip'));
+    ALTER TABLE ingest_batches ADD COLUMN raw_bytes INTEGER
+      CHECK((raw_bytes IS NULL AND codec='json') OR (raw_bytes IS NOT NULL AND raw_bytes BETWEEN 1 AND 65536));`);
 }

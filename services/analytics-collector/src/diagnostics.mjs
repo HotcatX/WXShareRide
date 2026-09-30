@@ -65,11 +65,14 @@ export function readAccountDiagnostics(db, input, now = Date.now()) {
       SELECT r.event_id,r.first_batch_id AS batch_id,b.received_at FROM event_receipts r
       JOIN eligible_batches b ON b.participant_key=r.participant_key AND b.batch_id=r.first_batch_id
       WHERE r.participant_key=? AND b.received_at>=? AND b.received_at<=?
-      ORDER BY b.received_at DESC,r.event_id DESC LIMIT ?)
-      SELECT c.batch_id,c.received_at,e.value AS event_json FROM chosen c
-      JOIN eligible_batches b ON b.participant_key=? AND b.batch_id=c.batch_id,
-        json_each(CAST(b.payload AS TEXT),'$.events') e
-      WHERE json_extract(e.value,'$.eventId')=c.event_id
+      ORDER BY b.received_at DESC,r.event_id DESC LIMIT ?),
+      decoded AS MATERIALIZED (
+        SELECT b.batch_id,b.payload FROM eligible_batches b
+        JOIN (SELECT DISTINCT batch_id FROM chosen) c ON c.batch_id=b.batch_id
+        WHERE b.participant_key=?)
+      SELECT c.batch_id,c.received_at,e.value AS event_json FROM decoded b
+      CROSS JOIN json_each(b.payload,'$.events') e JOIN chosen c
+        ON c.batch_id=b.batch_id AND json_extract(e.value,'$.eventId')=c.event_id
       ORDER BY c.received_at DESC,c.event_id DESC`).all(p.participant_key, from, to, limit + 1, p.participant_key);
     result.hasMoreEvents = rows.length > limit;
     let bytes = 0;

@@ -6,7 +6,7 @@ export const BACKUP_RETENTION_MS = 7 * 86_400_000;
 export function rotateBackups(directory, now = Date.now()) {
   let removed = 0;
   for (const name of readdirSync(directory)) {
-    const match = /^collector-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2}\.\d{3})Z\.sqlite$/.exec(name);
+    const match = /^collector-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2}\.\d{3})Z\.sqlite(?:\.gz)?$/.exec(name);
     if (!match) continue;
     const createdAt = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}Z`);
     if (!Number.isFinite(createdAt) || now - createdAt < BACKUP_RETENTION_MS) continue;

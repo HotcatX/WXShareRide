@@ -23,6 +23,14 @@ const uniqueList = (predicate, max) => value => Array.isArray(value) && value.le
 const normalize = value => value.trim().replace(/\s+/g, '').toLowerCase();
 const dayAt = time => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time));
 const privateLooking = label => /(?:\b(?:apt|apartment|unit|suite|room)\b|房号|单元|室|\+?\d[\d ()-]{8,}\d|@)/i.test(label);
+// Only successful public route stops reach this path. A person's profile,
+// saved pickup instructions or unsubmitted picker text is never a POI source.
+const publicLabel = label => typeof label === 'string' && label.trim().length > 0 && label.length <= 200
+  && !privateLooking(label) && !/[\u0000-\u001f\u007f-\u009f]/.test(label)
+  && !/^(?:全部|其他|自选|未知|待定|请选择(?:地点|出发地|目的地)?|unknown|custom|other|all|tbd)$/i.test(label.trim())
+  && !/(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|cn|ink|io)(?:\/|\s|$)|\b(?:wechat|whatsapp|phone|tel)\b[\s:：=]+|(?:微信|手机号|电话)[\s:：=]*[A-Za-z0-9+_-]|#\s*\d)/i.test(label);
+const publicRoute = event => ['publish', 'legacy_snapshot'].includes(event.action) && event.after
+  && ['open', 'full', 'past', 'close'].includes(event.after.status);
 export const STANDARD_PLACES = placeCatalog.FIXED_PLACES;
 const standardIds = new Set(STANDARD_PLACES.map(p => p.placeId));
 export function validateSuggestionsRequest(body) {
@@ -190,8 +198,24 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     return { circles: result.map(({ circleId, stable, sources }) => ({ circleId, stable,
       evidenceKind: sources.size > 1 ? 'mixed' : [...sources][0] })), anchors: [...anchors].sort() };
   };
+  const promoteRoute = (event, now) => {
+    // Catalog/aliases are shared: synthetic events may use existing public
+    // entries, but must never create or rename one, including pending labels.
+    if (event.synthetic || !publicRoute(event)) return;
+    for (const point of [...event.after.departures, ...event.after.destinations]) {
+      const label = point.address.trim(), city = event.after.cityKey;
+      if (!publicLabel(point.address) || resolve(label, city)) continue;
+      const candidateId = hash(`${city}\n${normalize(label)}`), place = `poi_${candidateId}`;
+      db.prepare(`INSERT INTO place_candidates VALUES (?,?,?,?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET
+        label=excluded.label,classification='public',first_seen=MIN(first_seen,excluded.first_seen),last_seen=MAX(last_seen,excluded.last_seen)`)
+        .run(candidateId, city, label, 'public', event.eventAtMs, event.eventAtMs);
+      db.prepare('INSERT OR IGNORE INTO place_catalog VALUES (?,?,?,?,?,?,?,?)')
+        .run(place, label, city, 'unknown', 0, 0, now, 'published_route');
+      db.prepare('INSERT INTO place_aliases VALUES (?,?,?)').run(normalize(label), city, place);
+    }
+  };
   const activateUsage = event => {
-    if (!['publish', 'legacy_snapshot'].includes(event.action) || !event.after) return;
+    if (!publicRoute(event)) return;
     const s = event.after; const asOf = circles(event.actorOpenid, event.synthetic, s.cityKey, event.eventAtMs - 1).circles.map(c => c.circleId);
     for (const [field, points] of [['departure', s.departures], ['destination', s.destinations]]) {
       for (const point of points) {
@@ -205,7 +229,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
             ? Date.parse(`${s.serviceDate}T16:00:00.000Z`) : event.eventAtMs;
           db.prepare('INSERT OR IGNORE INTO place_public_usage VALUES (?,?,?,?,?,?,?,?,?,?)').run(Number(event.synthetic), event.eventId, p.place_id, s.cityKey, field, event.actorOpenid, usageAt, JSON.stringify(asOf), event.source || 'transaction', event.eventAtMs);
         }
-        else {
+        else if (!event.synthetic) {
           const candidateId = hash(`${s.cityKey}\n${normalize(label)}`);
           db.prepare(`INSERT INTO place_candidates VALUES (?,?,?,?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET last_seen=MAX(last_seen,excluded.last_seen)`)
             .run(candidateId, s.cityKey, label, privateLooking(label) ? 'private' : 'pending', event.eventAtMs, event.eventAtMs);
@@ -223,6 +247,37 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
       }
     }
   };
+  const backfillPublicRoutes = (now = Date.now()) => {
+    requireThat(db.inTransaction, 500, 'PLACE_BACKFILL_TRANSACTION_REQUIRED');
+    // A versioned projection upgrade, never a replay/ACK of business events.
+    // Bound work before any writes; opening fails atomically if an operator must
+    // investigate capacity or corrupt source evidence on an isolated backup.
+    const rows = db.prepare(`SELECT * FROM place_business_events WHERE synthetic=0
+      AND received_at>=? ORDER BY event_at,version,event_id LIMIT 10001`).all(now - 180 * DAY);
+    requireThat(rows.length <= 10000, 503, 'PLACE_BACKFILL_CAPACITY');
+    const events = rows.map(row => {
+      const event = JSON.parse(row.payload);
+      // Records without a supported business action cannot prove a public
+      // publication and remain untouched.
+      if (!['publish', 'legacy_snapshot', 'join', 'accept', 'quit', 'kick', 'delete', 'status', 'update', 'cancel'].includes(event.action)) return null;
+      validateBusinessEvents({ schemaVersion: 1, events: [event] });
+      requireThat(!event.synthetic && event.eventId === row.event_id && event.tripId === row.trip_id
+        && event.tripType === row.trip_type && event.version === row.version && event.eventAtMs === row.event_at
+        && hash(row.payload) === row.event_hash, 409, 'PLACE_BACKFILL_SOURCE_CONFLICT');
+      return event;
+    }).filter(Boolean);
+    for (const event of events) promoteRoute(event, now);
+    const affected = new Set();
+    for (const event of events) {
+      const s = event.after || event.before;
+      const members = db.prepare('SELECT openid FROM place_membership_history WHERE synthetic=0 AND event_id=?').all(event.eventId);
+      for (const member of members) affected.add(member.openid);
+      db.prepare(`UPDATE place_membership_history SET origin_id=?,destination_id=? WHERE synthetic=0 AND event_id=?`)
+        .run(pointId(s.departures[0], s.cityKey), pointId(s.destinations[0], s.cityKey), event.eventId);
+    }
+    for (const event of events) activateUsage(event);
+    for (const account of affected) reconcile(account, false, now);
+  };
   const ingestBusiness = db.transaction((body, now) => {
     validateBusinessEvents(body); const acceptedEventIds = []; const duplicateEventIds = []; const affected = new Map();
     requireThat(db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value === 'open', 503, 'RESTORE_QUARANTINE');
@@ -234,6 +289,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
       if (prior) { requireThat(prior.event_hash === payloadHash, 409, 'BUSINESS_EVENT_CONFLICT'); duplicateEventIds.push(e.eventId); acceptedEventIds.push(e.eventId); continue; }
       requireThat(!db.prepare('SELECT 1 FROM place_business_events WHERE synthetic=? AND trip_type=? AND trip_id=? AND version=?').get(Number(e.synthetic), e.tripType, e.tripId, e.version), 409, 'BUSINESS_VERSION_CONFLICT');
       db.prepare('INSERT INTO place_business_events VALUES (?,?,?,?,?,?,?,?,?)').run(Number(e.synthetic), e.eventId, payloadHash, e.tripId, e.tripType, e.version, e.eventAtMs, now, payload);
+      promoteRoute(e, now);
       activateUsage(e);
       const s = e.after || e.before; const all = new Map([...(e.before?.participantEdges || []), ...(e.after?.participantEdges || [])].map(p => [p.openid, p]));
       const current = new Set((e.after?.participantEdges || []).map(p => p.openid));
@@ -329,7 +385,10 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     requireThat(account, 403, 'PLACE_IDENTITY_REQUIRED');
     const context = circles(account, participant.synthetic, body.cityKey, now, body.counterpartPlaceId);
     const preferenceVersion = hash(JSON.stringify(context)).slice(0, 24);
-    const cacheKey = hash(JSON.stringify([body, preferenceVersion, CATALOG_VERSION, RANKING_VERSION]));
+    // A new public stop invalidates the cached list without deleting immutable
+    // snapshots referenced by existing impression/selection research events.
+    const catalogState = db.prepare('SELECT COUNT(*) AS count,MAX(approved_at) AS latest FROM place_catalog WHERE city_key=?').get(body.cityKey);
+    const cacheKey = hash(JSON.stringify([body, preferenceVersion, CATALOG_VERSION, RANKING_VERSION, catalogState]));
     const previous = db.prepare('SELECT * FROM place_rank_snapshots WHERE participant_key=? AND cache_key=? ORDER BY generated_at DESC LIMIT 1').get(participant.participant_key, cacheKey);
     if (previous && previous.generated_at > now - 300_000) return JSON.parse(previous.response);
     const candidates = db.prepare(`SELECT DISTINCT c.* FROM place_catalog c JOIN place_public_usage u ON u.place_id=c.place_id
@@ -447,7 +506,7 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     counts.place_followup_population = db.prepare('DELETE FROM place_followup_population WHERE expires_at<=?').run(now - 180 * DAY).changes;
     return counts;
   };
-  return { resolve, circles, recordEvent, ingestBusiness: (body, now = Date.now()) => ingestBusiness.immediate(body, now),
+  return { resolve, circles, recordEvent, backfillPublicRoutes, ingestBusiness: (body, now = Date.now()) => ingestBusiness.immediate(body, now),
     suggestions, followupOutcomes, approve: (body, now = Date.now()) => approve.immediate(body, now),
     seed: (body, now = Date.now()) => seed.immediate(body, now), pending, status, prune };
 }

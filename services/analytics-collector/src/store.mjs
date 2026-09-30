@@ -42,7 +42,8 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   const pageSize = db.pragma('page_size', { simple: true });
   db.pragma(`max_page_count = ${Math.floor(maxDatabaseMB * 1024 * 1024 / pageSize)}`);
   chmodSync(path, 0o600);
-  try { db.transaction(() => { migrateTableNames(db); migratePayloadColumns(db); db.exec(`
+  let places;
+  try { db.transaction(() => { const previousVersion = db.pragma('user_version', { simple: true }); migrateTableNames(db); migratePayloadColumns(db); db.exec(`
     CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     INSERT OR IGNORE INTO collector_settings VALUES ('restore_gate', 'open');
     CREATE TABLE IF NOT EXISTS ${TABLES.participants} (
@@ -119,12 +120,13 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       CREATE VIEW operational_events AS
         SELECT a.openid,p.synthetic,json_extract(e.event_json,'$.data.tripKey') AS tripKey,e.*
         FROM eligible_events e JOIN ${TABLES.accounts} a ON a.participant_key=e.participant_key
-        JOIN ${TABLES.participants} p ON p.participant_key=e.participant_key;
-      PRAGMA user_version = ${SCHEMA_VERSION};`);
+        JOIN ${TABLES.participants} p ON p.participant_key=e.participant_key;`);
     initializePlaces(db);
+    places = createPlacesStore(db, { realEnabled });
+    if (previousVersion < 7) places.backfillPublicRoutes();
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
     if (db.pragma('foreign_key_check').length) throw new Error('Collector schema has foreign key violations');
   }).immediate(); } catch (error) { db.close(); throw error; }
-  const places = createPlacesStore(db, { realEnabled });
   const getParticipant = key => db.prepare(`SELECT * FROM ${TABLES.participants} WHERE participant_key=?`).get(key);
   const normalize = p => ({ participantKey: p.participant_key, grantId: p.grant_id, status: p.status,
     statusVersion: p.status_version, purposeVersion: canonicalPurposeVersion(p.purpose_version), synthetic: Boolean(p.synthetic) });

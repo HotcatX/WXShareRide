@@ -205,6 +205,38 @@ test('projection retains full PostgreSQL fields while accepting receiver size, p
   assert.equal(store.places.ingestBusiness({ schemaVersion: 1, events: [row.event] }, Date.now()).acceptedEventIds[0], row.id);
 });
 
+test('committed public stops become selectable for another account while profile and booked pickup text stay private', enabled, async t => {
+  const pool = await setup(t), [driver, passengerUser, viewer] = await Promise.all([account(pool), account(pool), account(pool)]);
+  await pool.query(`UPDATE users SET profile=$2::jsonb WHERE id=$1`, [driver.id, JSON.stringify({
+    location: { residence: 'Private profile apartment', address: 'Private profile street' },
+    preferences: { pickupAddresses: ['Private saved pickup'], dropoffAddresses: ['Private saved dropoff'] },
+  })]);
+  const rideId = id(await createRide(pool, driver.id, 'public-place-publish', offer({ stops: [
+    { kind: 'departure', address: 'Modern800', departureAt: nowPlus() },
+    { kind: 'destination', address: '哥大', placeId: 'columbia' },
+  ] })));
+  await joinRide(pool, passengerUser.id, 'private-booking-details', rideId, passenger);
+  const rows = await events(pool, rideId), store = await receiverStore(t);
+  const enrolled = store.updateAccount({ accountSubject: randomUUID().replaceAll('-', '').repeat(2), action: 'activate',
+    requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion: 'ride-analytics-v1', noticeVersion: 'ride-analytics-notice-2026-09-23', openid: viewer.openid }).participant;
+  const claims = { ...enrolled, sub: enrolled.participantKey, scopes: ['batches:write', 'places:read'] };
+  const request = { schemaVersion: 1, cityKey: 'ny_nj', field: 'departure', mode: 'driver' };
+  const empty = store.placeSuggestions(claims, request, Date.now());
+  assert.deepEqual(empty.places, []);
+  const ack = store.places.ingestBusiness({ schemaVersion: 1, events: rows.map(row => row.event).reverse() }, Date.now());
+  assert.equal(ack.acceptedEventIds.length, 2);
+  const suggestions = store.placeSuggestions(claims, request, Date.now());
+  assert.deepEqual(suggestions.places.map((place: { label: string }) => place.label), ['Modern800']);
+  assert.notEqual(suggestions.snapshotId, empty.snapshotId);
+  for (const text of ['Private profile apartment', 'Private profile street', 'Private saved pickup', 'Private saved dropoff', 'Private pickup', 'Private dropoff']) {
+    assert.equal(rows.some(row => row.wire.includes(text)), false);
+    assert.equal(JSON.stringify(suggestions).includes(text), false);
+    assert.equal(store.places.resolve(text, 'ny_nj'), undefined);
+  }
+  assert.equal(store.places.ingestBusiness({ schemaVersion: 1, events: rows.map(row => row.event) }, Date.now()).duplicateEventIds.length, 2);
+  assert.equal(store.db.prepare('SELECT COUNT(*) n FROM place_catalog WHERE standard=0').get().n, 1);
+});
+
 test('closure snapshots qualify real receiver followups; later rating stays local and frozen rows only allow ACK', enabled, async t => {
   const pool = await setup(t);
   const [driver, a] = await Promise.all([account(pool), account(pool)]);

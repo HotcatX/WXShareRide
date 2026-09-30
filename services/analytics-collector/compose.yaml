@@ -2,7 +2,7 @@ services:
   collector:
     build: .
     # Preserve existing mounts/project identity when updating this image.
-    image: linkx-analytics-collector:20260930-compressed
+    image: linkx-analytics-collector:20260930-public-places
     restart: unless-stopped
     init: true
     read_only: true

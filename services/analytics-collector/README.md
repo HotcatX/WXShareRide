@@ -15,7 +15,7 @@ Keep the existing `/opt/linkx-collector` directory, Compose project, data/secret
 - Public listener: `GET /healthz`, authenticated `POST /v1/batches`, `POST /v1/place-suggestions`, `POST /v1/followups/query`, and the strictly HMAC-authenticated `POST /internal/v1/analytics/accounts`. Default native binding is `127.0.0.1:3000`; Docker binds internally to all interfaces but publishes only host loopback.
 - Management: HTTP over a mode-0600 Unix socket, authenticated by a random admin token. It has no TCP port. Never proxy it, copy its token into the mini program, or expose it to Caddy.
 - Default `REAL_COLLECTION_ENABLED=false` rejects enrollment and ingestion for non-synthetic participants. Tests generate random identifiers and no real users.
-- Event bodies allow only opaque generated event identifiers. **Never put an OpenID, name, phone, WeChat ID, raw residential address, exact coordinate, or a personal value encoded as an ID in an event.** The trusted account bridge separately stores the original OpenID once for restricted operational lookup. Schema validation cannot determine that an opaque event ID was derived improperly.
+- Client event bodies allow only opaque generated event identifiers. **Never put an OpenID, name, phone, WeChat ID, raw residential address, exact coordinate, or a personal value encoded as an ID in a client event.** The trusted account bridge separately stores the original OpenID for restricted account lookup. The signed business bridge includes account edges and published route stops; it never reads private profile or booking instructions. Schema validation cannot determine that an opaque event ID was derived improperly.
 - Trusted business events arrive through the signed `/internal/v1/places/business-events` bridge. Yes/no follow-up answers use the bounded event batch schema. A client click or self-reported answer is not proof of a booking, payment, or completed ride.
 - The identity bridge, 180-day real-payload policy, seven-day managed-backup rotation, and conservative restore reset are implemented here. COS/off-machine archive and deletion of external analysis copies are not. The deployment owner activates real collection only together with the matching privacy notice, authenticated cloud bridge, client rollout and customer-service stop workflow.
 
@@ -213,7 +213,7 @@ Open analysis connections through `openDatabase` from `src/database.mjs`. It reg
 
 Existing batches are compressed only by the separate offline migration, which checks each decoded original against its batch receipt SHA before changing storage. It does not automatically run at startup or vacuum the live database. A schema-6 database must not be opened with an old collector image. Once new writes have been accepted, restoring a pre-upgrade snapshot would discard them; preserve the current database and fix forward. Deployment verification compares decoded original payloads and all other table contents, not the physical compressed bytes. Compression reduces stored payload size without merging distinct users, visits, exposures or outcomes.
 
-On an isolated copy already upgraded to schema 6, `node scripts/compress-payloads.mjs /private/offline-copy.sqlite` verifies all receipt hashes and reports potential savings without changing rows. Add `--apply` to compress in restartable atomic chunks. Recheck all decoded table contents and research views afterward. Reclaiming SQLite free pages is a separate offline operation with sufficient temporary disk space; smaller payloads alone do not immediately shrink the database file.
+On an isolated copy upgraded to the current schema, `node scripts/compress-payloads.mjs /private/offline-copy.sqlite` verifies all receipt hashes and reports potential savings without changing rows. Add `--apply` to compress in restartable atomic chunks. Recheck all decoded table contents and research views afterward. Reclaiming SQLite free pages is a separate offline operation with sufficient temporary disk space; smaller payloads alone do not immediately shrink the database file.
 
 ## Validation and remaining work
 
@@ -221,7 +221,7 @@ On an isolated copy already upgraded to schema 6, `node scripts/compress-payload
 
 The account bridge tests additionally cover signed bridge bodies/times, persisted nonce replay rejection, CAS races, true action receipts, stale operations, paused token suppression, empty-backup recovery, 180/187-day retention and seven-day backup rotation. Run them with the pinned Node 24 container runtime (or its matching local runtime), rather than changing global native dependencies.
 
-Deployment must wire the matching cloud bridge, privacy notice, current mini-program domain, existing customer-service stop process and limited page hooks before enabling the real switch. Business transaction outbox, actual-ride follow-up, full candidate/trip pseudonym mapping, COS archive and external export deletion remain separate tasks. No booking behavior is modified by deploying this service.
+Production uses the backend's transactional outbox and account bridge, the mini-program's existing privacy notice, and bounded client batches and followups. PostgreSQL remains the only business writer. This collector projects public route evidence and self-reported outcomes without changing bookings. COS archive and deletion of external analysis copies are not implemented here.
 
 References: [SQLite WAL and patch history](https://www.sqlite.org/wal.html), [SQLite backup API](https://www.sqlite.org/backup.html). The repository research plans supply the research meaning and missingness constraints; this receiver does not turn telemetry into causal evidence.
 
@@ -249,16 +249,27 @@ they cannot overwrite a later transaction. Their historical-usage clock uses the
 planned service date; circle evidence retains the observation timestamp and does
 not pretend the baseline was known earlier.
 
-The eight standards use the bundled `place-catalog.cjs`, kept byte-identical to
-`utils/placeCatalog.js` and checked in tests. Bare Newark is not EWR, Jersey City
-is not JSQ, and Long Island is not LIC. Public POI suggestions require BOTH a
-verified catalog entry and a trusted successful publication/baseline using it.
-Unknown text goes into an admin-only pending/private table; it never becomes a
-public suggestion merely because its name sounds public. Private unit/phone
-patterns cannot be approved through the public-place approval endpoint. The
-server does not return user identity, raw private endpoints or publisher IDs.
+The twelve standards use the bundled `place-catalog.cjs`, generated from the
+same canonical location catalog as the mini program and checked in tests. Bare
+Newark is not EWR, Jersey City is not JSQ, and Long Island is not LIC.
+An unknown valid stop on a real, committed public `publish` or trusted
+`legacy_snapshot` automatically becomes a selectable POI; manual approval is
+not a prerequisite. The city and whitespace/case-normalized label retain the
+existing deterministic candidate hash and `poi_` ID. Placeholder labels,
+control characters, obvious contacts/URLs and room/unit details are excluded;
+building names such as `Modern800` remain valid. Catalog ownership is shared,
+so synthetic events cannot create or rename catalog, alias or candidate rows.
 
-Local UNIX admin operations (stdin JSON; no secrets in argv):
+Only public route stops cross this promotion boundary. Unsubmitted picker text
+stays in the account's local recent list. Profile residence, saved pickup/dropoff
+preferences and booking-specific `ride_members.details` never enter the public
+stop event projection. The server returns no publisher IDs or account identity.
+An automatically added POI keeps `parentRegionId=unknown`; its publisher's
+existing route circles supply recommendation relevance without guessing its
+geographical region from a name or from the other endpoint.
+
+Existing optional UNIX admin catalog operations remain available (stdin JSON;
+no secrets in argv), but ordinary public publications bypass this manual path:
 
 - `node scripts/admin.mjs places-status`: safe counts, real/test split, sync
   freshness, source-separated historical/transaction counts, followup eligible
@@ -280,8 +291,9 @@ adds a vote twice. Circles come from trusted business participation as of the
 selection/publication time, exclude airports as anchors and respect exits,
 deletions and explicit negative followups. Delayed outbox facts reconcile stored
 vote/usage circle attribution; immutable rank response snapshots preserve what
-was actually returned. A later public classification does not invent an earlier
-route-circle association for a then-unknown endpoint.
+was actually returned. Newly promoted catalog entries invalidate the server's
+current list cache without changing previous response snapshots. Historical
+usage keeps its original publication/service-date clock and observation time.
 
 Home followup qualification uses the latest planned departure plus four hours,
 an active past/close participation and a seven-day expiry. `places-status`
@@ -298,8 +310,28 @@ uses its fixed/public and own-local fallback. Per-request ranking reuses indexed
 account history and groups votes once per place. Snapshots reuse the same account
 and context for five minutes. Maintenance prunes real payloads/projections at
 180 days and synthetic data at 14 days; candidate text with no approval is
-removed after 180 inactive days. Official deployment requires a pre-migration
-backup: schema-3 code deliberately refuses schema 4, so rollback needs its paired
-backup, not an old image pointed at an upgraded database.
+removed after 180 inactive days.
+
+Schema 7 performs one bounded, atomic public-place projection upgrade when
+opening an older database. It considers at most 10,000 retained real business
+events, verifies supported event payloads against their saved identities and
+SHA, promotes valid public stops, resolves membership stop IDs and reconciles
+usage circles. It does not change event payloads/IDs/timestamps/hashes, batch or
+event receipts, grants, followup records, or historical ranking snapshots. It
+creates no table or parallel generation state. Reopening schema 7 does not
+repeat the upgrade; the projection operation itself is idempotent. Capacity or
+source-integrity errors roll back the upgrade and schema version together.
+
+Before production deployment, create a consistent private SQLite backup and
+run the existing `restore-check.mjs` with the candidate image into a **new**
+quarantined file. Confirm integrity/FKs, schema 7, original source backup SHA,
+unchanged immutable tables and decoded payload/receipt hashes; inspect only
+aggregate promoted counts and bounded migration duration. Verify real/test
+isolation, existing HMAC ACK behavior and the public suggestion path on that
+copy. Keep the old image and paired pre-upgrade backup until these checks pass.
+During the forward collector restart, queued clients and the PG outbox retry
+normally; do not restart or switch the PG business backend. Old schema-6 images
+must not open schema 7. Once new collection writes are accepted, preserve the
+latest database and fix forward instead of restoring a stale pre-upgrade copy.
 
 Referral visits use the existing event ledger. The mini program keeps at most 32 not-yet-queued captures locally for seven days and reports overflow/expiry through `collection_diagnostic`. It queues visits only after a signed-in account is eligible; visitors who never sign in are outside this sample. App launch/show/page-load captures of the same code and entry within ten seconds retain the same event ID and capture time. No raw query, URL, or contact data enters this event. Binding an invitation is a separate business operation and is not a visit timestamp. A visit preserves its observed foreground `sessionId` and client context. A launch capture before foreground initialization waits for the first observed foreground; it does not create a synthetic session from its event ID. These metadata remain unchanged when a locally pending visit is retried after an app restart or upgrade.

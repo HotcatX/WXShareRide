@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 export const TABLES = Object.freeze({
   participants: 'analytics_participants',
   accounts: 'analytics_accounts',
@@ -34,7 +34,7 @@ export function migrateTableNames(db) {
   const fail = () => { throw new Error('Unsupported mixed or incomplete collector schema'); };
   if (old.length && current.length) fail();
   if (current.length) {
-    if (![5, 6].includes(version) || current.length !== tableRenames.length
+    if (![5, 6, 7].includes(version) || current.length !== tableRenames.length
       || current.some(([, name]) => objects.get(name).type !== 'table')
       || [...baseTables, ...placeTables].some(name => objects.get(name)?.type !== 'table')
       || indexes.some(([name]) => objects.has(name))) fail();
@@ -70,7 +70,7 @@ export function migratePayloadColumns(db) {
     return;
   }
   const codec = columns.get('codec'), rawBytes = columns.get('raw_bytes');
-  if (version === SCHEMA_VERSION) {
+  if (version >= 6) {
     if (!codec || !rawBytes || codec.type !== 'TEXT' || codec.notnull !== 1 || codec.dflt_value !== "'json'"
       || rawBytes.type !== 'INTEGER' || rawBytes.notnull !== 0 || rawBytes.dflt_value !== null) {
       throw new Error('Unsupported payload schema');

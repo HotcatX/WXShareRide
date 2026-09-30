@@ -99,6 +99,80 @@ test('metrics inflate each eligible batch once; diagnostics inflate each chosen 
   assert.equal(readSafeMetrics(f.store.db).realEligibleEvents, 0); assert.equal(decoder.count, 0, 'quarantined bytes are not decoded');
 });
 
+test('streamed metrics keep receipt-first-batch, participant, grant, purpose and retention semantics', t => {
+  const f = fixture(t), db = f.store.db;
+  const synthetic = f.store.updateAccount({ accountSubject: randomBytes(32).toString('hex'), action: 'activate',
+    requestId: randomUUID(), expectedStatusVersion: 0, purposeVersion, noticeVersion, synthetic: true });
+  const claims = { ...synthetic.participant, sub: synthetic.participantKey };
+  const write = (who, body) => f.store.receive(who, Buffer.from(JSON.stringify(body)), body, now);
+  const body = f.body(2);
+  body.events[1] = { ...body.events[1], eventName: 'collection_diagnostic', data: { reason: 'queue_limit', droppedCount: 1 } };
+  write(f.claims, body);
+  write(f.claims, { ...body, batchId: randomUUID() });
+  write(claims, body); // Identical event and batch IDs are isolated by participant.
+  const raw = Buffer.from(JSON.stringify(body));
+  db.prepare("UPDATE ingest_batches SET payload=?,codec='json',raw_bytes=NULL,purpose_version='ride-research-v1',status_version=99 WHERE participant_key=? AND batch_id=?")
+    .run(raw, f.claims.sub, body.batchId);
+  for (const [who, column, value] of [[f.claims, 'received_at', now - 181 * 86400000],
+    [claims, 'received_at', now - 15 * 86400000], [f.claims, 'grant_id', randomUUID()], [f.claims, 'purpose_version', 'ride-analytics-v2']]) {
+    const excluded = f.body(1); write(who, excluded);
+    db.prepare(`UPDATE ingest_batches SET ${column}=? WHERE participant_key=? AND batch_id=?`).run(value, who.sub, excluded.batchId);
+  }
+  const reference = db.prepare(`SELECT p.synthetic,json_extract(e.event_json,'$.eventName') AS eventName,COUNT(*) AS count
+    FROM eligible_events e JOIN analytics_participants p ON p.participant_key=e.participant_key
+    GROUP BY p.synthetic,eventName ORDER BY p.synthetic,eventName`).all();
+  const decoder = countDecodes(db), result = readSafeMetrics(db);
+  assert.deepEqual(result.realEventsByName, reference.filter(row => row.synthetic === 0).map(({ eventName, count }) => ({ eventName, count })));
+  assert.deepEqual(result.syntheticEventsByName, reference.filter(row => row.synthetic === 1).map(({ eventName, count }) => ({ eventName, count })));
+  assert.equal(result.realEligibleEvents, 2); assert.equal(result.syntheticEligibleEvents, 2);
+  assert.equal(result.realEligibleBatches, 2, 'a replay-only batch remains an eligible batch');
+  assert.equal(result.syntheticEligibleBatches, 1);
+  assert.equal(result.realLatestReceivedAt, now); assert.equal(result.syntheticLatestReceivedAt, now);
+  assert.equal(decoder.count, 3, 'excluded payloads are never decoded, including grant/purpose/TTL exclusions');
+  db.transaction(() => {
+    assert.equal(db.inTransaction, true);
+    assert.deepEqual(readSafeMetrics(db), result);
+    assert.equal(db.inTransaction, true, 'metrics reuses the caller transaction');
+  })();
+  assert.equal(db.inTransaction, false);
+  db.prepare("UPDATE collector_settings SET value='closed' WHERE key='restore_gate'").run();
+  decoder.reset();
+  const quarantined = readSafeMetrics(db);
+  assert.equal(quarantined.realEligibleEvents, 0); assert.equal(quarantined.syntheticEligibleEvents, 0);
+  assert.equal(quarantined.realLatestReceivedAt, null); assert.equal(decoder.count, 0);
+});
+
+test('large compressed metrics match the event view without a SQL temporary aggregation tree', t => {
+  const f = fixture(t), db = f.store.db;
+  const candidates = Array.from({ length: 6 }, (_, position) => ({ tripKey: 'fixture_trip_' + position,
+    tripType: 'carpool', position, tripVersion: 1, originArea: 'fort_lee', destinationArea: 'columbia' }));
+  for (let i = 0; i < 48; i++) {
+    const body = f.body(50);
+    body.events = body.events.map(event => ({ ...event, eventName: 'list_snapshot', data: {
+      selectionSetId: randomUUID(), source: 'network', renderedCount: 6, hasMore: false, candidatesComplete: true, candidates } }));
+    const raw = Buffer.from(JSON.stringify(body));
+    assert.ok(raw.length > 40000 && raw.length <= MAX_BYTES);
+    f.store.receive(f.claims, raw, body, now);
+  }
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM ingest_batches WHERE codec='gzip'").get().n, 48);
+  const expected = db.prepare("SELECT json_extract(event_json,'$.eventName') AS eventName,COUNT(*) AS count FROM eligible_events GROUP BY eventName ORDER BY eventName").all();
+  const statements = [];
+  const observed = { get inTransaction() { return db.inTransaction; }, transaction: db.transaction.bind(db),
+    prepare(sql) { statements.push(sql); return db.prepare(sql); } };
+  const decoder = countDecodes(db), result = readSafeMetrics(observed);
+  assert.deepEqual(result.realEventsByName, expected);
+  assert.equal(result.realEligibleEvents, 2400); assert.equal(result.realEligibleBatches, 48);
+  assert.equal(decoder.count, 48);
+  for (const sql of statements) {
+    const plan = db.prepare('EXPLAIN QUERY PLAN ' + sql).all(...Array((sql.match(/\?/g) || []).length).fill(null));
+    assert.ok(plan.every(row => !/TEMP B-TREE/i.test(row.detail)), 'metric reads cannot sort or group expanded payloads into temporary storage');
+  }
+  const damaged = db.prepare('SELECT participant_key,batch_id FROM ingest_batches ORDER BY rowid DESC LIMIT 1').get();
+  db.prepare('UPDATE ingest_batches SET payload=? WHERE participant_key=? AND batch_id=?').run(Buffer.from('broken gzip'), damaged.participant_key, damaged.batch_id);
+  assert.throws(() => readSafeMetrics(db), /Invalid stored payload/);
+  assert.equal(db.inTransaction, false, 'failure releases the read transaction instead of returning partial totals');
+});
+
 test('compressed followups retain explicit priority and withdrawals remove payload access', t => {
   const f = fixture(t), body = f.body(1), record = { followupId: randomUUID(), tripKey: randomUUID(), tripType: 'carpool', role: 'passenger' };
   body.events = [

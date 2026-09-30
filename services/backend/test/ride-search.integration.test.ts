@@ -36,6 +36,15 @@ test('ride search paginates the New York day, finds next nonempty day, and group
   assert.deepEqual((await rideCalendar(db.pool, {month:'2035-11',fromPlace:'其他',fromPresets:JSON.stringify(['Fort Lee','JFK'])}, undefined, appId)).days,
     [{date:'2035-11-09',offerCount:1,requestCount:0}]);
   assert.deepEqual((await listRides(db.pool, {fromPlace:'肯尼迪',toPlace:'queens'}, undefined, appId)).rides.map(r=>r.id), ['next']);
+  const nyuAliases = ['NYU', '下城', 'Lower Manhattan', 'New York University', '纽约大学'];
+  for (let i = 0; i < nyuAliases.length; i++) await make(`nyu-${i}`, '2035-11-10T15:00:00Z', 'offer', nyuAliases[i], nyuAliases[i]);
+  await make('other-downtown', '2035-11-10T15:00:00Z', 'offer', 'Downtown Brooklyn', 'Downtown Brooklyn');
+  const nyuIds = nyuAliases.map((_, i) => `nyu-${i}`);
+  for (const alias of nyuAliases) {
+    assert.deepEqual((await listRides(db.pool, {fromPlace:alias,toPlace:alias}, undefined, appId)).rides.map(r=>r.id).sort(), nyuIds);
+    assert.deepEqual((await rideCalendar(db.pool, {month:'2035-11',fromPlace:alias,toPlace:alias}, undefined, appId)).days,
+      [{date:'2035-11-10',offerCount:nyuAliases.length,requestCount:0}]);
+  }
   assert.deepEqual((await listRides(db.pool, {}, undefined, 'another-app')).rides, []);
   for (const query of [{startDate:'2035-02-30',endDateExclusive:'2035-03-01'}, {startDate:'2035-11-04'},
     {startDate:'2035-11-04',endDateExclusive:'2035-11-07'}, {fromPresets:'not-json'}, {fromPresets:Array(101).fill('JFK')}]) await assert.rejects(listRides(db.pool,query));

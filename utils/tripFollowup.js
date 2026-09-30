@@ -9,7 +9,7 @@ const TRIP_ID = /^[A-Za-z0-9_-]{1,80}$/
 const text = value => typeof value === 'string' ? value.trim() : ''
 const memberId = value => text(typeof value === 'string' ? value : value && (value._openid || value.openid))
 
-function eligibleTrip(trip, account, now) {
+function eligibleTrip(trip, account, now, history = false) {
   if (!trip || !account || trip.missing || !TRIP_ID.test(text(trip._id))) return null
   const type = text(trip.historySource || trip._sourceType)
   const historyRole = text(trip.historyRole || trip.role).toLowerCase()
@@ -38,7 +38,7 @@ function eligibleTrip(trip, account, now) {
     if (Number.isFinite(parsed)) times.push(parsed)
   })
   const departureAt = Math.max(0, ...times)
-  if (!departureAt || now - departureAt > 7 * DAY || now < departureAt) return null
+  if (!departureAt || !history && now - departureAt > 7 * DAY || now < departureAt) return null
   // A past status only means departure has passed, not that the ride arrived.
   // Keep a short completion buffer; there is no longer a next-morning gate.
   if (now < departureAt + 4 * 3600000) return null
@@ -53,6 +53,7 @@ function createFollowupController(options = {}) {
   const disposed = new WeakSet()
   let foreground = true, usedThisForeground = false, active = null, storageBlocked = false
   const completedInMemory = new Set()
+  let thankedAt = 0
 
   function identity() {
     try { return wxApi.getStorageSync('isGuest') ? '' : text(wxApi.getStorageSync('openid')) } catch (_) { return '' }
@@ -77,7 +78,11 @@ function createFollowupController(options = {}) {
       for (const [key, entry] of Object.entries(saved.entries)) {
         if (!/^[a-f0-9]{64}$/.test(key) || !entry || !['shown', 'dismissed', 'answered'].includes(entry.status) ||
           !Number.isSafeInteger(entry.at) || entry.at <= 0) return null
-        if (entry.at >= now() - 7 * DAY) entries[key] = { status: entry.status, at: entry.at }
+        if (entry.at >= now() - 7 * DAY) {
+          entries[key] = { status: entry.status, at: entry.at }
+          if (entry.status === 'answered' && ['yes', 'no'].includes(entry.outcome)) entries[key].outcome = entry.outcome
+          if (entry.status === 'dismissed' && entry.assumedOutcome === 'yes') entries[key].assumedOutcome = 'yes'
+        }
       }
       return { version: 1, lastPromptAt: saved.lastPromptAt, entries }
     } catch (_) { return null }
@@ -93,6 +98,96 @@ function createFollowupController(options = {}) {
   }
   function eventMeta(at) {
     try { return { eventId: api.makeEventId(), occurredAt: at } } catch (_) { return null }
+  }
+  function thank(page) {
+    if (thankedAt && now() - thankedAt < 10000) return
+    thankedAt = now()
+    setView(page, { feedbackThanks: true })
+    ;(options.setTimeout || setTimeout)(() => setView(page, { feedbackThanks: false }), 1400)
+    try { if (typeof wxApi?.vibrateShort === 'function') wxApi.vibrateShort({ type: 'light', fail() {} }) } catch (_) {}
+  }
+  function historyItem(trip) {
+    const account = identity(), currentScope = scope()
+    const item = eligibleTrip(trip, account, now(), true)
+    if (!item || !currentScope) return null
+    return Object.assign(item, { account, scope: currentScope,
+      followupId: sha256([participantScope(currentScope), item.tripType, item.tripKey, item.role].join('|')) })
+  }
+  function pendingOutcomes(item) {
+    try { return typeof api.getPendingFollowupOutcomes === 'function' ? api.getPendingFollowupOutcomes().filter(value =>
+      value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role) : [] } catch (_) { return [] }
+  }
+  async function readHistoryOutcomes(trips) {
+    const account = identity()
+    let requestScope = scope()
+    if (!account || !Array.isArray(trips)) return null
+    const candidates = trips.map(trip => eligibleTrip(trip, account, now(), true)).filter(Boolean)
+    const outcomes = []
+    for (let offset = 0; offset < candidates.length; offset += 50) {
+      const chunk = candidates.slice(offset, offset + 50)
+      let pendingBefore = chunk.flatMap(pendingOutcomes)
+      let response
+      try { response = await api.requestFollowupOutcomes({ schemaVersion: 1,
+        trips: chunk.map(({ tripKey, tripType, role }) => ({ tripKey, tripType, role })) }, () => {
+        pendingBefore = chunk.flatMap(pendingOutcomes)
+        if (!requestScope) requestScope = scope()
+      }) } catch (_) { return null }
+      if (identity() !== account || !scope() || requestScope && scope() !== requestScope || !response || response.ok !== true ||
+        !Array.isArray(response.outcomes) || response.outcomes.length !== chunk.length) return null
+      requestScope = scope()
+      const seen = new Set()
+      for (const value of response.outcomes) {
+        const item = chunk.find(item => item.tripKey === value?.tripKey && item.tripType === value.tripType && item.role === value.role)
+        if (!item || seen.has(item.tripKey) || !['self_report', 'dismissed_default', 'unanswered'].includes(value.source) ||
+          !Number.isSafeInteger(value.occurredAt) || value.occurredAt < 0 || value.occurredAt > now() + 300000 ||
+          (value.source === 'unanswered' ? value.outcome !== null :
+            !['yes', 'no'].includes(value.outcome) || value.occurredAt <= 0 || value.source === 'dismissed_default' && value.outcome !== 'yes')) return null
+        seen.add(item.tripKey)
+        const current = historyItem(item.trip), saved = readState(scope())
+        if (!current || !saved) return null
+        const local = saved.entries[current.followupId]
+        // Accepted queue entries may not have reached the collector yet. Keep
+        // those explicit choices, using the same precedence as its projection.
+        const explicit = local?.status === 'answered' && ['yes', 'no'].includes(local.outcome)
+        const assumed = local?.status === 'dismissed' && local.assumedOutcome === 'yes'
+        const queued = pendingBefore.filter(value => value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role)
+          .concat(pendingOutcomes(item))
+        if (explicit || assumed) queued.push({ outcome: explicit ? local.outcome : 'yes',
+          source: explicit ? 'self_report' : 'dismissed_default', occurredAt: local.at })
+        const chosen = queued.reduce((latest, candidate) => {
+          const priority = source => source === 'self_report' ? 2 : source === 'dismissed_default' ? 1 : 0
+          return priority(candidate.source) > priority(latest.source) || priority(candidate.source) === priority(latest.source) &&
+            candidate.occurredAt > latest.occurredAt ? candidate : latest
+        }, value)
+        outcomes.push({ tripKey: item.tripKey, tripType: item.tripType, role: item.role,
+          outcome: chosen.outcome, source: chosen.source, occurredAt: chosen.occurredAt })
+      }
+    }
+    return outcomes
+  }
+  function reportHistory(trip, outcome, page) {
+    const item = historyItem(trip)
+    if (!foreground || !item || !['yes', 'no'].includes(outcome)) return { ok: false }
+    const state = readState(item.scope)
+    if (!state) return { ok: false }
+    // Rapid yes/no corrections must have an unambiguous latest event even when
+    // the device clock has not advanced to the next millisecond.
+    const observedAt = Number.isSafeInteger(trip._feedbackOccurredAt) && trip._feedbackOccurredAt > 0 ? trip._feedbackOccurredAt : 0
+    const pendingAt = Math.max(0, ...pendingOutcomes(item).map(value => value.occurredAt))
+    const meta = eventMeta(Math.max(now(), (state.entries[item.followupId]?.at || 0) + 1, observedAt + 1, pendingAt + 1))
+    const result = record('followup_answer', Object.assign(base(item), { outcome,
+      outcomeScope: item.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking' }, price(item.trip)), meta)
+    if (!result.ok || item.account !== identity() || item.scope !== scope()) return { ok: false }
+    completedInMemory.add(item.followupId)
+    state.entries[item.followupId] = { status: 'answered', at: meta.occurredAt, outcome }
+    // The existing bounded prompt cache is supplementary; the persistent event
+    // queue owns delivery. Never add a second journal or block its accepted ACK.
+    const recent = Object.entries(state.entries).sort((a, b) => b[1].at - a[1].at).slice(0, 64)
+    state.entries = Object.fromEntries(recent)
+    saveState(item.scope, state)
+    try { Promise.resolve(api.flush()).catch(() => {}) } catch (_) {}
+    thank(page)
+    return { ok: true, outcome, source: 'self_report', occurredAt: meta.occurredAt }
   }
   function matches(item) { return item && item.scope === scope() && item.account === identity() && !disposed.has(item.page) }
   function closeView(item) {
@@ -159,9 +254,10 @@ function createFollowupController(options = {}) {
     }
     item.submitted = true
     completedInMemory.add(item.followupId)
-    item.state.entries[item.followupId] = { status: 'answered', at: now() }
+    item.state.entries[item.followupId] = { status: 'answered', at: item.attempt.meta.occurredAt, outcome }
     saveState(item.scope, item.state) // Only mark done after the persistent event queue accepts it.
     closeView(item)
+    thank(page)
     return { ok: true }
   }
   function hide(page, explicitClose = false) {
@@ -173,9 +269,9 @@ function createFollowupController(options = {}) {
       // Background/navigation never opts the user into that assumption.
       if (explicitClose) Object.assign(data, { assumedOutcome: 'yes',
         outcomeScope: item.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking' }, price(item.trip))
-      record('followup_dismissed', data, eventMeta(now()))
+      const result = record('followup_dismissed', data, eventMeta(now()))
       completedInMemory.add(item.followupId)
-      item.state.entries[item.followupId] = { status: 'dismissed', at: now() }
+      item.state.entries[item.followupId] = { status: 'dismissed', at: now(), ...(explicitClose && result.ok ? { assumedOutcome: 'yes' } : {}) }
       saveState(item.scope, item.state)
     }
     closeView(item)
@@ -184,13 +280,13 @@ function createFollowupController(options = {}) {
   function dispose(page) { hide(page); disposed.add(page) }
   function beginForeground() { if (!foreground) { foreground = true; usedThisForeground = false } }
   function endForeground() { if (active) hide(active.page); foreground = false }
-  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground }
+  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground, readHistoryOutcomes, reportHistory, thank }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createFollowupController(); return singleton }
 const exported = { createFollowupController, eligibleTrip, referencePrice, STORAGE_PREFIX }
-;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground'].forEach(name => {
+;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground', 'readHistoryOutcomes', 'reportHistory', 'thank'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

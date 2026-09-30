@@ -134,7 +134,7 @@ test('passenger deep link shares driver address configuration without loading dr
   assert.equal(page.data.referencePrice, '')
   assert.equal(state.templateReads, 0)
   assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
-  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '其他'])
+  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '其他'])
   assert.deepEqual(page.data.arrivalAddresses, page.data.departureAddresses)
 })
 
@@ -399,7 +399,7 @@ test('both forms show the twelve fixed places and keep a completed background re
     const labels = page.data.placePickerFixedOptions.map(item => item.label)
     suggestions.resolve(placeResponse(['公共车站']))
     await opened
-    assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens'])
+    assert.deepEqual(labels, ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens'])
     assert.deepEqual(page.data.placePickerOptions, [])
     page.onClosePlacePicker()
     await page.onOpenPlacePicker(placeEvent('departure'))

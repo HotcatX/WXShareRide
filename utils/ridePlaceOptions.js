@@ -36,7 +36,7 @@ function makeRidePlaceMatcher(place) {
     jsq: /(?:^|[^a-z])jsq(?:$|[^a-z])|journal\s+square/i,
     inwood: /(?:^|[^a-z])(?:inwood(?:\s*manhattan)?|manhattan\s*inwood)(?:$|[^a-z])/i,
     midtown: /(?:^|[^a-z])(?:midtown\s*manhattan|manhattan\s*midtown|midtown\s+(?:east|west))(?:$|[^a-z])|中城|^\s*midtown\s*$/i,
-    downtown: /(?:^|[^a-z])(?:lower\s*manhattan|downtown\s*manhattan|manhattan\s*downtown)(?:$|[^a-z])|下城|^\s*downtown\s*$/i,
+    downtown: /(?:^|[^a-z])(?:nyu|new\s*york\s*university|lower\s*manhattan|downtown\s*manhattan|manhattan\s*downtown)(?:$|[^a-z])|纽约大学|下城|^\s*downtown\s*$/i,
     queens: /(?:^|[^a-z])queens(?:$|[^a-z])|皇后[区區]/i
   }
   const id = resolvePlaceId(value)

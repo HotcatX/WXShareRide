@@ -61,8 +61,8 @@ function createAnalyticsClient(options = {}) {
   let attemptsThisForeground = 0
   let generation = 0
   let activeFlight = null
-  const placeFlights = new Set()
-  let placeRequestsThisForeground = 0
+  const readFlights = new Set()
+  let readRequestsThisForeground = 0
   let storageBlocked = false
   let halted = ''
   let cachedContext
@@ -116,7 +116,7 @@ function createAnalyticsClient(options = {}) {
     token = ''; tokenExpiresAtMs = 0
     state = null
     if (activeFlight && activeFlight.abort) { try { activeFlight.abort() } catch (_) {} }
-    placeFlights.forEach(flight => { try { if (flight.abort) flight.abort() } catch (_) {} })
+    readFlights.forEach(flight => { try { if (flight.abort) flight.abort() } catch (_) {} })
     try {
       if (!storage || typeof storage.remove !== 'function') throw new Error('STORAGE_UNAVAILABLE')
       storage.remove(STORAGE_KEY)
@@ -220,7 +220,7 @@ function createAnalyticsClient(options = {}) {
     if (!isOpaqueId(nextId)) return ''
     foregroundId = nextId
     attemptsThisForeground = 0
-    placeRequestsThisForeground = 0
+    readRequestsThisForeground = 0
     return foregroundId
   }
 
@@ -379,36 +379,55 @@ function createAnalyticsClient(options = {}) {
       dropped: state ? { ...state.dropped } : { expired: 0, queueLimit: 0, invalid: 0 } }
   }
 
-  async function requestPlaceSuggestions(payload) {
-    // This is deliberately a single-purpose method, never a generic authenticated
-    // HTTP proxy. Session credentials stay inside this client and out of storage.
+  async function requestRead(path, payload, scopeError) {
     if (!eligible() || !foregroundId || !token || tokenExpiresAtMs <= now() ||
-      !validEndpoint(config.endpoint) || placeRequestsThisForeground >= 30 || placeFlights.size >= 2) return null
+      !validEndpoint(config.endpoint) || readRequestsThisForeground >= 30 || readFlights.size >= 2) return null
+    const epoch = generation
+    const flight = { abort: null }
+    readFlights.add(flight); readRequestsThisForeground++
+    try {
+      const sent = transport({ url: config.endpoint.replace(/\/v1\/batches$/, path),
+        body: JSON.stringify(payload), token, timeoutMs: 2500 })
+      if (sent && sent.promise) flight.abort = sent.abort
+      const response = await (sent && sent.promise ? sent.promise : sent)
+      if (generation !== epoch || !eligible() || !foregroundId) return null
+      if (response && (response.statusCode === 401 || response.statusCode === 403 && response.data && response.data.error === scopeError)) {
+        token = ''; tokenExpiresAtMs = 0
+      }
+      return response && response.statusCode === 200 && response.data && response.data.ok === true ? response.data : null
+    } catch (_) { return null }
+    finally { readFlights.delete(flight) }
+  }
+
+  function requestPlaceSuggestions(payload) {
     if (!payload || payload.schemaVersion !== 1 || typeof payload.cityKey !== 'string' ||
       !/^[A-Za-z0-9_-]{1,80}$/.test(payload.cityKey) ||
       !['departure', 'destination'].includes(payload.field) || !['driver', 'passenger', 'filter'].includes(payload.mode) ||
       Object.keys(payload).some(key => !['schemaVersion', 'cityKey', 'field', 'mode', 'counterpartPlaceId'].includes(key)) ||
       (payload.counterpartPlaceId !== undefined && (typeof payload.counterpartPlaceId !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,80}$/.test(payload.counterpartPlaceId)))) return null
-    const epoch = generation
-    const flight = { abort: null }
-    placeFlights.add(flight); placeRequestsThisForeground++
-    try {
-      const sent = transport({ url: config.endpoint.replace(/\/v1\/batches$/, '/v1/place-suggestions'),
-        body: JSON.stringify(payload), token, timeoutMs: 2500 })
-      if (sent && sent.promise) flight.abort = sent.abort
-      const response = await (sent && sent.promise ? sent.promise : sent)
-      if (generation !== epoch || !eligible() || !foregroundId) return null
-      if (response && (response.statusCode === 401 || response.statusCode === 403 && response.data && response.data.error === 'PLACE_SCOPE_REQUIRED')) {
-        token = ''; tokenExpiresAtMs = 0
-      }
-      return response && response.statusCode === 200 && response.data && response.data.ok === true ? response.data : null
-    } catch (_) { return null }
-    finally { placeFlights.delete(flight) }
+        !/^[A-Za-z0-9_-]{1,80}$/.test(payload.counterpartPlaceId)))) return Promise.resolve(null)
+    return requestRead('/v1/place-suggestions', payload, 'PLACE_SCOPE_REQUIRED')
+  }
+  function requestFollowupOutcomes(payload) {
+    // Both read methods have fixed destinations; never expose an authenticated
+    // generic HTTP proxy or persist a session token in caller state.
+    if (!payload || payload.schemaVersion !== 1 || Object.keys(payload).some(key => !['schemaVersion', 'trips'].includes(key)) ||
+      !Array.isArray(payload.trips) || !payload.trips.length || payload.trips.length > 50 || payload.trips.some(trip =>
+        !trip || Object.keys(trip).length !== 3 || typeof trip.tripKey !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(trip.tripKey) ||
+        !['carpool', 'request'].includes(trip.tripType) || !['driver', 'passenger'].includes(trip.role))) return Promise.resolve(null)
+    return requestRead('/v1/followups/query', payload, 'FOLLOWUP_SCOPE_REQUIRED')
   }
 
   function getEventMetadata() { return foregroundId ? clone({ sessionId: foregroundId, context: eventContext() }) : null }
-  return { setSession, clearSession, withdraw: clearSession, beginForeground, endForeground, enqueue, flush, getStatus, requestPlaceSuggestions, getEventMetadata }
+  function getPendingFollowupOutcomes() {
+    if (!eligible() || !state || !foregroundId || storageBlocked) return []
+    return state.events.filter(event => event.occurredAt >= now() - limits.ttlMs &&
+      (event.eventName === 'followup_answer' || event.eventName === 'followup_dismissed' && event.data.dismissalReason === 'close' && event.data.assumedOutcome === 'yes'))
+      .map(event => ({ tripKey: event.data.tripKey, tripType: event.data.tripType, role: event.data.role,
+        outcome: event.eventName === 'followup_answer' ? event.data.outcome : 'yes',
+        source: event.eventName === 'followup_answer' ? 'self_report' : 'dismissed_default', occurredAt: event.occurredAt }))
+  }
+  return { setSession, clearSession, withdraw: clearSession, beginForeground, endForeground, enqueue, flush, getStatus, requestPlaceSuggestions, requestFollowupOutcomes, getPendingFollowupOutcomes, getEventMetadata }
 }
 
 module.exports = { createAnalyticsClient, createWxTransport, validEndpoint, STORAGE_KEY }

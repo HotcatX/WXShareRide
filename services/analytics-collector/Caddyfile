@@ -5,7 +5,7 @@
     }
     @batch {
         method POST
-        path /v1/batches /v1/place-suggestions
+        path /v1/batches /v1/place-suggestions /v1/followups/query
     }
     @analyticsBridge {
         method POST
@@ -39,8 +39,7 @@
     request_body @images {
         max_size 2097152
     }
-    # The backend itself rejects every business route while BUSINESS_MODE=staged.
-    # Publishing these paths does not activate writes or change legacy statistics.
+    # PostgreSQL is the business authority after the completed writer handoff.
     handle @business {
         reverse_proxy linkx-business:3100
     }

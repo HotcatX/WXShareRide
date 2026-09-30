@@ -13,7 +13,7 @@ import { BRIDGE_ROUTE, DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonica
 import { LEGACY_BRIDGE_ROUTE, accountResponseForRequest } from './compat/legacy.mjs';
 import { isNoticeVersion, verifyBridgeRequest, validateAccountRequest } from './bridge.mjs';
 import { MAX_BYTES, validateBatch, validateState, validateTokenRequest, shape, purpose } from './validation.mjs';
-import { PLACE_ROUTE, BUSINESS_ROUTE } from './places.mjs';
+import { PLACE_ROUTE, BUSINESS_ROUTE, FOLLOWUP_QUERY_ROUTE } from './places.mjs';
 
 function reply(res, status, body) {
   const raw = JSON.stringify(body);
@@ -114,10 +114,13 @@ export function createCollector(config) {
     if (req.method === 'GET' && req.url === '/healthz') {
       store.db.prepare('SELECT 1').get(); return reply(res, 200, { ok: true, service: 'analytics-collector' });
     }
-    requireThat(req.method === 'POST' && ['/v1/batches', PLACE_ROUTE].includes(req.url), 404, 'NOT_FOUND');
+    requireThat(req.method === 'POST' && ['/v1/batches', PLACE_ROUTE, FOLLOWUP_QUERY_ROUTE].includes(req.url), 404, 'NOT_FOUND');
     rateGlobal('global');
     const claims = tokens.verify(bearer(req)); rateParticipant(claims.sub);
     const { raw, body } = await readJSON(req);
+    if (req.url === FOLLOWUP_QUERY_ROUTE) {
+      return reply(res, 200, store.followupOutcomes(tokens.verify(bearer(req)), body));
+    }
     if (req.url === PLACE_ROUTE) {
       const fs = statfsSync(dirname(config.dbPath));
       requireThat(fs.bavail * fs.bsize >= config.minFreeBytes, 503, 'STORAGE_UNAVAILABLE');

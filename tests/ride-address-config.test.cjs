@@ -51,8 +51,8 @@ test('shared fixed configuration reads existing collection values and keeps the 
   const { api, state } = harness()
   const result = await api.loadRideAddressConfig()
   assert.deepEqual(plain(result), {
-    fromPlaces: ['Fort Lee 核心区', '哥大', 'Flushing', 'JFK机场', 'Newark Airport', 'LGA', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '广场'],
-    toPlaces: ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', '下城', 'Queens', '博物馆']
+    fromPlaces: ['Fort Lee 核心区', '哥大', 'Flushing', 'JFK机场', 'Newark Airport', 'LGA', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '广场'],
+    toPlaces: ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '博物馆']
   })
   assert.deepEqual(state.reads, ['Departure', 'Arrival'])
   assert.equal(api.ADDRESS_CONFIG_CACHE_MS, 300000)

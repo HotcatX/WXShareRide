@@ -328,7 +328,7 @@ function createAnalyticsSession(options = {}) {
     syncIdentity()
     return verified && participantKey && getState().participating ? `${collectionMode}:${participantKey}:${statusVersion}` : ''
   }
-  async function requestPlaceSuggestions(payload) {
+  async function requestRead(method, payload, beforeRequest) {
     syncIdentity()
     if (!foreground || !account || !inCohort || ownPending() || storageError || withdrawalBlocked) return null
     const epoch = generation
@@ -341,23 +341,32 @@ function createAnalyticsSession(options = {}) {
       await refreshStatus({ force: true })
     }
     syncIdentity()
-    if (epoch !== generation || !verified || !foreground || ownPending() || typeof client.requestPlaceSuggestions !== 'function') return null
-    const response = await client.requestPlaceSuggestions(payload)
+    if (epoch !== generation || !verified || !foreground || ownPending() || typeof client[method] !== 'function') return null
+    // Snapshot the existing durable queue after initial authentication has
+    // loaded it, before a concurrent upload ACK can remove its records.
+    if (typeof beforeRequest === 'function') beforeRequest()
+    const response = await client[method](payload)
     syncIdentity()
     if (epoch === generation && tokenExpiresAt !== 0 && client.getStatus().tokenRequired) {
       tokenExpiresAt = 0; lastTokenRefresh = now()
     }
     return epoch === generation && verified && foreground ? response : null
   }
+  const requestPlaceSuggestions = payload => requestRead('requestPlaceSuggestions', payload)
+  const requestFollowupOutcomes = (payload, beforeRequest) => requestRead('requestFollowupOutcomes', payload, beforeRequest)
+  function getPendingFollowupOutcomes() {
+    syncIdentity()
+    return foreground && verified && !ownPending() && typeof client.getPendingFollowupOutcomes === 'function' ? client.getPendingFollowupOutcomes() : []
+  }
   return { beginForeground, endForeground, identityChanged, pageShown, refreshStatus, withdraw,
-    getState, subscribe, recordSearch, recordResults, flush, recordEvent: record, makeEventId: makeId, getCollectionScope, requestPlaceSuggestions, getEventMetadata }
+    getState, subscribe, recordSearch, recordResults, flush, recordEvent: record, makeEventId: makeId, getCollectionScope, requestPlaceSuggestions, requestFollowupOutcomes, getPendingFollowupOutcomes, getEventMetadata }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createAnalyticsSession(); return singleton }
 const exported = { createAnalyticsSession, PENDING_KEY, ROUTES }
 ;['beginForeground', 'endForeground', 'identityChanged', 'pageShown', 'refreshStatus', 'withdraw',
-  'getState', 'subscribe', 'recordSearch', 'recordResults', 'flush', 'recordEvent', 'makeEventId', 'getCollectionScope', 'requestPlaceSuggestions', 'getEventMetadata'].forEach(name => {
+  'getState', 'subscribe', 'recordSearch', 'recordResults', 'flush', 'recordEvent', 'makeEventId', 'getCollectionScope', 'requestPlaceSuggestions', 'requestFollowupOutcomes', 'getPendingFollowupOutcomes', 'getEventMetadata'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

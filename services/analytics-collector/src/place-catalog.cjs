@@ -142,9 +142,12 @@ const FIXED_PLACES = [
   },
   {
     "placeId": "downtown",
-    "label": "下城",
-    "value": "下城",
+    "label": "NYU",
+    "value": "NYU",
     "aliases": [
+      "nyu",
+      "纽约大学",
+      "newyorkuniversity",
       "下城",
       "曼哈顿下城",
       "downtown",

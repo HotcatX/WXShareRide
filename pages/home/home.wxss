@@ -702,3 +702,4 @@ page{
 .home-followup-actions button::after{ border: none; }
 .home-followup-no{ background: #f1f5f9; color: #334155; }
 .home-followup-yes{ background: #2563eb; color: #fff; }
+.home-feedback-thanks{position:fixed;top:120rpx;left:50%;transform:translateX(-50%);z-index:2300;pointer-events:none;padding:12rpx 28rpx;background:#e0f4ec;border-radius:24rpx;color:#16785c;font-size:24rpx;box-shadow:0 4rpx 16rpx rgba(15,70,55,.08);}

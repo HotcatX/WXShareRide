@@ -57,6 +57,9 @@ test('airport labels and exact alias deduplication retain specific self-selected
     ['Inwood', 'Inwood Park', 'Inwoodman'],
     ['中城', 'Midtown Manhattan', 'Midtown Jersey City'],
     ['下城', 'Lower Manhattan', 'Downtown Brooklyn'],
+    ['NYU', '下城', 'Downtown Brooklyn'],
+    ['下城', 'NYU', 'NYUton'],
+    ['NYU', 'New York University', 'Downtown Jersey City'],
     ['Queens', '皇后区', 'Queensboro']
   ]) {
     const matches = api.makeRidePlaceMatcher(place)
@@ -94,6 +97,18 @@ test('picker shows short airport labels while confirming cloud values and keeps 
   component.confirmValue('拉瓜迪亚')
   component.confirmValue('EWR Terminal C')
   assert.deepEqual(component.events.map(event => event.detail.value), ['EWR 机场', 'LGA Airport', 'EWR Terminal C'])
+})
+
+test('NYU keeps the historical downtown selection and alias deduplication', () => {
+  const { component } = componentHarness({
+    value: '下城', fixedOptions: ['NYU'],
+    options: ['下城', 'NYU', 'Lower Manhattan', 'New York University', 'NYU Library entrance']
+  })
+  assert.equal(component.data.fixedEntries[0].label, 'NYU')
+  assert.equal(component.data.fixedEntries[0].selected, true)
+  assert.deepEqual(plain(component.data.suggestions.map(item => item.value)), ['NYU Library entrance'])
+  component.confirmValue('下城')
+  assert.equal(component.events[0].detail.value, 'NYU')
 })
 
 test('custom place editing stays in the panel, validates text and retains configured price keys', () => {

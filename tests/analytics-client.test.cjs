@@ -418,3 +418,34 @@ test('referral metadata uses a real foreground and survives requeue across app v
   assert.equal(page.context.clientVersion,'5.2.0');assert.equal(page.context.phone,undefined)
   next.client.endForeground();assert.equal(next.client.getEventMetadata(),null)
 })
+
+test('followup reads use the same bounded authenticated transport and cannot select another endpoint or identity', async () => {
+  const h = harness({ transport: async () => ({ statusCode: 200, data: { ok: true, outcomes: [] } }) }); h.start()
+  const payload = { schemaVersion: 1, trips: [{ tripKey: 'ride-1', tripType: 'carpool', role: 'passenger' }] }
+  assert.deepEqual(await h.client.requestFollowupOutcomes(payload), { ok: true, outcomes: [] })
+  assert.equal(h.calls[0].url, 'https://collect.example.com/v1/followups/query')
+  assert.equal(h.calls[0].token, 'short-lived-test-token')
+  for (const changed of [{ openid: 'other' }, { url: 'https://other.example' }, { trips: Array(51).fill(payload.trips[0]) },
+    { trips: [{ ...payload.trips[0], openid: 'other' }] }, { trips: [{ ...payload.trips[0], role: 'admin' }] }]) {
+    assert.equal(await h.client.requestFollowupOutcomes({ ...payload, ...changed }), null)
+  }
+  assert.equal(h.calls.length, 1)
+  const deferredReply = deferred(), late = harness({ transport: () => deferredReply.promise }); late.start()
+  const pending = late.client.requestFollowupOutcomes(payload)
+  late.client.setSession(grant({ accountKey: 'other', participantKey: 'participant_00000002' }))
+  deferredReply.resolve({ statusCode: 200, data: { ok: true, outcomes: [] } })
+  assert.equal(await pending, null)
+  const expired = harness({ transport: async () => ({ statusCode: 403, data: { error: 'FOLLOWUP_SCOPE_REQUIRED' } }) }); expired.start()
+  assert.equal(await expired.client.requestFollowupOutcomes(payload), null)
+  assert.equal(expired.client.getStatus().tokenRequired, true)
+})
+
+test('pending followup projection reads the original durable queue after restart and never crosses account grants', () => {
+  const h = harness(); h.start()
+  const common = { followupId: 'a'.repeat(64), tripKey: 'trip-old', tripType: 'carpool', role: 'passenger', outcomeScope: 'respondent_booking' }
+  assert.equal(h.client.enqueue('followup_answer', { ...common, outcome: 'no' }).ok, true)
+  const restarted = harness({ map: h.map }); restarted.start()
+  assert.deepEqual(restarted.client.getPendingFollowupOutcomes(), [{ tripKey: 'trip-old', tripType: 'carpool', role: 'passenger', outcome: 'no', source: 'self_report', occurredAt: T }])
+  restarted.client.setSession(grant({ accountKey: 'another-account', participantKey: 'participant_00000002', grantId: 'consent_grant_000002' }))
+  assert.deepEqual(restarted.client.getPendingFollowupOutcomes(), [])
+})

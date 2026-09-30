@@ -244,3 +244,103 @@ test('hide/background emits at most one dismissal and disposed pages can never s
   h.state.now += DAY; h.controller.beginForeground()
   assert.equal(h.controller.considerTrips(h.page, [trip()]), false)
 })
+
+test('history keeps completed trips beyond seven days and merges queued corrections without repeating home prompts', async () => {
+  const h = harness({ now: T + 30 * DAY })
+  const old = trip()
+  assert.equal(eligibleTrip(old, 'driver-a', h.state.now), null)
+  assert.equal(eligibleTrip(old, 'driver-a', h.state.now, true).role, 'driver')
+  h.analytics.requestFollowupOutcomes = async payload => ({ ok: true, outcomes: payload.trips.map(value => ({ ...value, outcome: 'yes', source: 'dismissed_default', occurredAt: h.state.now - 100 })) })
+  let flushes = 0; h.analytics.flush = async () => { flushes++; return { ok: false } }
+  const before = await h.controller.readHistoryOutcomes([old])
+  assert.equal(before[0].source, 'dismissed_default')
+  const answer = h.controller.reportHistory(old, 'no', h.page)
+  assert.equal(answer.ok, true); assert.equal(flushes, 1)
+  const after = await h.controller.readHistoryOutcomes([old])
+  assert.equal(after[0].source, 'self_report'); assert.equal(after[0].outcome, 'no')
+  assert.equal(h.state.events[0].eventName, 'followup_answer')
+  assert.equal(h.state.events[0].data.outcomeScope, 'driver_any_passenger')
+  assert.equal(Object.keys(h.store).filter(key => key.startsWith(STORAGE_PREFIX)).length, 1)
+  assert.equal(h.controller.considerTrips(h.page, [old]), false)
+})
+test('history query rejects missing/duplicate/wrong-scope response rows and never infers an outcome on failure', async () => {
+  const h = harness(), current = trip()
+  const good = { tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: null, source: 'unanswered', occurredAt: 0 }
+  for (const value of [null, { ok: true, outcomes: [] }, { ok: true, outcomes: [good, good] },
+    { ok: true, outcomes: [{ ...good, role: 'passenger' }] }, { ok: true, outcomes: [{ ...good, outcome: 'yes' }] },
+    { ok: true, outcomes: [{ ...good, source: 'dismissed_default', outcome: 'no', occurredAt: T }] }]) {
+    h.analytics.requestFollowupOutcomes = async () => value
+    assert.equal(await h.controller.readHistoryOutcomes([current]), null)
+  }
+  h.analytics.requestFollowupOutcomes = async () => ({ ok: true, outcomes: [good] })
+  assert.deepEqual(await h.controller.readHistoryOutcomes([current]), [good])
+  h.analytics.requestFollowupOutcomes = async () => { h.store.openid = 'other-account'; return { ok: true, outcomes: [good] } }
+  assert.equal(await h.controller.readHistoryOutcomes([current]), null)
+})
+test('history uses accepted local choices only and short thanks remain nonblocking and throttled', () => {
+  const h = harness(); h.state.rejectAnswer = true
+  assert.equal(h.controller.reportHistory(trip(), 'yes', h.page).ok, false)
+  assert.equal(h.page.data.feedbackThanks, undefined)
+  h.state.rejectAnswer = false
+  assert.equal(h.controller.reportHistory(trip(), 'no', h.page).ok, true)
+  assert.equal(h.page.data.feedbackThanks, true)
+  h.page.data.feedbackThanks = false
+  h.state.now += 1
+  assert.equal(h.controller.reportHistory(trip({ _id: 'trip_2' }), 'yes', h.page).ok, true)
+  assert.equal(h.page.data.feedbackThanks, false)
+})
+
+test('history accepts a presented or hidden unanswered timestamp, and a late query cannot overwrite a queued correction', async () => {
+  const h = harness(), current = trip()
+  let resolve
+  const pending = new Promise(done => { resolve = done })
+  h.analytics.requestFollowupOutcomes = async () => pending
+  const read = h.controller.readHistoryOutcomes([current])
+  assert.equal(h.controller.reportHistory(current, 'no', h.page).ok, true)
+  resolve({ ok: true, outcomes: [{ tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: null, source: 'unanswered', occurredAt: T - 1000 }] })
+  const result = await read
+  assert.equal(result[0].outcome, 'no'); assert.equal(result[0].source, 'self_report')
+  const initial = h.state.events[0].occurredAt
+  const corrected = h.controller.reportHistory(current, 'yes', h.page)
+  assert.ok(corrected.occurredAt > initial, 'same-millisecond corrections have a definite latest outcome')
+  const remote = { tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: null, source: 'unanswered', occurredAt: T - 500 }
+  const fresh = harness(); fresh.analytics.requestFollowupOutcomes = async () => ({ ok: true, outcomes: [remote] })
+  assert.deepEqual(await fresh.controller.readHistoryOutcomes([current]), [remote])
+})
+test('an explicit remote answer beats a newer local close assumption', async () => {
+  const h = harness(); h.controller.considerTrips(h.page, [trip()]); h.controller.dismiss(h.page)
+  const remote = { tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: 'no', source: 'self_report', occurredAt: T - 500 }
+  h.analytics.requestFollowupOutcomes = async () => ({ ok: true, outcomes: [remote] })
+  assert.deepEqual(await h.controller.readHistoryOutcomes([trip()]), [remote])
+})
+
+test('legacy outcome-less prompt cache cannot hide an accepted old-version queue answer, and cross-device correction wins', async () => {
+  const h = harness(), current = trip()
+  h.controller.considerTrips(h.page, [current]); h.controller.answer(h.page, 'no')
+  const saved = Object.values(h.store).find(value => value && value.entries)
+  for (const entry of Object.values(saved.entries)) delete entry.outcome // deployed 5.1 cache shape
+  const queued = { tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: 'no', source: 'self_report', occurredAt: T }
+  h.analytics.getPendingFollowupOutcomes = () => [queued]
+  h.analytics.requestFollowupOutcomes = async () => ({ ok: true, outcomes: [{ ...queued, outcome: null, source: 'unanswered', occurredAt: 0 }] })
+  assert.deepEqual(await h.controller.readHistoryOutcomes([current]), [queued])
+  const remoteAt = T + 10000
+  const result = h.controller.reportHistory({ ...current, _feedbackOccurredAt: remoteAt }, 'yes', h.page)
+  assert.equal(result.ok, true); assert.equal(result.occurredAt, remoteAt + 1)
+  assert.equal(h.state.events.at(-1).occurredAt, remoteAt + 1)
+})
+
+test('an upload ACK during an older query cannot erase a legacy queued answer', async () => {
+  const h = harness(), current = trip()
+  h.controller.considerTrips(h.page, [current]); h.controller.answer(h.page, 'no')
+  const saved = Object.values(h.store).find(value => value && value.entries)
+  for (const entry of Object.values(saved.entries)) delete entry.outcome
+  let queued = [{ tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: 'no', source: 'self_report', occurredAt: T }]
+  h.analytics.getPendingFollowupOutcomes = () => queued
+  let resolve
+  h.analytics.requestFollowupOutcomes = async () => new Promise(done => { resolve = done })
+  const pending = h.controller.readHistoryOutcomes([current])
+  queued = [] // batch ACK arrives before the earlier unanswered query response
+  resolve({ ok: true, outcomes: [{ tripKey: 'trip_1', tripType: 'carpool', role: 'driver', outcome: null, source: 'unanswered', occurredAt: 0 }] })
+  const result = await pending
+  assert.equal(result[0].outcome, 'no'); assert.equal(result[0].source, 'self_report')
+})

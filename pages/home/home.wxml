@@ -328,5 +328,6 @@
       </view>
     </view>
   </view>
+  <view wx:if="{{feedbackThanks}}" class="home-feedback-thanks" style="top: {{statusBarHeight + 52}}px;">谢谢您的反馈</view>
 </view>
 </block>

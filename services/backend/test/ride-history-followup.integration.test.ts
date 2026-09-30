@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { listMyRides } from '../src/rides/participants.ts';
+import { rateRide } from '../src/ratings/service.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const require = createRequire(import.meta.url);
@@ -40,6 +41,8 @@ test('actual private history DTO drives all existing followup roles without expo
       assert.equal(row.latestDepartureAt, last.toISOString());
       assert.equal(row.isCreator, name === (kind === 'offer' ? 'driver' : 'creator'));
       assert.equal(row.followupEligible, true);
+      assert.equal(row.driverUserId, name === 'driver' ? null : users.driver!.id);
+      assert.equal(row.myRating, null);
       const trip = toHistoryRide(row, own.openid);
       assert.equal(trip.historyRole, historyRole);
       assert.equal(eligibleTrip(trip, own.openid, now).departureAt, last.getTime());
@@ -59,6 +62,13 @@ test('actual private history DTO drives all existing followup roles without expo
       assert.equal(events[1].data.referencePriceCents, 1525);
       assert.equal(events[1].data.outcomeScope, name === 'driver' ? 'driver_any_passenger' : 'respondent_booking');
     }
+    await rateRide(pool, users.passenger!.id, 'history.inline.rating', 'request', { targetId: users.driver!.id, score: 4 });
+    const ownRating = (await listMyRides(pool, users.passenger!.id, { scope: 'history' })).rides.find(row => row.id === 'request');
+    assert.equal(ownRating?.myRating, 4);
+    assert.equal((await listMyRides(pool, users.creator!.id, { scope: 'history' })).rides[0].myRating, null,
+      'another passenger never inherits the first passenger rating');
+    assert.equal((await listMyRides(pool, users.driver!.id, { scope: 'history' })).rides[0].driverUserId, null,
+      'a driver never receives a self-rating target');
     assert.deepEqual((await listMyRides(pool, users.outsider!.id, { scope: 'history' })).rides, []);
     await pool.query("UPDATE ride_members SET state='left',left_at=now() WHERE ride_id='offer' AND user_id=$1", [users.passenger!.id]);
     assert.ok(!(await listMyRides(pool, users.passenger!.id, { scope: 'history' })).rides.some(row => row.id === 'offer'));
@@ -67,8 +77,11 @@ test('actual private history DTO drives all existing followup roles without expo
     await pool.query("UPDATE ride_stops SET departure_at=now()+interval '1 day' WHERE ride_id='request' AND position=1");
     const earlyClose = JSON.parse(JSON.stringify((await listMyRides(pool, users.creator!.id, { scope: 'history' })).rides[0]));
     assert.equal(earlyClose.followupEligible, false);
+    assert.equal(earlyClose.driverUserId, null);
+    assert.equal(earlyClose.myRating, null);
     assert.equal(eligibleTrip(toHistoryRide(earlyClose, users.creator!.openid), users.creator!.openid, now), null);
     await pool.query("UPDATE rides SET status='open' WHERE id='request'");
     const overdueOpen = (await listMyRides(pool, users.creator!.id, { scope: 'history' })).rides[0];
     assert.equal(overdueOpen.followupEligible, false, 'an elapsed timestamp never fabricates a closed fact');
+    assert.equal(overdueOpen.driverUserId, null);
   });

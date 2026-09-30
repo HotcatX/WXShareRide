@@ -27,9 +27,13 @@ function toHistoryRide(row, account) {
   const ownDriver = eligible && row.role === 'driver'
   const cents = row.listedPriceCents
   if (cents !== null && (!Number.isSafeInteger(cents) || cents < 0) ||
-    row.listedPriceLabel !== null && typeof row.listedPriceLabel !== 'string') throw invalid()
+    row.listedPriceLabel !== null && typeof row.listedPriceLabel !== 'string' ||
+    row.driverUserId != null && (typeof row.driverUserId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(row.driverUserId)) ||
+    row.myRating != null && (!Number.isInteger(row.myRating) || row.myRating < 1 || row.myRating > 5)) throw invalid()
   return { _id: row.id, historySource, historyRole, status: row.status === 'closed' ? 'past' : 'open',
     businessVersion: row.version, cityKey: row.cityKey,
+    driverUserId: row.role === 'passenger' && eligible ? row.driverUserId || '' : '',
+    myRating: row.role === 'passenger' && eligible ? row.myRating || 0 : 0,
     departures: row.stops.filter(stop => stop.kind === 'departure').map(point),
     destinations: row.stops.filter(stop => stop.kind === 'destination').map(point),
     departureAtMs: Date.parse(row.departureAt), latestDepartureAtMs: Date.parse(row.latestDepartureAt),

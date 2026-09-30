@@ -15,7 +15,7 @@
     </view>
   </view>
 
-  <scroll-view class="ride-scroll history-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view class="ride-scroll history-scroll" scroll-y enhanced="true" show-scrollbar="{{false}}" scroll-into-view="{{scrollIntoTrip}}" scroll-with-animation>
     <view wx:if="{{loading}}" class="ride-state">
       正在加载历史行程
     </view>
@@ -26,48 +26,58 @@
 
     <block wx:else>
       <view
-        class="ride-card ride-list-card history-card"
+        class="ride-card ride-list-card history-card {{trip._feedbackPulse ? 'history-card--saved' : ''}}"
         wx:for="{{historyTrips}}"
         wx:for-item="trip"
         wx:for-index="index"
         wx:key="_id"
+        id="history-trip-{{index}}"
         data-id="{{trip._id}}"
         data-index="{{index}}"
         bindtap="goTripDetail"
         hover-class="ride-card-pressed"
         hover-stay-time="80"
       >
-        <view class="ride-list-head">
-          <text class="ride-list-kind">历史行程</text>
-          <text class="ride-list-time">{{trip._timeLabel || '时间待定'}}</text>
-        </view>
-
-        <view class="ride-route">
-          <view class="ride-route-rail">
-            <view class="ride-dot"></view>
-            <view class="ride-line"></view>
-            <view class="ride-dot ride-dot--accent"></view>
+        <view class="history-card-head">
+          <view class="history-card-caption">
+            <text class="history-kind">历史行程</text>
+            <text wx:if="{{trip._feedbackStatus}}" class="history-status history-status--{{trip._feedbackTone}}">{{trip._feedbackStatus}}</text>
           </view>
-          <view class="ride-route-body">
-            <view class="ride-route-point">
-              <text class="ride-route-label">出发</text>
-              <text class="ride-route-name">{{trip._fromAddress}}</text>
+          <text class="history-role history-role--{{trip._roleKind}}">{{trip._roleLabel}}</text>
+        </view>
+        <view class="history-route" aria-label="{{trip._fromAddress}} 到 {{trip._toAddress}}">
+          <text class="history-route-name">{{trip._fromAddress}}</text>
+          <text class="history-route-arrow">→</text>
+          <text class="history-route-name">{{trip._toAddress}}</text>
+        </view>
+        <text class="history-time">{{trip._timeLabel || '时间待定'}}</text>
+
+        <view wx:if="{{trip._feedbackEligible}}" class="history-feedback" catchtap="stopCardTap">
+          <view class="history-question-row">
+            <view class="history-question-copy">
+              <text class="history-question">{{trip._roleKind === 'driver' ? '接到乘客了吗？' : '是否上车？'}}</text>
+              <text wx:if="{{trip._feedbackAssumed}}" class="history-hint">上次关闭回访，暂按成行记录，请确认</text>
             </view>
-            <view class="ride-route-point">
-              <text class="ride-route-label">到达</text>
-              <text class="ride-route-name">{{trip._toAddress}}</text>
+            <view class="history-answer-actions">
+              <button class="history-answer {{trip._feedbackOutcome === 'no' && !trip._feedbackAssumed ? 'history-answer--selected' : ''}}" data-id="{{trip._id}}" data-outcome="no" catchtap="onHistoryAnswer" disabled="{{trip._feedbackBusy || !trip._feedbackReady}}" aria-label="{{trip._roleKind === 'driver' ? '没有接到乘客' : '没有上车'}}">否</button>
+              <button class="history-answer history-answer--yes {{trip._feedbackOutcome === 'yes' && !trip._feedbackAssumed ? 'history-answer--selected' : ''}}" data-id="{{trip._id}}" data-outcome="yes" catchtap="onHistoryAnswer" disabled="{{trip._feedbackBusy || !trip._feedbackReady}}" aria-label="{{trip._roleKind === 'driver' ? '已接到乘客' : '已上车'}}">是</button>
             </view>
           </view>
-        </view>
-
-        <view class="ride-meta history-meta">
-          <text class="ride-chip ride-chip--accent">{{trip._roleLabel}}</text>
+          <view wx:if="{{trip._showRating}}" class="history-rating">
+            <text class="history-rating-title">{{trip._myRating ? '已评价司机' : '给司机打个分吧'}}</text>
+            <view class="history-stars" aria-label="{{trip._myRating ? '已评分' : '选择评分'}}">
+              <button wx:for="{{ratingStars}}" wx:for-item="score" wx:key="*this" class="history-star {{score <= trip._myRating ? 'history-star--selected' : ''}}" data-id="{{trip._id}}" data-score="{{score}}" catchtap="onHistoryRate" disabled="{{trip._feedbackBusy || trip._myRating > 0}}" aria-label="{{score}}星">{{score <= trip._myRating ? '★' : '☆'}}</button>
+            </view>
+          </view>
+          <text wx:if="{{trip._feedbackError}}" class="history-feedback-error">{{trip._feedbackError}}</text>
+          <button wx:if="{{trip._feedbackError && !trip._feedbackReady}}" class="history-retry" catchtap="retryFeedback">重新读取</button>
         </view>
       </view>
     </block>
 
     <view class="ride-bottom-space"></view>
   </scroll-view>
+  <view wx:if="{{feedbackThanks}}" class="history-thanks" style="top: {{statusBarHeight + 52}}px;">谢谢您的反馈</view>
 
 </view>
 </block>

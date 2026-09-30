@@ -284,6 +284,11 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       requireThat(claims.scopes?.includes('places:read'), 403, 'PLACE_SCOPE_REQUIRED');
       return places.suggestions(p, body, now);
     },
+    followupOutcomes(claims, body) {
+      const p = getParticipant(claims.sub); assertActive(p, claims);
+      requireThat(claims.scopes?.includes('places:read'), 403, 'FOLLOWUP_SCOPE_REQUIRED');
+      return places.followupOutcomes(p, body);
+    },
     consumeBridgeNonce(nonce, expiresAt, now = Date.now()) {
       return db.transaction(() => {
         db.prepare('DELETE FROM bridge_nonces WHERE expires_at < ?').run(now);

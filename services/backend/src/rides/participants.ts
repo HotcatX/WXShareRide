@@ -100,10 +100,16 @@ export async function listMyRides(pool: Pool, userId: string, query: unknown) {
   const order = input.scope === 'current' ? 'ASC' : 'DESC';
   const result = await pool.query(`SELECT ${publicProjection}, mine.role, mine.seat_count AS "seatCount",
       r.creator_id = mine.user_id AS "isCreator", schedule.latest_departure_at AS "latestDepartureAt",
-      (r.status = 'closed' AND schedule.latest_departure_at <= now()) AS "followupEligible"
+      (r.status = 'closed' AND schedule.latest_departure_at <= now()) AS "followupEligible",
+      CASE WHEN mine.role='passenger' AND r.status='closed' AND schedule.latest_departure_at<=now()
+        THEN driver.user_id END AS "driverUserId",
+      CASE WHEN mine.role='passenger' AND r.status='closed' AND schedule.latest_departure_at<=now()
+        THEN rating.score END AS "myRating"
     FROM rides r JOIN ride_members mine ON mine.ride_id = r.id
     CROSS JOIN LATERAL (SELECT GREATEST(r.departure_at, MAX(s.departure_at)) AS latest_departure_at
       FROM ride_stops s WHERE s.ride_id = r.id AND s.kind = 'departure') schedule
+    LEFT JOIN ride_members driver ON driver.ride_id=r.id AND driver.role='driver' AND driver.state='active'
+    LEFT JOIN ride_ratings rating ON rating.ride_id=r.id AND rating.rater_id=mine.user_id AND rating.target_id=driver.user_id
     WHERE mine.user_id = $1 AND mine.state = 'active' AND r.status <> 'cancelled'
       AND ($2::text IS NULL OR mine.role = $2)
       AND (($3 = 'current' AND r.status = 'open' AND r.departure_at > now())

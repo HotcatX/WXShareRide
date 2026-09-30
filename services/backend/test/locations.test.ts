@@ -28,7 +28,7 @@ test('offer/request options preserve fixed order and scoped extras; profile and 
   assert.ok(!data.rideAddresses.offer.fromPlaces.includes('JC'));
   for (const options of Object.values(data.rideAddresses)) {
     assert.equal(options.fromPlaces[0], 'Fort Lee'); assert.equal(options.fromPlaces[1], '哥大');
-    for (const name of ['Inwood', '中城', '下城', 'Queens']) assert.ok(options.fromPlaces.includes(name));
+    for (const name of ['Inwood', '中城', 'NYU', 'Queens']) assert.ok(options.fromPlaces.includes(name) && options.toPlaces.includes(name));
     assert.ok(!options.fromPlaces.includes('纽瓦克'));
   }
   assert.deepEqual(data.regionTree.map(state => state.key), ['NY', 'NJ', 'OTHER']);

@@ -165,7 +165,7 @@ test('new regions and ordered stable stops are accepted, without forging acquisi
     parity({ ...event, data: { ...data, originArea, destinationArea: originArea } }, true)
   }
   for (const [address, area] of [['Inwood', 'inwood'], ['中城', 'midtown'], ['Midtown Manhattan', 'midtown'],
-    ['下城', 'downtown'], ['Lower Manhattan', 'downtown'], ['Queens', 'queens'], ['皇后区', 'queens'],
+    ['NYU', 'downtown'], ['纽约大学', 'downtown'], ['下城', 'downtown'], ['Lower Manhattan', 'downtown'], ['Queens', 'queens'], ['皇后区', 'queens'],
     ['LIC, Queens', 'lic'], ['Flushing, Queens', 'flushing'], ['Downtown Jersey City', 'other'], ['Inwood Road', 'other']]) {
     assert.equal(telemetry.coarseArea(address), area, address)
     const snapshot = telemetry.snapshot({ departures: [{ address, date: '2026-09-24', time: '15:00' }], destinations: [{ address }] }, NOW)

@@ -12,7 +12,7 @@ Keep the existing `/opt/linkx-collector` directory, Compose project, data/secret
 
 ## Boundaries
 
-- Public listener: `GET /healthz`, `POST /v1/batches`, and the strictly HMAC-authenticated `POST /internal/v1/analytics/accounts`. Default native binding is `127.0.0.1:3000`; Docker binds internally to all interfaces but publishes only host loopback.
+- Public listener: `GET /healthz`, authenticated `POST /v1/batches`, `POST /v1/place-suggestions`, `POST /v1/followups/query`, and the strictly HMAC-authenticated `POST /internal/v1/analytics/accounts`. Default native binding is `127.0.0.1:3000`; Docker binds internally to all interfaces but publishes only host loopback.
 - Management: HTTP over a mode-0600 Unix socket, authenticated by a random admin token. It has no TCP port. Never proxy it, copy its token into the mini program, or expose it to Caddy.
 - Default `REAL_COLLECTION_ENABLED=false` rejects enrollment and ingestion for non-synthetic participants. Tests generate random identifiers and no real users.
 - Event bodies allow only opaque generated event identifiers. **Never put an OpenID, name, phone, WeChat ID, raw residential address, exact coordinate, or a personal value encoded as an ID in an event.** The trusted account bridge separately stores the original OpenID once for restricted operational lookup. Schema validation cannot determine that an opaque event ID was derived improperly.
@@ -70,7 +70,13 @@ docker compose exec -T collector node scripts/admin.mjs status
 
 Adapt the explicit secrets path in the first command if using a different host layout. `docker compose run` may still need the data/backup host directories to exist and be writable by the configured UID.
 
-Caddy is an optional **`https` profile**, so ordinary `up -d collector` does not open ports 80/443 or request a certificate. Only after the domain/DNS, HTTPS and mini-program server-domain requirements are confirmed, `docker compose --profile https up -d` starts it. Caddy stores certificates/config in separate persistent volumes and sees no SQLite, management socket, or signing key. Its configuration proxies only exact health, batch, HMAC account, public-statistics read and statistics-sync routes. The public-statistics sidecar and its separate sync secret remain isolated from the collector. HTTP plaintext is suitable only for host-loopback tests.
+Caddy is an optional **`https` profile**, so ordinary `up -d collector` does not open ports 80/443 or request a certificate. Only after the domain/DNS, HTTPS and mini-program server-domain requirements are confirmed, `docker compose --profile https up -d` starts it. Caddy stores certificates/config in separate persistent volumes and sees no SQLite, management socket, or signing key. Its configuration proxies the explicit collector routes and the independent business API. Public statistics now come from the PostgreSQL business service; the retired snapshot-sync route returns 410. HTTP plaintext is suitable only for host-loopback tests.
+
+### History follow-up reads
+
+`POST /v1/followups/query` uses the existing collector token with `places:read`, current grant checks, and normal participant/global limits. Its body is `{schemaVersion:1,trips:[{tripKey,tripType,role}]}` with at most 50 unique trip/type/role triples. It reads only the authenticated participant's existing records; no caller-supplied identity is accepted and no answer is created by querying.
+
+Each requested triple receives `outcome`, `source`, and `occurredAt` in milliseconds. An explicit `self_report` outranks `dismissed_default`; newer explicit answers can correct earlier ones. A missing record returns `unanswered`, null, and 0. A presented or hidden prompt can also be unanswered with a nonzero event timestamp. Clients must distinguish a successful unanswered result from a failed query. Default completion assumptions remain separate from explicit evidence; only the latest explicit yes/no affects the existing location-circle exclusion.
 
 ## Configuration
 

@@ -327,3 +327,36 @@ test('event metadata observes the current real foreground without creating a bac
   await tick();h.state.now+=1000;await h.start()
   assert.notEqual(h.manager.getEventMetadata().sessionId,metadata.sessionId)
 })
+
+test('followup query refreshes the existing session and rejects a late response after switching accounts', async () => {
+  const h = harness({ transport: async request => ({ statusCode: 200, data: request.url.endsWith('/v1/followups/query') ? { ok: true, outcomes: [] } : {} }) })
+  await h.start()
+  const payload = { schemaVersion: 1, trips: [{ tripKey: 'trip-1', tripType: 'carpool', role: 'passenger' }] }
+  assert.deepEqual(await h.manager.requestFollowupOutcomes(payload), { ok: true, outcomes: [] })
+  h.state.now += 61000
+  const before = h.state.calls.length
+  assert.deepEqual(await h.manager.requestFollowupOutcomes(payload), { ok: true, outcomes: [] })
+  assert.equal(h.state.calls.length, before + 1)
+  const response = deferred()
+  const late = harness({ transport: async () => response.promise }); await late.start()
+  const pending = late.manager.requestFollowupOutcomes(payload)
+  late.store.openid = 'account-b'; late.manager.identityChanged()
+  response.resolve({ statusCode: 200, data: { ok: true, outcomes: [] } })
+  assert.equal(await pending, null)
+})
+
+test('followup queue snapshot hook runs after session readiness and before the read transport', async () => {
+  let captured = false, count = 0
+  const h = harness({ transport: async request => {
+    if (request.url.endsWith('/v1/followups/query')) {
+      assert.equal(captured, true); count++
+      return { statusCode: 200, data: { ok: true, outcomes: [] } }
+    }
+    return { statusCode: 200, data: {} }
+  } })
+  await h.start()
+  await h.manager.requestFollowupOutcomes({ schemaVersion: 1, trips: [{ tripKey: 'trip-1', tripType: 'carpool', role: 'passenger' }] }, () => {
+    assert.ok(h.manager.getCollectionScope()); captured = true
+  })
+  assert.equal(count, 1)
+})

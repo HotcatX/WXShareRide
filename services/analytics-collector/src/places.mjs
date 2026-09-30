@@ -5,6 +5,7 @@ import { shape } from './validation.mjs';
 import placeCatalog from './place-catalog.cjs';
 
 export const PLACE_ROUTE = '/v1/place-suggestions';
+export const FOLLOWUP_QUERY_ROUTE = '/v1/followups/query';
 export const BUSINESS_ROUTE = '/internal/v1/places/business-events';
 export const CATALOG_VERSION = placeCatalog.CATALOG_VERSION;
 export const RANKING_VERSION = 'circle-selection-v1';
@@ -28,6 +29,14 @@ export function validateSuggestionsRequest(body) {
   requireThat(shape(body, { schemaVersion: v => v === 1, cityKey: code,
     field: v => ['departure', 'destination'].includes(v), mode: v => ['driver', 'passenger', 'filter'].includes(v), counterpartPlaceId: placeId },
   ['schemaVersion', 'cityKey', 'field', 'mode']), 422, 'INVALID_PLACE_REQUEST');
+  return body;
+}
+export function validateFollowupQuery(body) {
+  requireThat(shape(body, { schemaVersion: v => v === 1, trips: v => Array.isArray(v) && v.length <= 50
+    && v.every(trip => shape(trip, { tripKey: id, tripType: value => ['carpool', 'request'].includes(value),
+      role: value => ['driver', 'passenger'].includes(value) }))
+    && new Set(v.map(trip => `${trip.tripType}:${trip.tripKey}:${trip.role}`)).size === v.length }),
+  422, 'INVALID_FOLLOWUP_QUERY');
   return body;
 }
 const endpoint = value => shape(value, { address: text(200), placeId: v => v === '' || placeId(v), date: v => v === '' || date(v), time: text(32) });
@@ -152,7 +161,14 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
        AND n.trip_id=h.trip_id AND n.trip_type=h.trip_type AND n.event_at<=? AND n.version>h.version)
       ORDER BY h.event_at DESC LIMIT 1001`).all(Number(synthetic), openid, cityKey, at, dayAt(at - 90 * DAY), dayAt(at + 90 * DAY), at);
     requireThat(rows.length <= 1000, 503, 'PLACE_HISTORY_CAPACITY');
-    const negative = new Set(db.prepare(`SELECT trip_type,trip_id FROM place_outcomes WHERE synthetic=? AND openid=? AND occurred_at<=? AND outcome='no'`)
+    // Only the latest explicit answer known at this observation time counts.
+    // A later correction can restore the trip; delayed older answers cannot
+    // reverse it. Dismissed defaults never enter place_outcomes.
+    const negative = new Set(db.prepare(`SELECT trip_type,trip_id FROM (
+      SELECT trip_type,trip_id,outcome,ROW_NUMBER() OVER (PARTITION BY trip_type,trip_id
+        ORDER BY occurred_at DESC,event_id DESC) AS response_rank
+      FROM place_outcomes WHERE synthetic=? AND openid=? AND occurred_at<=?
+    ) WHERE response_rank=1 AND outcome='no'`)
       .all(Number(synthetic), openid, at).map(r => `${r.trip_type}:${r.trip_id}`));
     const groups = new Map(); const anchors = new Set();
     for (const r of rows) {
@@ -258,6 +274,54 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     db.prepare(`INSERT INTO place_selection_votes VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(synthetic,openid,place_id,field,vote_day) DO UPDATE SET
       occurred_at=excluded.occurred_at,circle_ids=excluded.circle_ids,event_id=excluded.event_id WHERE excluded.occurred_at<place_selection_votes.occurred_at`)
       .run(synthetic, account, d.placeId, d.field, dayAt(event.occurredAt), d.cityKey, event.occurredAt, JSON.stringify(currentCircles), event.eventId);
+  };
+  const followupOutcomes = (participant, body) => {
+    validateFollowupQuery(body);
+    const account = db.prepare(`SELECT openid FROM ${TABLES.accounts} WHERE participant_key=?`).get(participant.participant_key)?.openid;
+    requireThat(account, 403, 'FOLLOWUP_IDENTITY_REQUIRED');
+    if (!body.trips.length) return { ok: true, outcomes: [] };
+    // A WHERE outside the windowed operational view does not push through to
+    // compressed batches in SQLite. Scope and materialize before json_each so
+    // this private read never decompresses another account's history. The
+    // eligible view retains the same grant/purpose/TTL/restore gates; the receipt
+    // join and ranking below match operational_followup_outcomes exactly.
+    const rows = db.prepare(`WITH batches AS MATERIALIZED (
+        SELECT b.participant_key,b.batch_id,b.payload FROM eligible_batches b
+        JOIN ${TABLES.accounts} a ON a.participant_key=b.participant_key
+        JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key
+        WHERE b.participant_key=? AND a.openid=? AND p.synthetic=?
+      ), events AS (
+        SELECT e.value AS event_json,json_extract(e.value,'$.eventId') AS event_id,
+          json_extract(e.value,'$.eventName') AS event_name,json_extract(e.value,'$.occurredAt') AS occurred_at,
+          json_extract(e.value,'$.data.tripKey') AS trip_id,json_extract(e.value,'$.data.tripType') AS trip_type,
+          json_extract(e.value,'$.data.role') AS role,json_extract(e.value,'$.data.dismissalReason') AS dismissal_reason,
+          CASE WHEN json_extract(e.value,'$.data.role')='driver' THEN 'driver_any_passenger' ELSE 'respondent_booking' END AS outcome_scope
+        FROM batches b CROSS JOIN json_each(b.payload,'$.events') e CROSS JOIN event_receipts r
+        WHERE r.participant_key=b.participant_key AND r.event_id=json_extract(e.value,'$.eventId') AND r.first_batch_id=b.batch_id
+          AND json_extract(e.value,'$.eventName') IN ('followup_presented','followup_dismissed','followup_answer')
+          AND (trip_id,trip_type,role) IN (
+            SELECT json_extract(value,'$.tripKey'),json_extract(value,'$.tripType'),json_extract(value,'$.role') FROM json_each(?)
+          )
+      ), classified AS (
+        SELECT *,CASE WHEN event_name='followup_answer' THEN 'self_report'
+          WHEN event_name='followup_dismissed' AND dismissal_reason='close'
+            AND json_extract(event_json,'$.data.assumedOutcome')='yes'
+            AND json_extract(event_json,'$.data.outcomeScope')=outcome_scope THEN 'dismissed_default'
+          ELSE 'unanswered' END AS source FROM events
+      ), ranked AS (
+        SELECT *,ROW_NUMBER() OVER (PARTITION BY trip_id,trip_type,role
+          ORDER BY CASE source WHEN 'self_report' THEN 2 WHEN 'dismissed_default' THEN 1 ELSE 0 END DESC,
+            occurred_at DESC,event_id DESC) AS response_rank FROM classified
+      ) SELECT trip_id AS tripKey,trip_type AS tripType,role,
+        CASE source WHEN 'self_report' THEN json_extract(event_json,'$.data.outcome')
+          WHEN 'dismissed_default' THEN 'yes' ELSE NULL END AS outcome,source,occurred_at AS occurredAt
+      FROM ranked WHERE response_rank=1`).all(participant.participant_key, account, participant.synthetic, JSON.stringify(body.trips));
+    const key = trip => `${trip.tripType}:${trip.tripKey}:${trip.role}`;
+    const found = new Map(rows.map(row => [key(row), row]));
+    // Only a successful authorized read establishes that no answer was found.
+    // This projection does not create an event or default outcome in storage.
+    const outcomes = body.trips.map(trip => found.get(key(trip)) || { ...trip, outcome: null, source: 'unanswered', occurredAt: 0 });
+    return { ok: true, outcomes };
   };
   const suggestions = (participant, body, now) => {
     validateSuggestionsRequest(body);
@@ -384,6 +448,6 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     return counts;
   };
   return { resolve, circles, recordEvent, ingestBusiness: (body, now = Date.now()) => ingestBusiness.immediate(body, now),
-    suggestions, approve: (body, now = Date.now()) => approve.immediate(body, now),
+    suggestions, followupOutcomes, approve: (body, now = Date.now()) => approve.immediate(body, now),
     seed: (body, now = Date.now()) => seed.immediate(body, now), pending, status, prune };
 }

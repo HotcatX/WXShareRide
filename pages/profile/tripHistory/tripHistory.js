@@ -229,7 +229,9 @@ Page({
     const trip = this.data.historyTrips.find(item => item._id === id)
     if (!this._historyActive || this._historyDisposed || this._historyAccount !== historyIdentity() || !trip || !trip._feedbackEligible || !trip._feedbackReady || trip._feedbackBusy ||
       !['yes', 'no'].includes(outcome)) return
-    if (!trip._feedbackAssumed && trip._feedbackOutcome === outcome) return
+    // The question has been replaced in-place. Ignore taps delivered late from
+    // its removed buttons instead of changing an already confirmed response.
+    if (!trip._feedbackAssumed && trip._feedbackOutcome) return
     const result = followup.reportHistory(trip, outcome, this)
     if (!result.ok) { this._patchTrip(id, { _feedbackError: '暂未保存，请重试' }); return }
     this._patchTrip(id, { ...this._feedbackView(trip, result), _feedbackPulse: true })

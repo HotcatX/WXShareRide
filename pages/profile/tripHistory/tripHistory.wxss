@@ -37,10 +37,9 @@ page{
 .history-answer-actions{gap:10rpx;flex-shrink:0;}
 .history-answer{margin:0;padding:0;width:76rpx;min-width:76rpx;line-height:62rpx;border-radius:13rpx;background:#f0f3f5;color:#687784;font-size:26rpx;font-weight:600;}
 .history-answer--yes{background:#e7f5f3;color:#087f79;}
-.history-answer.history-answer--selected{background:#0c9189;color:#fff;}
 .history-answer::after,.history-star::after{border:none;}
 .history-answer[disabled]{opacity:.55;}
-.history-rating{display:flex;justify-content:space-between;align-items:center;gap:12rpx;margin-top:16rpx;animation:history-reveal .22s ease-out;}
+.history-rating{display:flex;justify-content:space-between;align-items:center;gap:12rpx;min-height:62rpx;animation:history-reveal .22s ease-out;}
 .history-rating-title{font-size:24rpx;color:#647481;line-height:1.5;}
 .history-stars{flex-shrink:0;gap:2rpx;}
 .history-star{margin:0;padding:0;width:46rpx;line-height:58rpx;background:transparent!important;color:#e0ae4b;font-size:42rpx;font-weight:400;}

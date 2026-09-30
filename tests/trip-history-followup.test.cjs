@@ -131,7 +131,7 @@ async function loaded(options = {}) {
 }
 const answer = (h, outcome) => h.page.onHistoryAnswer({ currentTarget: { dataset: { id: 'ride-1', outcome } } })
 const rate = (h, score) => h.page.onHistoryRate({ currentTarget: { dataset: { id: 'ride-1', score } } })
-test('history default remains unconfirmed; explicit yes/no reveals inline driver stars and supports correction', async () => {
+test('history default can be corrected once; confirmed answers replace the question and reject late taps', async () => {
   const h = await loaded({ source: 'dismissed_default', outcome: 'yes' })
   assert.equal(h.page.data.historyTrips[0]._feedbackStatus, '待确认')
   assert.equal(h.page.data.historyTrips[0]._showRating, false)
@@ -140,7 +140,8 @@ test('history default remains unconfirmed; explicit yes/no reveals inline driver
   assert.equal(card._feedbackOutcome, 'no'); assert.equal(card._feedbackAssumed, false)
   assert.equal(card._feedbackStatus, '待评分'); assert.equal(card._showRating, true)
   answer(h, 'yes'); answer(h, 'yes')
-  assert.deepEqual(h.state.reports, [{ id: 'ride-1', outcome: 'no' }, { id: 'ride-1', outcome: 'yes' }])
+  assert.deepEqual(h.state.reports, [{ id: 'ride-1', outcome: 'no' }])
+  assert.equal(h.page.data.historyTrips[0]._feedbackOutcome, 'no')
   assert.equal(h.state.navigation.length, 0)
 })
 test('failed query never creates an unanswered fact or enables answer buttons; retry can recover', async () => {

@@ -11,6 +11,15 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
+function personalRides(id) {
+  const departureAt = '2030-01-01T20:00:00.000Z'
+  return { rides: id ? [{ id, kind: 'offer', cityKey: 'ny_nj', status: 'open', version: 1,
+    seatCapacity: 3, availableSeats: 2, hasDriver: true, listedPriceCents: 800, listedPriceLabel: '$8',
+    departureAt, role: 'driver', isCreator: true, seatCount: 0,
+    stops: [{ position: 0, kind: 'departure', address: 'Fort Lee', departureAt },
+      { position: 1, kind: 'destination', address: 'Columbia', departureAt: null }] }] : [], nextPage: null }
+}
+
 function harness(kind, existingStorage) {
   const storage = existingStorage || { openid: 'user-a', isGuest: false }
   const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [], http: [], env: 'release', rollout: { enabled: true, rolloutPercent: { develop: 0, trial: 0, release: 0 } } }
@@ -47,6 +56,14 @@ function harness(kind, existingStorage) {
     module: pilotModule, wx, Date: Clock, setTimeout, clearTimeout,
     require: name => name === '../config/publicStats' ? state.rollout : require(path.join(__dirname, '../utils', name))
   })
+  const rides = require('../utils/compat/rides').createRideClient({ wx, backend: {
+    isBackendEnabled: () => true,
+    get(route) {
+      assert.equal(route, '/api/v1/me/rides?scope=current&page=1&limit=50')
+      state.calls.push('/api/v1/me/rides')
+      return state.pending.rides || Promise.resolve(personalRides())
+    }
+  } })
   let definition
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, `../pages/${kind}/${kind}.js`), 'utf8'), {
     Page: value => { definition = value }, wx, Date: Clock, console: { error() {} },
@@ -54,7 +71,7 @@ function harness(kind, existingStorage) {
     require(name) {
       if (name.endsWith('/tripFollowup')) return { hide() {}, canConsider: () => false }
       if (name.endsWith('/analyticsSession')) return { subscribe: () => () => {} }
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, ...rides }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
       if (name.includes('publicStatsClient')) return pilotModule.exports
@@ -74,7 +91,6 @@ function harness(kind, existingStorage) {
   if (kind === 'home') {
     page.data.isRideServiceAvailable = true
     page.syncLoginState()
-    page.refreshHomeStatusInBackground = () => Promise.resolve()
   }
   return { page, state, storage }
 }
@@ -83,7 +99,7 @@ test('home reuses ordinary personal reads for 30 seconds, preserves forced refre
   const { page, state } = harness('home')
   const read = () => Promise.all([page.refreshHomeData(), page.loadPublicStats(), page.loadUnreadCount()])
   await Promise.all([read(), read()])
-  assert.deepEqual(state.calls, ['getHomeTripList', 'statistics', 'unread'])
+  assert.deepEqual(state.calls, ['/api/v1/me/rides', 'statistics', 'unread'])
   state.now += 29999
   await read()
   assert.equal(state.calls.length, 3)
@@ -99,31 +115,34 @@ test('home reuses ordinary personal reads for 30 seconds, preserves forced refre
 test('home retries failed reads immediately and ignores pre-mutation list responses', async () => {
   const { page, state, storage } = harness('home')
   const old = deferred()
-  state.pending.getHomeTripList = old.promise
+  state.pending.rides = old.promise
   const request = page.refreshHomeData()
   await tick()
   storage.rideListShouldRefreshAt = 1
-  old.resolve({ result: { ok: true, data: { driver: { createList: [{ _id: 'stale-trip' }] } } } })
+  old.resolve(personalRides('stale-trip'))
   await request
   assert.equal(page.data.createTrips.length, 0)
-  state.pending.getHomeTripList = Promise.resolve({ result: { ok: false } })
+  state.pending.rides = Promise.resolve({ rides: null, nextPage: null })
   await page.refreshHomeData()
-  delete state.pending.getHomeTripList
+  delete state.pending.rides
   await page.refreshHomeData()
-  assert.equal(state.calls.filter(name => name === 'getHomeTripList').length, 3)
+  assert.equal(state.calls.filter(name => name === '/api/v1/me/rides').length, 3)
+  state.pending.rides = Promise.resolve(personalRides('current-trip'))
+  await page.refreshHomeData(true)
+  assert.equal(page.data.createTrips[0]._id, 'current-trip')
 })
 
 test('home identity changes discard old private results and guests do not fetch personal lists', async () => {
   const { page, state, storage } = harness('home')
   const old = deferred()
-  state.pending.getHomeTripList = old.promise
+  state.pending.rides = old.promise
   const request = page.refreshHomeData()
   await tick()
   storage.openid = 'user-b'
   page.syncLoginState()
-  delete state.pending.getHomeTripList
+  delete state.pending.rides
   await page.refreshHomeData()
-  old.resolve({ result: { ok: true, data: { driver: { createList: [{ _id: 'a-private-trip' }] } } } })
+  old.resolve(personalRides('a-private-trip'))
   await request
   assert.equal(page.data.createTrips.length, 0)
   storage.isGuest = true
@@ -136,12 +155,12 @@ test('home A-to-B-to-A returns cannot reuse an obsolete request or refresh its c
   const { page, state, storage } = harness('home')
   const oldList = deferred()
   const oldCount = deferred()
-  state.pending.getHomeTripList = oldList.promise
+  state.pending.rides = oldList.promise
   state.pending.unread = oldCount.promise
   const request = Promise.all([page.refreshHomeData(), page.loadUnreadCount()])
   await tick()
   const obsolete = page._homeReads.trips
-  delete state.pending.getHomeTripList
+  delete state.pending.rides
   delete state.pending.unread
   for (const openid of ['user-b', 'user-a']) {
     storage.openid = openid
@@ -150,7 +169,7 @@ test('home A-to-B-to-A returns cannot reuse an obsolete request or refresh its c
   }
   const currentTimestamp = page._homeReads.trips.at
   state.now += 1000
-  oldList.resolve({ result: { ok: true, data: { driver: { createList: [{ _id: 'obsolete-trip' }] } } } })
+  oldList.resolve(personalRides('obsolete-trip'))
   oldCount.resolve({ total: 99 })
   await request
   assert.equal(page.data.createTrips.length, 0)
@@ -397,13 +416,18 @@ test('community short cache is opt-in, expires with server clock, and force read
   const state = { now: 1800000000000, calls: 0, available: true, failure: false }
   class Clock extends Date { static now() { return state.now } }
   const context = { module: { exports: {} }, Date: Clock, setTimeout, clearTimeout,
-    require: name => name === './backendClient' ? { isBackendEnabled: () => false } : name === './compat/community' ? { getCommunityConfig: () => context.wx.cloud.callFunction({ name: 'community' }) } : ({ isTimelinePreview: () => false }),
-    wx: { cloud: { callFunction: () => {
-      state.calls++
-      if (state.failure) return Promise.reject(new Error('temporary failure'))
-      return Promise.resolve({ result: { ok: true, serverTime: state.now,
-        announcement: { available: state.available, id: 'notice-1', body: 'hello' } } })
-    } } }
+    require: name => name === './backendClient' ? {
+      get(route, options) {
+        assert.equal(route, '/api/v1/community')
+        assert.equal(options.anonymous, true)
+        state.calls++
+        if (state.failure) return Promise.reject(new Error('temporary failure'))
+        return Promise.resolve({ serverTime: new Date(state.now).toISOString(),
+          group: { expiresAt: null }, announcement: { available: state.available, id: 'notice-1',
+            body: 'hello', startAt: null, endAt: null } })
+      }, resolveImages: async () => []
+    } : ({ isTimelinePreview: () => false }),
+    wx: { getStorageSync: () => '' }
   }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/community.js'), 'utf8'), context)
   const api = context.module.exports

@@ -1,84 +1,51 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const path = require('node:path')
-const vm = require('node:vm')
-const filename = path.resolve(__dirname, '../utils/marketSellerProfileCache.js')
-const source = fs.readFileSync(filename, 'utf8')
-const plain = value => JSON.parse(JSON.stringify(value))
-const tick = () => new Promise(resolve => setImmediate(resolve))
-const deferred = () => {
-  let resolve, reject
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
-  return { promise, resolve, reject }
-}
+const loadMarket = require('./helpers/market-api.cjs')
+const avatar = '11111111-1111-4111-8111-111111111111'
 function fixture() {
-  const storage = new Map(), calls = [], images = []
-  let now = 1800000000000
-  class Clock extends Date { static now() { return now } }
-  const module = { exports: {} }
-  vm.runInNewContext(source, {
-    module, Date: Clock,
-    wx: {
-      getStorageSync: key => storage.get(key),
-      setStorageSync: (key, value) => storage.set(key, plain(value)),
-      cloud: {
-        callFunction(request) { const wait = deferred(); calls.push({ request: plain(request), ...wait }); return wait.promise },
-        async getTempFileURL(request) {
-          images.push(plain(request))
-          return { fileList: request.fileList.map(fileID => ({ fileID, tempFileURL: 'https://cdn.example/avatar' })) }
-        }
-      }
-    },
-    require: () => ({ isBackendEnabled: () => false, buildProfileDisplayLocation: () => '', buildProfileApartmentDisplay: () => '' })
-  })
-  const resolve = (call, avatar = '') => call.resolve({ result: { ok: true, data: call.request.data.openids.map(openid => ({ _openid: openid, name: openid, avatarUrl: avatar })) } })
-  return { api: module.exports, calls, images, storage, resolve, advance: ms => { now += ms } }
+  const storage = { openid: 'viewer-a', market_seller_profile_cache_v2: { seller: { profile: { wechatID: 'obsolete-private' } } } }
+  const calls = [], writes = []
+  let pending
+  const backend = { isBackendEnabled: () => true,
+    async get(url, options) { calls.push({ url, options }); return pending || { userId: 'seller', name: 'Current', avatarFileId: avatar, wechatId: 'current-contact' } },
+    async resolveImages(ids) { return ids.map(fileId => ({ fileId, url: `https://cdn.example/${fileId}?read=${calls.length}` })) }
+  }
+  const wx = { getStorageSync: key => storage[key], setStorageSync: (...args) => writes.push(args),
+    cloud: { callFunction() { assert.fail('no legacy seller lookup') }, getTempFileURL() { assert.fail('no cloud URL lookup') } } }
+  return { api: loadMarket(wx, backend), backend, calls, writes, storage, pending(value) { pending = value } }
 }
-
-test('fresh seller data and resolved avatars are reused; expired data refreshes', async () => {
+test('seller reads ignore obsolete persisted OpenID profiles and refresh signed links', async () => {
   const f = fixture()
-  const first = f.api.fetchAndCacheMarketSellerProfiles(['seller']); await tick()
-  f.resolve(f.calls[0], 'cloud://avatar'); await first
-  const cached = await f.api.fetchAndCacheMarketSellerProfiles(['seller'])
-  assert.equal(cached.seller.avatarDisplay, 'https://cdn.example/avatar')
-  assert.equal(f.calls.length, 1); assert.equal(f.images.length, 1)
-  f.advance(10 * 60 * 1000 + 1)
-  const refresh = f.api.fetchAndCacheMarketSellerProfiles(['seller']); await tick()
-  assert.equal(f.calls.length, 2); f.resolve(f.calls[1]); await refresh
+  const first = await f.api.getSeller('seller'), next = await f.api.getSeller('seller')
+  assert.equal(first.wechatID, 'current-contact')
+  assert.notEqual(first.avatarDisplay, next.avatarDisplay)
+  assert.equal(f.calls.length, 2)
+  assert.equal(f.writes.length, 0, 'private seller data must not return to the old shared cache')
 })
-
-test('overlapping callers share each seller lookup even with force requested', async () => {
+test('a late seller profile cannot cross an account change', async () => {
+  const f = fixture(); let resolve
+  f.pending(new Promise(done => { resolve = done }))
+  const request = f.api.getSeller('seller')
+  f.storage.openid = 'viewer-b'
+  resolve({ userId: 'seller', name: 'Old viewer contact', wechatId: 'private' })
+  await assert.rejects(request, { code: 'REQUEST_CANCELLED' })
+  assert.equal(f.writes.length, 0)
+})
+test('large canonical lists use embedded seller projections without per-OpenID queries', async () => {
   const f = fixture()
-  const first = f.api.fetchAndCacheMarketSellerProfiles(['a', 'b'])
-  const second = f.api.fetchAndCacheMarketSellerProfiles(['b', 'c'], { force: true })
-  await tick()
-  assert.deepEqual(f.calls.map(call => call.request.data.openids), [['a', 'b'], ['c']])
-  f.calls.forEach(call => f.resolve(call))
-  const [a, b] = await Promise.all([first, second])
-  assert.deepEqual(Object.keys(a).sort(), ['a', 'b'])
-  assert.deepEqual(Object.keys(b).sort(), ['b', 'c'])
+  f.backend.get = async (url, options) => { f.calls.push({ url, options }); return { items: Array.from({ length: 45 }, (_, i) => ({
+    id: `listing-${i}`, listingType: 'goods', images: [], priceCents: 100, seller: { userId: `seller-${i}`, name: `Seller ${i}` }
+  })), hasMore: false, nextOffset: 45 } }
+  const rows = (await f.api.call({ data: { action: 'list', limit: 50 } })).result.items
+  assert.equal(rows.length, 45); assert.equal(rows[44].sellerName, 'Seller 44')
+  assert.equal(f.calls.length, 1)
+  assert.equal(f.writes.length, 0)
 })
-
-test('large requests respect the 20-user cloud limit rather than caching truncated users as absent', async () => {
-  const f = fixture(), ids = Array.from({ length: 45 }, (_, i) => 'seller-' + i)
-  const request = f.api.fetchAndCacheMarketSellerProfiles(ids); await tick()
-  assert.deepEqual(f.calls.map(call => call.request.data.openids.length), [20, 20, 5])
-  f.calls.forEach(call => f.resolve(call))
-  const profiles = await request
-  assert.equal(Object.keys(profiles).length, 45)
-  assert.equal(profiles['seller-44'].name, 'seller-44')
-})
-
-test('empty successful results are cached, but service errors are not cached as empty profiles', async () => {
+test('seller errors are not replaced by stale contacts and a subsequent read can retry', async () => {
   const f = fixture()
-  const missing = f.api.fetchAndCacheMarketSellerProfiles(['gone']); await tick()
-  f.calls[0].resolve({ result: { ok: true, data: [] } }); await missing
-  await f.api.fetchAndCacheMarketSellerProfiles(['gone']); assert.equal(f.calls.length, 1)
-  const failure = f.api.fetchAndCacheMarketSellerProfiles(['retry']); await tick()
-  const rejection = assert.rejects(failure, /denied/)
-  f.calls[1].resolve({ result: { ok: false, errorMsg: 'denied' } }); await rejection
-  assert.equal(f.api.readMarketSellerProfile('retry'), null)
-  const retry = f.api.fetchAndCacheMarketSellerProfiles(['retry']); await tick()
-  assert.equal(f.calls.length, 3); f.resolve(f.calls[2]); await retry
+  f.pending(Promise.reject(Object.assign(new Error('not visible'), { code: 'SELLER_NOT_FOUND' })))
+  await assert.rejects(f.api.getSeller('seller'), { code: 'SELLER_NOT_FOUND' })
+  f.pending(null)
+  assert.equal((await f.api.getSeller('seller')).name, 'Current')
+  assert.equal(f.calls.length, 2)
 })

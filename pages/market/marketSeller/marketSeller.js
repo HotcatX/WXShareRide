@@ -1,13 +1,6 @@
 const market = require("../../../utils/compat/market")
 const LOGIN_PAGE = '/pages/other/login/login'
-const {
-  readMarketSellerProfile,
-  fetchAndCacheMarketSellerProfiles
-} = require("../../../utils/marketSellerProfileCache")
-const MARKET_REFRESH_KEY = "market_goods_changed_at"
-const SELLER_GOODS_CACHE_KEY_PREFIX = "market_seller_goods_cache_v1"
-const SELLER_GOODS_CACHE_FRESH_MS = 10 * 60 * 1000
-const SELLER_GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000
+
 const LISTING_TYPE_CONFIG = {
   goods: {
     label: "二手",
@@ -114,47 +107,6 @@ function getMarketApiResult(res) {
   return result
 }
 
-function getMarketGoodsChangedAt() {
-  try {
-    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
-  } catch (e) {
-    return 0
-  }
-}
-
-function getSellerGoodsCacheKey(openid, type) {
-  return `${SELLER_GOODS_CACHE_KEY_PREFIX}_${String(openid || "").trim()}_${normalizeListingType(type)}`
-}
-
-function readSellerGoodsCache(openid, type) {
-  if (market.isBackendEnabled()) return null
-  const key = getSellerGoodsCacheKey(openid, type)
-  if (!openid) return null
-  try {
-    const cached = wx.getStorageSync(key)
-    if (!cached || !cached.ts || !Array.isArray(cached.rows)) return null
-    if (Date.now() - Number(cached.ts) > SELLER_GOODS_CACHE_MAX_STALE_MS) return null
-    const changedAt = getMarketGoodsChangedAt()
-    if (changedAt && Number(cached.changedAt || 0) !== changedAt) return null
-    return cached
-  } catch (e) {
-    return null
-  }
-}
-
-function writeSellerGoodsCache(openid, type, rows = []) {
-  if (market.isBackendEnabled()) return
-  const key = getSellerGoodsCacheKey(openid, type)
-  if (!openid || !Array.isArray(rows)) return
-  try {
-    wx.setStorageSync(key, {
-      ts: Date.now(),
-      changedAt: getMarketGoodsChangedAt(),
-      rows
-    })
-  } catch (e) {}
-}
-
 function buildSellerGood(x = {}) {
   const listingType = normalizeListingType(x.listingType)
   const config = getListingTypeConfig(listingType)
@@ -240,16 +192,14 @@ Page(market.page({
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    const openid = market.isBackendEnabled() ? safeDecodeURIComponent(options?.sellerId || options?.openid || "") : options?.openid ? safeDecodeURIComponent(options.openid) : ""
+    const openid = safeDecodeURIComponent(options?.sellerId || options?.openid || "")
     if (!openid) {
       wx.showToast({ title: "缺少发布者信息", icon: "none" })
       return
     }
     this.setData({ sellerKey: openid })
 
-    if (market.isBackendEnabled()) { this._loadServerSeller(openid); return }
-    this.fetchSellerInfo(openid)
-    this.fetchSellerGoods(openid)
+    return this._loadServerSeller(openid)
   },
 
   onShareAppMessage() {
@@ -258,7 +208,7 @@ Page(market.page({
     const title = seller?.name ? `看看 ${seller.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
     return getApp().withReferralShare({
       title,
-      path: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(sellerKey || '')}&type=${this.data.activeListingType || "goods"}`
+      path: `/pages/market/marketSeller/marketSeller?sellerId=${encodeURIComponent(sellerKey || '')}&type=${this.data.activeListingType || "goods"}`
     })
   },
 
@@ -268,7 +218,7 @@ Page(market.page({
     const title = seller?.name ? `看看 ${seller.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
     return getApp().withReferralShare({
       title,
-      query: `${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(sellerKey || '')}&type=${this.data.activeListingType || "goods"}`
+      query: `sellerId=${encodeURIComponent(sellerKey || '')}&type=${this.data.activeListingType || "goods"}`
     })
   },
 
@@ -294,7 +244,7 @@ Page(market.page({
     if (openid && !isGuest) return true
 
     const sellerKey = this.data.sellerKey || ''
-    const pendingUrl = `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(sellerKey)}&type=${this.data.activeListingType || "goods"}`
+    const pendingUrl = `/pages/market/marketSeller/marketSeller?sellerId=${encodeURIComponent(sellerKey)}&type=${this.data.activeListingType || "goods"}`
 
     wx.setStorageSync('pendingPage', { url: pendingUrl })
     wx.setStorageSync('postLoginAction', {
@@ -325,34 +275,7 @@ Page(market.page({
   },
 
   onShow() {
-    if (market.isBackendEnabled() && this.data.sellerKey) return this._loadServerSeller(this.data.sellerKey)
-  },
-
-
-  async fetchSellerInfo(openid) {
-    const cached = readMarketSellerProfile(openid, { allowStale: true })
-    if (cached) {
-      const sellerDisplay = buildSellerFromProfile(cached)
-      this.setData({
-        seller: sellerDisplay,
-        contactText: buildContactText(sellerDisplay)
-      })
-      if (cached.isFresh) return
-    }
-
-    try {
-      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
-      const profile = profiles && profiles[openid]
-      if (!profile) return
-      const sellerDisplay = buildSellerFromProfile(profile)
-      this.setData({
-        seller: sellerDisplay,
-        contactText: buildContactText(sellerDisplay)
-      })
-    } catch (e) {
-      console.error("fetchSellerInfo error", e)
-      if (!cached) wx.showToast({ title: "获取发布者信息失败", icon: "none" })
-    }
+    if (this.data.sellerKey) return this._loadServerSeller(this.data.sellerKey)
   },
 
   _applySellerGoodsRows(rows = []) {
@@ -371,12 +294,6 @@ Page(market.page({
     const request = this._sellerGoodsRequest = (this._sellerGoodsRequest || 0) + 1
     const owner = market.identity()
     const listingType = normalizeListingType(options.type || this.data.activeListingType)
-    const cached = readSellerGoodsCache(openid, listingType)
-    if (cached) {
-      this._applySellerGoodsRows(cached.rows)
-      const fresh = Date.now() - Number(cached.ts || 0) <= SELLER_GOODS_CACHE_FRESH_MS
-      if (fresh && !options.force) return
-    }
 
     try {
       const PAGE = 50
@@ -390,7 +307,7 @@ Page(market.page({
           name: "marketApi",
           data: {
             action: "sellerList",
-            ...(market.isBackendEnabled() ? { sellerId: openid } : { openid }),
+            sellerId: openid,
             listingType,
             filters: { listingType },
             skip,
@@ -408,14 +325,14 @@ Page(market.page({
       }
 
       if (!market.current(this, owner) || request !== this._sellerGoodsRequest) return
-      writeSellerGoodsCache(openid, listingType, rows)
+
       if (normalizeListingType(this.data.activeListingType) === listingType && this.data.sellerKey === openid) {
         this._applySellerGoodsRows(rows)
       }
     } catch (e) {
       if (!market.current(this, owner) || request !== this._sellerGoodsRequest) return
       console.error("fetchSellerGoods error", e)
-      if (!cached) wx.showToast({ title: "获取发布列表失败", icon: "none" })
+      wx.showToast({ title: "获取发布列表失败", icon: "none" })
     }
   },
 

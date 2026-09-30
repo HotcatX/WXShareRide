@@ -199,7 +199,7 @@ Page({
         userInfo: user,
         ...(!this._profileInputDirty ? {
           carNumber: user.carNumber || "", carBrand: user.carBrand || "", carModel: user.carModel || "",
-          ...(profileApi.isBackendEnabled() ? { showZelle: user.defaultShowZelle === true } : {})
+          showZelle: user.defaultShowZelle === true
         } : {})
       })
     } catch (e) {
@@ -423,11 +423,11 @@ Page({
           carNumber,
           carBrand,
           carModel,
-          ...(profileApi.isBackendEnabled() ? { defaultShowZelle: showZelle === true } : {})
+          defaultShowZelle: showZelle === true
         }
 
         const result = await callUpdateUser(updatePayload)
-        if (profileApi.isBackendEnabled() && result?.result?.ok !== true) throw new Error('Profile update was not confirmed')
+        if (result?.result?.ok !== true) throw new Error('Profile update was not confirmed')
       } catch (e) {
         preferencesSaved = false
       }

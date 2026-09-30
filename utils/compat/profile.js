@@ -1,5 +1,4 @@
-// Temporary CloudBase compatibility boundary. Remove the legacy branches after
-// the released server client is verified; server failures never write to CloudBase.
+// Map the current server profile to the existing mini-program display fields.
 const backend = require('../backendClient')
 function identity() {
   return JSON.stringify([backend.isBackendEnabled(), wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
@@ -74,7 +73,6 @@ function legacyDocument(response) {
   return Array.isArray(r.data) ? r.data[0] || null : r.data || r.userInfo || r.user || null
 }
 async function login(options) {
-  if (!backend.isBackendEnabled()) return backend.cloudLogin(options)
   const session = await backend.login(options)
   return { result: { ok: true, ...session.user } }
 }
@@ -82,7 +80,6 @@ function logout() {
   return backend.logout()
 }
 async function getUserInfo({ summary = false } = {}) {
-  if (!backend.isBackendEnabled()) return wx.cloud.callFunction({ name: 'getUserInfo', data: {} })
   const user = fromBackendUser(await backend.get('/api/v1/me'))
   if (summary) {
     const [statistics, blockedUsers] = await Promise.all([
@@ -110,80 +107,51 @@ async function getBlockedIds() {
   }
   return ids
 }
-async function getUnreadCount(openid) {
-  if (backend.isBackendEnabled()) return (await backend.get('/api/v1/notifications/unread')).unreadCount
-  const result = await backend.cloudRead('notifications.unread')
-  if (!result || !Number.isSafeInteger(result.unreadCount) || result.unreadCount < 0) throw new Error('未读数量暂不可用')
-  return result.unreadCount
+async function getUnreadCount() {
+  return (await backend.get('/api/v1/notifications/unread')).unreadCount
 }
 async function updateSpot(field, value, remove = false) {
   if (!['pickupSpot', 'dropoffSpot'].includes(field) || typeof value !== 'string' || !value.trim()) throw new Error('地点无效')
   const owner = identity()
   const scope = `profile.spots:${field}`, options = { validate: row => row && row.field === field && Array.isArray(row.values) && row.values.every(item => typeof item === 'string') }
-  if (backend.isBackendEnabled()) {
-    const recovered = await backend.retryCloudPending(scope, { ...options, ifPresent: true })
-    if (owner !== identity()) throw new Error('当前操作已取消')
-    if (recovered) return { ...recovered, recovered: true }
-    const info = legacyDocument(await getUserInfo())
-    if (owner !== identity()) throw new Error('当前操作已取消')
-    const values = remove ? (info?.[field] || []).filter(item => item !== value) : [...new Set([...(info?.[field] || []), value])]
-    await updateUser({ [field]: values }); return { field, values }
-  }
-  try { return await backend.cloudMutate(scope, remove ? 'profile.spots.remove' : 'profile.spots.add', { field, value }, options) }
-  catch (error) {
-    if (error.code !== 'PENDING_OPERATION') throw error
-    return { ...await backend.retryCloudPending(scope, options), recovered: true }
-  }
+  // TEMPORARY FALLBACK: reconcile only a pre-cutover pending receipt through
+  // the same PostgreSQL authority before creating a new profile update.
+  const recovered = await backend.retryCloudPending(scope, { ...options, ifPresent: true })
+  if (owner !== identity()) throw new Error('当前操作已取消')
+  if (recovered) return { ...recovered, recovered: true }
+  const info = legacyDocument(await getUserInfo())
+  if (owner !== identity()) throw new Error('当前操作已取消')
+  const values = remove ? (info?.[field] || []).filter(item => item !== value) : [...new Set([...(info?.[field] || []), value])]
+  await updateUser({ [field]: values }); return { field, values }
 }
+
 async function updateUser(data) {
-  if (backend.isBackendEnabled()) {
-    const patch = toBackendPatch(data), owner = identity(), openid = wx.getStorageSync('openid')
-    const receipt = { validate: user => validUser(user, openid) }
-    let user
-    try {
-      user = await backend.mutate('profile.update', 'PATCH', '/api/v1/me', patch, receipt)
-    } catch (error) {
-      if (!error || error.code !== 'PENDING_OPERATION') throw error
-      // An explicit save first reconciles the previous uncertain PATCH using its
-      // original key. Never display that historical reply as the new form.
-      await backend.retryPending('profile.update', receipt)
-      if (identity() !== owner) throw Object.assign(new Error('当前操作已取消'), { code: 'REQUEST_CANCELLED' })
-      user = await backend.mutate('profile.update', 'PATCH', '/api/v1/me', patch, receipt)
-    }
-    return { result: { ok: true, data: fromBackendUser(user) } }
+  const patch = toBackendPatch(data), owner = identity(), openid = wx.getStorageSync('openid')
+  const receipt = { validate: user => validUser(user, openid) }
+  let user
+  try {
+    user = await backend.mutate('profile.update', 'PATCH', '/api/v1/me', patch, receipt)
+  } catch (error) {
+    if (!error || error.code !== 'PENDING_OPERATION') throw error
+    // An explicit save first reconciles the previous uncertain PATCH using its
+    // original key. Never display that historical reply as the new form.
+    await backend.retryPending('profile.update', receipt)
+    if (identity() !== owner) throw Object.assign(new Error('当前操作已取消'), { code: 'REQUEST_CANCELLED' })
+    user = await backend.mutate('profile.update', 'PATCH', '/api/v1/me', patch, receipt)
   }
-  const firstResponse = await wx.cloud.callFunction({ name: 'updateUser', data })
-  const firstResult = firstResponse && firstResponse.result || {}
-  const message = String(firstResult.errorMsg || firstResult.message || firstResult.error || '')
-  if (firstResult.ok || !/\b(?:region|address) is not defined\b/i.test(message)) return firstResponse
-  // Legacy server version recovery only; not an HTTP-to-CloudBase fallback.
-  const response = await wx.cloud.callFunction({ name: 'login', data: {} })
-  const result = response && response.result || {}
-  if (!result.ok) return firstResponse
-  if (result.openid) {
-    wx.setStorageSync('openid', result.openid)
-    wx.setStorageSync('isGuest', false)
-  }
-  return wx.cloud.callFunction({ name: 'updateUser', data })
+  return { result: { ok: true, data: fromBackendUser(user) } }
 }
 async function uploadAvatar(filePath) {
-  if (backend.isBackendEnabled()) {
-    const image = await backend.uploadImage(filePath, 'profile.avatar')
-    return { avatarFileId: image.fileId, avatarUrl: filePath }
-  }
-  const extension = String(filePath).match(/\.(\w+)$/)
-  const cloudPath = `userAvatar/${Date.now()}-${Math.floor(Math.random() * 1000000)}.${extension ? extension[1] : 'jpg'}`
-  const image = await wx.cloud.uploadFile({ cloudPath, filePath })
-  return { avatarUrl: image.fileID }
+  const image = await backend.uploadImage(filePath, 'profile.avatar')
+  return { avatarFileId: image.fileId, avatarUrl: filePath }
 }
 function avatarPatch(data) {
-  if (!backend.isBackendEnabled()) return { avatarUrl: data.avatarUrl || '' }
   return own(data, 'avatarFileId') ? { avatarFileId: data.avatarFileId } : {}
 }
 function cacheUser(user) {
   // Signed URLs expire and are never persisted as user facts.
   const cached = { ...user }
-  if (backend.isBackendEnabled()) delete cached.avatarUrl
+  delete cached.avatarUrl
   wx.setStorageSync('userInfo', cached)
 }
 module.exports = { updateSpot, identity, isBackendEnabled: backend.isBackendEnabled, fromBackendUser, toBackendPatch, legacyDocument,

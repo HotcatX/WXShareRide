@@ -186,7 +186,7 @@ function getMarketApiResult(res) {
 // the actual output before persisting/uploading it if compression fails.
 async function compressForUpload(srcPath, quality = 70, maxSide = 2048) {
   let dimensions = {}
-  if (srcPath && market.isBackendEnabled()) {
+  if (srcPath) {
     const info = await new Promise(resolve => wx.getImageInfo({ src: srcPath, success: resolve, fail: () => resolve(null) }))
     if (info?.width > 0 && info?.height > 0) {
       const ratio = Math.min(1, maxSide / Math.max(info.width, info.height))
@@ -219,7 +219,6 @@ function normalizeFileID(fileID) {
   return market.isFileId(value) ? value : ""
 }
 
-
 function previewImagesFromState(state = {}) {
   const images = Array.isArray(state.images) ? state.images.filter(Boolean) : []
   if (!images.length && state.image) images.push(state.image)
@@ -239,7 +238,6 @@ function orderedThumbFileIDsFromState(state = {}) {
   const primary = normalizeFileID(state.thumbFileID)
   return primary ? [primary] : []
 }
-
 
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -659,7 +657,7 @@ Page(market.page({
 
   onShow() {
     if (!this._hasLoaded) return
-  
+
     if (this.data.isEdit) {
       if (this._profileLocationReturnPending) {
         this._profileLocationReturnPending = false
@@ -667,7 +665,7 @@ Page(market.page({
       }
       return
     }
-  
+
     if (this._locationTouched) return
     this._applyProfileLocation()
   },
@@ -697,7 +695,7 @@ Page(market.page({
       const location = locationDisplay
       ? buildLocationMeta(locationDisplay, user?.location || {})
       : {}
-    
+
       this._setPostData({
         profileWechatID,
         regionState: regionMeta.regionState || '',
@@ -718,15 +716,15 @@ Page(market.page({
     try {
       const user = await this._getMyUserInfo()
       if (!user) return false
-  
+
       const profileWechatID = normalizeLocationText(user.wechatID)
       const regionMeta = buildProfileRegionMeta(user || {})
       const locationDisplay = buildProfileMapLocationDisplay(user || {})
-  
+
       const patch = {
         profileWechatID
       }
-  
+
       if (regionMeta.regionState && regionMeta.regionCounty && regionMeta.regionArea) {
         patch.regionState = regionMeta.regionState
         patch.regionCounty = regionMeta.regionCounty
@@ -734,7 +732,7 @@ Page(market.page({
         patch.Apartment = regionMeta.Apartment || ''
         patch.region = regionMeta.baseDisplay
       }
-  
+
       if (locationDisplay && hasLatLng(user.location || {})) {
         patch.locationInput = locationDisplay
         patch.location = buildLocationMeta(locationDisplay, {
@@ -745,7 +743,7 @@ Page(market.page({
         patch.locationInput = ''
         patch.location = {}
       }
-  
+
       this._setPostData(patch)
       return true
     } catch (e) {
@@ -849,9 +847,8 @@ Page(market.page({
         thumbFileID: thumbIds[0] || "",
         thumbFileIDs: thumbIds,
 
-        ...(market.isBackendEnabled() ? { pickupStartDate: x.pickupStartDate, pickupEndDate: x.pickupEndDate,
-          pickupRangeText: `${x.pickupStartDate} 至 ${x.pickupEndDate}` } : normalizePickupWindow(
-          x.pickupStartDate || '', x.pickupEndDate || x.expiresAtText || '', activeListingType))
+        pickupStartDate: x.pickupStartDate, pickupEndDate: x.pickupEndDate,
+        pickupRangeText: `${x.pickupStartDate} 至 ${x.pickupEndDate}`
       })
     } catch (e) {
       console.error(e)
@@ -938,7 +935,7 @@ Page(market.page({
         Apartment: regionMeta.Apartment,
         locationInput: locationDisplay || this.data.locationInput
       })
-      
+
       if (location) {
         updates.location = location
       }
@@ -1108,7 +1105,6 @@ Page(market.page({
     }
   },
 
-
   onPreviewPostImage(e) {
     const images = previewImagesFromState(this.data)
     if (!images.length) return
@@ -1218,7 +1214,6 @@ onChooseCondition() {
   })
 },
 
-
   // ========== 提交：发布 / 编辑 ==========
   async onSubmit() {
     const owner = market.identity()
@@ -1240,7 +1235,7 @@ onChooseCondition() {
     const activeListingType = normalizeListingType(this.data.activeListingType)
     const config = getListingTypeConfig(activeListingType)
     const normalizedCategory = normalizeListingCategory(category, activeListingType)
-    const pickupWindow = market.isBackendEnabled() && this.data.isEdit
+    const pickupWindow = this.data.isEdit
       ? { pickupStartDate, pickupEndDate, pickupRangeText: `${pickupStartDate} 至 ${pickupEndDate}` }
       : normalizePickupWindow(pickupStartDate, pickupEndDate, activeListingType)
     const expireTime = endOfDayTime(pickupWindow.pickupEndDate)
@@ -1270,7 +1265,7 @@ onChooseCondition() {
             location: this.data.location
           }
         : this._applyProfileToForm(profile)
-    
+
       if (this.data.isEdit) this._setPostData({ profileWechatID: profileUpdates.profileWechatID })
       if (!normalizeLocationText(profile.wechatID)) {
         this._promptEditProfile("请先填写微信号", `${config.submitCreate}前需要在个人资料里填写微信号，方便联系。`)
@@ -1291,7 +1286,7 @@ onChooseCondition() {
         locationSource.name ||
         locationSource.address
       )
-      
+
       const location = buildLocationMeta(locationName, locationSource)
 
       if (!regionState || !regionCounty || !regionArea) {
@@ -1314,9 +1309,9 @@ onChooseCondition() {
         listingType: activeListingType,
         sellerContact: this.data.sellerContact || null,
         title: title.trim(),
-        price: market.isBackendEnabled() ? price : Number(price) || 0,
+        price,
         category: normalizedCategory,
-      
+
         region: regionDisplay,
         regionState,
         regionCounty,
@@ -1325,7 +1320,7 @@ onChooseCondition() {
         buildingName: Apartment,
         regionDisplay,
         location,
-      
+
         condition: condition || config.defaultCondition,
         desc: desc || "",
         imageFileID: imageFileIDs[0] || "",

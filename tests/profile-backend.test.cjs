@@ -357,3 +357,58 @@ test('real SDK lost ACK then process restart reconciles the original profile key
     }
   }
 })
+
+test('profile spots reconcile only the persisted original bridge receipt, keep it on invalid ACK, and never turn a retry into a fresh spot write', async () => {
+  const { createBackendClient, SESSION_KEY, PENDING_KEY } = require('../utils/backendClient')
+  const { sha256 } = require('../utils/hash')
+  for (const scenario of ['success', 'wrong-actor', 'invalid-values', 'account-change', 'offline']) {
+    const openid = 'synthetic_spot_owner', body = { field: 'pickupSpot', value: 'Original pickup' }
+    const original = { userId: idA, scope: 'profile.spots:pickupSpot', key: 'original-profile-spots-key',
+      fingerprint: sha256(JSON.stringify(['CLOUD', 'profile.spots.add', JSON.stringify(body)])),
+      request: { method: 'CLOUD', path: 'profile.spots.add', body } }
+    const storage = { openid, isGuest: false, [PENDING_KEY]: [original], [SESSION_KEY]: {
+      token: 'a'.repeat(43), expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      user: { id: idA, openid, referralCode: 'ref_123456789abc' }
+    } }, calls = []
+    const wx = {
+      getStorageSync: key => storage[key] && plain(storage[key]),
+      setStorageSync: (key, value) => { storage[key] = plain(value) }, removeStorageSync: key => { delete storage[key] },
+      request: () => assert.fail('receipt recovery must not read or patch a new profile'),
+      cloud: { async callFunction(options) {
+        calls.push(plain(options))
+        if (scenario === 'offline') throw new Error('offline')
+        if (scenario === 'account-change') storage.openid = 'synthetic_other_owner'
+        return { result: { ok: true, actor: { appId: 'wx8a8a389199aa2a0e', openid, id: scenario === 'wrong-actor' ? idB : idA },
+          data: { field: 'pickupSpot', values: scenario === 'invalid-values' ? [null] : ['Original pickup'] } } }
+      } }
+    }
+    const api = loadApi(wx, createBackendClient({ wx, config: { mode: 'server' } }))
+    const pending = api.updateSpot('pickupSpot', 'Different new choice')
+    if (scenario === 'success') {
+      assert.deepEqual(plain(await pending), { field: 'pickupSpot', values: ['Original pickup'], recovered: true })
+      assert.equal(storage[PENDING_KEY], undefined)
+    } else {
+      await assert.rejects(pending)
+      assert.deepEqual(storage[PENDING_KEY], [original])
+    }
+    assert.deepEqual(calls, [{ name: 'backend', data: { action: 'profile.spots.add', body,
+      expectedOpenid: openid, key: original.key, expectedAuthority: 'server' } }])
+  }
+})
+
+test('new profile spots use canonical GET/PATCH and account changes stop the subsequent write', async () => {
+  const h = harness(null, { retryCloudPending: async () => null })
+  h.user.profile.preferences = { pickupAddresses: ['Existing'] }
+  assert.deepEqual(plain(await h.api.updateSpot('pickupSpot', 'New')), { field: 'pickupSpot', values: ['Existing', 'New'] })
+  assert.deepEqual(h.state.gets, ['/api/v1/me'])
+  assert.equal(h.state.mutations[0][0], 'profile.update')
+  assert.deepEqual(h.state.mutations[0][3], { profile: { preferences: { pickupAddresses: ['Existing', 'New'] } } })
+  assert.deepEqual(h.state.cloud, [])
+  const late = deferred(), guarded = harness(null, { retryCloudPending: async () => null, get: () => late.promise })
+  const operation = guarded.api.updateSpot('dropoffSpot', 'New')
+  await tick()
+  guarded.storage.openid = 'another-person'
+  late.resolve(guarded.user)
+  await assert.rejects(operation, /操作已取消/)
+  assert.deepEqual(guarded.state.mutations, [])
+})

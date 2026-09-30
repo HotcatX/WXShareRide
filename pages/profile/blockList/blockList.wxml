@@ -37,7 +37,7 @@
               </view>
               <view
                 class="ride-mini-btn ride-mini-btn--accent block-unblock"
-                data-openid="{{item.targetOpenid}}" data-user-id="{{item.targetUserId}}"
+                data-user-id="{{item.targetUserId}}"
                 data-name="{{item.name}}"
                 bindtap="onUnblockUser"
               >解除</view>

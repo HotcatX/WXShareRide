@@ -11,7 +11,7 @@ const dateEvent = date => ({ currentTarget: { dataset: { date } } })
 const placeEvent = type => ({ currentTarget: { dataset: { type } } })
 const valueEvent = value => ({ detail: { value } })
 const calendarResponse = (month, days = [{ date: `${month}-20`, carpoolCount: 17, requestCount: 6 }]) => ({
-  result: { success: true, month, data: { days } }
+  month, days: days.map(({ date, carpoolCount, requestCount }) => ({ date, offerCount: carpoolCount, requestCount }))
 })
 const defaults = require('../utils/placeCatalog').fixedPlaceValues()
 const placeResponse = (labels = ['公共车站']) => ({ ok: true, catalogVersion: 'places-v1', rankingVersion: 'circle-selection-v1', generatedAt: 1894703400000,
@@ -24,17 +24,13 @@ function harness() {
     now: new Date(2030, 0, 15, 12, 30).getTime(),
     calls: [], placeRequests: [], telemetry: [], queue: new Map(), navigation: [], errors: [],
     store: { openid: 'viewer-a', ride_active_city_v1: { key: 'ny_nj' } },
-    templateReads: 0, userReads: 0, driverPrices: 0, passengerPrices: 0, addressReads: [], priceReads: [], priceRows: [],
-    addressConfig: {
-      Departure: { _id: 'dep', JFK: 'JFK', FortLee: 'Fort Lee核心区', Flushing: 'Flushing', Columbia: '哥大', LGA: 'LGA 机场', EWR: 'EWR 机场' },
-      Arrival: { _id: 'arr', JFK: 'JFK', FortLee: 'Fort Lee核心区', Flushing: 'Flushing', Columbia: '哥大', LGA: 'LGA 机场', EWR: 'EWR 机场' }
-    }
+    templateReads: 0, userReads: 0, driverPrices: 0, passengerPrices: 0, configReads: [], priceRows: [],
+    addressConfig: { fromPlaces: [...defaults], toPlaces: [...defaults] }
   }
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [state.now])) }
     static now() { return state.now }
   }
-  const requestKey = args => args.name === 'getTripList' ? `getTripList:${args.data.action}` : `${args.name}:${args.data?.type || ''}`
   const wx = {
     getWindowInfo: () => ({ statusBarHeight: 24 }),
     getStorageSync: key => state.store[key],
@@ -43,27 +39,28 @@ function harness() {
     hideKeyboard() {}, showToast() {}, navigateBack() {},
     navigateTo: args => { state.navigation.push(plain(args)) },
     cloud: {
-      callFunction(args) {
-        state.calls.push(plain(args))
-        const queue = state.queue.get(requestKey(args))
-        if (queue?.length) return queue.shift().promise
-        if (args.name === 'getTripList' && args.data.action === 'calendar') return Promise.resolve(calendarResponse(args.data.month))
-        if (args.name === 'getTripList' && args.data.action === 'places') return Promise.resolve(placeResponse())
-        throw new Error(`Unexpected cloud call: ${args.name}`)
-      },
-      database() {
-        return { RegExp: ({ regexp, options }) => new RegExp(regexp, options), collection(name) {
-          assert.ok(['Departure', 'Arrival'].includes(name), 'both modes read the same existing address configuration')
-          return { get() {
-            state.addressReads.push(name)
-            const queue = state.queue.get(`address:${name}`)
-            if (queue?.length) return queue.shift().promise
-            return Promise.resolve({ data: [plain(state.addressConfig[name])] })
-          } }
-        } }
-      }
+      callFunction() { throw new Error('No fresh CloudBase function calls') },
+      database() { throw new Error('No direct location collection reads') }
     }
   }
+  const backend = { isBackendEnabled: () => true, async get(url, options) {
+    assert.equal(options.public, true)
+    if (url === '/api/v1/locations') {
+      state.configReads.push(url)
+      const queue = state.queue.get('locations')
+      if (queue?.length) return queue.shift().promise
+      return { ...plain(require('../utils/locationCatalog.generated')),
+        rideAddresses: { ...plain(require('../utils/locationCatalog.generated').rideAddresses), offer: plain(state.addressConfig) },
+        requestPrices: plain(state.priceRows) }
+    }
+    const query = Object.fromEntries(new URL(url, 'https://synthetic.invalid').searchParams)
+    assert.ok(url.startsWith('/api/v1/rides/calendar?'))
+    state.calls.push({ url, data: query })
+    const queue = state.queue.get('calendar')
+    return queue?.length ? queue.shift().promise : calendarResponse(query.month)
+  } }
+  const locations = require('../utils/locationConfig').createLocationClient(backend, () => state.now)
+
   const context = vm.createContext({
     wx, Date: Clock, Page: value => { definition = value },
     console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout
@@ -71,9 +68,7 @@ function harness() {
   const modules = new Map()
   function loadModule(filename) {
     const absolute = path.resolve(filename)
-    // This fixture isolates already-selected legacy page behavior, not startup.
-    if (absolute === path.join(ROOT, 'utils/backendAuthority.js')) return { getMode: () => 'cloudbase', isReady: () => true,
-      ready: async () => 'cloudbase', subscribe: () => () => {} }
+    if (absolute === path.join(ROOT, 'utils/backendClient.js')) return backend
     if (absolute === path.join(ROOT, 'utils/analyticsSession.js')) return {
       getCollectionScope: () => 'test:' + state.store.openid,
       recordEvent: (name, data) => { state.telemetry.push({ name, data: plain(data) }); return { ok: true } },
@@ -83,11 +78,7 @@ function harness() {
         return queue?.length ? queue.shift().promise : placeResponse([data.field === 'departure' ? '公共出发站' : '公共到达站'])
       }
     }
-    if (absolute === path.join(ROOT, 'utils/locationConfig.js')) return { loadLocationConfig: async () => {
-      state.priceReads.push('/api/v1/locations/catalog')
-      return { requestPrices: plain(state.priceRows) }
-    } }
-    if (absolute === path.join(ROOT, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
+    if (absolute === path.join(ROOT, 'utils/locationConfig.js')) return { loadLocationConfig: options => locations.load(options) }
     if (absolute === path.join(ROOT, 'utils/error.js')) return { showDataError: (...args) => state.errors.push(args) }
     if (modules.has(absolute)) return modules.get(absolute).exports
     const module = { exports: {} }
@@ -121,7 +112,7 @@ function harness() {
     page, state, hold,
     readPassengerPrice: () => definition.updateReferencePriceFromRequestPrice.call(page),
     async start(mode) { page.onLoad(mode == null ? {} : { mode }); await tick() },
-    calendarCalls: () => state.calls.filter(call => call.data?.action === 'calendar'),
+    calendarCalls: () => state.calls,
     placeCalls: () => state.placeRequests,
     day: date => page.data.calendarDays.find(day => day.date === date)
   }
@@ -133,8 +124,8 @@ test('passenger deep link shares driver address configuration without loading dr
   assert.equal(page.data.mode, 'passenger')
   assert.equal(page.data.referencePrice, '')
   assert.equal(state.templateReads, 0)
-  assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
-  assert.deepEqual(page.data.departureAddresses, ['Fort Lee核心区', '哥大', 'Flushing', 'JFK', 'EWR 机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '其他'])
+  assert.deepEqual(state.configReads, ['/api/v1/locations'])
+  assert.deepEqual(page.data.departureAddresses, [...defaults, '其他'])
   assert.deepEqual(page.data.arrivalAddresses, page.data.departureAddresses)
 })
 
@@ -144,7 +135,7 @@ test('missing or invalid deep-link mode remains driver and loads its address typ
     await start(mode)
     assert.equal(page.data.mode, 'driver')
     assert.equal(state.templateReads, 1)
-    assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
+    assert.deepEqual(state.configReads, ['/api/v1/locations'])
   }
 })
 
@@ -171,7 +162,7 @@ test('both forms request monthly departure and request counts for the selected p
     Object.assign(page.data, { departureAddress: 'Fort Lee核心区', destinationAddress: 'JFK', departureDate: '2030-01-20' })
     await page.onOpenDatePicker()
     assert.deepEqual(calendarCalls().at(-1).data, {
-      action: 'calendar', month: '2030-01', type: 'all', cityKey: 'ny_nj',
+      month: '2030-01', cityKey: 'ny_nj',
       fromPlace: 'Fort Lee核心区', toPlace: 'JFK'
     })
     assert.equal(day('2030-01-20').carpoolText, '17发')
@@ -209,7 +200,7 @@ test('switching months reads that month and a failed read keeps counts unknown u
   const { page, start, hold, calendarCalls, day } = harness()
   await start('passenger')
   await page.onOpenDatePicker()
-  const failed = hold('getTripList:calendar')
+  const failed = hold('calendar')
   const next = page.onCalendarNextMonth()
   assert.equal(page.data.calendarMonth, '2030-02')
   assert.equal(day('2030-02-20').carpoolText, '—发')
@@ -219,7 +210,7 @@ test('switching months reads that month and a failed read keeps counts unknown u
   assert.equal(page.data.calendarLoading, false)
   assert.equal(day('2030-02-20').carpoolText, '—发')
   assert.equal(day('2030-02-20').requestText, '—求')
-  const retry = hold('getTripList:calendar')
+  const retry = hold('calendar')
   const retried = page.onCalendarRetry()
   retry.resolve(calendarResponse('2030-02', [{ date: '2030-02-20', carpoolCount: 41, requestCount: 9 }]))
   await retried
@@ -337,7 +328,7 @@ test('account change closes the private panel and late responses cannot repopula
 test('late calendar responses cannot replace a new month or modify a closed calendar', async () => {
   const { page, start, hold, day } = harness()
   await start('driver')
-  const january = hold('getTripList:calendar')
+  const january = hold('calendar')
   const opened = page.onOpenDatePicker()
   await page.onCalendarNextMonth()
   assert.equal(day('2030-02-20').carpoolText, '17发')
@@ -345,7 +336,7 @@ test('late calendar responses cannot replace a new month or modify a closed cale
   await opened
   assert.equal(page.data.calendarMonth, '2030-02')
   assert.equal(day('2030-02-20').carpoolText, '17发')
-  const march = hold('getTripList:calendar')
+  const march = hold('calendar')
   const next = page.onCalendarNextMonth()
   page.onCloseCalendar()
   const closed = plain(page.data)
@@ -354,17 +345,15 @@ test('late calendar responses cannot replace a new month or modify a closed cale
   assert.deepEqual(page.data, closed)
 })
 
-test('switching from driver to passenger shares in-flight configuration without a second pair of reads', async () => {
+test('switching from driver to passenger shares in-flight configuration without a second catalog request', async () => {
   const { page, state, hold } = harness()
-  const oldDeparture = hold('address:Departure')
-  const oldArrival = hold('address:Arrival')
+  const sharedCatalog = hold('locations')
   page.onLoad({ mode: 'driver' })
   page.setMode({ currentTarget: { dataset: { mode: 'passenger' } } })
   await tick()
   assert.equal(page.data.mode, 'passenger')
-  assert.deepEqual(state.addressReads, ['Departure', 'Arrival'])
-  oldDeparture.resolve({ data: [{ _id: 'dep', place: '共有出发' }] })
-  oldArrival.resolve({ data: [{ _id: 'arr', place: '共有到达' }] })
+  assert.deepEqual(state.configReads, ['/api/v1/locations'])
+  sharedCatalog.resolve({ ...plain(require('../utils/locationCatalog.generated')), rideAddresses: { ...plain(require('../utils/locationCatalog.generated').rideAddresses), offer: { fromPlaces: [...defaults, '共有出发'], toPlaces: [...defaults, '共有到达'] } } })
   await tick()
   assert.deepEqual(page.data.departureAddresses, [...defaults, '共有出发', '其他'])
   assert.deepEqual(page.data.arrivalAddresses, [...defaults, '共有到达', '其他'])
@@ -376,14 +365,12 @@ test('switching from driver to passenger shares in-flight configuration without 
 test('address responses after unload cannot modify the page or show an obsolete error', async () => {
   for (const failed of [false, true]) {
     const { page, state, hold } = harness()
-    const departure = hold('address:Departure')
-    const arrival = hold('address:Arrival')
+    const catalog = hold('locations')
     page.onLoad({ mode: 'passenger' })
     page.onUnload()
     const closed = plain(page.data)
-    if (failed) departure.reject(new Error('stale configuration request failed'))
-    else departure.resolve({ data: [{ place: '迟到出发' }] })
-    arrival.resolve({ data: [{ place: '迟到到达' }] })
+    if (failed) catalog.reject(new Error('stale configuration request failed'))
+    else catalog.resolve(plain(require('../utils/locationCatalog.generated')))
     await tick()
     assert.deepEqual(page.data, closed)
     assert.equal(state.errors.length, 0)
@@ -408,7 +395,7 @@ test('both forms show the twelve fixed places and keep a completed background re
     assert.equal(page.data.departureAddress, 'EWR 机场')
     assert.equal(state.driverPrices, mode === 'driver' ? 1 : 0)
     assert.equal(state.passengerPrices, mode === 'passenger' ? 1 : 0)
-    assert.equal(state.addressReads.length, 2)
+    assert.equal(state.configReads.length, 1)
   }
 })
 
@@ -418,64 +405,65 @@ test('expired fixed configuration refreshes underlying data while the open panel
   await page.onOpenPlacePicker(placeEvent('departure'))
   const frozen = plain(page.data.placePickerFixedOptions)
   page.onClosePlacePicker()
-  state.addressConfig.Departure = { _id: 'dep', museum: '博物馆', campus: '哥大', jfk: 'JFK' }
-  state.addressConfig.Arrival = { _id: 'arr', destination: '新目的地', newark: 'Newark Airport' }
+  state.addressConfig = { fromPlaces: [...defaults, '博物馆'], toPlaces: [...defaults, '新目的地'] }
   state.now += 300000
   await page.onOpenPlacePicker(placeEvent('departure'))
-  assert.equal(state.addressReads.length, 4)
+  assert.equal(state.configReads.length, 2)
   assert.deepEqual(page.data.placePickerFixedOptions, frozen)
   page.onClosePlacePicker()
   await page.onOpenPlacePicker(placeEvent('departure'))
   assert.equal(page.data.placePickerFixedOptions.at(-1).label, '博物馆')
   assert.equal(page.data.placePickerFixedOptions.length, 13)
-  assert.equal(state.addressReads.length, 4)
+  assert.equal(state.configReads.length, 2)
 })
 
 test('short airport labels resolve the server passenger price catalog with one read and prefer an exact configured pair', async () => {
   for (const [selected, saved] of [['EWR 机场', '纽瓦克'], ['JFK', 'JFK 机场'], ['拉瓜迪亚', 'La Guardia Airport'], ['法拉盛', 'Flushing']]) {
     const { page, start, state, readPassengerPrice } = harness()
-    await start('passenger')
     Object.assign(page.data, { departureAddress: selected, destinationAddress: '哥大' })
     state.priceRows = [
-      { fromAddress: saved + ' Terminal C', toAddress: '哥大', label: 999 },
-      { fromAddress: saved, toAddress: '哥大', label: 32 }
+      { fromAddress: saved + ' Terminal C', toAddress: '哥大', label: '999' },
+      { fromAddress: saved, toAddress: '哥大', label: '32' }
     ]
+    await start('passenger')
     await readPassengerPrice()
     assert.equal(String(page.data.referencePrice), '32', selected)
-    assert.equal(state.priceReads.length, 1)
-    state.priceRows.push({ fromAddress: selected, toAddress: '哥大', label: 28 })
+    assert.equal(state.configReads.length, 1)
+    state.priceRows.push({ fromAddress: selected, toAddress: '哥大', label: '28' })
+    state.now += 300000
     await readPassengerPrice()
     assert.equal(String(page.data.referencePrice), '28', 'exact selected pair takes precedence over legacy spelling')
-    assert.equal(state.priceReads.length, 2, 'each price update reads the catalog once')
+    assert.equal(state.configReads.length, 2, 'an expired catalog refreshes once for both address and price consumers')
   }
 })
 
 test('airport price alias matching works in either direction and does not broaden specific custom destinations', async () => {
   const { page, start, state, readPassengerPrice } = harness()
-  await start('passenger')
   Object.assign(page.data, { departureAddress: '哥大', destinationAddress: 'EWR 机场' })
-  state.priceRows = [{ fromAddress: '哥大', toAddress: 'Newark Liberty International Airport', label: 45 }]
+  state.priceRows = [{ fromAddress: '哥大', toAddress: 'Newark Liberty International Airport', label: '45' }]
+  await start('passenger')
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '45')
   page.data.destinationAddress = 'EWR Terminal C'
   await readPassengerPrice()
   assert.equal(page.data.referencePrice, '参考打车价格')
-  assert.equal(state.priceReads.at(-1), '/api/v1/locations/catalog')
-  state.priceRows.push({ fromAddress: '哥大', toAddress: 'EWR Terminal C', label: 51 })
+  assert.equal(state.configReads.at(-1), '/api/v1/locations')
+  state.priceRows.push({ fromAddress: '哥大', toAddress: 'EWR Terminal C', label: '51' })
+  state.now += 300000
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '51')
-  assert.equal(state.priceReads.length, 3)
+  assert.equal(state.configReads.length, 2)
 })
 
 test('Fort Lee core and whole-area passenger prices retain their original exact configuration keys', async () => {
   const { page, start, state, readPassengerPrice } = harness()
-  await start('passenger')
   Object.assign(page.data, { departureAddress: 'Fort Lee 核心区', destinationAddress: '哥大' })
   state.priceRows = [
-    { fromAddress: 'Fort Lee 全区域', toAddress: '哥大', label: 15 },
-    { fromAddress: 'Fort Lee 核心区', toAddress: '哥大', label: 10 }
+    { fromAddress: 'Fort Lee 全区域', toAddress: '哥大', label: '15' },
+    { fromAddress: 'Fort Lee 核心区', toAddress: '哥大', label: '10' }
   ]
+  await start('passenger')
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '10')
-  assert.deepEqual(state.priceReads, ['/api/v1/locations/catalog'])
+  assert.deepEqual(state.configReads, ['/api/v1/locations'])
 })

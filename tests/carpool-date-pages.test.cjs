@@ -43,21 +43,23 @@ function harness({ carpool = [], request = [], store } = {}) {
     setStorageSync: (key, value) => { state.store[key] = plain(value) },
     removeStorageSync: key => { delete state.store[key] },
     showNavigationBarLoading() {}, hideNavigationBarLoading() {}, stopPullDownRefresh() {},
-    cloud: { callFunction(args) {
-      assert.equal(args.name, 'getTripList', 'list pagination must not call details or status functions')
-      state.calls.push(args)
-      if (state.queued.length) return state.queued.shift().promise
-      const { startDate, endDateExclusive } = args.data
-      const inRange = item => item.departures[0].date >= startDate && item.departures[0].date < endDateExclusive
-      const hasMore = [...state.carpool, ...state.request].some(item => item.departures[0].date >= endDateExclusive)
-      return Promise.resolve(pageResponse(args, state.carpool.filter(inRange).map(plain), state.request.filter(inRange).map(plain), { hasMore }))
-    } }
+    cloud: { callFunction() { throw new Error('Route pagination must not call CloudBase') } }
   }
+  const rides = { isBackendEnabled: () => true, callTripList(data) {
+    const args = { method: 'rides.callTripList', data }
+    assert.notEqual(data.action, 'calendar', 'date pagination must not load a calendar or private details')
+    state.calls.push(args)
+    if (state.queued.length) return state.queued.shift().promise
+    const { startDate, endDateExclusive } = data
+    const inRange = item => item.departures[0].date >= startDate && item.departures[0].date < endDateExclusive
+    const hasMore = [...state.carpool, ...state.request].some(item => item.departures[0].date >= endDateExclusive)
+    return Promise.resolve(pageResponse(args, state.carpool.filter(inRange).map(plain), state.request.filter(inRange).map(plain), { hasMore }))
+  } }
   const context = {
     Page: value => { definition = value }, wx, Date: Clock, setTimeout, clearTimeout,
     console: { error() {}, warn() {} },
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/rides')) return rides
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
@@ -82,7 +84,12 @@ function harness({ carpool = [], request = [], store } = {}) {
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
+          ...context, module, require: name => {
+            if (name === './backendClient') return { isBackendEnabled: () => true }
+            if (name === './locationConfig') return { loadLocationConfig: async () => plain(require('../utils/locationCatalog.generated')) }
+            if (name === './placeCatalog') return require('../utils/placeCatalog')
+            throw new Error(name)
+          }
         })
         return module.exports
       }
@@ -102,7 +109,6 @@ function harness({ carpool = [], request = [], store } = {}) {
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   Object.assign(page.data, page.getFilterDateData(), page.buildFilterOptionData(['Fort Lee', 'JFK'], ['哥大/Columbia', 'EWR']))
-  page.refreshStatusInBackground = async () => {}
   const ids = () => plain(page.data.dayGroups.flatMap(group => group.items.map(item => item._id)))
   const ranges = () => state.calls.map(call => [call.data.startDate, call.data.endDateExclusive])
   const holdNext = () => { const held = deferred(); state.queued.push(held); return held }

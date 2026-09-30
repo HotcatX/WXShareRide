@@ -14,8 +14,11 @@ const deferred = () => {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-const item = id => ({ _id: id, title: id, listingType: 'goods', status: 'online', category: '家具', managedByAdmin: true, sellerName: 'Seller' })
-const result = items => ({ result: { ok: true, items, hasMore: false, nextSkip: items.length } })
+const item = id => ({ id, title: id, listingType: 'goods', status: 'online', category: '家具', images: [],
+  priceCents: 100, description: '', region: {}, seller: { kind: 'managed', name: 'Seller' } })
+const result = items => ({ items, hasMore: false, nextOffset: items.length })
+const userResult = location => ({ id: '11111111-1111-4111-8111-111111111111', openid: 'viewer', name: '', avatarFileId: null,
+  profile: { location: { latitude: location?.lat, longitude: location?.lng } } })
 
 function fixture() {
   const calls = [], errors = [], fileCalls = [], timers = [], navigations = []
@@ -28,21 +31,24 @@ function fixture() {
     removeStorageSync: key => storage.delete(key),
     navigateTo: options => navigations.push(options.url),
     stopPullDownRefresh: () => { stopped++ },
-    cloud: {
-      callFunction(request) { const wait = deferred(); calls.push({ request: plain(request), ...wait }); return wait.promise },
-      getTempFileURL(request) { const wait = deferred(); fileCalls.push({ request: plain(request), ...wait }); return wait.promise }
-    }
+    cloud: { callFunction() { assert.fail('market requests must use canonical HTTP') } }
+
   }
+  const backend = { isBackendEnabled: () => true,
+    get(url, options) { const wait = deferred(); calls.push({ request: { url, options }, ...wait }); return wait.promise },
+    resolveImages(ids) { const wait = deferred(); fileCalls.push({ request: [...ids], ...wait }); return wait.promise }
+  }
+  const market = require('./helpers/market-api.cjs')(wx, backend)
+  // Request/cache sequencing here is tested independently of the lifecycle
+  // wrapper, whose account and timer behavior is covered by market-client.
+  market.page = definition => definition
   vm.runInNewContext(source, {
     Page: value => { definition = value }, wx, Date: Clock,
     console: { error() {}, warn() {} },
     setTimeout(fn) { timers.push(fn) },
     require(name) {
-      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
+      if (name.endsWith("/compat/market")) return market
       if (name === '../../utils/error') return { showDataError: (...args) => errors.push(args) }
-      if (name === '../../utils/marketSellerProfileCache') return {
-        readMarketSellerProfiles: () => ({}), fetchAndCacheMarketSellerProfiles: async () => ({})
-      }
       return localRequire(name)
     }
   })
@@ -129,9 +135,9 @@ test('onShow detects login change even within the ordinary cache interval', asyn
   const first = page._fetchFirstPage(); await tick(); calls[0].resolve(result([])); await first
   f.storage.set('openid', 'logged-in')
   const showing = page.onShow(); await tick()
-  assert.equal(calls[1].request.name, 'getUserInfo')
-  calls[1].resolve({ result: { data: [{}] } }); await tick()
-  assert.equal(calls[2].request.data.action, 'list')
+  assert.equal(calls[1].request.url, '/api/v1/me')
+  calls[1].resolve(userResult()); await tick()
+  assert.match(calls[2].request.url, /^\/api\/v1\/market\/listings\?/)
   calls[2].resolve(result([])); await showing
 })
 
@@ -189,25 +195,26 @@ test('revealing the next local batch completes without the removed detail preloa
   assert.equal(timers.length, 0)
 })
 
-test('empty list snapshots restore correctly instead of causing a false cache miss', async () => {
+test('legacy persisted list snapshots are ignored while the current request cache remains scoped', async () => {
   const f = fixture(), { page, calls } = f
+  f.storage.set('market_goods_list_cache_v13_goods_ALL_all', { ts: Date.now(), list: [item('private-old')] })
   const request = page._fetchFirstPage(); await tick(); calls[0].resolve(result([])); await request
-  page.data.allGoods = [item('old')]
-  const state = page._restoreGoodsFromCache()
-  assert.equal(state.restored, true)
+  await page._fetchFirstPage()
+  assert.equal(calls.length, 1)
   assert.equal(page.data.allGoods.length, 0)
   assert.equal(page.data.cloudHasMore, false)
 })
 
 test('overlapping thumbnail resolutions share file requests and can retry after failure', async () => {
   const f = fixture(), { page, fileCalls } = f
-  const rows = [{ thumbFileID: 'cloud://a' }]
+  const rows = [{ thumbFileID: '11111111-1111-4111-8111-111111111111' }]
   const a = page._fillThumbUrlsFor(rows), b = page._fillThumbUrlsFor(rows)
   await tick(); assert.equal(fileCalls.length, 1)
   fileCalls[0].reject(new Error('image service unavailable')); await Promise.all([a, b])
   const retry = page._fillThumbUrlsFor(rows); await tick(); assert.equal(fileCalls.length, 2)
-  fileCalls[1].resolve({ fileList: [{ fileID: 'cloud://a', tempFileURL: 'https://cdn.example/a' }] }); await retry
-  await page._fillThumbUrlsFor(rows); assert.equal(fileCalls.length, 2)
+  fileCalls[1].resolve([{ fileId: '11111111-1111-4111-8111-111111111111', url: 'https://cdn.example/a' }]); await retry
+  const refresh = page._fillThumbUrlsFor(rows); await tick(); assert.equal(fileCalls.length, 3)
+  fileCalls[2].resolve([{ fileId: '11111111-1111-4111-8111-111111111111', url: 'https://cdn.example/a?renewed' }]); await refresh
 })
 
 test('an older next-page response cannot append after a first-page refresh or clear its loading state', async () => {
@@ -215,7 +222,7 @@ test('an older next-page response cannot append after a first-page refresh or cl
   page.data.cloudHasMore = true
   page.data.cloudSkip = 8
   const next = page._fetchNextPage(); await tick()
-  assert.equal(calls[0].request.data.skip, 8)
+  assert.equal(new URL(calls[0].request.url, 'https://example.test').searchParams.get('offset'), '8')
   const refresh = page._fetchFirstPage({ force: true }); await tick()
   calls[0].resolve(result([item('old-page')])); await next
   assert.equal(page.data.allGoods.length, 0)
@@ -230,15 +237,15 @@ test('location lookups share in-flight work and short cache, while edited profil
   f.storage.set('openid', 'viewer')
   const first = page._loadMyLocationFromProfile(), duplicate = page._loadMyLocationFromProfile()
   await tick(); assert.equal(calls.length, 1)
-  calls[0].resolve({ result: { data: [{ location: { lat: 40, lng: -73 } }] } }); await Promise.all([first, duplicate])
+  calls[0].resolve(userResult({ lat: 40, lng: -73 })); await Promise.all([first, duplicate])
   await page._loadMyLocationFromProfile(); assert.equal(calls.length, 1)
   f.storage.set('userInfo', { location: { lat: 41, lng: -73 } })
   const edited = page._loadMyLocationFromProfile(); await tick(); assert.equal(calls.length, 2)
-  calls[1].resolve({ result: { data: [{ location: { lat: 41, lng: -73 } }] } }); await edited
+  calls[1].resolve(userResult({ lat: 41, lng: -73 })); await edited
   assert.equal(page.data.myLocation.lat, 41)
   f.advance(30000)
   const expired = page._loadMyLocationFromProfile(); await tick(); assert.equal(calls.length, 3)
-  calls[2].resolve({ result: { data: [{ location: { lat: 41, lng: -73 } }] } }); await expired
+  calls[2].resolve(userResult({ lat: 41, lng: -73 })); await expired
 })
 
 test('failure during a forced refresh clears prior success freshness so ordinary return retries immediately', async () => {
@@ -257,8 +264,8 @@ test('a late profile response from before a location edit cannot overwrite the e
   const old = page._loadMyLocationFromProfile(); await tick()
   f.storage.set('userInfo', { location: { lat: 41, lng: -73 } })
   const edited = page._loadMyLocationFromProfile(); await tick()
-  calls[1].resolve({ result: { data: [{ location: { lat: 41, lng: -73 } }] } }); await edited
-  calls[0].resolve({ result: { data: [{ location: { lat: 40, lng: -73 } }] } }); await old
+  calls[1].resolve(userResult({ lat: 41, lng: -73 })); await edited
+  calls[0].resolve(userResult({ lat: 40, lng: -73 })); await old
   assert.equal(page.data.myLocation.lat, 41)
   await page._loadMyLocationFromProfile()
   assert.equal(page.data.myLocation.lat, 41)

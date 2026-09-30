@@ -15,10 +15,6 @@ const {
 const ALL_AREA_KEY = "all"
 const ALL_AREA_LABEL = "全部"
 const MARKET_CITY_STORAGE_KEY = "market_city_snapshot_v2"
-const {
-  readMarketSellerProfiles,
-  fetchAndCacheMarketSellerProfiles
-} = require("../../utils/marketSellerProfileCache")
 
 const GOODS_CATEGORY_OPTIONS = ["家具", "厨具", "电器", "服包鞋饰", "电子产品", "运动装备", "食品", "其他"]
 const SUBLET_CATEGORY_OPTIONS = ["Studio", "1B1B", "2B1B", "2B2B", "3B2B", "其他"]
@@ -49,22 +45,18 @@ const LISTING_TYPE_CONFIG = {
 }
 
 // ====== Performance / Cache ======
-const GOODS_CACHE_KEY_PREFIX = "market_goods_list_cache_v13"
-const THUMB_CACHE_KEY = "market_thumburl_cache_v1"
-const MARKET_AD_CACHE_KEY_PREFIX = "market_ads_cache_v1"
+
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
 const MARKET_POST_SUCCESS_FILTER_KEY = "market_post_success_filter_v1"
-const GOODS_CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h 内先用旧缓存秒开，再后台刷新
-const GOODS_CACHE_FRESH_MS = 5 * 60 * 1000           // 5 分钟内视为新缓存；仍会后台刷新保证进入/切换有新数据
-const MARKET_AD_CACHE_FRESH_MS = 10 * 60 * 1000
+ // 24h 内先用旧缓存秒开，再后台刷新
+           // 5 分钟内视为新缓存；仍会后台刷新保证进入/切换有新数据
+
 const FIRST_PAGE_FETCH_COOLDOWN_MS = 30 * 1000     // 普通返回页面最多沿用 30 秒内成功读取的数据
 const MARKET_AD_MIN_GOODS = 3
 const MARKET_AD_INSERT_MIN_INDEX = 2
 const MARKET_AD_INSERT_MAX_INDEX = 5
 const MARKET_DEFAULT_CITY_KEY = "ALL"
 const MARKET_DEFAULT_CITY_LABEL = "全部"
-
-const MARKET_LIST_MEMORY_CACHE = {}
 
 function normalizeListingType(value) {
   return String(value || "").toLowerCase() === "sublet" ? "sublet" : "goods"
@@ -111,47 +103,6 @@ function normalizeAreaKeys(value) {
 function getAreaCacheKey(areaKeys = []) {
   const keys = normalizeAreaKeys(areaKeys).sort()
   return keys.length ? keys.join(",") : ALL_AREA_KEY
-}
-
-function getGoodsCacheKey(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY) {
-  const areaKey = Array.isArray(regionKey) ? getAreaCacheKey(regionKey) : (regionKey || ALL_AREA_KEY)
-  return `${GOODS_CACHE_KEY_PREFIX}_${normalizeListingType(type)}_${cityKey || MARKET_DEFAULT_CITY_KEY}_${areaKey}`
-}
-
-function readGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY) {
-  if (market.isBackendEnabled()) return null
-  const key = getGoodsCacheKey(type, cityKey, regionKey)
-  const memory = MARKET_LIST_MEMORY_CACHE[key]
-  if (memory && Array.isArray(memory.list)) return memory
-  try {
-    const cached = wx.getStorageSync(key)
-    if (cached && Array.isArray(cached.list)) {
-      MARKET_LIST_MEMORY_CACHE[key] = cached
-      return cached
-    }
-  } catch (e) {}
-  return null
-}
-
-function writeGoodsCacheEntry(type, cityKey = MARKET_DEFAULT_CITY_KEY, regionKey = ALL_AREA_KEY, entry = {}) {
-  if (market.isBackendEnabled()) return
-  const key = getGoodsCacheKey(type, cityKey, regionKey)
-  MARKET_LIST_MEMORY_CACHE[key] = entry
-  try {
-    wx.setStorageSync(key, entry)
-  } catch (e) {}
-}
-
-function isGoodsCacheFresh(entry, options = {}) {
-  if (!entry || !entry.ts || !Array.isArray(entry.list)) return false
-  if (Date.now() - Number(entry.ts) > GOODS_CACHE_FRESH_MS) return false
-  const currentChangedAt = Number(options.changedAt || getMarketGoodsChangedAt()) || 0
-  const cachedChangedAt = Number(entry.changedAt || 0) || 0
-  return !currentChangedAt || cachedChangedAt === currentChangedAt
-}
-
-function getMarketAdCacheKey() {
-  return MARKET_AD_CACHE_KEY_PREFIX
 }
 
 function hashString(value) {
@@ -460,7 +411,6 @@ function buildSubletMetaText(item = {}) {
   return type || area || "转租房源"
 }
 
-
 function buildMarketListFlags(state = {}) {
   const displayGoods = Array.isArray(state.displayGoods) ? state.displayGoods : []
   const displayCount = displayGoods.length
@@ -528,7 +478,6 @@ function getMarketApiResult(res) {
 const CLOUD_PAGE_SIZE = 20
 const INITIAL_LOAD_SIZE = 8                         // 首屏只拉当前可见数量
 
-
 Page(market.page({
   data: {
     statusBarHeight: 0,
@@ -570,7 +519,7 @@ Page(market.page({
     citySearchKeyword: "",
     cityPickerHasResults: true,
     cityPickerEmptyText: "没有找到相关地区",
-    
+
     areaPickerVisible: false,
     areaPickerTitle: "选择区域",
     areaGroupOptions: [],
@@ -608,30 +557,30 @@ Page(market.page({
   _buildListFilters() {
     const cityKey = this.data.activeCityKey || "ALL"
     const isAllCity = !cityKey || cityKey === "ALL"
-  
+
     const areaSelected = Array.isArray(this.data.activeAreaKeys) && this.data.activeAreaKeys.length > 0
-  
+
     return {
       listingType: this.data.activeListingType,
       category: this.data.activeCategory,
-  
+
       // 左上角大区域筛选：商品记录里的 regionState
       regionState: isAllCity ? "" : cityKey,
-  
+
       // 兼容旧 marketApi 可能还在读 cityKey
       cityKey,
       cityLabel: this.data.activeCityLabel || "全部",
       cityAliases: this.data.activeCityAliases || [],
-  
+
       // 右下角区域筛选：商品记录里的 regionCounty + regionArea
       regionCounty: areaSelected ? (this.data.activeAreaGroupLabel || "") : "",
       regionArea: areaSelected ? (this.data.activeAreaLabel || "") : "",
-  
+
       // 兼容旧字段
       regionKey: this.data.activeAreaKey || ALL_AREA_KEY,
       regionKeys: this.data.activeAreaKeys || [],
       regionLabel: this.data.activeAreaLabel || ALL_AREA_LABEL,
-  
+
       keyword: this.data.keyword
     }
   },
@@ -710,7 +659,7 @@ Page(market.page({
   _applyCityUi(cityKey = "ALL", options = {}) {
     const regionTree = normalizeRegionTree(options.regionTree || this.data.regionTree || DEFAULT_REGION_TREE)
     const normalizedKey = normalizeMarketCityKey(cityKey || "ALL")
-  
+
     if (normalizedKey === "ALL") {
       const snapshot = { key: "ALL", label: "全部", aliases: [] }
       this.setData({
@@ -728,7 +677,7 @@ Page(market.page({
       setStoredMarketCitySnapshot(snapshot)
       return snapshot
     }
-  
+
     const snapshot = getCitySnapshot(regionTree, normalizedKey)
 
     if (!snapshot || !snapshot.key) {
@@ -739,7 +688,7 @@ Page(market.page({
     }
 
     const citySearchKeyword = typeof options.keyword === "string" ? options.keyword : (this.data.citySearchKeyword || "")
-  
+
     this.setData({
       regionTree,
       activeCityKey: snapshot.key,
@@ -752,7 +701,7 @@ Page(market.page({
       cityPickerHasResults: cityGroupsHaveResults(buildCityPickerGroups(regionTree, snapshot.key, citySearchKeyword, { includeAll: true })),
       citySearchKeyword
     })
-  
+
     setStoredMarketCitySnapshot(snapshot)
     return snapshot
   },
@@ -762,14 +711,14 @@ Page(market.page({
     const cityKey = options.cityKey || this.data.activeCityKey || "ALL"
     const groupKey = options.groupKey || this.data.activeAreaGroupKey || ""
     const finalAreaKey = areaKey === ALL_AREA_KEY ? "" : areaKey
-  
+
     const patch = cityKey && cityKey !== "ALL"
       ? buildAreaUiPatch(regionTree, cityKey, groupKey, finalAreaKey)
       : { areaGroupOptions: [], activeAreaGroupKey: "", activeAreaGroupLabel: "", areaOptions: [] }
-  
+
     const area = (patch.areaOptions || []).find(item => item.key === finalAreaKey)
     const activeAreaLabel = area ? area.label : ALL_AREA_LABEL
-  
+
     this.setData({
       regionTree,
       activeAreaKey: finalAreaKey || ALL_AREA_KEY,
@@ -837,24 +786,24 @@ Page(market.page({
 
   _applyPostSuccessFilter(filter = {}) {
     const listingType = normalizeListingType(filter.listingType)
-  
+
     // 发布成功回来以后，不使用新商品自己的 cityKey。
     // 左上角大地区优先沿用用户之前选择的缓存；没有缓存就默认 ALL。
     const storedCity = getStoredMarketCitySnapshot(this.data.regionTree || DEFAULT_REGION_TREE)
     const cityKey = storedCity.key || "ALL"
-  
+
     setStoredListingType(listingType)
     this._userSortTouched = false
     this._applyListingTypeUi(listingType, { category: "全部" })
-  
+
     const snapshot = this._applyCityUi(cityKey)
     this._applyAreaUi(ALL_AREA_KEY, { cityKey: snapshot.key })
-  
+
     this._resetGoodsStateForFetch({
       keyword: "",
       ...this._getDefaultSortPatch()
     })
-  
+
     this.updateMarketHeaderState(0)
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._fetchFirstPage({ force: true, reason: "postSuccess" })
@@ -900,11 +849,9 @@ Page(market.page({
       return
     }
 
-    const cacheState = this._restoreGoodsFromCache()
-    if (cacheState.restored) this.applyFilters(true)
     this._fetchFirstPage({
       force: true,
-      reason: cacheState.restored ? "switchRefresh" : "switchType"
+      reason: "switchType"
     })
     this._loadMarketAds()
   },
@@ -1004,17 +951,12 @@ Page(market.page({
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
 
-    try {
-      this._thumbUrlCache = market.isBackendEnabled() ? {} : normalizeObjectCache(wx.getStorageSync(THUMB_CACHE_KEY))
-    } catch (e) {
-      this._thumbUrlCache = {}
-    }
+    this._thumbUrlCache = {}
     this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
     this._marketViewerKey = getMarketViewerKey()
     this._marketBootstrapped = false
     this._marketBootstrapStarted = false
     this._userSortTouched = false
-    this._sellerProfileCache = {}
     this._marketAdSessionSeed = `${Date.now()}_${Math.random().toString(16).slice(2)}`
     this._marketBootstrapArgs = {
       initialCategory,
@@ -1025,9 +967,8 @@ Page(market.page({
     this._startMarketBootstrap()
   },
 
-
   async onShow() {
-    if (market.isBackendEnabled() && this._marketBootstrapped) {
+    if (this._marketBootstrapped) {
       this._fillThumbUrlsFor(this.data.displayGoods || [], this._getCurrentListQueryKey()).catch(() => {})
     }
     const viewerKey = getMarketViewerKey()
@@ -1079,13 +1020,11 @@ Page(market.page({
 
     this.loadRegionTreeFromCloud()
 
-    const cacheState = this._restoreGoodsFromCache()
-    if (cacheState.restored) this.applyFilters(true)
     this._loadMarketAds()
 
     this._fetchFirstPage({
       force: true,
-      reason: cacheState.restored ? "bootstrapRefresh" : "bootstrapLoad"
+      reason: "bootstrapLoad"
     })
 
     this._loadMyLocationFromProfile({ applyDefaultSort: false }).then(locationState => {
@@ -1128,11 +1067,11 @@ Page(market.page({
 
   onResetMarketFilters() {
     this._userSortTouched = false
-  
+
     this._applyAreaUi(ALL_AREA_KEY, {
       cityKey: this.data.activeCityKey || "ALL"
     })
-  
+
     this._resetGoodsStateForFetch({
       keyword: "",
       activeCategory: "全部",
@@ -1141,7 +1080,7 @@ Page(market.page({
       areaPickerVisible: false,
       ...this._getDefaultSortPatch()
     })
-  
+
     this.updateMarketHeaderState(0)
     this._fetchFirstPage({ force: true, reason: "resetFilters" })
   },
@@ -1162,7 +1101,7 @@ Page(market.page({
       })
       return
     }
-  
+
     const regionTree = this.data.regionTree || DEFAULT_REGION_TREE
     const patch = buildAreaUiPatch(
       regionTree,
@@ -1170,29 +1109,29 @@ Page(market.page({
       this.data.activeAreaGroupKey || "",
       this.data.activeAreaKey === ALL_AREA_KEY ? "" : this.data.activeAreaKey
     )
-  
+
     this.setData({
       areaPickerVisible: true,
       areaPickerTitle: `选择${this.data.activeCityLabel}区域`,
       ...patch
     })
   },
-  
+
   onAreaPickerCancel() {
     this.setData({ areaPickerVisible: false })
   },
-  
+
   onSelectAreaState(e) {
     const key = String(e.currentTarget.dataset.key || "").trim()
     if (!key) return
-  
+
     const patch = buildAreaUiPatch(
       this.data.regionTree || DEFAULT_REGION_TREE,
       this.data.activeCityKey,
       key,
       ""
     )
-  
+
     this.setData({
       activeAreaGroupKey: key,
       activeAreaGroupLabel: patch.activeAreaGroupLabel || key,
@@ -1202,19 +1141,19 @@ Page(market.page({
       ...patch
     })
   },
-  
+
   async onSelectArea(e) {
     const key = String(e.currentTarget.dataset.key || "").trim()
     if (!key) return
-  
+
     const area = (this.data.areaOptions || []).find(item => item.key === key)
     if (!area) return
-  
+
     const areaOptions = (this.data.areaOptions || []).map(item => ({
       ...item,
       className: item.key === key ? "active" : ""
     }))
-  
+
     this._resetGoodsStateForFetch({
       activeAreaKey: key,
       activeAreaKeys: [key],
@@ -1222,12 +1161,9 @@ Page(market.page({
       areaPickerVisible: false,
       areaOptions
     })
-  
+
     this.updateMarketHeaderState(0)
-  
-    const cacheState = this._restoreGoodsFromCache()
-    if (cacheState.restored) this.applyFilters(true)
-  
+
     await this._fetchFirstPage({ force: true, reason: `area:${key}` })
   },
 
@@ -1262,20 +1198,18 @@ Page(market.page({
   },
 
   onTapSeller(e) {
-    const record = market.isBackendEnabled() ? (this.data.allGoods || []).find(item => item.id === e.currentTarget.dataset.id) : null
-    const managed = market.isBackendEnabled() ? record?.managedByAdmin : e.currentTarget.dataset.managed
+    const record = (this.data.allGoods || []).find(item => item.id === e.currentTarget.dataset.id)
+    const managed = record?.managedByAdmin
     if (managed === true || managed === "true") {
-
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
-
 
       return
     }
-    const openid = market.isBackendEnabled() ? record?.sellerId : e.currentTarget.dataset.openid
+    const openid = record?.sellerId
     const type = e.currentTarget.dataset.type || this.data.activeListingType || "goods"
     if (!openid) return
     wx.navigateTo({
-      url: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${normalizeListingType(type)}`
+      url: `/pages/market/marketSeller/marketSeller?sellerId=${encodeURIComponent(openid)}&type=${normalizeListingType(type)}`
     })
   },
 
@@ -1324,56 +1258,55 @@ Page(market.page({
       const cached = readCachedRegionTree()
       if (cached) {
         const tree = normalizeRegionTree(cached)
-  
+
         this._applyCityUi(this.data.activeCityKey || "ALL", {
           regionTree: tree
         })
-  
+
         this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
           regionTree: tree,
           cityKey: this.data.activeCityKey || "ALL"
         })
-  
+
         return tree
       }
     }
-  
+
     try {
       const { tree, fromCloud } = await loadRegionTreeConfig({
         useCache: false
       })
-  
+
       const normalized = normalizeRegionTree(tree)
-  
+
       if (fromCloud) {
         writeCachedRegionTree(normalized)
       }
-  
+
       this._applyCityUi(this.data.activeCityKey || "ALL", {
         regionTree: normalized
       })
-  
+
       this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
         regionTree: normalized,
         cityKey: this.data.activeCityKey || "ALL"
       })
-  
+
       return normalized
-  
     } catch (e) {
       console.error("REGION_TREE 加载失败：", e)
-  
+
       const fallback = normalizeRegionTree(DEFAULT_REGION_TREE)
-  
+
       this._applyCityUi(this.data.activeCityKey || "ALL", {
         regionTree: fallback
       })
-  
+
       this._applyAreaUi(this.data.activeAreaKey || ALL_AREA_KEY, {
         regionTree: fallback,
         cityKey: this.data.activeCityKey || "ALL"
       })
-  
+
       return fallback
     }
   },
@@ -1386,7 +1319,7 @@ Page(market.page({
       "",
       { includeAll: true }
     )
-  
+
     this.setData({
       cityPickerVisible: true,
       citySearchKeyword: "",
@@ -1394,11 +1327,11 @@ Page(market.page({
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
-  
+
   onCityPickerCancel() {
     this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
   },
-  
+
   onCitySearchInput(e) {
     const keyword = (e.detail && e.detail.value) || ""
     const regionTree = this.data.regionTree || DEFAULT_REGION_TREE
@@ -1408,33 +1341,30 @@ Page(market.page({
       keyword,
       { includeAll: true }
     )
-  
+
     this.setData({
       citySearchKeyword: keyword,
       cityPickerGroups,
       cityPickerHasResults: cityGroupsHaveResults(cityPickerGroups)
     })
   },
-  
+
   async onSelectCity(e) {
     const key = normalizeMarketCityKey(e.currentTarget.dataset.key || "ALL")
     const snapshot = this._applyCityUi(key)
-  
+
     this._applyAreaUi(ALL_AREA_KEY, {
       cityKey: snapshot.key
     })
-  
+
     this._resetGoodsStateForFetch({
       cityPickerVisible: false,
       citySearchKeyword: "",
       areaPickerVisible: false
     })
-  
+
     this.updateMarketHeaderState(0)
-  
-    const cacheState = this._restoreGoodsFromCache()
-    if (cacheState.restored) this.applyFilters(true)
-  
+
     await this._fetchFirstPage({ force: true, reason: `city:${snapshot.key}` })
   },
 
@@ -1549,86 +1479,6 @@ Page(market.page({
     }
   },
 
-  _hydrateSellerProfilesFromCache(goods = [], options = {}) {
-    if (market.isBackendEnabled()) return goods
-    const rows = Array.isArray(goods) ? goods : []
-    const openids = Array.from(new Set(rows
-      .filter(item => !(item && item.managedByAdmin && item.sellerNameText))
-      .map(item => item && item._openid)
-      .filter(Boolean)))
-    if (!openids.length) return rows
-
-    this._sellerProfileCache = this._sellerProfileCache || {}
-    const cachedProfiles = readMarketSellerProfiles(openids, { allowStale: true })
-    Object.keys(cachedProfiles).forEach(openid => {
-      const profile = cachedProfiles[openid]
-      this._sellerProfileCache[openid] = {
-        name: profile.nameDisplay || profile.name || "",
-        avatar: profile.avatarDisplay || profile.avatarRaw || "/images/profile.png",
-        isFresh: !!profile.isFresh
-      }
-    })
-
-    const missing = openids.filter(openid => {
-      const profile = this._sellerProfileCache[openid]
-      return !profile || !profile.isFresh
-    })
-
-    if (options.refresh !== false && missing.length) {
-      this._refreshSellerProfilesInBackground(missing)
-    }
-
-    return this._applySellerProfilesToRows(rows)
-  },
-
-  _applySellerProfilesToRows(rows = [], options = {}) {
-    let changed = false
-    const list = (Array.isArray(rows) ? rows : []).map(item => {
-      if (!item || !item._openid) return item
-      if (item.managedByAdmin && item.sellerNameText) return item
-      const profile = this._sellerProfileCache[item._openid] || {}
-      const sellerNameText = profile.name || item.sellerNameText
-      const sellerAvatar = profile.avatar || item.sellerAvatar || "/images/profile.png"
-      if (sellerNameText !== item.sellerNameText || sellerAvatar !== item.sellerAvatar) changed = true
-      return {
-        ...item,
-        sellerNameText,
-        sellerAvatar
-      }
-    })
-    return options.withChanged ? { list, changed } : list
-  },
-
-  _refreshSellerProfilesInBackground(openids = []) {
-    const targets = Array.from(new Set((Array.isArray(openids) ? openids : []).filter(Boolean)))
-    if (!targets.length) return
-
-    this._sellerProfileRefreshInFlight = this._sellerProfileRefreshInFlight || {}
-    const todo = targets.filter(openid => !this._sellerProfileRefreshInFlight[openid])
-    if (!todo.length) return
-    todo.forEach(openid => { this._sellerProfileRefreshInFlight[openid] = true })
-
-    fetchAndCacheMarketSellerProfiles(todo).then(fetched => {
-      Object.keys(fetched || {}).forEach(openid => {
-        const profile = fetched[openid]
-        this._sellerProfileCache[openid] = {
-          name: profile.nameDisplay || profile.name || "",
-          avatar: profile.avatarDisplay || profile.avatarRaw || "/images/profile.png",
-          isFresh: true
-        }
-      })
-
-      const hydrated = this._applySellerProfilesToRows(this.data.allGoods || [], { withChanged: true })
-      if (!hydrated.changed) return
-      this.setData({ allGoods: hydrated.list })
-      this.applyFilters(false)
-    }).catch(e => {
-      console.error("refresh seller profiles failed:", e)
-    }).finally(() => {
-      todo.forEach(openid => { delete this._sellerProfileRefreshInFlight[openid] })
-    })
-  },
-
   _getAdSeedBase(goods = []) {
     const firstIds = goods.slice(0, 8).map(item => item.id || "").join(",")
     return [
@@ -1693,43 +1543,11 @@ Page(market.page({
     })
   },
 
-  _restoreMarketAdsFromCache() {
-    if (market.isBackendEnabled()) return { restored: false, isFresh: false }
-    try {
-      const cached = wx.getStorageSync(getMarketAdCacheKey())
-      if (!cached || !cached.ts || !Array.isArray(cached.ads)) return { restored: false, isFresh: false }
-      const age = Date.now() - cached.ts
-      if (age > GOODS_CACHE_MAX_STALE_MS) return { restored: false, isFresh: false }
-      const ads = cached.ads.map(normalizeMarketAd).filter(ad => ad.id)
-      this.setData({
-        marketAds: ads,
-        displayFeed: this._buildDisplayFeed(this.data.displayGoods, ads)
-      })
-      return { restored: true, isFresh: age <= MARKET_AD_CACHE_FRESH_MS }
-    } catch (e) {
-      return { restored: false, isFresh: false }
-    }
-  },
-
-  _saveMarketAdsToCache(ads = []) {
-    if (market.isBackendEnabled()) return
-    try {
-      wx.setStorageSync(getMarketAdCacheKey(), {
-        ts: Date.now(),
-        ads
-      })
-    } catch (e) {}
-  },
-
   async _loadMarketAds(options = {}) {
-    const cacheState = this._restoreMarketAdsFromCache()
-    if (cacheState.restored && cacheState.isFresh && !options.force) return
-    if (!cacheState.restored) {
-      this.setData({
-        marketAds: [],
-        displayFeed: this._buildDisplayFeed(this.data.displayGoods, [])
-      })
-    }
+    this.setData({
+      marketAds: [],
+      displayFeed: this._buildDisplayFeed(this.data.displayGoods, [])
+    })
 
     const requestKey = "market_feed"
     if (this._marketAdsInFlightKey === requestKey) return
@@ -1745,14 +1563,14 @@ Page(market.page({
       })
       const result = getMarketApiResult(res)
       const ads = (result.ads || result.data || []).map(normalizeMarketAd).filter(ad => ad.id)
-      this._saveMarketAdsToCache(ads)
+
       this.setData({
         marketAds: ads,
         displayFeed: this._buildDisplayFeed(this.data.displayGoods, ads)
       })
     } catch (e) {
       console.warn("[market] load ads failed:", e)
-      if (!cacheState.restored) this._applyDisplayFeed()
+      this._applyDisplayFeed()
     } finally {
       if (this._marketAdsInFlightKey === requestKey) this._marketAdsInFlightKey = ""
     }
@@ -1997,25 +1815,13 @@ Page(market.page({
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
 
       const rawRows = result.items || result.data || []
-      const rows = this._hydrateSellerProfilesFromCache(
-        this._mapDocsToGoods(rawRows, "firstPage")
-      )
+      const rows = this._mapDocsToGoods(rawRows, "firstPage")
 
       this.setData({
         allGoods: rows,
         cloudSkip: result.nextSkip || rawRows.length,
         cloudHasMore: !!result.hasMore
       })
-
-      if (!sort.by && filters.category === "全部" && !String(filters.keyword || "").trim()) {
-        this._saveGoodsToCache(rawRows, {
-          type: filters.listingType,
-          cityKey: filters.cityKey,
-          regionKey: getAreaCacheKey(filters.regionKeys || filters.regionKey),
-          nextSkip: result.nextSkip || rawRows.length,
-          hasMore: !!result.hasMore
-        })
-      }
 
       this.initRegionsFromGoods()
       this.applyFilters(true)
@@ -2074,9 +1880,7 @@ Page(market.page({
       if (!this._isActiveGoodsRequest(requestToken, requestKey)) return false
 
       const rawBatch = result.items || result.data || []
-      const batch = this._hydrateSellerProfilesFromCache(
-        this._mapDocsToGoods(rawBatch, "nextPage")
-      )
+      const batch = this._mapDocsToGoods(rawBatch, "nextPage")
       const all = [...(this.data.allGoods || []), ...batch]
 
       this.setData({
@@ -2084,18 +1888,6 @@ Page(market.page({
         cloudSkip: result.nextSkip || (skip + rawBatch.length),
         cloudHasMore: !!result.hasMore
       })
-
-      if (!sort.by && filters.category === "全部" && !String(filters.keyword || "").trim()) {
-        const regionCacheKey = getAreaCacheKey(filters.regionKeys || filters.regionKey)
-        const cached = readGoodsCacheEntry(filters.listingType, filters.cityKey, regionCacheKey) || {}
-        this._saveGoodsToCache([...(cached.list || []), ...rawBatch], {
-          type: filters.listingType,
-          cityKey: filters.cityKey,
-          regionKey: regionCacheKey,
-          nextSkip: result.nextSkip || (skip + rawBatch.length),
-          hasMore: !!result.hasMore
-        })
-      }
 
       this.initRegionsFromGoods()
       this.applyFilters(resetPagingAfterAppend, { minDisplayCount })
@@ -2168,31 +1960,31 @@ Page(market.page({
     const selectedState = this.data.activeCityKey || "ALL"
     const selectedCounty = this.data.activeAreaGroupLabel || ""
     const selectedArea = this.data.activeAreaLabel || ""
-    
+
     const filtered = [...(allGoods || [])].filter(item => {
       if (normalizeListingType(item && item.listingType) !== activeListingType) return false
-    
+
       if (selectedState && selectedState !== "ALL") {
         const itemState = String(item.regionState || item.location?.regionState || "").trim().toUpperCase()
         if (itemState !== String(selectedState).trim().toUpperCase()) return false
       }
-    
+
       if (this.data.activeAreaKeys && this.data.activeAreaKeys.length) {
         const itemCounty = String(item.regionCounty || item.location?.regionCounty || "").trim()
         const itemArea = String(item.regionArea || item.location?.regionArea || item.location?.areaLabel || "").trim()
         const itemRegionText = String(item.regionDisplay || item.region || "").trim()
-      
+
         if (selectedCounty && itemCounty && itemCounty !== selectedCounty) return false
-      
+
         if (selectedArea && selectedArea !== ALL_AREA_LABEL) {
           const matchedArea =
             itemArea === selectedArea ||
             itemRegionText.includes(selectedArea)
-      
+
           if (!matchedArea) return false
         }
       }
-    
+
       return true
     })
 
@@ -2274,7 +2066,7 @@ Page(market.page({
 
   // ====== thumb temp url ======
   async _fillThumbUrlsFor(goodsList, stateKey = "") {
-    this._thumbUrlCache = market.isBackendEnabled() ? {} : normalizeObjectCache(this._thumbUrlCache)
+    this._thumbUrlCache = {}
     const list = goodsList || []
     const collectFileIDs = (g = {}) => {
       const id = g.thumbFileID ||
@@ -2308,7 +2100,6 @@ Page(market.page({
         })
       }
       await Promise.all(missing.map(fileID => this._thumbUrlRequests.get(fileID)))
-      if (!market.isBackendEnabled()) { try { wx.setStorageSync(THUMB_CACHE_KEY, this._thumbUrlCache) } catch (e) {} }
     }
 
     if (stateKey && this._getCurrentListQueryKey() !== stateKey) return
@@ -2340,53 +2131,4 @@ Page(market.page({
   },
 
   // ====== 缓存 ======
-  _restoreGoodsFromCache() {
-    try {
-      const stateKey = this._getCurrentListQueryKey()
-      const cached = readGoodsCacheEntry(
-        this.data.activeListingType,
-        this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY,
-        getAreaCacheKey(this.data.activeAreaKeys || [])
-      )
-      if (!cached || !cached.ts || !Array.isArray(cached.list)) return { restored: false, isFresh: false }
-      const cacheAge = Date.now() - cached.ts
-      if (cacheAge > GOODS_CACHE_MAX_STALE_MS) return { restored: false, isFresh: false }
-      const currentChangedAt = getMarketGoodsChangedAt()
-      const cacheChanged = !!currentChangedAt && Number(cached.changedAt || 0) !== currentChangedAt
-
-      const rows = this._hydrateSellerProfilesFromCache(
-        this._mapDocsToGoods(cached.list || [], "cacheRestore")
-      )
-      this.setData({
-        allGoods: rows,
-        cloudSkip: Number(cached.nextSkip) || cached.list.length || rows.length,
-        cloudHasMore: typeof cached.hasMore === "boolean" ? cached.hasMore : true
-      })
-      this.initRegionsFromGoods()
-      this._fillThumbUrlsFor(rows, stateKey).catch(() => {})
-      const sortRequiresCloudRefresh = !!this._buildListSort().by
-      return {
-        restored: true,
-        isFresh: !sortRequiresCloudRefresh && !cacheChanged && isGoodsCacheFresh(cached, { changedAt: currentChangedAt }),
-        cacheAge
-      }
-    } catch (e) {
-      return { restored: false, isFresh: false }
-    }
-  },
-
-  _saveGoodsToCache(list, meta = {}) {
-    try {
-      const type = meta.type || this.data.activeListingType
-      const cityKey = meta.cityKey || this.data.activeCityKey || MARKET_DEFAULT_CITY_KEY
-      const regionKey = meta.regionKey || getAreaCacheKey(this.data.activeAreaKeys || [])
-      writeGoodsCacheEntry(type, cityKey, regionKey, {
-        ts: Date.now(),
-        changedAt: getMarketGoodsChangedAt(),
-        list,
-        nextSkip: Number(meta.nextSkip) || (Array.isArray(list) ? list.length : 0),
-        hasMore: typeof meta.hasMore === "boolean" ? meta.hasMore : true
-      })
-    } catch (e) {}
-  }
 }))

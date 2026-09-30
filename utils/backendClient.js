@@ -4,7 +4,7 @@ const { sha256, sha256Bytes, utf8ByteLength } = require('./hash')
 
 const SESSION_KEY = 'linkx.backend.session.v1'
 const PENDING_KEY = 'linkx.backend.pending.v1'
-const CLOUD_READS = new Set(['identity', 'templates.list', 'templates.get', 'notifications.list', 'notifications.unread'])
+// Stored pre-cutover request names and hashes are immutable recovery contracts.
 const CLOUD_WRITES = new Set(['templates.create', 'templates.update', 'templates.delete', 'notifications.read', 'notifications.readAll', 'notifications.clear', 'profile.spots.add', 'profile.spots.remove'])
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value)
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
@@ -159,18 +159,21 @@ function createBackendClient(options = {}) {
     current(epoch, identity)
     return data
   }
-  function requireCloudAction(action, write = false, recovery = false) {
-    requireReady()
-    if (mode() !== 'cloudbase' && !(recovery && enabled())) throw failure('BACKEND_DISABLED', '旧业务入口已停用')
-    if (!(write ? CLOUD_WRITES : CLOUD_READS).has(action)) throw failure('INVALID_REQUEST', '操作类型无效')
+  function requireRecoveryAction(action) {
+    requireEnabled()
+    if (!CLOUD_WRITES.has(action)) throw failure('INVALID_REQUEST', '操作类型无效')
   }
-  async function cloudCall(action, body, key, recovery = false) {
-    requireCloudAction(action, key !== undefined, recovery)
+  // TEMPORARY FALLBACK — remove only after the next production release is verified
+  // and persisted pre-cutover requests are drained.
+  // This bridge retries an existing key against the same PostgreSQL writer; it
+  // cannot start a fresh operation or fall back to the frozen CloudBase data.
+  async function cloudCall(action, body, key) {
+    requireRecoveryAction(action)
     const epoch = generation, identity = account()
     if (!identity || loggedOut) throw failure('UNAUTHORIZED', '请先登录')
     let response
-    try { response = await bounded(api.cloud.callFunction({ name: 'backend', data: { action, body, expectedOpenid: identity, ...(key ? { key } : {}),
-      ...(recovery && enabled() ? { expectedAuthority: 'server' } : {}) } })) }
+    try { response = await bounded(api.cloud.callFunction({ name: 'backend', data: { action, body, expectedOpenid: identity,
+      key, expectedAuthority: 'server' } })) }
     catch (_) { current(epoch, identity); throw failure('NETWORK_ERROR', '连接失败，请重试') }
     current(epoch, identity)
     const result = response && response.result
@@ -181,42 +184,9 @@ function createBackendClient(options = {}) {
       result.actor.openid !== identity || !uuid(result.actor.id) || !Object.prototype.hasOwnProperty.call(result, 'data')) throw failure('INVALID_RESPONSE', '服务响应异常，请重试')
     return result
   }
-  async function cloudLogin({ isCurrent = () => true } = {}) {
-    requireCloudAction('identity')
-    // Starting an explicit account login invalidates even an A→guest→A result.
-    // This does not issue or persist a PostgreSQL session.
-    const epoch = ++generation
-    inFlight.clear()
-    let response
-    try { response = await bounded(api.cloud.callFunction({ name: 'login', data: {} })) }
-    catch (_) { current(epoch); throw failure('NETWORK_ERROR', '登录失败，请重试') }
-    current(epoch)
-    if (!isCurrent()) throw cancelled()
-    if (!response || !object(response.result) || response.result.ok !== true || !/^[A-Za-z0-9_-]{16,128}$/.test(response.result.openid)) throw failure('LOGIN_UNAVAILABLE', '登录服务暂不可用，请重试')
-    loggedOut = false
-    return response
-  }
-  async function cloudRead(action, body = {}) {
-    const epoch = generation, identity = account()
-    const result = await cloudCall(action, body)
-    current(epoch, identity)
-    return result.data
-  }
-  async function cloudOwner() {
-    const response = await cloudCall('identity', {})
-    if (!object(response.data) || response.data.id !== response.actor.id || response.data.openid !== response.actor.openid || response.data.appId !== response.actor.appId) throw failure('INVALID_RESPONSE', '身份响应异常，请重试')
-    return { user: response.actor }
-  }
-  async function cloudMutate(scope, action, body, { validate } = {}) {
-    requireCloudAction(action, true)
-    const raw = JSON.stringify(ordered(body))
-    if (typeof raw !== 'string' || utf8ByteLength(raw) > 65536) throw failure('INVALID_REQUEST', '内容格式无效')
-    const epoch = generation, identity = account(), own = await cloudOwner()
-    current(epoch, identity)
-    return perform(scope, 'CLOUD', action, JSON.parse(raw), sha256(JSON.stringify(['CLOUD', action, raw])), validate, undefined, own)
-  }
   async function retryCloudPending(scope, { validate, ifPresent = false, resolve, match } = {}) {
-    const epoch = generation, identity = account(), own = enabled() ? await requireSession() : await cloudOwner()
+    requireEnabled()
+    const epoch = generation, identity = account(), own = await requireSession()
     current(epoch, identity)
     const candidates = readPending().filter(item => item.userId === own.user.id &&
       (item.scope === scope || item.request?.method === 'CLOUD' && match && match(JSON.parse(JSON.stringify(item.request)))))
@@ -226,7 +196,7 @@ function createBackendClient(options = {}) {
     if (ifPresent && entry.request?.method !== 'CLOUD') return null
     if (!entry.request || entry.request.method !== 'CLOUD') throw failure('PENDING_OPERATION', '上一操作尚待确认')
     const { path, body } = entry.request
-    return perform(entry.scope, 'CLOUD', path, body, entry.fingerprint, validate, undefined, own, true, resolve)
+    return perform(entry.scope, 'CLOUD', path, body, entry.fingerprint, validate, undefined, own, resolve)
   }
   function readPending() {
     const value = read(PENDING_KEY) || []
@@ -250,9 +220,9 @@ function createBackendClient(options = {}) {
     const next = readPending().filter(item => item.userId !== entry.userId || item.key !== entry.key)
     save(PENDING_KEY, next.length ? next : null)
   }
-  async function perform(scope, method, path, body, fingerprint, validate, visitorSession, cloudIdentity, cloudRecovery = false, resolve) {
+  async function perform(scope, method, path, body, fingerprint, validate, visitorSession, cloudIdentity, resolve) {
     const cloudOperation = method === 'CLOUD'
-    if (cloudOperation) requireCloudAction(path, true, cloudRecovery)
+    if (cloudOperation) requireRecoveryAction(path)
     else { requireEnabled(); requirePath(path) }
     if (!validScope(scope)) throw failure('INVALID_REQUEST', '操作类型无效')
     const epoch = generation, identity = account(), own = cloudIdentity || visitorSession || await requireSession()
@@ -267,7 +237,7 @@ function createBackendClient(options = {}) {
     const pending = readPending()
     let entry = pending.find(item => item.userId === own.user.id && item.scope === scope)
     const wasPending = !!entry
-    if (cloudOperation && enabled() && !wasPending) throw failure('PENDING_OPERATION', '未找到原待确认操作')
+    if (cloudOperation && !wasPending) throw failure('PENDING_OPERATION', '未找到原待确认操作')
     if (entry && entry.fingerprint !== fingerprint) throw failure('PENDING_OPERATION', '上一操作结果尚未确认，请保持内容不变后重试')
     if (!entry) {
       if (pending.length >= 40) throw failure('PENDING_OPERATIONS_FULL', '待确认操作过多，请先重试之前的操作')
@@ -276,7 +246,7 @@ function createBackendClient(options = {}) {
         ...(body instanceof ArrayBuffer ? {} : { request: { method, path, body } }) }
       save(PENDING_KEY, [...pending, entry])
     }
-    const sending = cloudOperation ? cloudCall(path, body, entry.key, cloudRecovery).then(result => {
+    const sending = cloudOperation ? cloudCall(path, body, entry.key).then(result => {
       if (result.actor.id !== own.user.id) throw failure('IDENTITY_CHANGED', '账号已变化，请重新操作')
       return result.data
     }) : request(path, method, body, { key: entry.key }, visitorSession)
@@ -411,12 +381,11 @@ function createBackendClient(options = {}) {
     // activation reconciles through status and withdrawals already persist intent.
     // Do not add a second generic mutation receipt/queue for a collector grant.
     collectionSession: body => request('/api/v1/analytics/session', 'POST', body),
-    mutate, retryPending, uploadImage, resolveImages, submitLocationRequest,
-    cloudLogin, cloudRead, cloudMutate, retryCloudPending }
+    mutate, retryPending, uploadImage, resolveImages, submitLocationRequest, retryCloudPending }
 }
 
 let singleton
 function client() { if (!singleton) singleton = createBackendClient(); return singleton }
 module.exports = { createBackendClient, SESSION_KEY, PENDING_KEY,
   isBackendEnabled: () => authority.getMode() === 'server',
-  ...Object.fromEntries(['ready', 'login', 'logout', 'get', 'mutate', 'retryPending', 'uploadImage', 'resolveImages', 'collectionSession', 'submitLocationRequest', 'cloudLogin', 'cloudRead', 'cloudMutate', 'retryCloudPending'].map(name => [name, (...args) => client()[name](...args)])) }
+  ...Object.fromEntries(['ready', 'login', 'logout', 'get', 'mutate', 'retryPending', 'uploadImage', 'resolveImages', 'collectionSession', 'submitLocationRequest', 'retryCloudPending'].map(name => [name, (...args) => client()[name](...args)])) }

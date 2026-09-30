@@ -32,11 +32,17 @@ test('real mini pages and compat modules complete a weekly ride, notifications a
     const signedIn = (await profile.login()).result;
     assert.equal(signedIn.openid, 'synthetic-journey-driver');
     const updated = (await profile.updateUser({ name: 'Synthetic driver', wechatID: 'synthetic_driver_contact',
+      phone: '2125550101', regionPhone: 'US', Apartment: 'Synthetic driver residence',
+      location: { displayName: 'Synthetic map point', address: 'Synthetic map address', lat: 40.8, lng: -74 },
       carNumber: 'TEST-PLATE', carBrand: 'Test', carModel: 'Car', defaultShowZelle: false })).result.data;
     assert.equal(updated._id, signedIn.id);
     assert.equal((await profile.getUserInfo()).result.data[0].wechatID, 'synthetic_driver_contact');
-    await passenger.load('utils/compat/profile.js').updateUser({ name: 'Synthetic passenger', wechatID: 'synthetic_passenger_contact' });
+    // Editable contacts are not identities: even identical contact values must
+    // not merge two trusted OpenIDs or transfer a booking/listing to the other.
+    await passenger.load('utils/compat/profile.js').updateUser({ name: 'Synthetic passenger',
+      wechatID: 'synthetic_driver_contact', phone: '2125550101', regionPhone: 'US', Apartment: 'Synthetic passenger residence' });
     const passengerId = (await passenger.load('utils/compat/profile.js').getUserInfo()).result.data[0]._id;
+    assert.notEqual(passengerId, signedIn.id);
     const directory = await guest.load('utils/locationConfig.js').loadLocationConfig();
     assert.equal(directory.fixedPlaces[0].placeId, 'fort_lee'); assert.equal(guest.bridgeCalls(), 0);
     const rideTime = driver.load('utils/rideTime.js');
@@ -92,7 +98,14 @@ test('real mini pages and compat modules complete a weekly ride, notifications a
     assert.equal(memberDetail.viewer.role, 'passenger');
     assert.equal(memberDetail.driverInfo.userId, signedIn.id);
     assert.equal(memberDetail.driverInfo.wechatID, 'synthetic_driver_contact');
+    assert.equal(memberDetail.driverInfo.phone, '2125550101');
     assert.ok(memberDetail.participants.every((member: any) => !('_openid' in member)));
+    const bookingIdentity = (await db.pool.query(`SELECT u.openid,u.profile,rm.details
+      FROM ride_members rm JOIN users u ON u.id=rm.user_id WHERE rm.ride_id=$1 AND rm.user_id=$2`, [rideId, passengerId])).rows[0];
+    assert.equal(bookingIdentity.openid, 'synthetic-journey-passenger');
+    assert.equal(bookingIdentity.profile.location.residence, 'Synthetic passenger residence');
+    assert.equal(bookingIdentity.details.pickupAddress, 'Synthetic lobby');
+    assert.equal(bookingIdentity.details.dropoffAddress, 'Synthetic gate');
     assert.equal((await rides.getHomeTripList()).result.data.passenger.joinList.length, 1);
 
     const notices = driver.page('pages/profile/notification/notification.js'); notices.onLoad(); await notices.onShow();
@@ -124,10 +137,39 @@ test('real mini pages and compat modules complete a weekly ride, notifications a
     assert.equal(createRequests.length, 2); assert.equal(createRequests[0].key, createRequests[1].key);
     assert.deepEqual(createRequests[0].body, createRequests[1].body);
     const listingId = recovered.id;
+    const ownership = async () => (await db.pool.query(`SELECT r.creator_id,m.owner_user_id,u.id,u.openid,u.profile
+      FROM rides r JOIN market_listings m ON m.owner_user_id=r.creator_id
+      JOIN users u ON u.id=r.creator_id AND u.app_id=m.app_id WHERE r.id=$1 AND m.id=$2`, [rideId, listingId])).rows[0];
+    const owner = await ownership();
+    assert.equal(owner.id, signedIn.id); assert.equal(owner.creator_id, signedIn.id); assert.equal(owner.owner_user_id, signedIn.id);
+    assert.equal(owner.openid, 'synthetic-journey-driver');
+    assert.equal(owner.profile.wechatId, 'synthetic_driver_contact'); assert.equal(owner.profile.phone, '2125550101');
+    assert.equal(owner.profile.location.residence, 'Synthetic driver residence');
+    assert.equal(owner.profile.location.address, 'Synthetic map address');
     const publicMarket = guest.load('utils/compat/market.js');
     const listing = (await publicMarket.call({ data: { action: 'detail', id: listingId } })).result.item;
     assert.equal(listing.title, 'Synthetic desk'); assert.equal(listing.price, 12.34); assert.equal(listing.isOwner, false);
+    for (const secret of ['synthetic-journey-driver', 'synthetic_driver_contact', '2125550101',
+      'Synthetic driver residence', 'Synthetic map address']) assert.ok(!JSON.stringify(listing).includes(secret), secret);
     assert.equal((await publicMarket.call({ data: { action: 'list', listingType: 'goods' } })).result.items[0].id, listingId);
+    await driver.load('utils/compat/profile.js').updateUser({ wechatID: 'synthetic_changed_contact', phone: '2125550102',
+      Apartment: 'Synthetic changed residence' });
+    const refreshedOwner = await ownership();
+    assert.equal(refreshedOwner.id, owner.id); assert.equal(refreshedOwner.openid, owner.openid);
+    assert.equal(refreshedOwner.creator_id, owner.creator_id); assert.equal(refreshedOwner.owner_user_id, owner.owner_user_id);
+    assert.equal(refreshedOwner.profile.wechatId, 'synthetic_changed_contact');
+    assert.equal(refreshedOwner.profile.phone, '2125550102');
+    assert.equal(refreshedOwner.profile.location.residence, 'Synthetic changed residence');
+    assert.equal(refreshedOwner.profile.location.address, 'Synthetic map address');
+    const seller = (await market.call({ data: { action: 'detail', id: listingId } })).result.item;
+    assert.equal(seller.sellerId, signedIn.id); assert.equal(seller.sellerWechat, 'synthetic_changed_contact');
+    assert.equal(seller.sellerPhone, '2125550102');
+    await passenger.load('utils/compat/profile.js').updateUser({ Apartment: 'Synthetic passenger changed residence' });
+    const oldBooking = (await db.pool.query(`SELECT rm.user_id,rm.details,u.profile FROM ride_members rm
+      JOIN users u ON u.id=rm.user_id WHERE rm.ride_id=$1 AND rm.user_id=$2`, [rideId, passengerId])).rows[0];
+    assert.equal(oldBooking.user_id, passengerId);
+    assert.equal(oldBooking.profile.location.residence, 'Synthetic passenger changed residence');
+    assert.deepEqual(oldBooking.details, bookingIdentity.details);
     const changed = (await market.call({ data: { action: 'update', id: listingId, expectedVersion: recovered.version,
       patch: { ...payload, title: 'Updated after recovery' } } })).result;
     await assert.rejects(market.call({ data: { action: 'update', id: listingId, expectedVersion: recovered.version,

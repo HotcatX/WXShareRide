@@ -62,14 +62,24 @@ function fixture(context = {}, runtime) {
   }
 }
 
-function helper(callFunction, timers = {}) {
-  const module = { exports: {} }
-  vm.runInNewContext(helperSource, {
-    module,
-    require(name) { return name === './backendClient' ? { ready: async () => 'cloudbase', isBackendEnabled: () => false } : name === './cityTree' ? require('../utils/cityTree') : require('../utils/rideTime') },
-    wx: { cloud: { callFunction } },
-    setTimeout: timers.setTimeout || setTimeout,
-    clearTimeout: timers.clearTimeout || clearTimeout
+function helper(get) {
+  const module = { exports: {} }, images = new Map()
+  function canonical(row) {
+    if (!row) throw Object.assign(new Error('missing'), { code: 'NOT_FOUND' })
+    return { ...row, listingType: row.kind, priceCents: 2000, region: { state: 'NY' }, startDate: '2026-10-01', endDate: '2026-10-02',
+      category: row.tags?.[0], condition: row.tags?.[1], images: (row.images || []).map((url, i) => { images.set(String(i), url); return { fileId: String(i) } }) }
+  }
+  const backend = { ready: async () => 'server',
+    async get(url, options) {
+      const response = await get({ url, options }), result = response?.result
+      if (!result?.ok) throw Object.assign(new Error('unavailable'), { code: result?.error })
+      return result.items ? { ...result, items: result.items.map(canonical) } : canonical(result.item)
+    },
+    resolveImages: async (ids, options) => { assert.equal(options.anonymous, true); return ids.map(fileId => ({ fileId, url: images.get(fileId) })) }
+  }
+  vm.runInNewContext(helperSource, { module,
+    require: name => name === './backendClient' ? backend : name === './cityTree' ? require('../utils/cityTree') : require('../utils/rideTime'),
+    wx: { cloud: { callFunction() { assert.fail('public preview must not call CloudBase') } } }
   })
   return module.exports.callPublicPreview
 }
@@ -77,17 +87,14 @@ function helper(callFunction, timers = {}) {
 const select = type => ({ currentTarget: { dataset: { type } } })
 const open = key => ({ currentTarget: { dataset: { key } } })
 
-test('only the publicPreview action reaches marketApi; query and unrelated identity fields are excluded', async () => {
+test('anonymous canonical preview request excludes unrelated query and identity fields', async () => {
   const calls = []
   const call = helper(args => {
     calls.push(plain(args))
     return Promise.resolve({ result: { ok: true, items: [], hasMore: false, nextOffset: 0 } })
   })
   await call({ action: 'marketList', type: 'sublet', sellerId: 'seller', cityKey: 'NY', category: 'room', limit: 10, offset: 0, query: { all: true }, ref: 'secret', openid: 'private' })
-  assert.deepEqual(calls, [{
-    name: 'marketApi',
-    data: { action: 'publicPreview', previewAction: 'marketList', type: 'sublet', offset: 0, limit: 10, cityKey: 'NY', category: 'room', sellerId: 'seller' }
-  }])
+  assert.deepEqual(calls, [{ url: '/api/v1/market/sellers/seller/listings?listingType=sublet&offset=0&limit=10&category=room&regionState=NY', options: { anonymous: true } }])
   await assert.rejects(call({ action: 'delete', id: 'record' }), error => error.code === 'LOAD_FAILED')
   assert.equal(calls.length, 1)
 })
@@ -129,24 +136,9 @@ test('friendly errors never forward platform traces, while absent detail is unav
   await assert.rejects(helper(() => Promise.resolve({ result: { ok: false, error: 'preview_unavailable' } }))({ action: 'tripList' }), error => error.code === 'LOAD_FAILED' && error.retryable)
 })
 
-test('a stalled cloud call times out with a retryable message and ignores a late response', async () => {
-  const pending = deferred()
-  let timeout
-  let delay
-  let cleared = 0
-  const call = helper(() => pending.promise, {
-    setTimeout(callback, ms) { timeout = callback; delay = ms; return 1 },
-    clearTimeout() { cleared += 1 }
-  })
-  const result = call({ action: 'tripList' })
-  const rejection = assert.rejects(result, error => error.code === 'TIMEOUT' && error.retryable)
-  await flush()
-  assert.equal(delay, 15000)
-  timeout()
-  await rejection
-  pending.resolve({ result: { ok: true, items: [], hasMore: false, nextOffset: 0 } })
-  await flush()
-  assert.equal(cleared, 1)
+test('SDK network timeout stays retryable and does not fall back to a cloud endpoint', async () => {
+  const call = helper(() => Promise.reject(Object.assign(new Error('private timeout details'), { code: 'NETWORK_ERROR' })))
+  await assert.rejects(call({ action: 'tripList' }), error => error.code === 'LOAD_FAILED' && error.retryable && !error.message.includes('private'))
 })
 
 test('malformed pagination cannot cause repeated load-more requests at the same offset', async () => {

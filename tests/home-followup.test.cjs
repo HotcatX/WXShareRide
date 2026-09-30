@@ -13,7 +13,7 @@ function deferred() {
 function harness() {
   const state = { account: 'account-a', guest: false, scope: true, used: false, eligible: true, history: [], calls: [], considered: [],
     listeners: new Set(), timers: new Map(), timerId: 0, revision: 0, hides: 0, dismisses: 0, answers: [],
-    notice: null, communityPending: null, syncPending: null, cardsPending: null, now: 1800000000000 }
+    notice: null, communityPending: null, cardsPending: null, now: 1800000000000 }
   class Clock extends Date { static now() { return state.now } }
   const followup = {
     canConsider: () => !!(state.account && !state.guest && state.scope && !state.used),
@@ -52,7 +52,7 @@ function harness() {
         state.calls.push('history:' + account)
         const pending = deferred(); state.history.push({ account, pending }); return pending.promise
       } }
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, getHomeTripList() {
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, getHomeTripList() {
         state.calls.push('cards')
         return state.cardsPending || Promise.resolve({ result: { ok: true, data: {} } })
       } }
@@ -66,7 +66,6 @@ function harness() {
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   page.loadPublicStats = page.loadUnreadCount = () => Promise.resolve()
   page.refreshHomeData = () => Promise.resolve()
-  page.refreshHomeStatusInBackground = async () => { state.calls.push('sync'); if (state.syncPending) await state.syncPending }
   function refreshTimer() {
     const entry = [...state.timers.entries()].find(([, timer]) => timer.delay === 300)
     assert.ok(entry, 'home should schedule its normal entry refresh')
@@ -76,31 +75,27 @@ function harness() {
   return { page, state, refreshTimer, resolve, definition }
 }
 
-test('optional follow-up does not race status changes against the initial visible card read', async () => {
-  const h = harness(), cards = deferred(), sync = deferred()
+test('optional follow-up waits for the initial authoritative card read', async () => {
+  const h = harness(), cards = deferred()
   h.page.refreshHomeData = h.definition.refreshHomeData
-  h.state.cardsPending = cards.promise; h.state.syncPending = sync.promise
+  h.state.cardsPending = cards.promise
   h.page.onShow(); h.refreshTimer(); await tick()
   assert.deepEqual(h.state.calls, ['cards'])
   assert.equal(h.page.data.loading, true)
   cards.resolve({ result: { ok: true, data: {} } }); await tick()
   assert.equal(h.page.data.loading, false)
-  assert.equal(h.state.history.length, 0)
-  h.state.revision++; sync.resolve(); await tick()
   assert.equal(h.state.history.length, 1)
+  assert.deepEqual(h.state.calls, ['cards', 'history:account-a'])
   h.resolve(0); await tick()
   assert.equal(h.page.data.followupVisible, true)
 })
 
-test('home waits for normal entry refresh and completed status sync before reading history', async () => {
-  const h = harness(), sync = deferred(); h.state.syncPending = sync.promise
+test('home waits for normal entry refresh before reading server history without a client status writer', async () => {
+  const h = harness()
   h.page.onShow(); await tick()
   assert.equal(h.state.history.length, 0)
   h.refreshTimer(); await tick()
-  assert.deepEqual(h.state.calls, ['sync'])
-  h.state.revision++ // sync has just moved a current trip into history
-  sync.resolve(); await tick()
-  assert.deepEqual(h.state.calls, ['sync', 'history:account-a'])
+  assert.deepEqual(h.state.calls, ['history:account-a'])
   h.resolve(0); await tick()
   assert.equal(h.page.data.followupVisible, true)
   assert.equal(h.state.considered.length, 1)

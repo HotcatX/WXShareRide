@@ -331,7 +331,7 @@ Page({
           regionIndex: (user.regionPhone === 'CN') ? 1 : 0,
           name: user.name || '',
           avatarUrl,
-          ...(profileApi.isBackendEnabled() ? { avatarFileId: user.avatarFileId || null } : {}),
+          avatarFileId: user.avatarFileId || null,
           zelleName: user.zelleName || '',
           zelleAccount: user.zelleAccount || '',
           defaultShowZelle: user.defaultShowZelle === true,

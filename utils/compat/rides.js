@@ -1,5 +1,5 @@
-// TEMPORARY CloudBase boundary. Selection is explicit for the whole operation;
-// failures of the server never fall back to the old database.
+// Keep the existing ride view DTOs over the canonical server API.
+// All retries retain their original key and the same PostgreSQL authority.
 const backend = require('../backendClient')
 const rideTime = require('../rideTime')
 const object = v => v && typeof v === 'object' && !Array.isArray(v)
@@ -78,7 +78,6 @@ function createRideClient(options = {}) {
   const account = () => !platform.getStorageSync('isGuest') && platform.getStorageSync('openid') || ''
   const current = owner => { if (account() !== owner) throw fail('REQUEST_CANCELLED', '登录状态已变化，请重试') }
   const authenticated = () => { const owner = account(); if (!owner) throw fail('UNAUTHORIZED', '请先登录'); return owner }
-  const old = (name, data) => platform.cloud.callFunction({ name, ...(data === undefined ? {} : { data }) })
   async function pages(path, params, owner, publicRead) {
     const all = [], seen = new Set()
     let nextDate = null
@@ -103,7 +102,7 @@ function createRideClient(options = {}) {
     throw invalid()
   }
   async function callTripList(input = {}) {
-    if (!api.isBackendEnabled()) return old('getTripList', input)
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const owner = account(), params = filters(input)
     if (input.month) {
       const result = await api.get(`/api/v1/rides/calendar?${query({ ...params, month: input.month })}`, { public: true })
@@ -124,7 +123,7 @@ function createRideClient(options = {}) {
       page: { startDate: input.startDate, endDateExclusive: input.endDateExclusive, hasMore: nextDate !== null, nextDate } } }
   }
   async function getHomeTripList() {
-    if (!api.isBackendEnabled()) return old('getHomeTripList')
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const owner = account(), data = { driver: { createList: [], joinList: [] }, passenger: { createList: [], joinList: [] } }
     if (!owner) return { result: { ok: true, data } }
     const { rows } = await pages('/api/v1/me/rides', { scope: 'current' }, owner, false)
@@ -136,7 +135,7 @@ function createRideClient(options = {}) {
     return { result: { ok: true, data } }
   }
   async function getTripDetail(type, id) {
-    if (!api.isBackendEnabled()) return (await old('getTripDetail', { type, id })).result || {}
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     if (!rideId(id)) throw invalid()
     const owner = account(), path = `/api/v1/rides/${encodeURIComponent(id)}`
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -176,7 +175,7 @@ function createRideClient(options = {}) {
     throw fail('RIDE_CHANGED', '行程已变化，请重新加载')
   }
   async function callTripManage(input = {}) {
-    if (!api.isBackendEnabled()) return (await old('tripManage', input)).result || {}
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const owner = authenticated(), id = input.tripId || input.requestId || input.id, target = input.targetUserId
     if (input.action === 'getBlockList') {
       const list = [], seen = new Set()
@@ -240,7 +239,7 @@ function createRideClient(options = {}) {
     return { ok: true, success: true, recovered, data: result }
   }
   async function requestCity(input = {}) {
-    if (!api.isBackendEnabled()) return old('rideDemand', input)
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const owner = account()
     const data = await api.submitLocationRequest({ cityKey: input.cityKey, sourcePage: input.sourcePage })
     current(owner)
@@ -249,7 +248,7 @@ function createRideClient(options = {}) {
     return { result: { success: true, ...data } }
   }
   async function joinTrip(input = {}) {
-    if (!api.isBackendEnabled()) return old('joinTrip', input)
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     return { result: await callTripManage({ ...input, action: 'joinPassenger',
       tripId: input.tripId || input.requestId, pickupAddress: input.pickupAddress || input.passengerInfo?.pickupAddress,
       dropoffAddress: input.dropoffAddress || input.passengerInfo?.dropoffAddress }) }

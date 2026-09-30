@@ -1,41 +1,19 @@
 const contacts = require("../../../utils/compat/rideContacts")
 // pages/profile/myTripDetailPassenger/myTripDetailPassenger.js
 const rideTelemetry = require("../../../utils/rideTelemetry")
-const { showDataError } = require("../../../utils/error")
 const {
   callTripManage,
   askReason,
-  attachRideStats,
   rateTripUser,
   markRideListStale,
-  buildRatedTargetMap,
-  isTargetRated,
-  formatRidePricePerPerson
+  isTargetRated
 } = require("../../../utils/tripManage")
-const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 
 function normalizeSourceType(raw) {
   const value = String(raw || '').toLowerCase()
   return value === 'request' ? 'request' : 'carpool'
 }
 
-function buildDriverInfo(user = {}, driverOpenid = '', ratedTargetMap = {}) {
-  if (!user || !driverOpenid) return null
-  return {
-    _openid: driverOpenid,
-    name: user.name || '',
-    phone: user.phone || '',
-    wechatID: user.wechatID || '',
-    carNumber: user.carNumber || user.carPlate || user.plateNumber || '',
-    carBrand: user.carBrand || '',
-    carModel: user.carModel || '',
-    zelleName: user.zelleName || '',
-    zelleAccount: user.zelleAccount || '',
-    avatarUrl: user.avatarUrl || '',
-    ...attachRideStats(user, 'driver'),
-    hasRated: isTargetRated(ratedTargetMap, driverOpenid)
-  }
-}
 
 Page({
   data: {
@@ -104,16 +82,6 @@ Page({
       'fort lee core'
     ]
     return keys.some(k => s.includes(k))
-  },
-
-  async getMyOpenid() {
-    try {
-      const res = await wx.cloud.callFunction({ name: 'login' })
-      const oid = (res && res.result && (res.result.openid || res.result.OPENID)) || ''
-      return oid
-    } catch (e) {
-      return ''
-    }
   },
 
   goBack() {
@@ -204,215 +172,9 @@ Page({
 
   // ========== 主加载：按入口来源读取 Carpool 或 CarpoolRequest ==========
   async loadTripDetail(tripId, sourceType = this.data.sourceType, options = {}) {
-    if (contacts.isBackendEnabled()) return contacts.load(this, sourceType, tripId, 'passenger', options)
-    // TEMPORARY FALLBACK: legacy contacts stay in the selected CloudBase mode only.
-    if (!options.silent) this.setData({ loading: true, loadError: '' })
-
-    try {
-      if (sourceType === 'request') {
-        const rr = await fetchTripDetail('request', tripId, {
-          force: !!options.force,
-          allowStale: true
-        })
-
-        const reqOk = !!(rr && (rr.ok || rr.success))
-        const reqTrip = reqOk ? (Array.isArray(rr.data) ? rr.data[0] : rr.data) : null
-
-        if (!reqTrip) {
-          this.setLoadError((rr && (rr.errorMsg || rr.msg)) || '该路线不存在或已被删除')
-          return
-        }
-
-        await this.applyRequestTrip(reqTrip, rr)
-        return
-      }
-
-      const carpoolResult = await fetchTripDetail('carpool', tripId, {
-        force: !!options.force,
-        allowStale: true
-      })
-
-      const carpoolOk = !!(carpoolResult && (carpoolResult.ok || carpoolResult.success))
-      const carpoolTrip = carpoolOk
-        ? (Array.isArray(carpoolResult.data) ? carpoolResult.data[0] : carpoolResult.data)
-        : null
-
-      if (carpoolTrip) {
-        await this.applyCarpoolTrip(carpoolTrip, carpoolResult)
-        return
-      }
-
-      this.setLoadError((carpoolResult && (carpoolResult.errorMsg || carpoolResult.msg)) || '该路线不存在或已被删除')
-    } catch (e) {
-      console.error('loadTripDetail error:', e)
-      showDataError('路线加载失败', e, '路线详情从数据库加载失败，请稍后重试。')
-      this.setLoadError('加载失败，请稍后重试')
-    }
+    return contacts.load(this, sourceType, tripId, 'passenger', options)
   },
 
-  // ========== Carpool 场景：只显示司机信息 ==========
-  async applyCarpoolTrip(trip, detailResult = {}) {
-    const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
-    const des0 = (trip.destinations && trip.destinations[0]) ? trip.destinations[0] : {}
-
-    const fromText = dep0.address || ''
-    const toText = des0.address || ''
-
-    const rawDate = dep0.date || ''
-    const weekdayText = this.getWeekdayCN(rawDate)
-    const dateText = this.formatDateNoYear(rawDate)
-    const timeText = dep0.time || ''
-
-    const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
-    const rawStatus = String(trip.status || 'open').toLowerCase()
-    const isTripCompleted = rawStatus === 'past'
-    const ratedTargetMap = buildRatedTargetMap(detailResult)
-    const displayTrip = {
-      ...trip,
-      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
-    }
-
-    const driverOpenid = trip._openid || ''
-
-    let driverInfo = null
-    if (driverOpenid) {
-      driverInfo = buildDriverInfo(detailResult.driverInfo, driverOpenid, ratedTargetMap)
-      if (!driverInfo) {
-        const uRes = await wx.cloud.callFunction({
-          name: 'getUserInfoByOpenids',
-          data: { openids: [driverOpenid] }
-        })
-        if (uRes.result && uRes.result.ok) {
-          const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-          driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
-        }
-      }
-    }
-
-    this.setData({
-      sourceType: 'carpool',
-      trip: displayTrip,
-      driverInfo,
-      ratedTargetMap,
-
-      // Carpool：不展示乘客列表
-      otherPassengers: [],
-      passengerList: [],
-
-      fromText,
-      toText,
-      dateText,
-      weekdayText,
-      timeText,
-      showFortLeeCoreTip,
-      isTripCompleted,
-      loadError: '',
-      loading: false
-    }, () => rideTelemetry.detailViewed(this, trip, 'carpool', 'history'))
-  },
-
-  // ========== CarpoolRequest 场景：显示司机 + 所有加入乘客（不含自己） ==========
-  async applyRequestTrip(trip, rr) {
-    const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
-    const des0 = (trip.destinations && trip.destinations[0]) ? trip.destinations[0] : {}
-
-    const fromText = dep0.address || ''
-    const toText = des0.address || ''
-
-    const rawDate = dep0.date || ''
-    const weekdayText = this.getWeekdayCN(rawDate)
-    const dateText = this.formatDateNoYear(rawDate)
-    const timeText = dep0.time || ''
-
-    const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
-    const rawStatus = String(trip.status || 'open').toLowerCase()
-    const isTripCompleted = rawStatus === 'past'
-    const ratedTargetMap = buildRatedTargetMap(rr)
-    const displayTrip = {
-      ...trip,
-      referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
-    }
-
-    // 当前用户 openid：优先 rr.openid，否则调用 login 获取
-    const myOpenid = (rr && rr.openid) ? rr.openid : (await this.getMyOpenid())
-
-    const driverOpenid = trip.driverOpenid || ''
-
-    let driverInfo = null
-    if (driverOpenid) {
-      driverInfo = buildDriverInfo(rr.driverInfo, driverOpenid, ratedTargetMap)
-      if (!driverInfo) {
-        const uRes = await wx.cloud.callFunction({
-          name: 'getUserInfoByOpenids',
-          data: { openids: [driverOpenid] }
-        })
-        if (uRes.result && uRes.result.ok) {
-          const u = (uRes.result.data && uRes.result.data[0]) ? uRes.result.data[0] : {}
-          driverInfo = buildDriverInfo(u, driverOpenid, ratedTargetMap)
-        }
-      }
-    }
-
-    const a1 = Array.isArray(trip.passengerID) ? trip.passengerID : []
-    const passengerOpenids = Array.from(new Set(a1.filter(Boolean)))
-
-    // ✅ 仅剔除“我自己”，不剔除创建者（创建者也是乘客之一）
-    const filteredOpenids = passengerOpenids.filter(op => {
-      if (!op) return false
-      if (myOpenid && op === myOpenid) return false
-      return true
-    })
-
-    let otherPassengers = []
-    if (filteredOpenids.length > 0) {
-      const pRes = await wx.cloud.callFunction({
-        name: 'getUserInfoByOpenids',
-        data: { openids: filteredOpenids }
-      })
-
-      if (pRes.result && pRes.result.ok) {
-        const list = pRes.result.data || []
-        const map = {}
-        list.forEach(u => { if (u && u._openid) map[u._openid] = u })
-
-        // 保持顺序
-        otherPassengers = filteredOpenids.map(op => {
-          const u = map[op] || {}
-          return {
-            _openid: op,
-            name: u.name || '',
-            phone: u.phone || '',
-            wechatID: u.wechatID || '',
-            avatarUrl: u.avatarUrl || '',
-            address: u.address || '',
-            ...attachRideStats(u, 'passenger')
-          }
-        })
-      }
-    }
-
-    this.setData({
-      sourceType: 'request',
-      trip: displayTrip,
-      driverInfo,
-      ratedTargetMap,
-
-      otherPassengers,
-      passengerList: otherPassengers, // ✅ 给 WXML 直接照抄 passengerList
-
-      fromText,
-      toText,
-      dateText,
-      weekdayText,
-      timeText,
-      showFortLeeCoreTip,
-      isTripCompleted,
-      loadError: '',
-      loading: false
-    }, () => rideTelemetry.detailViewed(this, trip, 'request', 'history'))
-  },
-
-  // ====== 复制 ======
   copyDriverWechat() {
     const wechatID = (this.data.driverInfo && this.data.driverInfo.wechatID) || ''
     if (!wechatID) return wx.showToast({ title: '暂无微信号可复制', icon: 'none' })
@@ -490,7 +252,7 @@ Page({
     const allowed = contacts.actionGuard(this)
     if (!allowed()) return
     const target = contacts.target(e)
-    const targetId = target.targetUserId || target.targetOpenid
+    const targetId = target.targetUserId
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
     const { tripId, sourceType } = this.data
     if (!targetId) return
@@ -519,7 +281,7 @@ Page({
     const allowed = contacts.actionGuard(this)
     if (!allowed()) return
     const target = contacts.target(e)
-    const targetId = target.targetUserId || target.targetOpenid
+    const targetId = target.targetUserId
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '司机'
     const { tripId, sourceType, isTripCompleted, ratedTargetMap } = this.data
     if (!isTripCompleted) {

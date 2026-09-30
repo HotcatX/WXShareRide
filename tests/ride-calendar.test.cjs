@@ -24,7 +24,7 @@ function calendarResponse(month = '2030-01', days = [
   return { result: { success: true, month, data: { days } } }
 }
 
-function harness({ realStatusRefresh = false } = {}) {
+function harness() {
   let definition
   const state = {
     now: Date.parse('2030-01-15T10:00:00'),
@@ -40,30 +40,24 @@ function harness({ realStatusRefresh = false } = {}) {
     removeStorageSync: key => { delete state.store[key] },
     showNavigationBarLoading() {}, hideNavigationBarLoading() {}, stopPullDownRefresh() {},
     showToast() {},
-    cloud: { callFunction(args) {
-      if (args.name === 'syncTripStatus') {
-        state.calls.push(args)
-        return Promise.resolve({ result: { totalUpdated: 1 } })
-      }
-      assert.equal(args.name, 'getTripList', 'calendar reads reuse the existing list function')
-      state.calls.push(args)
-      if (args.data.action === 'calendar') {
-        if (state.queued.length) return state.queued.shift().promise
-        return Promise.resolve(calendarResponse(args.data.month))
-      }
-      const { startDate, endDateExclusive } = args.data
-      return Promise.resolve({ result: {
-        success: true, data: { carpool: [], request: [] },
-        page: { startDate, endDateExclusive, nextDate: endDateExclusive, hasMore: false }
-      } })
-    } }
+    cloud: { callFunction() { throw new Error('Calendars must not call CloudBase') } }
   }
+  const rides = { isBackendEnabled: () => true, callTripList(data) {
+    state.calls.push({ method: 'rides.callTripList', data })
+    if (data.action === 'calendar') {
+      if (state.queued.length) return state.queued.shift().promise
+      return Promise.resolve(calendarResponse(data.month))
+    }
+    const { startDate, endDateExclusive } = data
+    return Promise.resolve({ result: { success: true, data: { carpool: [], request: [] },
+      page: { startDate, endDateExclusive, nextDate: endDateExclusive, hasMore: false } } })
+  } }
   const context = {
     Page: value => { definition = value }, wx, Date: Clock, setTimeout, clearTimeout,
     getApp: () => ({ globalData: {} }),
     console: { error() {}, warn() {}, log() {} },
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/rides')) return rides
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
@@ -77,7 +71,12 @@ function harness({ realStatusRefresh = false } = {}) {
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
+          ...context, module, require: name => {
+            if (name === './backendClient') return { isBackendEnabled: () => true }
+            if (name === './locationConfig') return { loadLocationConfig: async () => plain(require('../utils/locationCatalog.generated')) }
+            if (name === './placeCatalog') return require('../utils/placeCatalog')
+            throw new Error(name)
+          }
         })
         return module.exports
       }
@@ -103,11 +102,10 @@ function harness({ realStatusRefresh = false } = {}) {
   const page = { ...definition, data: plain(definition.data) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   Object.assign(page.data, page.getFilterDateData(), page.buildFilterOptionData(['Fort Lee', 'JFK'], ['哥大/Columbia', 'EWR']))
-  if (!realStatusRefresh) page.refreshStatusInBackground = async () => {}
   const holdNext = () => { const held = deferred(); state.queued.push(held); return held }
   const open = async () => { page.onOpenCalendar(); await tick() }
   const calendarCalls = () => state.calls.filter(call => call.data.action === 'calendar')
-  const listCalls = () => state.calls.filter(call => call.name === 'getTripList' && call.data.action !== 'calendar')
+  const listCalls = () => state.calls.filter(call => call.data.action !== 'calendar')
   const day = date => page.data.calendarDays.find(item => item.date === date)
   return { page, state, holdNext, open, calendarCalls, listCalls, day }
 }
@@ -418,17 +416,19 @@ test('calendar-only reads and drafts preserve loaded two-day routes, date totals
   assert.equal(listCalls().length, 0)
 })
 
-test('background status changes refresh an open calendar under the new revision and ignore its older pending counts', async () => {
-  const { page, state, holdNext, open, calendarCalls, listCalls, day } = harness({ realStatusRefresh: true })
+test('a successful mutation revision refreshes the open calendar on return and ignores older pending counts', async () => {
+  const { page, state, holdNext, open, calendarCalls, listCalls, day } = harness()
   page.data.originalCarpoolList = [{ _id: 'route-that-just-completed' }]
   const outdated = holdNext()
   await open()
   assert.equal(page.data.calendarLoading, true)
   assert.equal(calendarCalls().length, 1)
-  await page.refreshStatusInBackground(true)
+  state.store.rideListShouldRefreshAt = state.now
+  page.data.hasLoadedOnce = true
+  page.onShow()
+  await tick()
   assert.ok(state.store.rideListShouldRefreshAt > 0)
-  assert.equal(state.calls.filter(call => call.name === 'syncTripStatus').length, 1)
-  assert.equal(calendarCalls().length, 2, 'status changes refresh monthly totals as well as the two-day list')
+  assert.equal(calendarCalls().length, 2, 'returning after a mutation refreshes monthly totals and the two-day list')
   assert.equal(listCalls().length, 1)
   assert.equal(page.data.calendarLoading, false)
   assert.equal(day('2030-01-15').carpoolText, '12发')
@@ -436,5 +436,4 @@ test('background status changes refresh an open calendar under the new revision 
   await tick()
   assert.equal(page.data.calendarLoading, false)
   assert.equal(day('2030-01-15').carpoolText, '12发')
-  assert.equal(page._statusRefreshing, false)
 })

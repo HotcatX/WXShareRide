@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `026` 的字段契约。它是维护文档；工作阶段、权限与发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`。已有账号、核心行程、模板、通知、统计、管理员认证、文件事务、商品接口、管理发布/模板、社区读写及广告存储模型；这不代表整个产品已迁出，也不代表本地模块已部署或客户端已接入。
+本文件描述 `migrations/001` 至 `027` 的字段契约。它是永久维护文档；工作阶段和后续发布决策见根目录临时 `BACKEND_MIGRATION_WORK.md`，实际交接与部署证据见[业务数据库切换记录](../../docs/backend-cutover-2026-09-30.md)。PostgreSQL 已是唯一业务权威库；客户端源码更新与正式发布仍须分别核验。
 
 ## 唯一模型
 
@@ -36,6 +36,7 @@
 | `market_views`（020） | `(app_id,id)`、listing_id、可空actor_user_id、纽约day、count、可空创建/更新时间 | 每日累计桶，不是一条一次浏览；已删除商品保留原标识，未知用户不造账号。已知用户同商品同日唯一，页面浏览总数由sum(count)派生。 |
 | `market_import_batches`（021） | `(app_id,owner_key,id)`、payload_hash/format、total/status、results/failures、创建/更新时间 | 1–50行逐行提交，成功行用admin_requests永久去重；partial/failed可同内容重试，done不降级。成功/失败数量由数组派生，结果ID无商品外键。 |
 | `market_templates`（022） | `(app_id,id)`、name/data/status、可空创建/更新管理员及时间 | 所有有效管理员共享；作者是来源而非ACL。data使用市场规范草稿字段，无图片，允许未填标题/日期。删除留墓碑。 |
+| `city_requests`（027） | UUID `id`、`user_id`、城市 key/label/aliases、`source_page`、`created_at` | 一个确认请求一个事实，账号外键引用 users；总数和人数从事实查询，不另建计数副本。 |
 
 009 允许仅 `closed` 系统事件的 actor_id 为null；其他业务动作仍必须有真实用户操作者。
 
@@ -46,6 +47,23 @@
 005 为 rides 增加唯一 `listed_price_label`（API `listedPriceLabel`）原始报价文本。它与金额的职责不同，不建立 `referencePrice/displayPrice/price` 等兼容别名。通知 ride_id 是可失效导航目标而非外键，因为旧版取消会物理删除行程；这不能成为复活被删除行程的依据。
 
 `schema_migrations(version,checksum,applied_at)` 仅用于管理 SQL 版本，不是业务表。没有创建占位业务模块、重复用户当前/历史行程数组或单独的“满员”状态字段。
+
+## 统一账号、联系资料与后续交易
+
+所有现有业务以 `users.id` 关联同一账号，微信侧身份以 `(app_id,openid)` 唯一确定。登录复用既有账号；手填微信号、手机号、昵称或相同地址不能触发账号合并、变更所有权或生成收款身份。
+
+| 资料或业务 | 唯一位置及关联 |
+| --- | --- |
+| OpenID | `users.app_id + users.openid`，可信登录取得；服务端可经 `users.id` 找回 |
+| 微信号、手机号及区号 | 同一用户的 `profile.wechatId / phone / phoneRegion`；可编辑的联系资料，不表示已验证身份 |
+| 个人住所和地图地址 | 同一用户的 `profile.location.residence / address`，保留不同含义，不相互覆盖 |
+| 常用上下车点 | 同一用户的 `profile.preferences.pickupAddresses / dropoffAddresses` |
+| 每次拼车及上下车说明 | `rides.creator_id` 和 `ride_members.user_id` 引用账号；该次 `ride_members.details.pickupAddress / dropoffAddress` 独立保留，不因改个人住所而重写 |
+| 二手商品归属 | `(market_listings.app_id,owner_user_id)` 外键引用同应用账号；手工托管的 `admin_owner_key` 与展示联系人另有明确含义 |
+
+当前尚无订单、买家、付款或退款模型，商品 `sold` 状态和拼车牌面价不能视为付款证据。后续订单、支付及退款引用现有账号 ID 和业务 ID；支付所需微信身份从该账号的可信 AppID/OpenID 取得，不接受客户端自报联系人作为收款归属。成交时的金额、币种及必要履约地址应随订单固定，用户之后改资料不改历史订单；本阶段不提前创建占位表或复制联系资料。
+
+关联不扩大可见范围：本人资料接口可返回本人 OpenID 和受控资料；行程参与者与卖家接口按现有授权只投影必要字段，游客预览不返回整份隐私资料。研究采集继续使用已有身份桥，不额外复制电话、微信号和个人住址。
 
 ## 容量、时间和成行
 
@@ -131,11 +149,11 @@ const { plan, report } = normalizeCloudBaseExport(source, {
 node src/migration/analyze.ts /absolute/path/full-export.json
 ```
 
-当前没有生产数据写入/切主命令。`report.ready=true` 仅表示本切片结构审计通过，不表示整个产品迁移、旧客户端兼容、备份恢复或最终增量验证已完成。
+`report.ready=true` 仅表示该输入结构审计通过，不能代替全量交接、旧客户端兼容、备份恢复或最终增量验证。生产首次交接已完成；以下导入契约供隔离演练及维护，不是再次切库的操作计划。
 
 内部 `importSnapshot(pool,source,expectedAppId,observation?)` 仅用于空目标首次导入：必须显式提供上述8个已支持集合，重新审计原始source，不能提交调用方自制plan。全局事务锁和表写锁包住空库检查、全部模型、来源归档、读回数量和回执；中途失败全部回滚。事务内以数据库时钟拒绝未来观测时间。目标任何业务/会话/事件/回执数据非空就拒绝，不支持合并、清空或增量覆盖。同app/source只在转换指纹一致时重放原回执，成功后的业务变化不被重试覆盖；转换结果变更需显式迁移。原始输入在首个await前深拷贝，防止校验后被调用方修改。
 
-该内部函数保留核心数据隔离演练能力：整个市场集合组都未提供时仍可导入核心数据。因此 `report.ready`、导入成功或空数组不能作为全量切主门槛。最终生产入口还须独立核验完整清单、必需域、源集合数量/哈希、增量和附件；当前没有完成或开放这一切主入口。
+该内部函数保留核心数据隔离演练能力：整个市场集合组都未提供时仍可导入核心数据。因此 `report.ready`、导入成功或空数组不能作为全量切主门槛。首次交接另外核验完整清单、必需域、源集合数量/哈希、增量和附件；运行中的生产库已有新写入，不得重新导入旧快照覆盖。
 
 市场组一旦提供任一相关集合，必须同时显式提供 `market_goods/MarketFiles/market_view_events/WebAdminAccounts/MarketImportBatches`。`houseShare` 若提供，须与同ID商品除浏览字段外完全一致，才仅归档。广告/社区/网站上传组一旦提供，必须同时具备该市场组及 `WebAdminUploads/market_ads/market_ad_events/community_config/CommunityConfigHistory`。`WebAdminSettings` 仅转换精确HTTPS管理来源；旧HTTP规则不会默默丢弃或自动扩大授权。未迁旧登录会话。
 
@@ -168,7 +186,7 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 ## 市场模型、事务与旧数据转换（017）
 
 `src/market/schemas.ts` 统一商品与转租的内容字段，`src/migration/market.ts`
-私有转换候选已接中央首次导入；市场 SQL、用户事务核心及 HTTP 路由已实现，客户端及最终切主仍未完成。
+私有转换候选已接中央首次导入；市场 SQL、用户事务核心、HTTP 路由及客户端已经接入同一业务库。
 主审计仍拒绝未支持的非空市场集合，不能把这部分转换通过当成整库迁移通过。
 
 - 内容只保留 `listingType`、`title`、`description`、整数 `priceCents`、`category`、
@@ -194,7 +212,7 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 - `normalizeMarketListings(documents,{appId,users,adminOwners},issue)` 不写库或改源。
   调用方必须保留完整来源，并在任意 error 时拒绝整个计划，不能导入部分成功的行。
   别名须先一致核验；原创建请求和批次摘要进入021永久证据，更新摘要保留于私有来源。
-  创建去重、批次结果、浏览事实和文件归属已接中央导入；切换前仍须完成附件内容验证、旧请求适配和最终全量/增量。
+  创建去重、批次结果、浏览事实和文件归属已接中央导入；完整交接和附件核验结果见切换记录，不从单模块转换成功推断整库完整。
 
 `src/market/time.ts` 显式接收服务器时间，按纽约日期限制商品两个月、转租十八个月，
 月份末尾截到实际末日。新建或明确修改日期才计算纽约结束日最后一毫秒（支持夏令时）；
@@ -213,7 +231,7 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 无变化的状态操作不加版本；正文、图片和状态修改保留原expiresAt，真实日期/类型变化才重新校验日期窗。
 网站管理员批量发布、部分失败重试、批次与单行两层去重、管理模板和编辑权限已实现，见下节；没有新增管理员删商品或改状态权限。
 
-`normalizeAds` 和 `normalizeCommunity` 已接中央原子导入：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。社区运行读写已接入，广告运行接口和可信图片URL解析仍待完成。
+`normalizeAds` 和 `normalizeCommunity` 已接中央原子导入：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。社区和广告运行接口已接入，图片UUID通过受控文件解析取得短期URL。
 
 `normalizeContentFiles` 验证网站上传的request/file两份完整回执、原hash键、账户归属、路径、用途、MIME、尺寸和时钟，再与市场文件及内容引用按精确locator归并。旧文件保持legacyReadonly；上传元数据留原始来源，不冒充重新核验过的二进制。未知owner/time保持null，旧市场台账时钟不被独立上传时钟覆盖。共享管理的用户所有商品可保留可信管理员图片；不转移商品或文件所有权。
 
@@ -227,7 +245,7 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 `GET/POST /api/v1/admin/market/templates` 和 `POST /:id/delete`提供全管理员共享草稿。无id保存沿用`web_tpl_ + sha256(ownerKey:name).slice(0,40)`；已有文本ID原样保留。必需联系人和完整地区，标题/日期可以未填，图片不进入草稿。软删除和保存/恢复都有永久回执；身份失效后不能借回执绕过。MarketAdminTemplates源若提供，须显式提供WebAdminAccounts。
 
-`GET /api/v1/community` 只返回当前展示投影；`GET/POST /api/v1/admin/community`读取/更新完整配置，POST含expectedVersion和幂等键。每app配置锁后读取当前时钟，更新当前内容、连续修订、历史和当前图片引用、审计/回执同事务。已配置过的图片保留在community/main历史槽，允许有效管理员恢复，不改变文件归属。公共公告available（手动可看）与enabled（自动展示）分开；结束时刻不包含，使用群图时受更早的群有效期限制。历史不自动发布。API目前返回图片UUID，真实URL与旧客户端DTO适配仍待接入。
+`GET /api/v1/community` 只返回当前展示投影；`GET/POST /api/v1/admin/community`读取/更新完整配置，POST含expectedVersion和幂等键。每app配置锁后读取当前时钟，更新当前内容、连续修订、历史和当前图片引用、审计/回执同事务。已配置过的图片保留在community/main历史槽，允许有效管理员恢复，不改变文件归属。公共公告available（手动可看）与enabled（自动展示）分开；结束时刻不包含，使用群图时受更早的群有效期限制。历史不自动发布。API返回图片UUID，由客户端受控解析为短期URL；旧协议适配集中在兼容边界。
 
 `POST /api/v1/market/listings/:id/views`仅登录用户可写，body为空对象，同一次打开用同一幂等键。先锁商品，再按纽约日期对本人每日桶原子增加至最多10；历史已超10不截断也不再增加。非本人仅online且未过期可计，本人可计offline/sold/expired但不能deleted。商品锁同时保护累计值检查与并发隐藏/删除；超JS安全整数整次回滚。浏览桶与回执同事务，读取GET没有副作用。这些是计数后的详情浏览，不是完整曝光事件。
 
@@ -235,9 +253,9 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 `GET /api/v1/market/listings`、`GET /api/v1/market/listings/:id` 和 `GET /api/v1/market/sellers/:sellerId/listings`：游客只得原预览范围的脱敏文案、粗地区、报价和图片UUID；有效会话可读已发布商品及实际UI使用的有限卖家资料。无效Bearer返回401，不能用查询参数伪造身份。公开仅online且未过期，本人详情和 `GET /api/v1/me/market/listings` 可看自己的offline/sold/过期记录，deleted不可见。
 
-分类、地区、关键词、商品类型、时间/距离排序及offset分页均服务端处理；精确地区/关键词/距离筛选要求登录。图片仅返回有序fileId/thumbFileId，不公开存储locator；UUID至可用URL及旧客户端格式适配仍待接入。浏览数从market_views求和，GET不会增加计数；显式POST浏览接口的规则见下节。卖家资料随item返回，空卖家列表不提供独立资料查询。
+分类、地区、关键词、商品类型、时间/距离排序及offset分页均服务端处理；精确地区/关键词/距离筛选要求登录。图片仅返回有序fileId/thumbFileId，不公开存储locator；客户端批量取得可用URL，显示格式由单一适配器转换。浏览数从market_views求和，GET不会增加计数；显式POST浏览接口的规则见上节。卖家资料随item返回，独立卖家读取要求有效会话；本人以外还须有当前可见普通商品，不能因空列表或知道账号ID取得他人私人资料。
 
-`POST /api/v1/market/listings`、`PATCH /api/v1/market/listings/:id`、`POST /api/v1/market/listings/:id/status`、`DELETE /api/v1/market/listings/:id` 复用已实现的用户事务服务；要求可信会话、幂等键，修改带expectedVersion。路由已接应用，尚未成为生产主写入口或适配管理端。
+`POST /api/v1/market/listings`、`PATCH /api/v1/market/listings/:id`、`POST /api/v1/market/listings/:id/status`、`DELETE /api/v1/market/listings/:id` 复用用户事务服务；要求可信会话、幂等键，修改带expectedVersion。现行主写入口为同一PostgreSQL；管理端有独立鉴权和兼容边界，生产管理员交互验收仍以切换记录为准。
 
 ## 已验证
 
@@ -294,7 +312,7 @@ definition 复用offerFieldsSchema和共同站点验证；只替换出发时间�
 - 秋季重复钟点显式选较早一次。若较早一次已过提前量，不临时改用较晚一次，而顺延整周。这是已有产品规则，与历史数据导入“不能猜歧义时间”不同。
 - canonical weekday=0周日。旧模板 weekdayIndex=0周一只能在迁移边界用 `(oldIndex+1)%7` 转换；主 API 不接受旧别名。
 
-nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板offset，不重复存departureAt/localDate。模板车辆/Zelle副本不是旧发布路径的资料来源，因此不进入新definition；历史原文留来源归档。旧CarpoolTemplate已有纯转换（尚未写入服务器）：weekdayIndex周一0转一次、保留sourceId、非UUID确定性转换。仅空座位字符串按旧模板编辑/应用的明确默认设1并记notice，发布前仍可编辑并确认；其他无效人数阻断。旧更新时间缺失为null，原priceLabel保真。新接口尚未接替线上直写CloudBase。
+nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板offset，不重复存departureAt/localDate。模板车辆/Zelle副本不是旧发布路径的资料来源，因此不进入新definition；历史原文留来源归档。旧CarpoolTemplate已通过首次导入迁移：weekdayIndex周一0转一次、保留sourceId、非UUID确定性转换。仅空座位字符串按旧模板编辑/应用的明确默认设1并记notice，发布前仍可编辑并确认；其他无效人数阻断。旧更新时间缺失为null，原priceLabel保真。模板现统一走业务API，旧CloudBase直写已冻结。
 
 新增测试 `templates-time.test.ts` 与 `templates.integration.test.ts` 覆盖 UTC/上海/洛杉矶/檀香山/纽约机器时区、DST 两类边界、15 分钟门槛、年末和闰日、owner 隔离、并发幂等、并发修改、删除重试、分页、严格字段拒绝和真实 PostgreSQL CHECK。
 
@@ -302,7 +320,7 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 拉黑API只接收同AppID的内部用户ID，身份仍由会话确定。每次加入先锁行程，再按确定顺序取得加入者与现有参与者的无向用户对锁；拉黑/解除只取用户对锁，不反向锁行程。先完成的事务确定结果：拉黑先提交则加入失败，加入先提交则关系保留。无关用户对可并行，错误不暴露由谁拉黑或私人理由。重复加入先按已有成员事实返回，不被之后的拉黑变成失败。
 
-通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。移除仅通知被移除者，包含必要理由；评分仅通知被评价者；关闭只为有司机和乘客的组发送评价邀请。创建、无变化重放不重复发通知。旧通知仅完成转换，尚未实际导入。
+通知在同一次行程事务内生成；写通知失败会回滚成员、版本、事件及幂等回执。供车乘客变动通知创建者；求车乘客变动通知创建者和接单司机；司机变动通知乘客；取消通知当时仍参与的其他成员。移除仅通知被移除者，包含必要理由；评分仅通知被评价者；关闭只为有司机和乘客的组发送评价邀请。创建、无变化重放不重复发通知。旧通知已首次导入，原导航目标和未知事件ID保留，不重建通知历史。
 
 列表按 created_at/id 倒序游标分页，保留数据库微秒精度，默认50最多100条，独立返回真实未读总数。单条已读、全部已读和清空均要求幂等键及收件人条件。重放清空/全部已读的旧请求不会作用于之后新增通知。没有公开发送通知接口，也不接受客户端指定收件人。
 
@@ -330,7 +348,7 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 `GET /api/v1/rides/:rideId/ratings` 仅向有效成员返回其本人已评价的targetId/score，不提供他人的逐条评分。鉴权与投影使用同一SQL快照；成功、失败均private,no-store。
 
-`closeDueRides(pool,appId,batchSize)` 是内部有界任务函数，不提供客户端触发接口；当前尚未安装生产调度。以最后出发站严格过期为条件，按行程锁并发SKIP LOCKED，仅open→closed一次。个人完成收据、公开增量、系统事件、评价邀请同事务提交。旧closed行程不会重算；旧收据冲突保留首次角色和未知时间。个人次数按每个匹配账户一次，至少一司机、一真实乘客；不按同行座位数。公开人次保留旧口径：有司机时 `min(5,1+active乘客seat_count之和)`，无司机求车0，供车司机独行1。两项均不表示用户回访已确认实际成行。public_statistics缺少该AppID基线时整个关闭批次回滚，不偷偷从0开始。
+`closeDueRides(pool,appId,batchSize)` 是内部有界任务函数，不提供客户端触发接口；active主进程通过 `jobs.ts` 每分钟调度，staged不启动任务。以最后出发站严格过期为条件，按行程锁并发SKIP LOCKED，仅open→closed一次。个人完成收据、公开增量、系统事件、评价邀请同事务提交。旧closed行程不会重算；旧收据冲突保留首次角色和未知时间。个人次数按每个匹配账户一次，至少一司机、一真实乘客；不按同行座位数。公开人次保留旧口径：有司机时 `min(5,1+active乘客seat_count之和)`，无司机求车0，供车司机独行1。两项均不表示用户回访已确认实际成行。public_statistics缺少该AppID基线时整个关闭批次回滚，不偷偷从0开始。
 
 迁移rating保留原ID/分数/时间，核对身份、行程类型、双方角色和唯一关系。已发生的历史提前评分保留并记LEGACY_EARLY_RATING_PRESERVED提示，不改时间，也不放宽新写入权限。所有旧用户role/all评分sum/count/avg/weightedAvg与明细对账后仅归档；加权均分继续使用prior 4.7、weight 3、一位小数。_rideCompletionV1去重收据与三项completed计数必须一致；已退出或当前未匹配者的旧收据仍保留，但不恢复成员。缺失/矛盾/未知业务字段阻断整个导入计划。
 
@@ -342,7 +360,7 @@ nextOccurrence仅返回可直接用于发布的绝对时间stops，移除模板o
 
 登录事务和 `GET /api/v1/referrals/me` 保留或签发本人邀请码；接口只返回码和推荐人数。新码优先沿用原OpenID派生格式，唯一冲突时生成随机码，不覆盖归属。`POST /api/v1/referrals/bind {code}` 要求会话与幂等键，同账号锁串行首次绑定；同码重复为no-op，其他码409，自邀/跨应用/不存在拒绝。已有用户也可首次绑定，不额外推断新客、奖励或首次访问归因。访问明细留给既有分析采集，不再建平行日志表。
 
-公共基线和原邀请码已接首次导入，显示接口已接应用；客户端消费者、生产调度和最终单写切换仍需完成。当前没有将本地模块切换为生产权威写库。
+公共基线和原邀请码已首次导入，显示接口与客户端已接入；active任务仅操作当前PostgreSQL并向采集器投递已提交事件，旧CloudBase定时写者保持冻结。
 
 
 ## 图片上传与读取（023）
@@ -364,4 +382,4 @@ PATCH me 的 avatarFileId 省略表示保留、null表示清空、新UUID必须�
 
 026 的 auth_bridge_nonces(app_id,nonce,expires_at) 只记传输防重放，不是新身份库。CloudBase可信逐次调用上下文经独立用途密钥签名，固定POST /internal/v1/auth/cloudbase、login用途、AppID、原始正文、时间和nonce；窗口60秒、正文最多1KiB。nonce消费与既有users/sessions/referral_codes签发同事务。拒绝调用者传入OpenID、跨应用来源、采集token、过期或重放签名。原微信code换取身份的入口复用同一会话签发器，导入资料不会被空值覆盖。
 
-唯一部署状态 BUSINESS_MODE 默认staged：所有 /api/v1/ 和 /internal/v1/ 请求在解析/认证/业务副作用前返回503，health仍可检查DB。首导和旧writer交接完成后才可部署active；它不是跨数据库自动fallback。AUTH_BRIDGE_KEY_FILE 未配置则不注册身份桥路由；当前没有生产桥密钥、没有部署新的云函数、没有切换旧客户端。
+唯一部署状态 BUSINESS_MODE 默认staged：该状态下所有 /api/v1/ 和 /internal/v1/ 请求在解析/认证/业务副作用前返回503，health仍可检查DB。生产交接已完成并使用active；部署状态不能作为跨数据库自动fallback。AUTH_BRIDGE_KEY_FILE 未配置则不注册身份桥路由；实际密钥仅在服务器，可信微信云入口已部署，新旧协议都使用当前PostgreSQL。

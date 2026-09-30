@@ -11,6 +11,7 @@ const plain = value => JSON.parse(JSON.stringify(value))
 function fixture({ paths = ['photo-one.jpg', 'photo-two.jpg'], failCompress = () => false, failUpload = () => false } = {}) {
   const calls = { compress: [], upload: [], choose: [], patches: [], toasts: [] }
   let definition, counter = 0
+  const storage = { openid: 'synthetic-image-user' }
   const wx = {
     async chooseMedia(options) { calls.choose.push(plain(options)); return { tempFiles: paths.map(tempFilePath => ({ tempFilePath })) } },
     compressImage(options) {
@@ -18,23 +19,28 @@ function fixture({ paths = ['photo-one.jpg', 'photo-two.jpg'], failCompress = ()
       if (failCompress(options)) options.fail({ errMsg: 'fixture compression failure' })
       else options.success({ tempFilePath: options.src.replace(/\.jpg$/, '') + `-quality${options.quality}.jpg` })
     },
-    cloud: {
-      uploadFile(options) {
-        const fileID = `cloud://fixture-env.bucket/${options.cloudPath}`
-        const row = { cloudPath: options.cloudPath, filePath: options.filePath, fileID }
-        calls.upload.push(row)
-        if (failUpload(row)) options.fail({ errMsg: 'fixture upload failure' })
-        else options.success({ fileID })
-        return { onProgressUpdate(callback) { callback({ progress: 50 }); callback({ progress: 100 }) } }
-      }
-    },
+    getStorageSync: key => storage[key],
+    setStorageSync: (key, value) => { storage[key] = value },
+    getImageInfo: ({ success }) => success({ type: 'jpg', width: 100, height: 100 }),
+    getFileSystemManager: () => ({ readFile: ({ success }) => success({ data: new ArrayBuffer(8) }) }),
+    saveFile: ({ tempFilePath, success }) => success({ savedFilePath: tempFilePath }),
+    removeSavedFile() {},
+    cloud: { uploadFile() { assert.fail('no legacy cloud upload') } },
     showToast(options) { calls.toasts.push(plain(options)) }
+  }
+  const backend = { isBackendEnabled: () => true, resolveImages: async () => [],
+    async uploadImage(filePath, purpose) {
+      const fileID = `11111111-1111-4111-8111-${String(++counter).padStart(12, '0')}`
+      const row = { purpose, filePath, fileID }; calls.upload.push(row)
+      if (failUpload(row)) throw new Error('fixture upload failure')
+      return { fileId: fileID }
+    }
   }
   class Clock extends Date { static now() { return 1_800_000_000_000 + counter++ } }
   vm.runInNewContext(source, {
     wx, Date: Clock, console: { error() {} }, Page(value) { definition = value },
     require(name) {
-      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
+      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx, backend)
       if (name === '../../../utils/error') return { showDataError() {} }
       assert.equal(name, '../../../utils/regionTree')
       return { normalizeUserRegion() { return {} } }
@@ -57,8 +63,8 @@ test('each selected image is compressed once per output and the original and thu
   for (const photo of ['photo-one', 'photo-two']) {
     const main = calls.upload.find(row => row.filePath === `${photo}-quality52.jpg`)
     const thumb = calls.upload.find(row => row.filePath === `${photo}-quality42.jpg`)
-    assert.match(main.cloudPath, /^market\/\d+_[a-f0-9]+\.jpg$/)
-    assert.match(thumb.cloudPath, /^market_thumb\/\d+_[a-f0-9]+\.jpg$/)
+    assert.equal(main.purpose, 'market.image')
+    assert.equal(thumb.purpose, 'market.thumbnail')
   }
   assert.deepEqual(page.data.images, ['photo-one.jpg', 'photo-two.jpg'])
   assert.equal(page.data.imageFileIDs.length, 2)
@@ -86,8 +92,8 @@ test('compression failure uses the original file for both uploads without a seco
 })
 
 test('either upload failing keeps that image out of the submitted pair and continues later images', async () => {
-  for (const folder of ['market', 'market_thumb']) {
-    const { page, calls } = fixture({ failUpload: row => row.filePath.startsWith('photo-one-') && row.cloudPath.startsWith(folder + '/') })
+  for (const folder of ['market.image', 'market.thumbnail']) {
+    const { page, calls } = fixture({ failUpload: row => row.filePath.startsWith('photo-one-') && row.purpose === folder })
     await page.onChooseImage()
     assert.equal(calls.compress.length, 4)
     assert.equal(calls.upload.length, 4)
@@ -104,8 +110,8 @@ test('either upload failing keeps that image out of the submitted pair and conti
 
 test('existing images retain their order and the six-image limit still bounds compression and uploads', async () => {
   const { page, calls } = fixture()
-  const existing = Array.from({ length: 5 }, (_, i) => `cloud://fixture-env.bucket/market/existing-${i}.jpg`)
-  const thumbs = Array.from({ length: 5 }, (_, i) => `cloud://fixture-env.bucket/market_thumb/existing-${i}.jpg`)
+  const existing = Array.from({ length: 5 }, (_, i) => `22222222-2222-4222-8222-${String(i).padStart(12, '0')}`)
+  const thumbs = Array.from({ length: 5 }, (_, i) => `33333333-3333-4333-8333-${String(i).padStart(12, '0')}`)
   Object.assign(page.data, { images: [...existing], image: existing[0], imageFileID: existing[0], imageFileIDs: [...existing],
     thumbFileID: thumbs[0], thumbFileIDs: [...thumbs] })
   await page.onChooseImage()

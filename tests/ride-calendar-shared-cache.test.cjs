@@ -7,9 +7,7 @@ const vm = require('node:vm')
 const ROOT = path.join(__dirname, '..')
 const plain = value => JSON.parse(JSON.stringify(value))
 const dateEvent = date => ({ currentTarget: { dataset: { date } } })
-const response = month => ({ result: { success: true, month, data: {
-  days: [{ date: `${month}-20`, carpoolCount: 12, requestCount: 3 }]
-} } })
+const response = month => ({ month, days: [{ date: `${month}-20`, offerCount: 12, requestCount: 3 }] })
 
 // Load the real list/newTrip pages through one CommonJS module cache, as a mini-program does.
 function harness() {
@@ -25,13 +23,15 @@ function harness() {
     getStorageSync: key => state.store[key],
     setStorageSync: (key, value) => { state.store[key] = plain(value) },
     hideKeyboard() {},
-    cloud: { callFunction(args) {
-      assert.equal(args.name, 'getTripList')
-      assert.equal(args.data.action, 'calendar', 'opening a calendar must not read list details or publish trips')
-      state.calls.push(plain(args))
-      return state.queue.length ? state.queue.shift().promise : Promise.resolve(response(args.data.month))
-    } }
+    cloud: { callFunction() { throw new Error('Calendars must not call CloudBase') } }
   }
+  const backend = { isBackendEnabled: () => true, get(path, options) {
+    const url = new URL(path, 'https://fixture.invalid')
+    assert.equal(url.pathname, '/api/v1/rides/calendar', 'opening a calendar must not read list details or publish trips')
+    assert.equal(options.public, true)
+    state.calls.push({ path, options: plain(options) })
+    return state.queue.length ? state.queue.shift().promise : Promise.resolve(response(url.searchParams.get('month')))
+  } }
   const definitions = new Map()
   let currentPage
   const context = vm.createContext({
@@ -41,10 +41,8 @@ function harness() {
   const modules = new Map()
   function load(filename) {
     const absolute = path.resolve(filename)
-    // Calendars run after a confirmed legacy handshake; startup has its own tests.
-    if (absolute === path.join(ROOT, 'utils/backendAuthority.js')) return { getMode: () => 'cloudbase', isReady: () => true,
-      ready: async () => 'cloudbase', subscribe: () => () => {} }
-    if (absolute === path.join(ROOT, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
+    // Exercise the real ride DTO adapter; authentication transport has its own tests.
+    if (absolute === path.join(ROOT, 'utils/backendClient.js')) return backend
     if (absolute === path.join(ROOT, 'utils/error.js')) return { showDataError() {} }
     if (modules.has(absolute)) return modules.get(absolute).exports
     const module = { exports: {} }

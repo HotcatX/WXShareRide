@@ -4,10 +4,8 @@ const accountKey = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${w
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
-const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { blockRideUser, formatRidePricePerPerson, formatRideStats, markRideListStale } = require("../../../utils/tripManage")
-const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
+const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 const { isRouteExpired } = require("../../../utils/routeExpiry")
 const { routeKey, readJoinAddresses, rememberJoinAddresses } = require("../../../utils/joinAddresses")
 
@@ -50,10 +48,6 @@ function containsFortLeeCore(addr) {
   return keywords.some(k => s.includes(k))
 }
 
-function cleanOpenid(value) {
-  return String(value || '').trim()
-}
-
 function extractUserInfoDoc(result = {}) {
   if (!result || typeof result !== 'object') return null
   if (Array.isArray(result.data)) return result.data[0] || null
@@ -61,19 +55,6 @@ function extractUserInfoDoc(result = {}) {
   if (result.userInfo && typeof result.userInfo === 'object') return result.userInfo
   if (result.user && typeof result.user === 'object') return result.user
   return null
-}
-
-function getCarpoolDriverOpenid(trip = {}) {
-  return cleanOpenid(trip._openid)
-}
-
-function getCarpoolPassengerOpenids(trip = {}) {
-  const ids = new Set()
-  ;(Array.isArray(trip.passengers) ? trip.passengers : []).forEach(item => {
-    ids.add(cleanOpenid(item && item._openid))
-  })
-  ids.delete('')
-  return Array.from(ids)
 }
 
 Page({
@@ -200,8 +181,7 @@ Page({
     this.setData({ tripId })
     // Shared/direct entries verify current status before showing any cached details.
     const sharedEntry = options.fromShare === '1' || getCurrentPages().length <= 1
-    const hasPreview = !sharedEntry && this.applyCachedPreview(tripId)
-    const loadPromise = this.loadTripDetail(tripId, { silent: hasPreview, force: sharedEntry })
+    const loadPromise = this.loadTripDetail(tripId, { force: sharedEntry })
     this._detailLoadPromise = loadPromise
     loadPromise.then(
       () => {
@@ -472,69 +452,19 @@ Page({
   // =========================
   // loadTripDetail
   // =========================
-  isFreshPreview(preview, id, type) {
-    if (!preview || preview.id !== id || preview.type !== type || !preview.item) return false
-    if (!preview.savedAt || Date.now() - Number(preview.savedAt) > DETAIL_PREVIEW_TTL) return false
-    return true
-  },
-
-  applyCachedPreview(id) {
-    if (rides.isBackendEnabled()) return false
-    let applied = false
-
-    try {
-      const cached = wx.getStorageSync(DETAIL_PREVIEW_KEY)
-      if (this.isFreshPreview(cached, id, "carpool")) {
-        applied = this.applyTripData(cached.item, id, { fromPreview: true })
-      }
-    } catch (e) {
-    }
-
-    try {
-      const channel = this.getOpenerEventChannel && this.getOpenerEventChannel()
-      if (channel && typeof channel.on === "function") {
-        channel.on("routePreview", (preview) => {
-          if (this.isFreshPreview(preview, id, "carpool")) {
-            this.applyTripData(preview.item, id, { fromPreview: true })
-          }
-        })
-      }
-    } catch (e) {
-    }
-
-    return applied
-  },
-
-  applyTripData(trip, id, options = {}) {
+  applyTripData(trip, id) {
     if (!trip) return false
     if (isRouteExpired(trip)) {
       this.setRouteExpired()
       return true
     }
-    // A delayed list preview must not revive a route the detail request has closed.
-    if (options.fromPreview && this.data.routeExpired) return true
 
-    const myOpenid = wx.getStorageSync('openid') || ''
-    let hasJoined = false
-    let isOwner = false
-
-    if (trip.serverMode) {
-      isOwner = trip.viewer?.isCreator === true
-      hasJoined = trip.viewer?.role === 'passenger'
-    } else if (myOpenid) {
-      if (trip._openid === myOpenid) isOwner = true
-      hasJoined = getCarpoolPassengerOpenids(trip).includes(myOpenid)
-    }
-    const driverOpenid = getCarpoolDriverOpenid(trip)
-    const keepDriverStats = options.fromPreview && this.data.trip &&
-      this.data.trip._id === trip._id && this.data.driverOpenid === driverOpenid
+    const isOwner = trip.viewer?.isCreator === true
+    const hasJoined = trip.viewer?.role === 'passenger'
 
     let departAddress = ''
     let destAddress = ''
     let formattedDepartTime = ''
-    let carBrandModel = this.data.carBrandModel || ''
-
-    if (!options.fromPreview) carBrandModel = ''
 
     if (Array.isArray(trip.departures) && trip.departures.length > 0) {
       const d = trip.departures[0]
@@ -562,16 +492,16 @@ Page({
       routeExpired: false,
       hasJoined,
       isOwner,
-      driverInfo: options.fromPreview ? this.data.driverInfo : null,
-      driverCompletedText: keepDriverStats ? this.data.driverCompletedText : '无',
-      driverRatingText: keepDriverStats ? this.data.driverRatingText : '无',
-      driverOpenid,
+      driverInfo: null,
+      driverCompletedText: '无',
+      driverRatingText: '无',
+      driverOpenid: '',
       driverUserId: trip.driverUserId || '',
       departAddress,
       destAddress,
       formattedDepartTime,
       referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice, '价格以司机确认为准'),
-      carBrandModel,
+      carBrandModel: '',
       showFortLeeCoreTip,
       loading: false
     }, () => rideTelemetry.detailViewed(this, trip, 'carpool'))
@@ -604,30 +534,14 @@ Page({
 
     this.applyTripData(trip, id)
     if (this.data.routeExpired) return true
-    const driverOpenid = getCarpoolDriverOpenid(trip)
-    const canShowDriverInfo = this.data.hasJoined || this.data.isOwner
-    if (result.driverInfo && (trip.serverMode ? result.driverInfo.userId : result.driverInfo._openid)) {
-      this.applyDriverInfo(result.driverInfo, trip._id || id)
-    } else if (!trip.serverMode && driverOpenid && canShowDriverInfo) {
-      this.loadDriverInfo(driverOpenid, trip._id || id)
-    }
+    if (result.driverInfo?.userId) this.applyDriverInfo(result.driverInfo, trip._id || id)
     this.applyDriverStats(result.driverStats || (result.driverInfo && result.driverInfo.rideStats))
     return true
   },
 
   async loadTripDetail(id, options = {}) {
     const sequence = this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
-    const { silent = false, force = false } = options
-    const cached = !force ? readTripDetailCache("carpool", id, { allowStale: true }) : null
-    if (cached && this.applyTripDetailResult(cached, id, { silentError: true })) {
-      fetchTripDetail("carpool", id, { force: true })
-        .then(result => {
-          if (sequence === this._detailLoadSequence) this.applyTripDetailResult(result, id, { silentError: true })
-        })
-        .catch(() => {})
-      return
-    }
-
+    const { silent = false } = options
     if (!silent) this.setData({ loading: true, loadError: '', notFound: false })
 
     try {
@@ -636,14 +550,7 @@ Page({
       this.applyTripDetailResult(result, id)
     } catch (err) {
       if (sequence !== this._detailLoadSequence) return
-      if (rides.isBackendEnabled()) { this.setLoadError(err.message || '路线加载失败，请重试'); return }
-      if (this.data.trip || this.data.routeExpired) {
-        this.showToastBar('网络异常', 'error')
-        this.setData({ loading: false })
-        return
-      }
-      console.error('请求错误:', err)
-      this.setLoadError('网络异常，请稍后重试')
+      this.setLoadError(err.message || '路线加载失败，请重试')
     }
   },
 
@@ -677,28 +584,6 @@ Page({
       driverRatingText: Number.isSafeInteger(formatted.ratingCount) && formatted.ratingCount > 0 && rating > 0 && rating <= 5
         ? formatted.ratingAvg : '无'
     })
-  },
-
-  async loadDriverInfo(driverOpenid, id) {
-    if (rides.isBackendEnabled()) return
-    if (!driverOpenid) return
-
-    try {
-      const userRes = await wx.cloud.callFunction({
-        name: 'getUserInfoByOpenids',
-        data: { openids: [driverOpenid] }
-      })
-
-      if (!userRes.result || !userRes.result.ok) return
-
-      const list = userRes.result.data || []
-      const driverInfo = list[0] || null
-      if (!driverInfo) return
-
-      this.applyDriverInfo(driverInfo, id)
-    } catch (e) {
-      console.error('tripDetail 查询司机信息失败：', e)
-    }
   },
 
   // =========================
@@ -827,14 +712,13 @@ Page({
   },
 
   async onBlockDriver() {
-    const { tripId, trip, driverOpenid, driverInfo, isOwner } = this.data
-    const targetOpenid = driverOpenid || (trip && trip._openid) || ''
+    const { tripId, trip, driverInfo, isOwner } = this.data
     if (isOwner) {
       wx.showToast({ title: '不能拉黑自己', icon: 'none' })
       return
     }
     const targetUserId = trip?.driverUserId || ''
-    if (!(rides.isBackendEnabled() ? targetUserId : targetOpenid)) {
+    if (!targetUserId) {
       wx.showToast({ title: '缺少拉黑对象', icon: 'none' })
       return
     }
@@ -843,7 +727,6 @@ Page({
     await blockRideUser({
       type: 'carpool',
       tripId: tripId || (trip && trip._id) || '',
-      targetOpenid,
       targetUserId,
       targetName: (driverInfo && (driverInfo.name || driverInfo.nickName)) || '司机'
     })

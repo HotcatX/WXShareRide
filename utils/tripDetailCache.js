@@ -1,8 +1,6 @@
 const rides = require("./compat/rides")
 const TRIP_DETAIL_CACHE_KEY = "trip_detail_cache_v1"
 const TRIP_DETAIL_CACHE_TTL = 5 * 60 * 1000
-const TRIP_DETAIL_CACHE_MAX_STALE = 30 * 60 * 1000
-const TRIP_DETAIL_CACHE_MAX_SIZE = 80
 const PREFETCH_LIMIT = 8
 const pendingRequests = new Map()
 
@@ -32,21 +30,17 @@ function makeKey(type, id, viewerKey = getViewerKey()) {
   const keyType = normalizeType(type)
   const keyId = normalizeId(id)
   if (!keyId) return ""
-  return `${rides.isBackendEnabled() ? "server" : "cloudbase"}:${viewerKey}:${keyType}:${keyId}`
+  return `server:${viewerKey}:${keyType}:${keyId}`
 }
 
-function getStore() {
+// This obsolete disk key may contain member contacts from an older release.
+// Current detail reads only share an in-flight request; they never persist data.
+function clearHistoricalCache() {
   try {
-    const store = wx.getStorageSync(TRIP_DETAIL_CACHE_KEY)
-    return store && typeof store === "object" && !Array.isArray(store) ? store : {}
-  } catch (e) {
-    return {}
-  }
-}
-
-function setStore(store = {}) {
-  try {
-    wx.setStorageSync(TRIP_DETAIL_CACHE_KEY, store)
+    const historical = wx.getStorageSync(TRIP_DETAIL_CACHE_KEY)
+    if (historical !== undefined && historical !== '') {
+      wx.removeStorageSync(TRIP_DETAIL_CACHE_KEY)
+    }
   } catch (e) {
   }
 }
@@ -60,58 +54,25 @@ function isSuccessResult(result = {}) {
   return !!(result && (result.ok || result.success) && getResultTrip(result))
 }
 
-function pruneStore(store = {}) {
-  const keys = Object.keys(store)
-  if (keys.length <= TRIP_DETAIL_CACHE_MAX_SIZE) return store
-
-  keys
-    .sort((a, b) => (Number(store[a]?.ts) || 0) - (Number(store[b]?.ts) || 0))
-    .slice(0, keys.length - TRIP_DETAIL_CACHE_MAX_SIZE)
-    .forEach(key => delete store[key])
-
-  return store
-}
-
-function readTripDetailCache(type, id, options = {}) {
-  // Contacts and short-lived signed URLs are never persisted in server mode.
-  if (rides.isBackendEnabled()) return null
-  const key = makeKey(type, id)
-  if (!key) return null
-  const entry = getStore()[key]
-  if (!entry || !entry.result || !entry.ts) return null
-  const age = Date.now() - Number(entry.ts || 0)
-  if (!Number.isFinite(age) || age < 0) return null
-  const maxAge = options.allowStale ? TRIP_DETAIL_CACHE_MAX_STALE : TRIP_DETAIL_CACHE_TTL
-  if (age > maxAge) return null
-  if (!isSuccessResult(entry.result)) return null
-  return entry.result
+function readTripDetailCache() {
+  clearHistoricalCache()
+  return null
 }
 
 function writeTripDetailCache(type, id, result) {
-  if (rides.isBackendEnabled()) return isSuccessResult(result) ? result : null
-  const key = makeKey(type, id)
-  if (!key || !isSuccessResult(result)) return null
-  const store = pruneStore(getStore())
-  store[key] = {
-    ts: Date.now(),
-    result
-  }
-  setStore(store)
-  return result
+  clearHistoricalCache()
+  return isSuccessResult(result) ? result : null
 }
 
 function removeTripDetailCache(type, id) {
   const key = makeKey(type, id)
-  if (!key) return
-  // An older read must not put pre-mutation membership/contact data back into storage.
-  pendingRequests.delete(key)
-  const store = getStore()
-  if (!store[key]) return
-  delete store[key]
-  setStore(store)
+  if (key) pendingRequests.delete(key)
+  clearHistoricalCache()
 }
 
 async function fetchTripDetail(type, id, options = {}) {
+  clearHistoricalCache()
+  if (!rides.isBackendEnabled()) throw Object.assign(new Error("业务服务尚未切换"), { code: "BACKEND_DISABLED" })
   const detailType = normalizeType(type)
   const detailId = normalizeId(id)
   if (!detailId) {
@@ -121,25 +82,16 @@ async function fetchTripDetail(type, id, options = {}) {
   const key = makeKey(detailType, detailId, viewerKey)
 
   if (!options.force) {
-    const cached = readTripDetailCache(detailType, detailId, { allowStale: !!options.allowStale })
-    if (cached) return cached
     const pending = pendingRequests.get(key)
     if (pending) return pending.promise
   }
 
   // A forced read may follow a join/leave mutation, so it must not join an
-  // older request. Its response also takes precedence over older cache writes.
+  // older request. Subsequent ordinary reads join the replacement request.
   const request = {}
   request.promise = Promise.resolve().then(() => rides.getTripDetail(detailType, detailId)).then(result => {
     if (getViewerKey() !== viewerKey) {
       return { ok: false, success: false, identityChanged: true, errorMsg: "登录状态已变化，请重新加载", type: detailType }
-    }
-    if (pendingRequests.get(key) === request) {
-      if (isSuccessResult(result)) {
-        writeTripDetailCache(detailType, detailId, result)
-      } else if (result.notFound || result.blocked) {
-        removeTripDetailCache(detailType, detailId)
-      }
     }
     return result
   }).finally(() => {
@@ -168,7 +120,6 @@ function prefetchTripDetails(entries = [], options = {}) {
     const key = `${entry.type}:${entry.id}`
     if (seen.has(key)) return
     seen.add(key)
-    if (!options.force && readTripDetailCache(entry.type, entry.id)) return
     targets.push(entry)
   })
 

@@ -6,11 +6,9 @@ const analytics = require('../../utils/analyticsSession')
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const PUBLIC_STATS_CACHE_KEY = 'homePublicStatsCacheV1'
 const PUBLIC_STATS_CACHE_TTL = 24 * 60 * 60 * 1000
-const HOME_STATUS_REFRESH_KEY = 'homeStatusRefreshAtV1'
-const HOME_STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const RIDE_LIST_REFRESH_KEY = 'rideListShouldRefreshAt'
 const MAX_TIMEOUT_MS = 2147483647
-const { formatRidePriceTag: formatRidePriceTagShared, markRideListStale } = require("../../utils/tripManage")
+const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
 const rideTime = require("../../utils/rideTime")
 const community = require("../../utils/community")
 const publicStatsClient = require("../../utils/publicStatsClient")
@@ -310,7 +308,6 @@ Page({
   },
 
   // 请求状态不参与页面渲染。
-  _statusRefreshPromise: null,
   _homeShowTimer: null,
   _communityActive: false,
   _communityRequestVersion: 0,
@@ -451,7 +448,7 @@ Page({
       if (this.data.isRideServiceAvailable) {
         this.loadPublicStats()
         const visit = this._homeFollowupVisit
-        Promise.resolve(this.refreshHomeData(false, { forceStatus: false })).then(() => {
+        Promise.resolve(this.refreshHomeData(false)).then(() => {
           if (!this._communityActive || !visit || this._homeFollowupVisit !== visit) return
           visit.ready = true
           this.loadHomeFollowup()
@@ -477,22 +474,19 @@ Page({
   },
 
   // The home card list only contains current memberships; completed rides move
-  // into history. Reuse the normal status sync before one deduplicated history
-  // read, with no background polling and no requests after this session's prompt.
+  // into history. Read it once per cache window without background polling or
+  // further requests after this session's prompt.
   async loadHomeFollowup(force = false) {
     if (!this._communityActive || !(this._homeFollowupVisit && this._homeFollowupVisit.ready) || !this.data.isRideServiceAvailable ||
       !homeIdentity() || !followup.canConsider()) return
     const identity = homeIdentity()
-    let key = this.homeReadKey()
+    const key = this.homeReadKey()
     try {
       await readHomeResource(this, 'followup', key, force, async isCurrent => {
         this._homeFollowup = null
         const current = () => isCurrent() && this._communityActive &&
           identity === homeIdentity() && key === this.homeReadKey()
-        await this.refreshHomeStatusInBackground(false)
         if (!isCurrent() || !this._communityActive || identity !== homeIdentity() || !followup.canConsider()) return false
-        // Status sync can move a just-finished trip and bump the list revision.
-        key = this.homeReadKey()
         const response = await loadRideHistory(identity)
         if (!current()) return false
         if (!response || !response.result || response.result.ok !== true || !Array.isArray(response.result.data)) return false
@@ -648,8 +642,6 @@ Page({
       delete this._homeReads.followup
       this._homeFollowup = null
       followup.hide(this)
-      this._statusRefreshPromise = null
-      this._statusRefreshIdentity = ''
       this.setData({
         driverCreateTrips: [], driverJoinTrips: [], passengerCreateTrips: [], passengerTrips: [],
         createTrips: [], joinTrips: [], createShow: [], joinShow: [], customTabProfileBadge: 0, loading: false
@@ -915,22 +907,19 @@ Page({
   },
 
   // =========================
-  // ✅ 首页首屏只拉卡片数据；状态更新放后台，避免全屏 loading 卡住操作。
+  // 首页卡片使用服务器返回的当前行程；完成状态由服务器维护。
   // =========================
-  async refreshHomeData(force = false, options = {}) {
+  async refreshHomeData(force = false) {
     if (!this.data.isRideServiceAvailable || !homeIdentity()) {
       this.setData({ loading: false })
       return Promise.resolve()
     }
     const key = this.homeReadKey()
-    const forceStatus = options.forceStatus === undefined ? force : !!options.forceStatus
     try {
       await readHomeResource(this, 'trips', key, force, async isCurrent => {
         this.setData({ loading: true })
         try {
-          const loaded = await this.loadHomeTripLists(key, isCurrent)
-          if (loaded !== false) this.refreshHomeStatusInBackground(forceStatus)
-          return loaded
+          return await this.loadHomeTripLists(key, isCurrent)
         } finally {
           if (isCurrent() && key === this.homeReadKey()) {
             this.setData({ loading: false })
@@ -1020,44 +1009,6 @@ Page({
     this.setData({ createTrips, joinTrips }, () => {
       this._recomputeHomeShows()
     })
-  },
-
-  refreshHomeStatusInBackground(force = false) {
-    // TEMPORARY FALLBACK: only CloudBase builds invoke legacy status jobs.
-    if (rides.isBackendEnabled()) return Promise.resolve()
-    const identity = homeIdentity()
-    if (!identity) return Promise.resolve()
-    if (this._statusRefreshPromise && this._statusRefreshIdentity === identity) return this._statusRefreshPromise
-
-    const now = Date.now()
-    const statusKey = `${HOME_STATUS_REFRESH_KEY}:${identity}`
-    const last = Number(wx.getStorageSync(statusKey) || 0)
-    if (!force && last && now - last >= 0 && now - last < HOME_STATUS_REFRESH_INTERVAL) {
-      return Promise.resolve()
-    }
-
-    this._statusRefreshIdentity = identity
-    const request = wx.cloud.callFunction({ name: 'syncMyTripStatus' }).then((res) => {
-      const result = res && res.result ? res.result : {}
-      if (!(result.ok || result.success) || identity !== homeIdentity() || this._statusRefreshPromise !== request) return null
-      wx.setStorageSync(statusKey, Date.now())
-      const changedCount =
-        Number(result.moved || 0) +
-        Number(result.movedTotal || 0) +
-        Number(result.requestUpdated || 0) +
-        Number(result.carpoolUpdated || 0)
-
-      if (changedCount > 0) {
-        markRideListStale()
-        return this.loadHomeTripLists(this.homeReadKey(), () => this._statusRefreshPromise === request)
-      }
-      return null
-    }).catch((e) => {
-    }).finally(() => {
-      if (this._statusRefreshPromise === request) this._statusRefreshPromise = null
-    })
-    this._statusRefreshPromise = request
-    return request
   },
 
   // =========================

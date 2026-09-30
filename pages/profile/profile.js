@@ -103,7 +103,7 @@ Page({
     if (basicUser && profileIdentity() && basicUser._openid === profileIdentity()) {
       this.setData({
         userInfo: basicUser,
-        avatarUrl: profileApi.isBackendEnabled() ? defaultAvatarUrl : basicUser.avatarUrl || this.data.avatarUrl,
+        avatarUrl: defaultAvatarUrl,
         name: basicUser.name || this.data.name
       })
     }

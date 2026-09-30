@@ -126,7 +126,7 @@ test('account switching while a management confirmation is open prevents mutatio
 
 test('server block list uses target UUIDs and cannot unblock after account change', async () => {
   const h = fixture('blockList'); await h.page.loadBlockList()
-  assert.equal(h.page.data.list[0].wechatID, 'canonical-wechat'); assert.equal(h.page.data.list[0].targetUserId, otherId); assert.equal(h.page.data.list[0].targetOpenid, '')
+  assert.equal(h.page.data.list[0].wechatID, 'canonical-wechat'); assert.equal(h.page.data.list[0].targetUserId, otherId); assert.equal('targetOpenid' in h.page.data.list[0], false)
   const event = { currentTarget: { dataset: { userId: otherId } } }
   h.page.onUnblockUser(event); await h.state.modals[0].success({ confirm: true })
   assert.deepEqual(h.state.writes[1], { action: 'unblockUser', targetUserId: otherId }); assert.equal(h.page.data.list.length, 0)

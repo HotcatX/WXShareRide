@@ -11,7 +11,9 @@ const plain = value => JSON.parse(JSON.stringify(value))
 function harness(name, type = /Request/.test(name) ? 'request' : 'carpool') {
   const events = [], clipboard = [], toasts = [], renderCallbacks = []
   const state = { scope: 'test:participant:grant', ok: true }
-  const trip = { _id: 'trip_synthetic_1', _openid: '', driverOpenid: '', passengerID: [], passengers: [],
+  const role = name.endsWith('Driver') ? 'driver' : 'passenger'
+  const creator = ['myTripRequestPassenger', 'myTripDetailDriver'].includes(name)
+  const trip = { serverMode: true, kind: type === 'request' ? 'request' : 'offer', canonicalStatus: 'open', passengerCount: 1, _id: 'trip_synthetic_1', _openid: '', driverOpenid: '', passengerID: [], passengers: [],
     referencePrice: '13$/人', availSeatNum: 2, status: 'open',
     departures: [{ address: 'Fort Lee private stop', date: '2026-09-25', time: '10:00' }],
     destinations: [{ address: 'Columbia private stop' }] }
@@ -30,7 +32,10 @@ function harness(name, type = /Request/.test(name) ? 'request' : 'carpool') {
     Page: value => { definition = value }, wx, setTimeout,
     console: { error() {}, warn() {} },
     require(moduleName) {
-      if (moduleName.endsWith('/compat/rideContacts')) return require('./helpers/legacy-ride-contacts.cjs')()
+      if (moduleName.endsWith('/compat/rideContacts')) return require('./helpers/load-ride-contacts.cjs')({
+        rides: { isBackendEnabled: () => true, getTripDetail: async () => state.ok ? { ok: true, data: trip,
+          viewer: { userId: 'viewer', role, isCreator: creator }, passengerProfiles: [], ratedTargetUserIds: [] } : { ok: false } },
+        profile: { identity: () => 'viewer' }, telemetry: helper })
       if (moduleName.endsWith('rideTelemetry')) return helper
       if (moduleName.endsWith('tripManage')) return tripManage
       if (moduleName.endsWith('error')) return { showDataError() {} }

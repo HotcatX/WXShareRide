@@ -11,34 +11,38 @@ const pagePaths = {
   passenger: 'pages/profile/myTripRequestPassenger/myTripRequestPassenger.js'
 }
 const request = (extra = {}) => ({
-  _id: 'request', _openid: 'creator', passengerID: ['p1', 'p2', 'p3'], passengerCount: 4,
-  status: 'full', driverOpenid: '', departures: [{ address: 'Fort Lee', date: '2030-01-01', time: '08:00' }],
+  _id: 'request', serverMode: true, kind: 'request', canonicalStatus: 'open', passengerCount: 4,
+  status: 'open', availableSeats: 0, hasDriver: false, viewer: { userId: 'viewer', role: null, isCreator: false }, departures: [{ address: 'Fort Lee', date: '2030-01-01', time: '08:00' }],
   destinations: [{ address: '哥大' }], ...extra
 })
-const profile = id => ({ _openid: id, name: id, phone: `phone-${id}`, wechatID: `wechat-${id}` })
+const profile = id => ({ userId: id, name: id, role: id.includes('driver') ? 'driver' : 'passenger', seatCount: 1, phone: `phone-${id}`, wechatID: `wechat-${id}` })
 
 function harness(kind, result, actor = 'driver') {
   const calls = [], reads = [], invalidated = [], navigations = [], toasts = []
   let definition
-  const state = { result, userResult: { ok: true, data: [] }, accepted: { ok: true }, stale: 0, actor, guest: false }
+  const state = { result, accepted: { ok: true }, stale: 0, actor, guest: false }
   const wx = {
     getStorageSync: key => key === 'openid' ? state.actor : key === 'isGuest' ? state.guest : undefined,
     getWindowInfo: () => ({ statusBarHeight: 40 }), showShareMenu() {}, stopPullDownRefresh() {},
     showToast: options => toasts.push(options.title),
     redirectTo: options => navigations.push(options.url),
-    cloud: { async callFunction(options) {
-      calls.push(options)
-      const result = await state.userResult
-      if (result instanceof Error) throw result
-      return { result }
-    } }
+    cloud: { callFunction() { throw new Error('Private contacts must not call CloudBase') } }
   }
+  const rides = { isBackendEnabled: () => true, async getTripDetail(type, id) {
+    reads.push({ type, id })
+    const value = await state.result
+    if (value instanceof Error) throw value
+    return value
+  } }
+  const account = { identity: () => state.guest ? '' : state.actor, isBackendEnabled: () => true }
+  const telemetry = require('./helpers/load-ride-telemetry.cjs')({}, { wx })
+  const contacts = require('./helpers/load-ride-contacts.cjs')({ rides, profile: account, telemetry })
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', pagePaths[kind]), 'utf8'), {
     Page(value) { definition = value }, wx, console: { error() {}, warn() {} }, setTimeout,
     require(name) {
-      if (name.endsWith('/compat/rideContacts')) return require('./helpers/legacy-ride-contacts.cjs')()
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
-      if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
+      if (name.endsWith('/compat/rideContacts')) return contacts
+      if (name.endsWith('/compat/rides')) return rides
+      if (name.endsWith('/compat/profile')) return account
       if (name.endsWith('tripManage')) return {
         ...tripManage,
         async callTripManage(options) { calls.push(options); return state.accepted },
@@ -55,7 +59,7 @@ function harness(kind, result, actor = 'driver') {
     }
   })
   const page = { ...definition, data: structuredClone(definition.data) }
-  page.setData = function(patch) { Object.assign(this.data, patch) }
+  page.setData = function(patch, callback) { Object.assign(this.data, patch); if (callback) callback() }
   return { page, calls, reads, state, invalidated, navigations, toasts }
 }
 
@@ -80,7 +84,7 @@ test('a full passenger group without a driver remains available for driver accep
 })
 
 test('an assigned or completed request cannot be accepted again regardless of passenger capacity', async () => {
-  for (const extra of [{ driverOpenid: 'other-driver' }, { status: 'past' }, { status: 'cancelled' }]) {
+  for (const extra of [{ hasDriver: true }, { status: 'past' }, { status: 'cancelled' }]) {
     const h = harness('public')
     h.page.data.tripId = 'request'
     h.page.applyRequestData(request(extra))
@@ -111,103 +115,92 @@ test('an explicit acceptance failure never navigates to contacts or clears the c
   }
 })
 
-test('driver management enters with a fresh read and reuses authorized profiles including an omitted creator', async () => {
-  const h = harness('driver', {
-    ok: true, openid: 'driver', data: request({ driverOpenid: 'driver' }),
-    passengerProfiles: ['creator', 'p1', 'p2', 'p3'].map(profile), passengerProfilesError: false
-  })
+const managementDetail = (role, { driver = 'driver', passengers = ['creator', 'p1', 'p2', 'p3'], count = 4, viewerRole = role } = {}) => {
+  const viewer = { userId: role === 'driver' ? 'driver' : 'creator', role: viewerRole, isCreator: role === 'passenger' }
+  return { ok: true, viewer, ratedTargetUserIds: [],
+    data: request({ passengerCount: count, hasDriver: !!driver, driverUserId: driver || null, viewer }),
+    driverInfo: driver ? profile(driver) : null, passengerProfiles: passengers.map(profile) }
+}
+
+test('driver management enters with a fresh authorized read including the creator without a separate profile lookup', async () => {
+  const h = harness('driver', managementDetail('driver'))
   await h.page.onLoad({ requestId: 'request' })
-  assert.equal(h.reads[0].options.force, true)
-  assert.equal(h.reads[0].options.allowStale, false)
+  assert.deepEqual(h.reads, [{ type: 'request', id: 'request' }])
   assert.equal(h.page.data.isMyRequest, true)
-  assert.deepEqual(Array.from(h.page.data.passengers, item => item._openid), ['creator', 'p1', 'p2', 'p3'])
+  assert.deepEqual(Array.from(h.page.data.passengers, item => item.userId), ['creator', 'p1', 'p2', 'p3'])
   assert.equal(h.page.data.passengers[0].wechatID, 'wechat-creator')
   assert.equal(h.page.data.passengersError, '')
-  assert.equal(h.calls.length, 0, 'the detail response must replace the extra user lookup')
+  assert.equal(h.calls.length, 0, 'the authorized detail response replaces the extra user lookup')
 })
 
-test('failed authorized passenger lookup preserves known membership and presents an explicit retry', async () => {
-  const h = harness('driver', {
-    ok: true, openid: 'driver', data: request({ driverOpenid: 'driver' }),
-    passengerProfiles: [], passengerProfilesError: true
-  })
+test('failed authorized contact refresh clears private state and presents an explicit retry', async () => {
+  const h = harness('driver', managementDetail('driver'))
   h.page.data.requestId = 'request'
   await h.page.loadRequestDetail('request')
   assert.equal(h.page.data.passengers.length, 4)
-  assert.match(h.page.data.passengersError, /加载失败/)
-  assert.equal(h.page.data.loadError, '')
+  h.state.result = new Error('联系人加载失败')
+  await h.page.loadRequestDetail('request')
+  assert.equal(h.page.data.passengers.length, 0)
+  assert.equal(h.page.data.trip, null)
+  assert.match(h.page.data.loadError, /加载失败/)
   assert.equal(h.calls.length, 0)
-  h.state.result = { ...h.state.result, passengerProfiles: ['creator', 'p1', 'p2', 'p3'].map(profile), passengerProfilesError: false }
+  h.state.result = managementDetail('driver')
   await h.page.onRetryPassengerInfo()
-  assert.equal(h.reads.at(-1).options.force, true)
-  assert.equal(h.page.data.passengersError, '')
+  assert.equal(h.reads.length, 3)
+  assert.equal(h.page.data.loadError, '')
   assert.equal(h.page.data.passengers[0].phone, 'phone-creator')
 })
 
-test('an unassigned viewer never uses the driver page to request contacts', async () => {
-  const h = harness('driver', { ok: true, openid: 'stranger', data: request({ driverOpenid: 'driver' }), passengerProfiles: [] })
+test('an unassigned viewer never uses the driver page to show contacts', async () => {
+  const h = harness('driver', managementDetail('driver', { viewerRole: null }))
   await h.page.loadRequestDetail('request')
   assert.equal(h.page.data.isMyRequest, false)
   assert.equal(h.page.data.passengers.length, 0)
   assert.equal(h.calls.length, 0)
+  assert.match(h.page.data.loadError, /无权/)
 })
 
-test('passenger detail fetches current assignment and missing driverInfo triggers the compatible lookup instead of an empty fake profile', async () => {
-  const h = harness('passenger', {
-    ok: true, openid: 'creator', data: request({ driverOpenid: 'driver', passengerID: ['creator'] })
-  }, 'creator')
-  h.state.userResult = { ok: true, data: [profile('driver')] }
+test('passenger detail fetches current assignment and driver contacts in the same authorized response', async () => {
+  const h = harness('passenger', managementDetail('passenger'), 'creator')
   await h.page.onLoad({ requestId: 'request' })
-  assert.equal(h.reads[0].options.force, true)
-  assert.equal(h.reads[0].options.allowStale, false)
-  assert.equal(h.calls.length, 1)
-  assert.equal(h.calls[0].name, 'getUserInfoByOpenids')
+  assert.deepEqual(h.reads, [{ type: 'request', id: 'request' }])
+  assert.equal(h.calls.length, 0)
   assert.equal(h.page.data.driverInfo.wechatID, 'wechat-driver')
   assert.equal(h.page.data.driverInfoError, '')
 })
 
-test('a failed driver contact lookup does not erase a passenger route or imply unfilled contact fields', async () => {
-  const h = harness('passenger', {
-    ok: true, openid: 'creator', data: request({ driverOpenid: 'driver', passengerID: ['creator'] }), driverInfo: null
-  }, 'creator')
-  h.state.userResult = new Error('offline')
+test('a failed driver contact read does not fabricate empty contact fields and can retry', async () => {
+  const h = harness('passenger', new Error('联系人加载失败'), 'creator')
   await h.page.loadRequestDetail('request')
-  assert.equal(h.page.data.loadError, '')
-  assert.equal(h.page.data.trip._id, 'request')
+  assert.match(h.page.data.loadError, /加载失败/)
+  assert.equal(h.page.data.trip, null)
   assert.equal(h.page.data.driverInfo, null)
-  assert.match(h.page.data.driverInfoError, /加载失败/)
+  h.state.result = managementDetail('passenger')
+  await h.page.loadRequestDetail('request')
+  assert.equal(h.page.data.driverInfo.phone, 'phone-driver')
+  assert.equal(h.page.data.loadError, '')
 })
 
 test('driver passenger summary distinguishes booked seats from contact accounts without another query', async () => {
-  for (const [extra, expected] of [
-    [{ passengerCount: 4, passengerID: ['creator'] }, '4 人 · 1 位联系人'],
-    [{ passengerCount: 1, passengerID: ['creator'] }, '1 人'],
-    [{ passengerCount: undefined, requestPassengerCount: 3, passengerID: ['creator'] }, '3 人 · 1 位联系人'],
-    [{ passengerCount: undefined, passengerID: ['creator', 'p1'] }, '2 人']
+  for (const [count, passengers, expected] of [
+    [4, ['creator'], '4 人 · 1 位联系人'], [1, ['creator'], '1 人'],
+    [3, ['creator'], '3 人 · 1 位联系人'], [2, ['creator', 'p1'], '2 人']
   ]) {
-    const h = harness('driver', {
-      ok: true, openid: 'driver', data: request({ ...extra, driverOpenid: 'driver' }),
-      passengerProfiles: ['creator', 'p1'].map(profile), passengerProfilesError: false
-    })
+    const h = harness('driver', managementDetail('driver', { count, passengers }))
     await h.page.loadRequestDetail('request')
     assert.equal(h.page.data.passengerSummaryText, expected)
     assert.equal(h.calls.length, 0)
   }
 })
 
-test('passenger driver profiles normalize historical nickname and WeChat aliases from either detail or fallback', async () => {
-  for (const [field, source] of [['wechatId', 'detail'], ['wechat', 'fallback']]) {
-    const legacy = { _openid: 'driver', nickName: 'Legacy Driver', [field]: 'legacy-contact' }
-    const h = harness('passenger', {
-      ok: true, openid: 'creator', data: request({ driverOpenid: 'driver', passengerID: ['creator'] }),
-      ...(source === 'detail' ? { driverInfo: legacy } : {})
-    }, 'creator')
-    h.state.userResult = { ok: true, data: [legacy] }
-    await h.page.loadRequestDetail('request')
-    assert.equal(h.page.data.driverInfo.name, 'Legacy Driver')
-    assert.equal(h.page.data.driverInfo.wechatID, 'legacy-contact')
-    assert.equal(h.calls.length, source === 'detail' ? 0 : 1)
-  }
+test('passenger displays migrated canonical driver name and WeChat without a historical alias lookup', async () => {
+  const result = managementDetail('passenger')
+  result.driverInfo = { ...profile('driver'), name: 'Legacy Driver', wechatID: 'legacy-contact' }
+  const h = harness('passenger', result, 'creator')
+  await h.page.loadRequestDetail('request')
+  assert.equal(h.page.data.driverInfo.name, 'Legacy Driver')
+  assert.equal(h.page.data.driverInfo.wechatID, 'legacy-contact')
+  assert.equal(h.calls.length, 0)
 })
 
 function deferred() {
@@ -216,10 +209,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 const flush = () => new Promise(resolve => setImmediate(resolve))
-const passengerDetail = driver => ({
-  ok: true, openid: 'creator', data: request({ driverOpenid: driver, passengerID: ['creator'] }),
-  driverInfo: driver ? profile(driver) : null
-})
+const passengerDetail = driver => managementDetail('passenger', { driver, passengers: ['creator'], count: 1 })
 
 test('an older passenger detail response cannot restore the driver after a newer removal refresh', async () => {
   const old = deferred()
@@ -230,23 +220,22 @@ test('an older passenger detail response cannot restore the driver after a newer
   assert.equal(h.page.data.driverInfo, null)
   old.resolve(passengerDetail('old-driver'))
   await beforeRemoval
-  assert.equal(h.page.data.trip.driverOpenid, '')
+  assert.equal(h.page.data.trip.driverUserId, null)
   assert.equal(h.page.data.driverInfo, null)
   assert.equal(h.page.data.loadError, '')
 })
 
-test('an old pending contact lookup cannot overwrite a newer detail, even when the old lookup fails', async () => {
+test('an old pending authorized contact read cannot overwrite a newer detail, even when the old lookup fails', async () => {
   for (const fail of [false, true]) {
     const old = deferred()
-    const h = harness('passenger', { ...passengerDetail('old-driver'), driverInfo: null }, 'creator')
-    h.state.userResult = old.promise
+    const h = harness('passenger', old.promise, 'creator')
     const pending = h.page.loadRequestDetail('request')
     await flush()
-    assert.equal(h.calls.length, 1)
+    assert.equal(h.reads.length, 1)
     h.state.result = passengerDetail('new-driver')
     await h.page.loadRequestDetail('request', { force: true })
     if (fail) old.reject(new Error('old failure'))
-    else old.resolve({ ok: true, data: [profile('old-driver')] })
+    else old.resolve(passengerDetail('old-driver'))
     await pending
     assert.equal(h.page.data.driverInfo.wechatID, 'wechat-new-driver')
     assert.equal(h.page.data.driverInfoError, '')
@@ -254,15 +243,16 @@ test('an old pending contact lookup cannot overwrite a newer detail, even when t
   }
 })
 
-test('switching account or guest mode during a contact lookup discards private profiles and clears stale data', async () => {
+test('switching account or guest mode during a contact read discards private profiles and clears stale data', async () => {
   for (const changeIdentity of [state => { state.actor = 'other' }, state => { state.guest = true }]) {
     const old = deferred()
-    const h = harness('passenger', { ...passengerDetail('old-driver'), driverInfo: null }, 'creator')
-    h.state.userResult = old.promise
+    const h = harness('passenger', old.promise, 'creator')
     const pending = h.page.loadRequestDetail('request')
     await flush()
     changeIdentity(h.state)
-    old.resolve({ ok: true, data: [profile('old-driver')] })
+    h.state.result = new Error('登录状态已变化，请刷新路线')
+    h.page.onShow()
+    old.resolve(passengerDetail('old-driver'))
     await pending
     assert.equal(h.page.data.driverInfo, null)
     assert.equal(h.page.data.trip, null)
@@ -278,12 +268,9 @@ test('leaving either management page cancels pending detail rendering and pull-r
     const pending = h.page.onDetailRefresherRefresh()
     h.page.onUnload()
     const before = structuredClone(h.page.data)
-    old.resolve(kind === 'passenger' ? passengerDetail('driver') : {
-      ok: true, openid: 'driver', data: request({ driverOpenid: 'driver' }),
-      passengerProfiles: ['creator', 'p1', 'p2', 'p3'].map(profile), passengerProfilesError: false
-    })
+    old.resolve(kind === 'passenger' ? passengerDetail('driver') : managementDetail('driver'))
     await pending
-    assert.deepEqual(h.page.data, before)
+    assert.deepEqual(JSON.parse(JSON.stringify(h.page.data)), before)
     assert.equal(h.calls.length, 0)
   }
 })

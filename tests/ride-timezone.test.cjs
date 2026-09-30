@@ -34,7 +34,6 @@ function timezoneFixture(root) {
   function load(filename) {
     const absolute = path.resolve(root, filename)
     if (absolute === path.join(root, 'utils/error.js')) return { showDataError() {} }
-    if (absolute === path.join(root, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
     if (modules.has(absolute)) return modules.get(absolute).exports
     const module = { exports: {} }
     modules.set(absolute, module)

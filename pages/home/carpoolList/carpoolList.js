@@ -3,7 +3,7 @@ const { showDataError } = require("../../../utils/error")
 const rideTime = require("../../../utils/rideTime")
 const analytics = require("../../../utils/analyticsSession")
 const rideTelemetry = require("../../../utils/rideTelemetry")
-const { formatRidePriceTag, markRideListStale } = require("../../../utils/tripManage")
+const { formatRidePriceTag } = require("../../../utils/tripManage")
 const rideCalendarPicker = require("../../../utils/rideCalendarPicker")
 const { getCachedRideAddressConfig, loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const { makeRidePlaceMatcher, shortRidePlaceLabel, placeIdentity, resolvePlaceId, FIXED_PLACES } = require("../../../utils/ridePlaceOptions")
@@ -33,8 +33,6 @@ const {
 
 const LIST_REFRESH_INTERVAL = 30 * 1000
 const HIDE_FULL_TRIPS_KEY = "carpoolListHideFullTripsV1"
-const STATUS_REFRESH_KEY = "carpoolListStatusRefreshAtV1"
-const STATUS_REFRESH_INTERVAL = 10 * 60 * 1000
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
 const LIST_CACHE_TTL = LIST_REFRESH_INTERVAL
@@ -121,7 +119,6 @@ Page({
 
   _listLoadingPromise: null,
   _optionsLoadingPromise: null,
-  _statusRefreshing: false,
   _loadedOnceAt: 0,
   _initFilterFromShare: null,
 
@@ -171,7 +168,6 @@ Page({
         this.loadBothLists({ showLoading: true }).then(() => {
           setTimeout(() => this.loadCityTreeFromCloud(), 120)
           if (!cachedOptions) setTimeout(() => this.loadFilterPlaceConfig(), 200)
-          setTimeout(() => this.refreshStatusInBackground(false), 800)
         })
       })
     })
@@ -712,66 +708,6 @@ Page({
       console.error("loadFilterPlaceConfig", error)
     }).finally(() => { this._optionsLoadingPromise = null })
     return this._optionsLoadingPromise
-  },
-
-  // =========================
-  // 状态刷新 + 列表加载
-  // =========================
-  async refreshStatusAndReload() {
-    await this.loadBothLists({ showLoading: !this.data.hasLoadedOnce, force: true })
-    this.refreshStatusInBackground(true)
-  },
-
-  refreshStatusInBackground(force) {
-    // TEMPORARY FALLBACK: only CloudBase builds invoke legacy status jobs.
-    if (rides.isBackendEnabled()) return Promise.resolve()
-    if (!this.data.isRideServiceAvailable) return Promise.resolve()
-    if (this._statusRefreshing) return Promise.resolve()
-
-    const now = Date.now()
-    const last = Number(wx.getStorageSync(STATUS_REFRESH_KEY) || 0)
-    if (!force && last && now - last < STATUS_REFRESH_INTERVAL) {
-      return Promise.resolve()
-    }
-
-    this._statusRefreshing = true
-    wx.setStorageSync(STATUS_REFRESH_KEY, now)
-
-    const carpoolIds = (this.data.originalCarpoolList || [])
-      .map(item => item && item._id)
-      .filter(Boolean)
-      .slice(0, 100)
-    const requestIds = (this.data.originalRequestList || [])
-      .map(item => item && item._id)
-      .filter(Boolean)
-      .slice(0, 100)
-    if (!carpoolIds.length && !requestIds.length) {
-      this._statusRefreshing = false
-      return Promise.resolve()
-    }
-
-    return wx.cloud.callFunction({
-      name: "syncTripStatus",
-      data: { type: "all", carpoolIds, requestIds }
-    }).then((res) => {
-      const result = res && res.result ? res.result : {}
-      const updatedCount = Number(result.totalUpdated || 0) || (
-        Number(result.totalUpdatedCarpool || 0) +
-        Number(result.totalUpdatedCarpoolRequest || 0)
-      )
-
-      if (updatedCount > 0) {
-        markRideListStale()
-        return Promise.all([
-          this.loadBothLists({ showLoading: false, force: true }),
-          this.data.calendarVisible ? this.loadCalendarCounts() : Promise.resolve()
-        ])
-      }
-      return null
-    }).catch((e) => {
-    }).finally(() => {
-      this._statusRefreshing = false
-    })
   },
 
   // =========================
@@ -1644,7 +1580,6 @@ Page({
     try {
       if (this.data.isRideServiceAvailable) {
         await this.loadBothLists({ showLoading: false, force: true })
-        this.refreshStatusInBackground(true)
       } else {
         this.setData({
           loading: false,

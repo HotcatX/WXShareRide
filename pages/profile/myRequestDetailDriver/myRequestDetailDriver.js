@@ -3,14 +3,11 @@ const contacts = require("../../../utils/compat/rideContacts")
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const {
   callTripManage,
-  attachRideStats,
   rateTripUser,
   markRideListStale,
-  buildRatedTargetMap,
-  isTargetRated,
-  formatRidePricePerPerson
+  isTargetRated
 } = require("../../../utils/tripManage")
-const { fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
+const { removeTripDetailCache } = require("../../../utils/tripDetailCache")
 
 Page({
   data: {
@@ -150,7 +147,6 @@ Page({
     contacts.onUnload(this)
     rideTelemetry.pageHidden(this)
     this._pageUnloaded = true
-    this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
   },
 
   async onDetailRefresherRefresh() {
@@ -164,167 +160,7 @@ Page({
   },
 
   async loadRequestDetail(requestId, options = {}) {
-    if (contacts.isBackendEnabled()) return contacts.load(this, 'request', requestId, 'driver', options)
-    // TEMPORARY FALLBACK: legacy contacts stay in the selected CloudBase mode only.
-    const sequence = this._requestLoadSequence = (this._requestLoadSequence || 0) + 1
-    const viewerKey = JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
-    const isCurrent = () => {
-      if (sequence !== this._requestLoadSequence) return false
-      if (viewerKey === JSON.stringify([wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])) return true
-      this.setLoadError('登录状态已变化，请重新打开路线')
-      return false
-    }
-    if (!options.silent) this.setData({ loading: true, loadError: '' })
-
-    try {
-      // 1) 读 CarpoolRequest 详情
-      const rawResult = await fetchTripDetail('request', requestId, {
-        force: !!options.force,
-        allowStale: false
-      })
-      if (!isCurrent()) return
-
-      // 兼容：有的函数返回 {success:true,data:[...]}，有的返回 {ok:true,data:...}
-      const success = !!(rawResult && (rawResult.success || rawResult.ok))
-      if (!success) {
-        this.setLoadError((rawResult && (rawResult.errorMsg || rawResult.msg)) || '加载失败')
-        return
-      }
-
-      const trip = Array.isArray(rawResult.data) ? rawResult.data[0] : rawResult.data
-      if (!trip) {
-        this.setLoadError('该求车路线不存在或已被删除')
-        return
-      }
-      const ratedTargetMap = buildRatedTargetMap(rawResult)
-
-      // 2) 基础展示字段
-      const dep0 = (trip.departures && trip.departures[0]) ? trip.departures[0] : {}
-      const des0 = (trip.destinations && trip.destinations[0]) ? trip.destinations[0] : {}
-
-      const fromText = dep0.address || ''
-      const toText = des0.address || ''
-
-      const rawDate = dep0.date || ''
-      const weekdayText = this.getWeekdayCN(rawDate)
-      const dateText = this.formatDateNoYear(rawDate)
-      const timeText = dep0.time || ''
-
-      const showFortLeeCoreTip = this.containsFortLeeCore(fromText) || this.containsFortLeeCore(toText)
-
-      // ✅ 2.1 读取行李数（兼容多个字段名）
-      const largeLuggageCount = Number(
-        trip.largeLuggageCount ??
-        trip.largeBaggageCount ??
-        trip.luggageCount ??
-        trip.baggageCount ??
-        0
-      ) || 0
-
-      // 3) 判断是否本路线司机
-      const myOpenid = (rawResult && rawResult.openid) ? rawResult.openid : ''
-      const driverOpenid = trip.driverOpenid || ''
-      const isMyRequest = !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
-
-      const rawStatus = String(trip.status || 'open').toLowerCase()
-      const isRequestCompleted = rawStatus === 'past'
-      const displayTrip = {
-        ...trip,
-        referencePriceText: formatRidePricePerPerson(trip.referencePrice || trip.price || trip.displayPrice)
-      }
-
-      // 4) 拉取乘客信息：通过 passengerID（数组）读取 openids
-      const passengerOpenids = Array.from(new Set([
-        trip._openid,
-        ...(Array.isArray(trip.passengerID) ? trip.passengerID : [])
-      ].filter(value => typeof value === 'string' && value.trim())
-        .map(value => value.trim()))).filter(op => op !== driverOpenid)
-      const recordedPassengerCount = Number(trip.passengerCount ?? trip.requestPassengerCount)
-      const passengerCount = Number.isSafeInteger(recordedPassengerCount) && recordedPassengerCount > 0
-        ? Math.max(recordedPassengerCount, passengerOpenids.length) : passengerOpenids.length
-      const passengerSummaryText = passengerCount === passengerOpenids.length
-        ? `${passengerCount} 人` : `${passengerCount} 人 · ${passengerOpenids.length} 位联系人`
-
-      const buildPassengers = (userMap = {}) => passengerOpenids.map(op => {
-        const u = userMap[op] || {}
-        return {
-          _openid: op,
-          name: u.name || '',
-          phone: u.phone || '',
-          wechatID: u.wechatID || '',
-          address: u.address || '',
-          avatarUrl: u.avatarUrl || '',
-          ...attachRideStats(u, 'passenger'),
-          hasRated: isTargetRated(ratedTargetMap, op)
-        }
-      })
-
-      this.setData({
-        trip: displayTrip,
-        fromText,
-        toText,
-        dateText,
-        weekdayText,
-        timeText,
-        showFortLeeCoreTip,
-
-        // ✅ 行李数
-        largeLuggageCount,
-
-        isMyRequest,
-        isRequestCompleted,
-        passengers: isMyRequest ? buildPassengers() : [],
-        passengersLoading: isMyRequest && passengerOpenids.length > 0,
-        passengersError: '',
-        passengerSummaryText: isMyRequest ? passengerSummaryText : '',
-        ratedTargetMap,
-
-        loadError: '',
-        loading: false
-      }, () => rideTelemetry.detailViewed(this, trip, 'request', 'history'))
-
-      if (!isMyRequest || passengerOpenids.length === 0) {
-        this.setData({ passengersLoading: false })
-        return
-      }
-
-      let passengers = buildPassengers()
-      let passengersError = ''
-      try {
-        if (rawResult.passengerProfilesError) throw new Error('passenger profiles unavailable')
-        let list = rawResult.passengerProfiles
-        if (!Array.isArray(list)) {
-          // Compatibility with older deployments; current details include the authorized profiles.
-          const uRes = await wx.cloud.callFunction({
-            name: 'getUserInfoByOpenids',
-            data: { openids: passengerOpenids }
-          })
-          if (!uRes.result || !uRes.result.ok || !Array.isArray(uRes.result.data)) {
-            throw new Error('passenger profiles unavailable')
-          }
-          list = uRes.result.data
-        }
-        const map = {}
-        list.forEach(u => { if (u && passengerOpenids.includes(u._openid)) map[u._openid] = u })
-        passengers = buildPassengers(map)
-        if (passengerOpenids.some(op => !map[op])) passengersError = '部分乘客资料暂不可用，请重试'
-      } catch (e) {
-        console.error('load request passenger info error:', e)
-        passengersError = '乘客信息加载失败，请重试'
-      }
-
-      if (!isCurrent()) return
-      this.setData({
-        passengers,
-        passengersLoading: false,
-        passengersError
-      })
-    } catch (e) {
-      if (!isCurrent()) return
-      console.error('loadRequestDetail error:', e)
-      this.setData({ passengersLoading: false })
-      this.setLoadError('加载失败，请稍后重试')
-    }
+    return contacts.load(this, 'request', requestId, 'driver', options)
   },
 
   onRetryPassengerInfo() {
@@ -403,7 +239,7 @@ Page({
     const allowed = contacts.actionGuard(this)
     if (!allowed()) return
     const target = contacts.target(e)
-    const targetId = target.targetUserId || target.targetOpenid
+    const targetId = target.targetUserId
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该用户'
     const { requestId } = this.data
     if (!targetId) return
@@ -432,7 +268,7 @@ Page({
     const allowed = contacts.actionGuard(this)
     if (!allowed()) return
     const target = contacts.target(e)
-    const targetId = target.targetUserId || target.targetOpenid
+    const targetId = target.targetUserId
     const targetName = (e.currentTarget.dataset && e.currentTarget.dataset.name) || '该乘客'
     const { requestId, isRequestCompleted, ratedTargetMap } = this.data
     if (!isRequestCompleted) {

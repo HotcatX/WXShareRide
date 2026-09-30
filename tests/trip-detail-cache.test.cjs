@@ -10,23 +10,25 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
 
 function harness() {
   const storage = { openid: 'alice', isGuest: false }
-  const calls = []
+  const calls = [], removals = []
+  const state = { enabled: true }
   const wx = {
     getStorageSync: key => structuredClone(storage[key]),
     setStorageSync(key, value) { storage[key] = structuredClone(value) },
-    cloud: { callFunction(input) {
-      return new Promise((resolve, reject) => calls.push({ input, resolve: result => resolve({ result }), reject }))
-    } }
+    removeStorageSync(key) { removals.push(key); delete storage[key] },
+    cloud: { callFunction() { throw Error('Detail reads must not call CloudBase') } }
   }
   const context = { module: { exports: {} }, wx, require(name) {
     assert.equal(name, './compat/rides')
-    return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+    return { isBackendEnabled: () => state.enabled, getTripDetail(type, id) {
+      return new Promise((resolve, reject) => calls.push({ type, id, resolve, reject }))
+    } }
   } }
   vm.runInNewContext(source, context)
-  return { api: context.module.exports, storage, calls }
+  return { api: context.module.exports, storage, calls, removals, state }
 }
 
-test('concurrent ordinary reads of the same normalized viewer/type/id share one request and cache', async () => {
+test('concurrent ordinary reads of the same normalized viewer/type/id share one request without retaining completed private responses', async () => {
   const h = harness()
   const first = h.api.fetchTripDetail('carpool', ' trip ')
   const second = h.api.fetchTripDetail('CARPOOL', 'trip')
@@ -35,8 +37,13 @@ test('concurrent ordinary reads of the same normalized viewer/type/id share one 
   h.calls[0].resolve(success('current'))
   assert.equal((await first).data.label, 'current')
   assert.equal((await second).data.label, 'current')
-  assert.equal((await h.api.fetchTripDetail('carpool', 'trip')).data.label, 'current')
-  assert.equal(h.calls.length, 1)
+  const next = h.api.fetchTripDetail('carpool', 'trip')
+  await flush()
+  assert.equal(h.calls.length, 2)
+  h.calls[1].resolve(success('refreshed'))
+  assert.equal((await next).data.label, 'refreshed')
+  assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
+  assert.equal(h.storage.trip_detail_cache_v1, undefined)
 })
 
 test('route type and id have separate in-flight requests', async () => {
@@ -70,18 +77,23 @@ test('switching accounts never shares a request or stores/returns the old accoun
   assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
 })
 
-test('forced reads bypass cached/in-flight data, with latest request winning cache regardless of completion order', async () => {
+test('forced reads bypass older in-flight data and old completions cannot retire the replacement request', async () => {
   const h = harness()
   h.api.writeTripDetailCache('carpool', 'trip', success('cached'))
   const beforeMutation = h.api.fetchTripDetail('carpool', 'trip', { force: true })
   const afterMutation = h.api.fetchTripDetail('carpool', 'trip', { force: true })
   await flush()
   assert.equal(h.calls.length, 2)
+  h.calls[0].resolve(success('before-join'))
+  assert.equal((await beforeMutation).data.label, 'before-join')
+  const joined = h.api.fetchTripDetail('carpool', 'trip')
+  await flush()
+  assert.equal(h.calls.length, 2, 'old completion must not delete the pending forced refresh')
   h.calls[1].resolve(success('after-join'))
   assert.equal((await afterMutation).data.label, 'after-join')
-  h.calls[0].resolve(success('before-join'))
-  await beforeMutation
-  assert.equal(h.api.readTripDetailCache('carpool', 'trip').data.label, 'after-join')
+  assert.equal((await joined).data.label, 'after-join')
+  assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
+  assert.equal(h.storage.trip_detail_cache_v1, undefined)
 })
 
 test('forced refresh supersedes an older ordinary request, and ordinary reads can join the new request', async () => {
@@ -113,29 +125,33 @@ test('failed requests release deduplication and fresh access denials remove stal
   h.calls[1].resolve(success('private'))
   await retry
   for (const denial of [{ ok: false, blocked: true }, { ok: false, notFound: true }]) {
-    h.api.writeTripDetailCache('carpool', 'trip', success('private'))
+    h.storage.trip_detail_cache_v1 = { old: { result: success('private') } }
     const refresh = h.api.fetchTripDetail('carpool', 'trip', { force: true })
     await flush()
     h.calls.at(-1).resolve(denial)
     await refresh
     assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
+    assert.equal(h.storage.trip_detail_cache_v1, undefined)
   }
 })
 
-test('invalidating a request after accepting it prevents an older unassigned read from repopulating its cache', async () => {
+test('invalidating after acceptance prevents another reader from joining the old assignment and purges historical contacts', async () => {
   const h = harness()
   const beforeAccept = h.api.fetchTripDetail('request', 'trip')
   await flush()
+  h.storage.trip_detail_cache_v1 = { 'cloudbase:alice:request:trip': { result: success('historical') } }
   h.api.removeTripDetailCache('request', 'trip')
-  h.calls[0].resolve({ ok: true, data: { _id: 'trip', driverOpenid: '' } })
+  assert.equal(h.storage.trip_detail_cache_v1, undefined)
+  assert.deepEqual(h.removals, ['trip_detail_cache_v1'])
+  h.calls[0].resolve({ ok: true, data: { _id: 'trip', driverUserId: null } })
   await beforeAccept
   assert.equal(h.api.readTripDetailCache('request', 'trip', { allowStale: true }), null)
   const afterAccept = h.api.fetchTripDetail('request', 'trip')
   await flush()
   assert.equal(h.calls.length, 2)
-  h.calls[1].resolve({ ok: true, data: { _id: 'trip', driverOpenid: 'alice' } })
-  assert.equal((await afterAccept).data.driverOpenid, 'alice')
-  assert.equal(h.api.readTripDetailCache('request', 'trip').data.driverOpenid, 'alice')
+  h.calls[1].resolve({ ok: true, data: { _id: 'trip', driverUserId: 'assigned-driver' } })
+  assert.equal((await afterAccept).data.driverUserId, 'assigned-driver')
+  assert.equal(h.api.readTripDetailCache('request', 'trip'), null)
 })
 
 test('server details neither reuse old CloudBase disk entries nor persist member contacts and signed URLs', async () => {
@@ -143,7 +159,7 @@ test('server details neither reuse old CloudBase disk entries nor persist member
     trip_detail_cache_v1: { 'cloudbase:alice:carpool:trip': { ts: Date.now(), result: success('legacy-secret') } } }
   let reads = 0, writes = 0
   const context = { module: { exports: {} }, wx: {
-    getStorageSync: key => storage[key], setStorageSync() { writes++ }
+    getStorageSync: key => storage[key], setStorageSync() { writes++ }, removeStorageSync: key => { delete storage[key] }
   }, require(name) {
     assert.equal(name, './compat/rides')
     return { isBackendEnabled: () => true, async getTripDetail() { reads++; return success('server-authorized') } }
@@ -153,5 +169,14 @@ test('server details neither reuse old CloudBase disk entries nor persist member
   assert.equal(api.readTripDetailCache('carpool', 'trip', { allowStale: true }), null)
   assert.equal((await api.fetchTripDetail('carpool', 'trip')).driverInfo.phone, 'server-authorized')
   await api.fetchTripDetail('carpool', 'trip')
-  assert.equal(reads, 2); assert.equal(writes, 0)
+  assert.equal(reads, 2); assert.equal(writes, 0); assert.equal(storage.trip_detail_cache_v1, undefined)
+})
+
+
+test('disabled authority rejects a fresh detail read without touching any retired cloud transport', async () => {
+  const h = harness()
+  h.state.enabled = false
+  await assert.rejects(h.api.fetchTripDetail('carpool', 'trip'), { code: 'BACKEND_DISABLED' })
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.api.readTripDetailCache('carpool', 'trip'), null)
 })

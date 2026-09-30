@@ -1,6 +1,5 @@
 const PREVIEW_ACTIONS = ['marketList', 'marketDetail', 'tripList', 'tripDetail']
 const ITEM_KINDS = ['goods', 'sublet', 'carpool', 'request']
-const REQUEST_TIMEOUT_MS = 15000
 const backend = require('./backendClient')
 const { getRideDateTime } = require('./rideTime')
 const { getCityStateFilter } = require('./cityTree')
@@ -140,44 +139,9 @@ function normalizeResult(result, data) {
 
 async function callPublicPreview(options) {
   await backend.ready()
-  if (backend.isBackendEnabled()) {
-    let data
-    try { data = requestData(options) } catch (error) { return Promise.reject(error) }
-    return serverPreview(data).then(result => normalizeResult(result, data), error => { throw friendlyError(error.code) })
-  }
-  return new Promise((resolve, reject) => {
-    let data
-    try {
-      data = requestData(options)
-    } catch (error) {
-      reject(error)
-      return
-    }
-    if (typeof wx === 'undefined' || !wx.cloud || typeof wx.cloud.callFunction !== 'function') {
-      reject(friendlyError('UNAVAILABLE_CLIENT'))
-      return
-    }
-    let settled = false
-    const finish = (error, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (error) reject(error)
-      else resolve(value)
-    }
-    const timer = setTimeout(() => finish(friendlyError('TIMEOUT')), REQUEST_TIMEOUT_MS)
-    try {
-      Promise.resolve(wx.cloud.callFunction({ name: 'marketApi', data })).then(response => {
-        try {
-          finish(null, normalizeResult(response && response.result, data))
-        } catch (error) {
-          finish(error)
-        }
-      }, () => finish(friendlyError('LOAD_FAILED')))
-    } catch (error) {
-      finish(friendlyError('LOAD_FAILED'))
-    }
-  })
+  const data = requestData(options)
+  const result = await serverPreview(data).catch(error => { throw friendlyError(error.code) })
+  return normalizeResult(result, data)
 }
 
 module.exports = { callPublicPreview }

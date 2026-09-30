@@ -1,5 +1,6 @@
 
-const { loadPublicConfigDoc } = require("./cloudConfig")
+const { loadLocationConfig } = require("./locationConfig")
+const { isTimelinePreview } = require("./timeline")
 
 
 const ALL_AREA_KEY = "all"
@@ -536,7 +537,7 @@ function writeCachedRegionTree(tree) {
 
 
 async function loadRegionTreeConfig(options = {}) {
-  const doc = await loadPublicConfigDoc("regionTree", options)
+  const doc = isTimelinePreview() ? null : (await loadLocationConfig(options)).marketRegionTree
   return {
     tree: normalizeRegionTree(doc || DEFAULT_REGION_TREE),
     fromCloud: !!doc

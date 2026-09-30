@@ -48,7 +48,7 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
     Page(value) { definition = value },
     Date: ClockDate,
     console: { error() {}, warn() {}, log() {} },
-    setTimeout, clearTimeout,
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {},
     getCurrentPages: () => Array.from({ length: stackDepth }, () => ({})),
     getApp: () => ({ withReferralShare: share => share }),
     wx: {
@@ -63,7 +63,7 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
       cloud: { callFunction(options) { calls.cloud.push(options); return Promise.resolve({ result: {} }) } }
     },
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false }
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true }
       if (name.endsWith('/compat/profile')) return {}
       if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('/routeExpiry')) return {
@@ -80,7 +80,7 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
   page.setData = function (patch) { Object.assign(this.data, patch) }
   page.loadUserSpots = async () => {}
   const apply = trip => kind === 'carpool'
-    ? page.applyTripData(trip, trip._id, { fromPreview: true })
+    ? page.applyTripData(trip, trip._id)
     : page.applyRequestData(trip)
   const applyResult = result => kind === 'carpool'
     ? page.applyTripDetailResult(result, 'shared-route')
@@ -158,7 +158,7 @@ test('legacy New York dates yield identical expiry under New York, Shanghai and 
 })
 
 for (const kind of ['carpool', 'request']) {
-  test(`${kind}: an expired preview cannot display route or membership information`, () => {
+  test(`${kind}: an expired route cannot display route or membership information`, () => {
     const f = fixture(kind)
     f.page.data.tripId = 'shared-route'
     f.apply(route())
@@ -173,13 +173,12 @@ for (const kind of ['carpool', 'request']) {
     if (kind === 'carpool') assert.equal(f.page.data.driverInfo, null)
   })
 
-  test(`${kind}: an expired server response clears an earlier preview and is considered handled`, () => {
+  test(`${kind}: an expired server response clears an earlier route and is considered handled`, () => {
     const f = fixture(kind)
     f.page.data.tripId = 'shared-route'
     f.apply(route())
     if (kind === 'carpool') {
       f.page.applyDriverInfo = () => assert.fail('expired detail must not expose driver contacts')
-      f.page.loadDriverInfo = () => assert.fail('expired detail must not fetch driver contacts')
       f.page.applyDriverStats = () => assert.fail('expired detail must not expose driver statistics')
     }
     assert.equal(f.applyResult({ ok: true, data: route({ status: 'past' }),
@@ -190,28 +189,29 @@ for (const kind of ['carpool', 'request']) {
     assert.equal(f.calls.cloud.length, 0)
   })
 
-  test(`${kind}: old cache is checked against the current deadline before it is displayed`, async () => {
+  test(`${kind}: ordinary detail entry ignores historical cache and checks the fresh server deadline`, async () => {
     const refresh = deferred()
-    const f = fixture(kind, { cached: { ok: true, data: route({ latestDepartureAtMs: NOW - 1 }) }, fetchResult: refresh.promise })
+    const f = fixture(kind, { cached: { ok: true, data: route() }, fetchResult: refresh.promise })
     f.page.data.tripId = 'shared-route'
-    await f.page.loadTripDetail('shared-route')
+    const load = f.page.loadTripDetail('shared-route')
+    assert.equal(f.page.data.trip, null)
+    assert.equal(f.page.data.loading, true)
+    assert.equal(f.calls.cacheReads.length, 0)
+    refresh.resolve({ ok: true, data: route({ latestDepartureAtMs: NOW - 1 }) })
+    await load
     assert.equal(f.page.data.routeExpired, true)
     assert.equal(f.page.data.trip, null)
-    refresh.resolve({ ok: true, data: route({ status: 'past' }) })
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(f.page.data.routeExpired, true)
   })
 
-  for (const useCache of [false, true]) {
-    test(`${kind}: older ${useCache ? 'cache background refresh' : 'detail fetch'} cannot restore a route after a newer refresh reports expiry`, async () => {
+  for (const silent of [false, true]) {
+    test(`${kind}: older ${silent ? 'silent refresh' : 'detail fetch'} cannot restore a route after a newer refresh reports expiry`, async () => {
       const older = deferred()
       const newer = deferred()
       const f = fixture(kind, {
-        cached: useCache ? { ok: true, data: route() } : null,
         fetchResults: [older.promise, newer.promise]
       })
       f.page.data.tripId = 'shared-route'
-      const firstLoad = f.page.loadTripDetail('shared-route')
+      const firstLoad = f.page.loadTripDetail('shared-route', { silent })
       const secondLoad = f.page.loadTripDetail('shared-route', { force: true })
       assert.equal(f.calls.fetches.length, 2)
       newer.resolve({ ok: true, data: route({ status: kind === 'carpool' ? 'past' : 'closed' }) })

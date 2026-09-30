@@ -9,32 +9,30 @@ const source = fs.readFileSync(base + '.js', 'utf8')
 const plain = value => JSON.parse(JSON.stringify(value))
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-function harness(respond = () => ({ ok: true, items: [] })) {
+function harness(respond = () => ({ items: [], hasMore: false, nextOffset: 0 })) {
   const calls = [], errors = [], navigation = [], clipboard = [], toasts = []
   let stopped = 0, definition
   const unexpected = () => { throw new Error('Trade history must not access administrator storage or upload APIs') }
   const wx = {
     getWindowInfo: () => ({ statusBarHeight: 24 }),
-    getStorageSync: unexpected, setStorageSync: unexpected, removeStorageSync: unexpected,
+    getStorageSync: key => key === 'openid' ? 'synthetic-seller' : '', setStorageSync: unexpected, removeStorageSync: unexpected,
     chooseMedia: unexpected, compressImage: unexpected, chooseLocation: unexpected,
-    cloud: {
-      uploadFile: unexpected,
-      async callFunction(request) {
-        calls.push(plain(request))
-        return { result: await respond(request, calls.length) }
-      }
-    },
+    cloud: { uploadFile: unexpected, callFunction: unexpected },
     navigateTo: options => navigation.push(plain(options)),
     navigateBack: options => navigation.push(plain(options)),
     stopPullDownRefresh: () => { stopped++ },
     showToast: options => toasts.push(plain(options)),
     setClipboardData(options) { clipboard.push(options.data); options.success() }
   }
+  const backend = { isBackendEnabled: () => true,
+    async get(url, options) { const request = { url, options }; calls.push(plain(request)); return respond(request, calls.length) },
+    resolveImages: async ids => ids.map(fileId => ({ fileId, url: `https://images.example/${fileId}` }))
+  }
   vm.runInNewContext(source, {
     Page(value) { definition = value }, wx,
     console: { error() {} },
     require(name) {
-      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx)
+      if (name.endsWith("/compat/market")) return require("./helpers/market-api.cjs")(wx, backend)
       assert.equal(name, '../../../utils/error', 'Admin-only region and upload dependencies must be absent')
       return { showDataError: (...args) => errors.push(args) }
     }
@@ -44,61 +42,51 @@ function harness(respond = () => ({ ok: true, items: [] })) {
   return { page, calls, errors, navigation, clipboard, toasts, stopped: () => stopped }
 }
 
-test('opening bought or sold history only loads tradeList and never restores administrator access', async () => {
+test('sold history uses only the current account route; unsupported bought history performs no I/O', async () => {
   for (const requestedType of ['bought', 'sold', 'unrecognized']) {
     const { page, calls, errors } = harness()
-    page.onLoad({ type: requestedType })
-    await tick()
-    const type = requestedType === 'bought' ? 'bought' : 'sold'
-    assert.deepEqual(calls, [{ name: 'marketApi', data: { action: 'tradeList', type, skip: 0, limit: 50 } }])
-    assert.equal(page.data.type, type)
-    assert.equal(page.data.pageTitle, type === 'bought' ? '我买到的' : '我卖出的')
-    assert.equal(page.data.contactRoleText, type === 'bought' ? '卖家微信' : '买家微信')
+    page.onLoad({ type: requestedType }); await tick()
+    const bought = requestedType === 'bought'
+    assert.equal(calls.length, bought ? 0 : 1)
+    if (!bought) {
+      assert.equal(new URL(calls[0].url, 'https://example.test').pathname, '/api/v1/me/market/listings')
+      assert.equal(new URL(calls[0].url, 'https://example.test').searchParams.get('status'), 'sold')
+    }
+    assert.equal(errors.length, bought ? 1 : 0)
     assert.equal(page.data.statusBarHeight, 24)
     assert.equal(page.data.listEmpty, true)
-    assert.equal(errors.length, 0)
   }
 })
 
-test('trade pagination retains goods and sublet formatting and counterpart contact information', async () => {
-  const goods = Array.from({ length: 50 }, (_, index) => ({
-    _id: 'goods-' + index, title: ' Desk ', price: 12.5, condition: '九成新',
-    thumbFileID: 'cloud://trade/thumb.jpg', buyerOpenid: 'buyer', contactWechat: 'buyer-wechat'
-  }))
+test('sold pagination retains goods and sublet formatting without inventing buyer identity or contact', async () => {
+  const image = '11111111-1111-4111-8111-111111111111'
+  const goods = Array.from({ length: 50 }, (_, index) => ({ id: 'goods-' + index, title: ' Desk ', priceCents: 1250,
+    listingType: 'goods', status: 'sold', condition: '九成新', images: [{ fileId: image }] }))
   const { page, calls } = harness((request, number) => number === 1
-    ? { ok: true, items: goods, openid: 'seller', hasMore: true, nextSkip: 50 }
-    : { ok: true, data: [{ _id: 'sublet', listingType: 'sublet', price: 1500, roomType: '1B1B', contactWechat: 'tenant' }], hasMore: false })
+    ? { items: goods, hasMore: true, nextOffset: 50 }
+    : { items: [{ id: 'sublet', listingType: 'sublet', title: '', priceCents: 150000, category: '1B1B', images: [] }], hasMore: false })
   await page.init()
-  assert.deepEqual(calls.map(call => call.data.skip), [0, 50])
-  assert.equal(page.data.myOpenid, 'seller')
+  assert.deepEqual(calls.map(call => new URL(call.url, 'https://example.test').searchParams.get('offset')), ['0', '50'])
   assert.equal(page.data.list.length, 51)
-  assert.equal(page.data.listCountText, '51 条记录')
-  assert.equal(page.data.listEmpty, false)
   assert.equal(page.data.list[0].title, 'Desk')
   assert.equal(page.data.list[0].priceDisplay, '12.50')
-  assert.equal(page.data.list[0].contactWechat, 'buyer-wechat')
-  assert.equal(page.data.list[0].otherOpenid, 'buyer')
-  assert.equal(page.data.list[0].imageSrc, 'cloud://trade/thumb.jpg')
+  assert.equal(page.data.list[0].contactWechat, '')
+  assert.equal(page.data.list[0].otherOpenid, '')
+  assert.equal(page.data.list[0].imageSrc, `https://images.example/${image}`)
   assert.equal(page.data.list[50].title, '未命名房源')
   assert.equal(page.data.list[50].priceDisplay, '1500/月')
   assert.equal(page.data.list[50].metaText, '1B1B')
-  assert.equal(page.data.list[50].hasImage, false)
 })
 
-test('bought records keep seller identity and existing detail, back and copy interactions', async () => {
-  const { page, navigation, clipboard, toasts } = harness(() => ({
-    ok: true, items: [{ _id: 'bought-1', title: 'Lamp', _openid: 'seller', contactWechat: 'seller-wechat' }]
-  }))
-  page.data.type = 'bought'
-  await page.init()
-  assert.equal(page.data.list[0].otherOpenid, 'seller')
-  page.onOpenDetail({ currentTarget: { dataset: { id: 'bought-1' } } })
+test('existing detail, back and copy interactions remain independent of retired buy-history transport', () => {
+  const { page, navigation, clipboard, toasts } = harness()
+  page.onOpenDetail({ currentTarget: { dataset: { id: 'listing' } } })
   page.onOpenDetail({ currentTarget: { dataset: {} } })
   page.onBack()
-  assert.deepEqual(navigation, [{ url: '/pages/market/marketDetail/marketDetail?id=bought-1' }, { delta: 1 }])
-  page.onCopyWechat({ currentTarget: { dataset: { wx: 'seller-wechat' } } })
+  assert.deepEqual(navigation, [{ url: '/pages/market/marketDetail/marketDetail?id=listing' }, { delta: 1 }])
+  page.onCopyWechat({ currentTarget: { dataset: { wx: 'contact-from-current-view' } } })
   page.onCopyWechat({ currentTarget: { dataset: {} } })
-  assert.deepEqual(clipboard, ['seller-wechat'])
+  assert.deepEqual(clipboard, ['contact-from-current-view'])
   assert.deepEqual(toasts.map(item => item.title), ['已复制微信号', '对方未填写微信号'])
 })
 

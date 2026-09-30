@@ -1,13 +1,7 @@
 const market = require("../../../utils/compat/market")
 // pages/market/marketDetail/marketDetail.js
 const LOGIN_PAGE = '/pages/other/login/login'
-const {
-  readMarketSellerProfile,
-  fetchAndCacheMarketSellerProfiles
-} = require("../../../utils/marketSellerProfileCache")
 const MARKET_REFRESH_KEY = "market_goods_changed_at"
-const MARKET_DETAIL_CACHE_KEY = "market_detail_cache_v3"
-const MARKET_DETAIL_CACHE_FRESH_MS = 10 * 60 * 1000
 
 const DETAIL_COPY = {
   goods: {
@@ -164,7 +158,7 @@ function buildDetailItem(x = {}) {
     imageFileIDs,
     thumbFileIDs: Array.isArray(x.thumbFileIDs) ? x.thumbFileIDs : [],
     hasImage: hasOriginalImage,
-    fallbackImageSrc: x.imageUrl || (market.isBackendEnabled() ? fallbackImage : x.imageFileID || imageFileIDs[0] || fallbackImage),
+    fallbackImageSrc: x.imageUrl || (fallbackImage),
     fallbackImageTitle: title || (listingType === "sublet" ? "房源图片" : "商品图片"),
     pickupStartDate: x.pickupStartDate || "",
     pickupEndDate: x.pickupEndDate || x.expiresAtText || "",
@@ -223,71 +217,6 @@ function markMarketGoodsChanged() {
   } catch (e) {}
 }
 
-function getMarketGoodsChangedAt() {
-  try {
-    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
-  } catch (e) {
-    return 0
-  }
-}
-
-function getMarketDetailCacheStore() {
-  try {
-    return wx.getStorageSync(MARKET_DETAIL_CACHE_KEY) || {}
-  } catch (e) {
-    return {}
-  }
-}
-
-function setMarketDetailCacheStore(store = {}) {
-  try {
-    wx.setStorageSync(MARKET_DETAIL_CACHE_KEY, store)
-  } catch (e) {}
-}
-
-function readMarketDetailCache(id) {
-  if (market.isBackendEnabled()) return null
-  const key = String(id || "").trim()
-  if (!key) return null
-  const entry = getMarketDetailCacheStore()[key]
-  if (!entry || !entry.ts || !entry.result) return null
-  if (Date.now() - entry.ts > MARKET_DETAIL_CACHE_FRESH_MS) return null
-  if ((Number(entry.changedAt) || 0) !== getMarketGoodsChangedAt()) return null
-  const item = entry.result.item || entry.result.data || null
-  if (!item || item._id !== key) return null
-  return entry.result
-}
-
-function writeMarketDetailCache(id, result) {
-  if (market.isBackendEnabled()) return
-  const key = String(id || "").trim()
-  const item = result && (result.item || result.data)
-  if (!key || !item || item._id !== key) return
-  const store = getMarketDetailCacheStore()
-  store[key] = {
-    ts: Date.now(),
-    changedAt: getMarketGoodsChangedAt(),
-    result
-  }
-  const keys = Object.keys(store)
-  if (keys.length > 60) {
-    keys
-      .sort((a, b) => (Number(store[a]?.ts) || 0) - (Number(store[b]?.ts) || 0))
-      .slice(0, keys.length - 60)
-      .forEach(oldKey => delete store[oldKey])
-  }
-  setMarketDetailCacheStore(store)
-}
-
-function removeMarketDetailCache(id) {
-  const key = String(id || "").trim()
-  if (!key) return
-  const store = getMarketDetailCacheStore()
-  if (!store[key]) return
-  delete store[key]
-  setMarketDetailCacheStore(store)
-}
-
 function normalizeDetailResult(result = {}) {
   const item = result.item || result.data || null
   if (!item || !item._id) return null
@@ -322,14 +251,6 @@ function buildSellerFromProfile(profile, listingType = "goods") {
     nameDisplay: normalizeText(profile.nameDisplay || profile.name) || buildDefaultSeller(listingType).nameDisplay,
     avatarDisplay: normalizeText(profile.avatarDisplay || profile.avatarRaw) || "/images/profile.png",
     regionDisplay: normalizeText(profile.regionDisplay || profile.region) || "区域未填"
-  }
-}
-
-function buildSellerFromManagedItem(item = {}) {
-  return {
-    nameDisplay: normalizeText(item.sellerName) || buildDefaultSeller(item.listingType).nameDisplay,
-    avatarDisplay: normalizeText(item.sellerAvatar) || "/images/profile.png",
-    regionDisplay: normalizeText(item.regionDisplay || item.region) || "区域未填"
   }
 }
 
@@ -428,61 +349,6 @@ Page(market.page({
     return false
   },
 
-  async _getSellerWechatByOpenid(openid) {
-    const itemWechat = normalizeText(this.data.item?.sellerWechat)
-    if (itemWechat) {
-      this.setData({ sellerWechat: itemWechat })
-      return itemWechat
-    }
-    if (this.data.sellerWechat) return this.data.sellerWechat
-    const cached = readMarketSellerProfile(openid, { allowStale: true })
-    if (cached && cached.wechatID) {
-      this.setData({ sellerWechat: cached.wechatID })
-      return cached.wechatID
-    }
-
-    try {
-      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
-      const row = profiles && profiles[openid]
-      const wechat = row && row.wechatID ? row.wechatID : ""
-
-      this.setData({ sellerWechat: wechat })
-      return wechat
-    } catch (e) {
-      console.error(e)
-      return ""
-    } finally {
-    }
-  },
-
-  async fetchSellerProfile(openid, listingType) {
-    if (!openid) {
-      this.setData({ seller: buildDefaultSeller(listingType) })
-      return
-    }
-    const cached = readMarketSellerProfile(openid, { allowStale: true })
-    if (cached) {
-      this.setData({
-        seller: buildSellerFromProfile(cached, listingType),
-        sellerWechat: cached.wechatID || this.data.sellerWechat
-      })
-      if (cached.isFresh) return
-    }
-
-    try {
-      const profiles = await fetchAndCacheMarketSellerProfiles([openid])
-      const profile = profiles && profiles[openid]
-      if (!profile) return
-      this.setData({
-        seller: buildSellerFromProfile(profile, listingType),
-        sellerWechat: profile.wechatID || ""
-      })
-    } catch (e) {
-      console.error("fetch seller profile failed:", e)
-      if (!cached) this.setData({ seller: buildDefaultSeller(listingType) })
-    }
-  },
-
   onLoad(options) {
     const sys = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.setData({ statusBarHeight: sys.statusBarHeight || 0 })
@@ -511,7 +377,7 @@ Page(market.page({
       })
       return
     }
-    this._lastSeenGoodsChangedAt = getMarketGoodsChangedAt()
+
     this.fetchDetail(id, { trackView: true })
   },
 
@@ -521,25 +387,21 @@ Page(market.page({
       wx.removeStorageSync('needLoginToast')
       wx.showToast({ title: tip, icon: 'none', duration: 2000 })
     }
-  
+
     const loginState = getMarketLoginState()
     const myOpenid = loginState.openid
     const isOwner = !!(
       loginState.isLoggedIn &&
       myOpenid &&
-      (market.isBackendEnabled() ? this.data.item?.isOwner === true :
-        this.data.item?._openid && myOpenid === this.data.item._openid)
+      (this.data.item?.isOwner === true)
     )
-    
+
     this.setData({ myOpenid, isOwner })
-  
-    const changedAt = getMarketGoodsChangedAt()
-    const lastSeen = Number(this._lastSeenGoodsChangedAt) || 0
+
     const detailId = this._lastDetailId || this.data.item?.id || ''
-  
-    if (detailId && (market.isBackendEnabled() || changedAt && changedAt !== lastSeen)) {
-      this._lastSeenGoodsChangedAt = changedAt
-      removeMarketDetailCache(detailId)
+
+    if (detailId) {
+
       this.fetchDetail(detailId)
     }
   },
@@ -567,17 +429,14 @@ Page(market.page({
     })
   },
 
-  _applyDetailResult(result, options = {}) {
+  _applyDetailResult(result) {
     const normalized = normalizeDetailResult(result)
     if (!normalized) return false
 
     const detailItem = buildDetailItem(normalized.item)
     const loginState = getMarketLoginState()
     const myOpenid = loginState.openid
-    const isOwner = !!(loginState.isLoggedIn && (
-      (myOpenid && detailItem._openid && myOpenid === detailItem._openid) ||
-      (!options.fromCache && normalized.isOwner)
-    ))
+    const isOwner = loginState.isLoggedIn && normalized.isOwner === true
     const imgUrls = normalized.imgUrls
 
     this.setData({
@@ -597,17 +456,8 @@ Page(market.page({
       hasImageUrls: imgUrls.length > 0,
       hasMultipleImages: imgUrls.length > 1
     })
-    if (market.isBackendEnabled()) {
-      const seller = buildSellerFromProfile(detailItem.seller || {})
-      this.setData({ seller, sellerWechat: detailItem.sellerWechat || "" })
-    } else if (detailItem.managedByAdmin) {
-      this.setData({
-        seller: buildSellerFromManagedItem(detailItem),
-        sellerWechat: detailItem.sellerWechat || ""
-      })
-    } else {
-      this.fetchSellerProfile(detailItem._openid, detailItem.listingType)
-    }
+    const seller = buildSellerFromProfile(detailItem.seller || {})
+    this.setData({ seller, sellerWechat: detailItem.sellerWechat || "" })
     return true
   },
 
@@ -617,29 +467,24 @@ Page(market.page({
     const requestToken = `${detailId}|${this._detailSequence = (this._detailSequence || 0) + 1}`
     this._detailRequestToken = requestToken
 
-    const cached = readMarketDetailCache(detailId)
-    if (cached) {
-      this._applyDetailResult(cached, { fromCache: true })
-    } else {
-      this.setData({
-        loading: true,
-        notFound: false,
-        loadError: false,
-        showDetailState: true,
-        detailStateTitle: "正在加载内容...",
-        detailStateDesc: "请稍候",
-        detailCanRetry: false,
-        item: null,
-        detailNavTitle: "商品详情",
-        isOwner: false,
-        imgUrls: [],
-        imgUrl: "",
-        hasImageUrls: false,
-        hasMultipleImages: false,
-        seller: buildDefaultSeller("goods"),
-        sellerWechat: ""
-      })
-    }
+    this.setData({
+      loading: true,
+      notFound: false,
+      loadError: false,
+      showDetailState: true,
+      detailStateTitle: "正在加载内容...",
+      detailStateDesc: "请稍候",
+      detailCanRetry: false,
+      item: null,
+      detailNavTitle: "商品详情",
+      isOwner: false,
+      imgUrls: [],
+      imgUrl: "",
+      hasImageUrls: false,
+      hasMultipleImages: false,
+      seller: buildDefaultSeller("goods"),
+      sellerWechat: ""
+    })
 
     try {
       const res = await market.call({
@@ -651,30 +496,19 @@ Page(market.page({
       const result = getMarketApiResult(res)
       const normalized = normalizeDetailResult(result)
       if (!normalized) {
-        removeMarketDetailCache(detailId)
+
         this._setDetailState("内容不存在", "内容可能已删除或链接已失效。", { notFound: true })
         return
       }
 
-      writeMarketDetailCache(detailId, result)
       this._applyDetailResult(result)
     } catch (e) {
       if (this._detailRequestToken !== requestToken) return
       console.error(e)
       const notFound = isMarketNotFoundError(e)
       if (notFound) {
-        removeMarketDetailCache(detailId)
-        this._setDetailState("内容不存在", "内容可能已删除或链接已失效。", { notFound: true })
-        return
-      }
 
-      if (cached) {
-        this.setData({
-          loading: false,
-          loadError: false,
-          showDetailState: false,
-          detailCanRetry: false
-        })
+        this._setDetailState("内容不存在", "内容可能已删除或链接已失效。", { notFound: true })
         return
       }
 
@@ -686,7 +520,6 @@ Page(market.page({
     }
   },
 
-
   onRetryLoad() {
     if (!this._lastDetailId) return
     this.fetchDetail(this._lastDetailId)
@@ -697,7 +530,7 @@ Page(market.page({
   // =========================
   onEditItem() {
     const loginState = getMarketLoginState()
-  
+
     if (!loginState.isLoggedIn) {
       wx.setStorageSync('pendingPage', {
         url: `/pages/market/marketDetail/marketDetail?id=${this.data.item?.id || ''}`
@@ -705,15 +538,15 @@ Page(market.page({
       wx.navigateTo({ url: LOGIN_PAGE })
       return
     }
-  
+
     if (!this.data.isOwner) {
       wx.showToast({ title: '只能编辑自己发布的内容', icon: 'none' })
       return
     }
-  
+
     const id = this.data.item?.id
     if (!id) return
-  
+
     wx.navigateTo({
       url: `/pages/market/marketPost/marketPost?id=${id}&mode=edit&type=${this.data.item?.listingType || "goods"}`
     })
@@ -778,9 +611,9 @@ Page(market.page({
       wx.showToast({ title: "代发信息以详情为准", icon: "none" })
       return
     }
-    const openid = market.isBackendEnabled() ? this.data.item?.sellerId : this.data.item?._openid
+    const openid = this.data.item?.sellerId
     if (!openid) return
-    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
+    wx.navigateTo({ url: `/pages/market/marketSeller/marketSeller?sellerId=${encodeURIComponent(openid)}&type=${this.data.item?.listingType || "goods"}` })
   },
 
   onDetailQuickAction() {
@@ -819,13 +652,13 @@ Page(market.page({
       })
       return
     }
-    const openid = market.isBackendEnabled() ? this.data.item?.sellerId : this.data.item?._openid
+    const openid = this.data.item?.sellerId
     if (!openid) {
       wx.showToast({ title: "发布者信息缺失", icon: "none" })
       return
     }
 
-    const wechat = market.isBackendEnabled() ? this.data.item?.sellerWechat || "" : await this._getSellerWechatByOpenid(openid)
+    const wechat = this.data.item?.sellerWechat || ""
     if (!wechat) {
       wx.showToast({ title: "未填写微信号", icon: "none" })
       return

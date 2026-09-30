@@ -92,8 +92,7 @@ function loadPage(file,h) {
   const filename=path.join(__dirname,'../pages/market',file),localRequire=require('node:module').createRequire(filename)
   let definition;vm.runInNewContext(fs.readFileSync(filename,'utf8'),{wx:h.wx,console:{error(){},warn(){}},setTimeout,clearTimeout,
     Page:value=>{definition=value},getApp:()=>({withReferralShare:value=>value}),getCurrentPages:()=>[{},{}],
-    require:name=>name.endsWith('/compat/market')?h.api:name.endsWith('/marketSellerProfileCache')?{readMarketSellerProfile:()=>null,fetchAndCacheMarketSellerProfiles(){assert.fail('canonical seller must not query OpenIDs')}}:
-      name.endsWith('/error')?{showDataError(){}}:localRequire(name)})
+    require:name=>name.endsWith('/compat/market')?h.api:name.endsWith('/error')?{showDataError(){}}:localRequire(name)})
   const page={...definition,data:plain(definition.data),_marketOwner:h.api.identity()};page.setData=patch=>Object.assign(page.data,plain(patch));return page
 }
 test('editing retains the observed version, date window and a missing thumbnail slot all the way to PATCH',async()=>{
@@ -195,4 +194,34 @@ test('real SDK and PostgreSQL: image/create/update/delete lost ACKs replay origi
   lose=`/api/v1/market/listings/${created.id}`;await assert.rejects(api.call({data:{action:'delete',id:created.id,expectedVersion:1}}),{code:'NETWORK_ERROR'})
   await api.call({data:{action:'delete',id:created.id,expectedVersion:1}});assert.equal((await db.pool.query('SELECT status,version FROM market_listings')).rows[0].status,'deleted')
   for(const method of ['POST','PATCH','DELETE']){const matches=requests.filter(row=>row.route===`/api/v1/market/listings${method==='POST'?'':'/'+created.id}`&&row.method===method);assert.equal(matches[0].key,matches[1].key)}
+})
+
+test('market adapter rejects arbitrary legacy function names before any transport', async () => {
+  const h = harness()
+  await assert.rejects(h.api.call({ name: 'createTrip', data: { action: 'list' } }), { code: 'UNSUPPORTED_ACTION' })
+  assert.equal(h.calls.length, 0)
+})
+
+test('my listings ignore retired caches and repeated reads use the authenticated server route', async () => {
+  const h = harness()
+  h.backend.get = async (url, options) => { h.calls.push(['get', url, options]); return { items: [fixture()], hasMore: false, nextOffset: 1 } }
+  const page = loadPage('marketMy/marketMy.js', h)
+  page.data.openid = h.store.openid
+  page._myGoodsCache = { goods: { goods: [{ id: 'obsolete-other-account' }] } }
+  await page.fetchMyGoods()
+  assert.equal(page.data.goods.length, 1)
+  assert.equal(page.data.goods[0].id, 'listing')
+  await page.fetchMyGoods()
+  const reads = h.calls.filter(call => call[0] === 'get')
+  assert.equal(reads.length, 2)
+  assert.ok(reads.every(call => call[1].startsWith('/api/v1/me/market/listings?') && call[2]?.public === false))
+})
+
+test('detail ownership comes only from the current response, never an old OpenID field', () => {
+  const h = harness(), page = loadPage('marketDetail/marketDetail.js', h)
+  const record = h.api.item(fixture({ isOwner: false, images: [] }))
+  record._openid = h.store.openid
+  page._applyDetailResult({ item: record, isOwner: false, imgUrls: [] })
+  assert.equal(page.data.isOwner, false)
+  assert.equal(page.data.sellerWechat, 'seller-contact')
 })

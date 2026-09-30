@@ -7,13 +7,13 @@ const { createRideClient } = require('../utils/compat/rides')
 const city = require('../utils/cityTree')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 function harness(kind, server = true) {
-  const state = { guest: true, owner: '', calls: [], toasts: [], pending: null, writes: 0 }
+  const state = { guest: true, owner: '', enabled: server, calls: [], cloudCalls: [], toasts: [], pending: null, writes: 0 }
   const wx = { getStorageSync: key => key === 'isGuest' ? state.guest : key === 'openid' ? state.owner : undefined,
     showToast: info => state.toasts.push(info.title), cloud: { callFunction(input) {
-      if (server) throw Error('No CloudBase request in server mode')
-      state.calls.push(input); return Promise.resolve({ result: { success: true } })
+      state.cloudCalls.push(input)
+      throw Error('City requests must not call the retired CloudBase function')
     } } }
-  const backend = { isBackendEnabled: () => server, submitLocationRequest(input) {
+  const backend = { isBackendEnabled: () => state.enabled, submitLocationRequest(input) {
     state.calls.push(input)
     return state.pending || Promise.resolve({ requestId: '00000000-0000-4000-8000-000000000001', cityKey: input.cityKey, status: 'recorded' })
   } }
@@ -73,10 +73,24 @@ for (const kind of ['home', 'carpoolList']) {
       else { assert.equal(page.data.rideDemandSubmitting, false); assert.deepEqual(state.toasts, ['提交失败，请稍后重试']) }
     }
   })
-  test(`${kind}: default CloudBase path preserves old complete request`, async () => {
+  test(`${kind}: disabled authority rejects fresh city demand without old-cloud fallback, then server admission preserves the selected city`, async () => {
     const { page, state } = harness(kind, false)
     await page.onRequestRideCityService()
-    assert.equal(state.calls[0].name, 'rideDemand'); assert.equal(state.calls[0].data.cityLabel, 'Boston')
-    assert.deepEqual(Array.from(state.calls[0].data.cityAliases), ['Boston'])
+    assert.deepEqual(state.calls, [])
+    assert.deepEqual(state.cloudCalls, [])
+    assert.equal(page.data.rideDemandRequested, false)
+    assert.equal(page.data.rideDemandSubmitting, false)
+    assert.deepEqual(state.toasts, ['提交失败，请稍后重试'])
+    assert.equal(page.data.activeCityKey, 'boston')
+    assert.equal(page.data.activeCityLabel, 'Boston')
+    assert.deepEqual(Array.from(page.data.activeCityAliases), ['Boston'])
+    state.enabled = true
+    await page.onRequestRideCityService()
+    assert.deepEqual(state.calls, [{ cityKey: 'boston', sourcePage: kind }])
+    assert.deepEqual(state.cloudCalls, [])
+    assert.equal(page.data.rideDemandRequested, true)
+    assert.equal(page.data.rideDemandSubmitting, false)
+    assert.equal(state.guest, true)
+    assert.equal(state.owner, '')
   })
 }

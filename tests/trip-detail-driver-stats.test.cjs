@@ -17,7 +17,7 @@ function harness() {
       cloud: { callFunction(options) { calls.push(options); throw new Error('Unexpected extra cloud request') } }
     },
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false }
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true }
       if (name.endsWith('/compat/profile')) return {}
       if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('tripManage')) return tripManage
@@ -33,7 +33,7 @@ function harness() {
 }
 
 const route = (id = 'trip', driver = 'driver') => ({
-  _id: id, _openid: driver, passengers: [], availSeatNum: 2,
+  _id: id, serverMode: true, driverUserId: driver, viewer: { role: null, isCreator: false }, passengers: [], availSeatNum: 2,
   departures: [{ address: 'Fort Lee', date: '2030-01-01', time: '08:00' }],
   destinations: [{ address: '哥大' }]
 })
@@ -68,8 +68,8 @@ test('missing statistics display 无 while an explicitly recorded zero remains 0
 
 test('existing joined-driver responses remain compatible and rejected/other-route results clear old statistics', () => {
   const { page, calls } = harness()
-  page.applyTripDetailResult({ ok: true, data: { ...route(), passengers: [{ _openid: 'viewer' }] },
-    driverInfo: { _openid: 'driver', phone: 'fixture', rideStats: {
+  page.applyTripDetailResult({ ok: true, data: { ...route(), viewer: { role: 'passenger', isCreator: false } },
+    driverInfo: { userId: 'driver', phone: 'fixture', rideStats: {
       completedDriverTrips: 9, driverRatingCount: 1, driverRatingAvg: 5
     } }
   }, 'trip')
@@ -77,7 +77,7 @@ test('existing joined-driver responses remain compatible and rejected/other-rout
   assert.equal(page.data.driverRatingText, '5.0')
   assert.equal(page.data.driverInfo.phone, 'fixture')
   assert.equal(calls.length, 0)
-  page.applyTripData(route('other-trip', 'another-driver'), 'other-trip', { fromPreview: true })
+  page.applyTripData(route('other-trip', 'another-driver'), 'other-trip')
   assert.equal(page.data.driverCompletedText, '无')
   assert.equal(page.data.driverRatingText, '无')
   page.applyDriverStats({ completedDriverTrips: 5, driverRatingCount: 2, driverRatingAvg: 4 })

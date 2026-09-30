@@ -92,10 +92,17 @@ test('an active retry of changed input recovers exactly the previous operation w
   const result = await h.api.callTripManage({ action: 'rateUser', tripId: 'ride', targetUserId: other, score: 5 })
   assert.equal(result.recovered, true); assert.equal(result.data.score, 3); assert.equal(recovered, 'rides.rate:ride:' + other)
 })
-test('explicit legacy selection uses original names and returns original envelopes', async () => {
-  const h = harness(); h.backend.isBackendEnabled = () => false
-  await h.api.callTripList({ month: '2030-01' }); await h.api.getTripDetail('request', 'old'); await h.api.getHomeTripList()
-  await h.api.callTripManage({ action: 'quitTrip' }); await h.api.joinTrip({ type: 'request' })
-  assert.deepEqual(h.state.cloud.map(c => c.name), ['getTripList', 'getTripDetail', 'getHomeTripList', 'tripManage', 'joinTrip'])
-  assert.equal(h.state.calls.length, 0)
+test('unready and non-server authority cannot start any ride operation or call the retired cloud functions', async () => {
+  const { createBackendClient } = require('../utils/backendClient')
+  for (const [mode, ready, code] of [['server', false, 'BACKEND_NOT_READY'], ['cloudbase', true, 'BACKEND_DISABLED'], ['invalid', true, 'BACKEND_DISABLED']]) {
+    const h = harness()
+    const backend = createBackendClient({ wx: h.wx, authority: { getMode: () => mode, isReady: () => ready, subscribe() {} } })
+    const api = createRideClient({ wx: h.wx, backend })
+    for (const action of [() => api.callTripList({ month: '2030-01' }), () => api.getTripDetail('request', 'ride'),
+      () => api.getHomeTripList(), () => api.callTripManage({ action: 'quitTrip', tripId: 'ride' }),
+      () => api.joinTrip({ type: 'request', tripId: 'ride' }), () => api.requestCity({ cityKey: 'test' })]) {
+      await assert.rejects(action(), { code })
+    }
+    assert.deepEqual(h.state.cloud, []); assert.deepEqual(h.state.calls, []); assert.deepEqual(h.state.writes, [])
+  }
 })

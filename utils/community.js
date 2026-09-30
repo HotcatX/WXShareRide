@@ -82,12 +82,10 @@ function normalizeConfig(result) {
 }
 
 function canRequest() {
-  return typeof wx !== 'undefined' && (backend.isBackendEnabled() || wx.cloud && typeof wx.cloud.callFunction === 'function') && !isTimelinePreview()
+  return typeof wx !== 'undefined' && !isTimelinePreview()
 }
 
 async function requestConfig() {
-  // Legacy compatibility ends here; failures never fall back across modes.
-  if (!backend.isBackendEnabled()) return (await wx.cloud.callFunction({ name: 'marketApi', data: { action: 'communityConfig' } })).result
   const data = await backend.get('/api/v1/community', { anonymous: true })
   const files = [...new Set([data.group?.imageFileId, data.announcement?.imageFileId].filter(Boolean))]
   const urls = files.length ? await backend.resolveImages(files, { anonymous: true }) : []
@@ -109,7 +107,7 @@ function friendlyError(timeout = false) {
 // default fresh read so replaced QR codes and server-side switches are immediate.
 function loadCommunityConfig({ force = false, maxAgeMs = 0 } = {}) {
   if (!canRequest()) return Promise.resolve(null)
-  const owner = backend.isBackendEnabled() ? JSON.stringify(['server', wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')]) : 'cloudbase'
+  const owner = JSON.stringify(['server', wx.getStorageSync('openid') || '', !!wx.getStorageSync('isGuest')])
   if (cacheIdentity !== owner) { pendingRequest = null; cachedConfig = null; cacheIdentity = owner }
   if (pendingRequest) return pendingRequest
   const maxAge = Math.min(30000, Math.max(0, Number(maxAgeMs) || 0))

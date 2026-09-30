@@ -19,8 +19,8 @@ function route(id, from = 'Fort Lee', to = 'Columbia', date = '2030-01-01', extr
 
 function harness() {
   let definition
-  const state = { now: Date.parse('2030-01-01T10:00:00'), calls: [], store: {}, dbReads: [],
-    config: { Departure: { _id: 'from', fortLee: 'Fort Lee', jfk: 'JFK' }, Arrival: { _id: 'to', columbia: '哥大/Columbia', ewr: 'EWR' } },
+  const state = { now: Date.parse('2030-01-01T10:00:00'), calls: [], store: {}, configReads: [],
+    config: plain(require('../utils/locationCatalog.generated')),
     configFailure: false, holdConfig: null
   }
   class Clock extends Date {
@@ -34,17 +34,12 @@ function harness() {
       setStorageSync: (key, value) => { state.store[key] = value },
       cloud: {
       callFunction(args) { state.calls.push(args); throw new Error('Filters must not call the cloud') },
-      database() { return { collection(name) { return { async get() {
-        state.dbReads.push(name)
-        if (state.holdConfig) await state.holdConfig
-        if (state.configFailure) throw new Error('configuration temporarily unavailable')
-        return { data: [plain(state.config[name])] }
-      } } } } }
+      database() { throw new Error('Location choices must not read CloudBase') }
     } },
     getApp: () => ({ withReferralShare: value => value }),
     console: { error() {}, warn() {} },
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx: context.wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, callTripList(data) { state.calls.push({ method: 'rides.callTripList', data }); throw new Error('Local filters must not read routes') } }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(context.wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
@@ -59,8 +54,13 @@ function harness() {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
           ...context, module, require: name => {
-            if (name === './backendClient') return { isBackendEnabled: () => false }
-            if (name === './locationConfig') return { loadLocationConfig: () => { throw new Error('CloudBase mode must not call the server') } }
+            if (name === './backendClient') return { isBackendEnabled: () => true }
+            if (name === './locationConfig') return { loadLocationConfig: async () => {
+              state.configReads.push('/api/v1/locations')
+              if (state.holdConfig) await state.holdConfig
+              if (state.configFailure) throw new Error('configuration temporarily unavailable')
+              return plain(state.config)
+            } }
             if (name === './placeCatalog') return require('../utils/placeCatalog')
             if (name === './ridePlaceOptions') return require('../utils/ridePlaceOptions')
             throw new Error(`Unexpected address configuration dependency: ${name}`)
@@ -303,7 +303,7 @@ test('cloud fixed places lead in the eight-place order while loaded private addr
   await page.onOpenPlacePicker(event('field', 'from'))
   assert.deepEqual(plain(page.data.fromFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '其他'])
   assert.deepEqual(plain(page.data.toFilterOptions), ['全部', 'Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '其他'])
-  assert.equal(state.calls.length, 0, 'reusing currently loaded route places needs no new cloud function call')
+  assert.equal(state.calls.length, 0, 'reusing currently loaded route places needs no new route request')
 })
 
 test('selecting short airport/place names finds legacy aliases and terminal addresses; searching aliases finds short options', async () => {
@@ -342,25 +342,25 @@ test('fixed-place config is refreshed at five minutes on opening either picker, 
   assert.equal(page.getCachedFilterOptions(), null)
   fill([route('custom', '自选演唱会')])
   await page.onOpenPlacePicker(event('field', 'from'))
-  assert.deepEqual(state.dbReads, ['Departure', 'Arrival'])
+  assert.deepEqual(state.configReads, ['/api/v1/locations'])
   page.changeFilters({ selectedFromPlace: '自选演唱会', placePickerVisible: false })
   page.onToggleHideFullTrips()
-  state.config.Departure = { _id: 'from', fortLee: 'Fort Lee', ewr: 'EWR 纽瓦克机场', lga: 'LGA 拉瓜迪亚' }
-  state.config.Arrival = { _id: 'to', columbia: '哥大', flushing: '法拉盛' }
+  state.config.rideAddresses.offer.fromPlaces.push('新固定地点')
+  state.config.rideAddresses.offer.toPlaces.push('新固定地点')
   state.now += 299999
   await page.onOpenPlacePicker(event('field', 'to'))
-  assert.equal(state.dbReads.length, 2)
+  assert.equal(state.configReads.length, 1)
   assert.ok(page.data.toPlaceList.includes('法拉盛'))
   state.now += 1
   await page.onOpenPlacePicker(event('field', 'from'))
-  assert.equal(state.dbReads.length, 4)
-  assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens'])
-  assert.deepEqual(plain(page.data.toPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens'])
+  assert.equal(state.configReads.length, 2)
+  assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '新固定地点'])
+  assert.deepEqual(plain(page.data.toPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '新固定地点'])
   assert.equal(page.data.selectedFromPlace, '自选演唱会')
   assert.equal(page.data.hideFullTrips, false)
   assert.ok(page.data.fromFilterOptions.includes('自选演唱会'))
   await page.onOpenPlacePicker(event('field', 'to'))
-  assert.equal(state.dbReads.length, 4)
+  assert.equal(state.configReads.length, 2)
 })
 
 test('concurrent fixed-place opens coalesce; a failed or late update preserves the current page and its selection', async () => {
@@ -370,7 +370,7 @@ test('concurrent fixed-place opens coalesce; a failed or late update preserves t
   state.holdConfig = new Promise(resolve => { release = resolve })
   const first = page.onOpenPlacePicker(event('field', 'from'))
   const same = page.onOpenPlacePicker(event('field', 'to'))
-  assert.equal(state.dbReads.length, 2)
+  assert.equal(state.configReads.length, 1)
   release()
   await Promise.all([first, same])
   state.holdConfig = null

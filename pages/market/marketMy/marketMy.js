@@ -76,14 +76,6 @@ function buildListingTypeTabs(activeType) {
   }))
 }
 
-function getMarketGoodsChangedAt() {
-  try {
-    return Number(wx.getStorageSync(MARKET_REFRESH_KEY)) || 0
-  } catch (e) {
-    return 0
-  }
-}
-
 function markMarketGoodsChanged() {
   try {
     wx.setStorageSync(MARKET_REFRESH_KEY, Date.now())
@@ -143,15 +135,6 @@ function withSelectionState(goods = [], selectedMap = {}) {
       selected,
       selectedClass: selected ? 'on' : ''
     }
-  })
-}
-
-function stripSelectionState(goods = []) {
-  return (Array.isArray(goods) ? goods : []).map(g => {
-    const copy = { ...(g || {}) }
-    delete copy.selected
-    delete copy.selectedClass
-    return copy
   })
 }
 
@@ -262,7 +245,6 @@ Page(market.page({
     this._setMyData({ statusBarHeight: sys.statusBarHeight || 0, activeListingType })
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
-    this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
 
     this.loadUserInfo().then(() => {
       this.fetchMyGoods()
@@ -270,29 +252,25 @@ Page(market.page({
   },
 
   onShow() {
-    const changedAt = getMarketGoodsChangedAt()
-    if (!market.isBackendEnabled() && (!changedAt || changedAt === this._lastHandledGoodsChangeAt)) return
-    this._lastHandledGoodsChangeAt = changedAt
-    this._clearMyGoodsCache()
+
     this.loadUserInfo().then(() => {
       this.fetchMyGoods({ force: true })
     })
   },
 
   onShareAppMessage() {
-    const openid = market.isBackendEnabled() ? this.data.sellerId || '' : this.data.openid || ''
+    const openid = this.data.sellerId || ''
     const config = getListingTypeConfig(this.data.activeListingType)
     const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
-    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
+    return getApp().withReferralShare({ title, path: `/pages/market/marketSeller/marketSeller?sellerId=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
 
   onShareTimeline() {
-    const openid = market.isBackendEnabled() ? this.data.sellerId || '' : this.data.openid || ''
+    const openid = this.data.sellerId || ''
     const config = getListingTypeConfig(this.data.activeListingType)
     const title = this.data.name ? `看看 ${this.data.name} 的${config.shareTitle}` : `查看${config.shareRole}${config.shareTitle}`
-    return getApp().withReferralShare({ title, query: `${market.isBackendEnabled() ? "sellerId" : "openid"}=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
+    return getApp().withReferralShare({ title, query: `sellerId=${encodeURIComponent(openid)}&type=${this.data.activeListingType || "goods"}` })
   },
-
 
   onPullDownRefresh() {
     Promise.resolve()
@@ -322,10 +300,10 @@ Page(market.page({
     const type = normalizeListingType(e.currentTarget.dataset.type)
     if (type === this.data.activeListingType) return
     setStoredListingType(type)
-    const cached = this._getFreshMyGoodsCache(type)
+
     this._setMyData({
       activeListingType: type,
-      goods: cached ? cached.goods : [],
+      goods: [],
       selectedMap: {},
       selectedCount: 0,
       allSelected: false,
@@ -436,8 +414,7 @@ Page(market.page({
       const nextGoods = goods.filter(g => !successIds.includes(g.id))
       if (successIds.length) {
         markMarketGoodsChanged()
-        this._lastHandledGoodsChangeAt = getMarketGoodsChangedAt()
-        this._clearMyGoodsCache()
+
       }
       this._setMyData({
         goods: nextGoods,
@@ -445,7 +422,6 @@ Page(market.page({
         selectedCount: 0,
         allSelected: false
       })
-      if (successIds.length) this._setMyGoodsCache(this.data.activeListingType, nextGoods)
 
       wx.showToast({
         title: failed.length ? `已删${successIds.length}个，失败${failed.length}个` : '已删除',
@@ -481,7 +457,7 @@ Page(market.page({
 
     this._setMyData({ isSavingBio: true })
     try {
-      await this._updateUserBioByCloudFunction(bio)
+      await this._updateUserBio(bio)
       this.setData({ bioOriginal: bio })
       wx.showToast({ title: '已保存简介', icon: 'success' })
     } catch (err) {
@@ -492,7 +468,7 @@ Page(market.page({
     }
   },
 
-  async _updateUserBioByCloudFunction(bio) {
+  async _updateUserBio(bio) {
     const res = await callUpdateUser({ bio })
     if (res?.result?.ok === false) {
       throw new Error(res?.result?.errorMsg || '更新失败')
@@ -533,37 +509,6 @@ Page(market.page({
     })
   },
 
-  _getMyGoodsCache(type) {
-    this._myGoodsCache = this._myGoodsCache || {}
-    return this._myGoodsCache[normalizeListingType(type)] || null
-  },
-
-  _getFreshMyGoodsCache(type) {
-    if (market.isBackendEnabled()) return null
-    const cache = this._getMyGoodsCache(type)
-    if (!cache) return null
-    if (cache.changedAt !== getMarketGoodsChangedAt()) return null
-    return cache
-  },
-
-  _setMyGoodsCache(type, goods) {
-    this._myGoodsCache = this._myGoodsCache || {}
-    this._myGoodsCache[normalizeListingType(type)] = {
-      goods: stripSelectionState(goods),
-      changedAt: getMarketGoodsChangedAt(),
-      cachedAt: Date.now()
-    }
-  },
-
-  _clearMyGoodsCache(type) {
-    if (!this._myGoodsCache) return
-    if (type) {
-      delete this._myGoodsCache[normalizeListingType(type)]
-      return
-    }
-    this._myGoodsCache = {}
-  },
-
   // ✅ 取 goods 时多带几个字段，方便删文件
   async fetchMyGoods(options = {}) {
     const force = typeof options === 'boolean' ? !!options : !!options.force
@@ -574,16 +519,6 @@ Page(market.page({
     }
 
     const listingType = normalizeListingType(this.data.activeListingType)
-    const cached = !force ? this._getFreshMyGoodsCache(listingType) : null
-    if (cached) {
-      this._setMyData({
-        goods: cached.goods,
-        selectedMap: {},
-        selectedCount: 0,
-        allSelected: false
-      })
-      return
-    }
 
     this._myGoodsRequests = this._myGoodsRequests || {}
     if (!force && this._myGoodsRequests[listingType]) {
@@ -592,15 +527,7 @@ Page(market.page({
       } catch (err) {
         return
       }
-      const nextCached = this._getFreshMyGoodsCache(listingType)
-      if (nextCached && normalizeListingType(this.data.activeListingType) === listingType) {
-        this._setMyData({
-          goods: nextCached.goods,
-          selectedMap: {},
-          selectedCount: 0,
-          allSelected: false
-        })
-      }
+
       return
     }
 
@@ -641,7 +568,6 @@ Page(market.page({
       rows = await requestPromise
 
       const goods = rows.map(buildMyGoodsItem)
-      this._setMyGoodsCache(listingType, goods)
 
       if (normalizeListingType(this.data.activeListingType) !== listingType ||
         this._activeMyGoodsRequestToken !== requestToken) {

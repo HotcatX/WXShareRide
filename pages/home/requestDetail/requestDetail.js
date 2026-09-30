@@ -4,14 +4,9 @@ const accountKey = () => `${wx.getStorageSync("isGuest") ? "guest" : "user"}:${w
 const rideTelemetry = require("../../../utils/rideTelemetry")
 const LOGIN_PAGE = '/pages/other/login/login'
 const DETAIL_REFRESH_INTERVAL = 30 * 1000
-const DETAIL_PREVIEW_KEY = "carpoolDetailPreviewV1"
-const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { callTripManage, blockRideUser, formatRidePricePerPerson, markRideListStale } = require("../../../utils/tripManage")
-const { readTripDetailCache, fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
+const { fetchTripDetail, removeTripDetailCache } = require("../../../utils/tripDetailCache")
 const { isRouteExpired } = require("../../../utils/routeExpiry")
-
-// 乘客上限（CarpoolRequest 固定 4）
-const MAX_PASSENGERS = 4
 
 function getWeekdayStr(dateStr) {
   if (!dateStr) return ''
@@ -31,10 +26,6 @@ function formatDateNoYear(dateStr) {
   const parts = String(dateStr).split('-')
   if (parts.length !== 3) return ''
   return `${Number(parts[1])}月${Number(parts[2])}日`
-}
-
-function normalizePassengerID(raw) {
-  return Array.isArray(raw) ? raw.filter(Boolean).map(x => String(x)) : []
 }
 
 Page({
@@ -104,8 +95,7 @@ Page({
 
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
     const sharedEntry = options.fromShare === '1' || getCurrentPages().length <= 1
-    const hasPreview = !sharedEntry && this.applyCachedPreview(id)
-    this.loadTripDetail(id, { silent: hasPreview, force: sharedEntry })
+    this.loadTripDetail(id, { force: sharedEntry })
   },
 
   onShow() {
@@ -263,12 +253,6 @@ Page({
     return false
   },
 
-  isFreshPreview(preview, id, type) {
-    if (!preview || preview.id !== id || preview.type !== type || !preview.item) return false
-    if (!preview.savedAt || Date.now() - Number(preview.savedAt) > DETAIL_PREVIEW_TTL) return false
-    return true
-  },
-
   async ensureWechatBeforeAction() {
     const openid = wx.getStorageSync('openid') || ''
     if (!openid) return false
@@ -330,40 +314,12 @@ Page({
     }
   },
 
-  applyCachedPreview(id) {
-    if (rides.isBackendEnabled()) return false
-    let applied = false
-
-    try {
-      const cached = wx.getStorageSync(DETAIL_PREVIEW_KEY)
-      if (this.isFreshPreview(cached, id, "request")) {
-        applied = this.applyRequestData(cached.item, { fromPreview: true })
-      }
-    } catch (e) {
-    }
-
-    try {
-      const channel = this.getOpenerEventChannel && this.getOpenerEventChannel()
-      if (channel && typeof channel.on === "function") {
-        channel.on("routePreview", (preview) => {
-          if (this.isFreshPreview(preview, id, "request")) {
-            this.applyRequestData(preview.item, { fromPreview: true })
-          }
-        })
-      }
-    } catch (e) {
-    }
-
-    return applied
-  },
-
-  applyRequestData(trip, options = {}) {
+  applyRequestData(trip) {
     if (!trip) return false
     if (isRouteExpired(trip)) {
       this.setRouteExpired()
       return true
     }
-    if (options.fromPreview && this.data.routeExpired) return true
 
     // 1) 顶部展示字段
     let departAddress = ''
@@ -388,21 +344,7 @@ Page({
       destAddress = trip.destinations[0].address || ''
     }
 
-    // 2) owner / driver openid
-    const ownerOpenid = trip.openid || trip._openid || ''
-    const driverOpenid = trip.driverOpenid || ''
-
-    // 3) passengerID
-    const passengerID = normalizePassengerID(trip.passengerID)
-    const joinedAll = passengerID
-
-    // 4) 人数与余位（后端如果给 passengerCount 优先用）
-    const passengerCount =
-      Number.isFinite(Number(trip.passengerCount))
-        ? Number(trip.passengerCount)
-        : joinedAll.length
-
-    const seatLeft = trip.serverMode ? trip.availableSeats : Math.max(0, MAX_PASSENGERS - passengerCount)
+    const seatLeft = trip.availableSeats
     const isFull = seatLeft <= 0
 
     // 5) 状态
@@ -412,12 +354,12 @@ Page({
 
     // 6) 已登录才计算“我是谁”
     const myOpenid = wx.getStorageSync('openid') || ''
-    const isOwner = trip.serverMode ? trip.viewer?.isCreator === true : !!(ownerOpenid && myOpenid && ownerOpenid === myOpenid)
-    const joinedByMe = trip.serverMode ? trip.viewer?.role === 'passenger' : !!(myOpenid && joinedAll.includes(myOpenid))
+    const isOwner = trip.viewer?.isCreator === true
+    const joinedByMe = trip.viewer?.role === 'passenger'
 
     // 7) 司机接单状态（保持与 driverPickupDetail 一致）
-    const isAccepted = trip.serverMode ? trip.hasDriver : !!driverOpenid
-    const acceptedByMe = trip.serverMode ? trip.viewer?.role === 'driver' : !!(driverOpenid && myOpenid && driverOpenid === myOpenid)
+    const isAccepted = trip.hasDriver
+    const acceptedByMe = trip.viewer?.role === 'driver'
 
     this.setData({
       trip,
@@ -428,9 +370,9 @@ Page({
 
       seatLeft,
       myOpenid,
-      ownerOpenid,
+      ownerOpenid: '',
       ownerUserId: trip.creatorUserId || '',
-      driverOpenid,
+      driverOpenid: '',
 
       isOwner,
       joinedByMe,
@@ -451,17 +393,7 @@ Page({
 
   async loadTripDetail(id, options = {}) {
     const sequence = this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
-    const { silent = false, force = false } = options
-    const cached = !force ? readTripDetailCache("request", id, { allowStale: true }) : null
-    if (cached && this.applyRequestDetailResult(cached, id, { silentError: true })) {
-      fetchTripDetail("request", id, { force: true })
-        .then(result => {
-          if (sequence === this._detailLoadSequence) this.applyRequestDetailResult(result, id, { silentError: true })
-        })
-        .catch(() => {})
-      return
-    }
-
+    const { silent = false } = options
     if (!silent) this.setData({ loading: true, loadError: '' })
 
     try {
@@ -470,13 +402,7 @@ Page({
       this.applyRequestDetailResult(result, id)
     } catch (err) {
       if (sequence !== this._detailLoadSequence) return
-      if (rides.isBackendEnabled()) { this.setLoadError(err.message || '路线加载失败，请重试'); return }
-      if (this.data.trip || this.data.routeExpired) {
-        this.setData({ loading: false })
-        return
-      }
-      console.error('loadTripDetail error:', err)
-      this.setLoadError('网络异常，请稍后重试')
+      this.setLoadError(err.message || '路线加载失败，请重试')
     }
   },
 
@@ -641,17 +567,16 @@ Page({
   },
 
   async onBlockRequestOwner() {
-    const { tripId, ownerOpenid, isOwner, trip } = this.data
+    const { tripId, isOwner, trip } = this.data
     if (isOwner) return this.showToast('不能拉黑自己', 'none')
     const targetUserId = trip?.creatorUserId || ''
-    if (!(rides.isBackendEnabled() ? targetUserId : ownerOpenid)) return this.showToast('缺少拉黑对象', 'none')
+    if (!targetUserId) return this.showToast('缺少拉黑对象', 'none')
     if (!this.ensureLoginForBlock()) return
 
     await blockRideUser({
       type: 'request',
       requestId: tripId,
       tripId,
-      targetOpenid: ownerOpenid,
       targetUserId,
       targetName: (trip && (trip.name || trip.nickName)) || '求车发布者'
     })

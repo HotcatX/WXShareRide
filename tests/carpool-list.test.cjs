@@ -43,7 +43,7 @@ function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = fals
     removeStorageSync: key => { delete state.store[key] },
     getWindowInfo: () => ({ statusBarHeight: 20 }), showShareMenu() {},
     showNavigationBarLoading() {}, hideNavigationBarLoading() {}, stopPullDownRefresh() {},
-    cloud: { callFunction(args) { state.calls.push(args); return state.next ? state.next.promise : Promise.resolve(response()) } }
+    cloud: { callFunction() { throw new Error('Route lists must not call CloudBase') } }
   }
   const context = {
     Page: page => { definition = page }, Date: Clock, wx,
@@ -51,7 +51,7 @@ function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = fals
     setTimeout: holdTimers ? (callback, delay) => state.timers.push({ callback, delay }) : setTimeout,
     clearTimeout,
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, callTripList(data) { state.calls.push({ method: 'rides.callTripList', data }); return state.next ? state.next.promise : Promise.resolve(response()) } }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.includes('placeRecommendations') || name.includes('placePickerTelemetry')) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
@@ -73,7 +73,12 @@ function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = fals
       if (name.includes('rideAddressConfig')) {
         const module = { exports: {} }
         vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
-          ...context, module, require: name => require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions'))
+          ...context, module, require: name => {
+            if (name === './backendClient') return { isBackendEnabled: () => true }
+            if (name === './locationConfig') return { loadLocationConfig: async () => plain(require('../utils/locationCatalog.generated')) }
+            if (name === './placeCatalog') return require('../utils/placeCatalog')
+            throw new Error(name)
+          }
         })
         return module.exports
       }
@@ -206,7 +211,6 @@ test('a storage write failure still changes visible full cars immediately withou
 test('refresh, list-cache reuse, more dates and city changes preserve full-car visibility', async () => {
   const { page, state, ids } = harness()
   page.onToggleHideFullTrips()
-  page.refreshStatusInBackground = async () => {}
   state.next = deferred()
   const first = page.loadBothLists()
   state.next.resolve(response([route('full-first', { status: 'full' })]))
@@ -310,7 +314,7 @@ test('missing price no longer fetches the list twice or preloads details', async
   state.next.resolve(response([route('no-price'), route('priced', { referencePrice: '$12/人' })]))
   await request
   assert.equal(state.calls.length, 1)
-  assert.equal(state.calls[0].name, 'getTripList')
+  assert.equal(state.calls[0].method, 'rides.callTripList')
   assert.ok(page.data.originalCarpoolList.find(item => item._id === 'priced')._priceText)
 })
 

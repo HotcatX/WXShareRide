@@ -1,5 +1,6 @@
 
-const { loadPublicConfigDoc } = require("./cloudConfig")
+const { loadLocationConfig } = require("./locationConfig")
+const { isTimelinePreview } = require("./timeline")
 
 
 const ALL_CITY_KEY = "all"
@@ -139,7 +140,7 @@ function normalizeCityTree(source) {
 
 
 async function loadCityTreeConfig(options = {}) {
-  const doc = await loadPublicConfigDoc("cityTree", options)
+  const doc = isTimelinePreview() ? null : (await loadLocationConfig(options)).cityTree
   return normalizeCityTree(doc || DEFAULT_CITY_TREE)
 }
 

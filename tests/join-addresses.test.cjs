@@ -82,7 +82,7 @@ function pageHarness() {
     Page: value => { definition = value }, wx, console: { error() {}, warn() {} },
     getCurrentPages: () => [{}], setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     require(name) {
-      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false,
+      if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true,
         async joinTrip(body) { state.writes.push(structuredClone(body)); if (state.throwJoin) throw Error('offline'); return { result: await state.result } } }
       if (name.endsWith('/compat/profile')) return {
         getUserInfo: async () => state.profile || { result: { data: [{ _openid: wx.getStorageSync('openid'), wechatID: 'valid' }] } },
@@ -103,7 +103,7 @@ function pageHarness() {
 test('trip detail autofills once but never overwrites edits, intentional clearing, or a selected tag during refresh', () => {
   const { page, wx } = pageHarness()
   rememberJoinAddresses(route(), addresses, wx)
-  page.applyTripData(route(), 'ride-1', { fromPreview: true })
+  page.applyTripData(route(), 'ride-1')
   assert.equal(page.data.pickupAddress, addresses.pickupAddress)
   assert.equal(page.data.dropoffAddress, addresses.dropoffAddress)
   page.onPickupInput({ detail: { value: '' } })

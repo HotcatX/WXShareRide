@@ -24,14 +24,24 @@ function harness(options = {}) {
   const state = { wall: options.wall || NOW, monotonic: 1000, preview: false, response: fixture(), calls: [], writes: [], stored: '', failRead: false, failWrite: false, pending: null, timers: new Map(), nextTimer: 0 }
   class Clock extends Date { static now() { return state.wall } }
   const wx = {
-    cloud: { callFunction(args) { state.calls.push(clone(args)); return state.pending || Promise.resolve({ result: clone(state.response) }) } },
+    cloud: { callFunction() { assert.fail('community must not call CloudBase') } },
     getPerformance: () => ({ now: () => state.monotonic }),
-    getStorageSync(key) { assert.equal(key, KEY); if (state.failRead) throw new Error('private read failure'); return state.stored },
+    getStorageSync(key) { if (key === 'openid' || key === 'isGuest') return ''; assert.equal(key, KEY); if (state.failRead) throw new Error('private read failure'); return state.stored },
     setStorageSync(key, value) { assert.equal(key, KEY); if (state.failWrite) throw new Error('private write failure'); state.stored = clone(value); state.writes.push(clone(value)) }
   }
   const context = {
     module: { exports: {} }, Date: Clock,
-    require(name) { if (name === './backendClient') return { isBackendEnabled: () => false }; assert.equal(name, './timeline'); return { isTimelinePreview: () => state.preview } },
+    require(name) { if (name === './backendClient') return {
+      async get(url, options) {
+        state.calls.push({ url, options: clone(options) })
+        const r = state.pending ? (await state.pending).result : clone(state.response)
+        if (!r || r.ok !== true) throw new Error('unavailable')
+        const iso = value => typeof value === 'number' && value ? new Date(value).toISOString() : value === 0 || value == null ? null : value
+        return { serverTime: iso(r.serverTime), group: { ...r.group, imageFileId: r.group?.imageUrl || null, expiresAt: iso(r.group?.expiresAt) },
+          announcement: { ...r.announcement, imageFileId: r.announcement?.imageUrl || null, startAt: iso(r.announcement?.startAt), endAt: iso(r.announcement?.endAt) } }
+      },
+      resolveImages: async ids => ids.map(fileId => ({ fileId, url: fileId }))
+    }; assert.equal(name, './timeline'); return { isTimelinePreview: () => state.preview } },
     setTimeout(fn, delay) { const id = ++state.nextTimer; state.timers.set(id, { fn, delay }); return id },
     clearTimeout(id) { state.timers.delete(id) }
   }
@@ -45,8 +55,8 @@ function harness(options = {}) {
   return { state, api, wx, advance }
 }
 
-test('missing runtime or cloud and timeline preview perform zero requests', async () => {
-  for (const options of [{ noWx: true }, { noCloud: true }, { noCallFunction: true }, {}]) {
+test('missing runtime and timeline preview perform zero requests', async () => {
+  for (const options of [{ noWx: true }, {}]) {
     const { api, state } = harness(options)
     if (!Object.keys(options).length) state.preview = true
     assert.equal(await api.loadCommunityConfig({ force: true }), null)
@@ -60,7 +70,7 @@ test('concurrent force calls deduplicate but every later load fetches fresh conf
   const first = api.loadCommunityConfig()
   const second = api.loadCommunityConfig({ force: true })
   assert.equal(first, second)
-  assert.deepEqual(state.calls, [{ name: 'marketApi', data: { action: 'communityConfig' } }])
+  assert.deepEqual(state.calls, [{ url: '/api/v1/community', options: { anonymous: true } }])
   pending.resolve({ result: fixture() })
   const config = await first
   assert.ok(api.getAvailableAnnouncement(config))
@@ -83,7 +93,7 @@ test('an in-flight response is discarded if the app enters timeline preview', as
   assert.equal(api.recordAnnouncementShown(fixture()), false)
 })
 
-test('cloud failure and malformed response expose friendly errors and allow retry', async () => {
+test('HTTP failure and malformed response expose friendly errors and allow retry', async () => {
   const { api, state } = harness()
   for (const result of [{ ok: false, message: 'secret token' }, { ok: true, serverTime: 'bad' }, null]) {
     state.pending = Promise.resolve({ result })
@@ -292,4 +302,12 @@ test('normalization keeps only public configuration fields and never persists co
   assert.equal(api.recordAnnouncementShown(config), true)
   assert.equal(JSON.stringify(state.stored).includes('欢迎'), false)
   assert.equal(JSON.stringify(state.stored).includes('https:'), false)
+})
+
+test('community remains available without any CloudBase runtime', async () => {
+  for (const options of [{ noCloud: true }, { noCallFunction: true }]) {
+    const { api, state } = harness(options)
+    assert.ok(await api.loadCommunityConfig())
+    assert.equal(state.calls.length, 1)
+  }
 })

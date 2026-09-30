@@ -3,120 +3,106 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
-const defaults = require('../utils/placeCatalog').fixedPlaceValues()
+const { createLocationClient } = require('../utils/locationConfig')
+const catalog = require('../utils/locationCatalog.generated')
 const plain = value => JSON.parse(JSON.stringify(value))
-
+const defaults = require('../utils/placeCatalog').FIXED_PLACES.map(place => place.value)
 function deferred() {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-
 function harness() {
-  const state = {
-    now: 1800000000000, reads: [], queues: new Map(),
-    documents: {
-      Departure: [{ _id: 'from', jfk: 'JFK机场', plaza: '广场', flushing: 'Flushing', lga: 'LGA', campus: '哥大', ewr: 'Newark Airport', fortLee: 'Fort Lee 核心区' }],
-      Arrival: [{ _id: 'to', custom: '博物馆', airport: 'EWR机场', campus: '哥大', fortLee: 'Fort Lee' }]
-    }
-  }
+  const state = { now: 1000, enabled: true, reads: [], queue: [], catalog: plain(catalog) }
+  const backend = { isBackendEnabled: () => state.enabled, async get(url, options) {
+    state.reads.push(url)
+    assert.equal(url, '/api/v1/locations'); assert.deepEqual(options, { public: true })
+    return state.queue.length ? state.queue.shift().promise : plain(state.catalog)
+  } }
+  const client = createLocationClient(backend, () => state.now)
   class Clock extends Date { static now() { return state.now } }
   const module = { exports: {} }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/rideAddressConfig.js'), 'utf8'), {
     module, Date: Clock,
-    require: name => name === './backendClient' ? { isBackendEnabled: () => false } :
-      name === './locationConfig' ? { loadLocationConfig: () => { throw new Error('unexpected backend read') } } :
-        require('../utils/' + (name.includes('placeCatalog') ? 'placeCatalog' : 'ridePlaceOptions')),
-    wx: { cloud: { database: () => ({ collection(name) {
-      assert.ok(['Departure', 'Arrival'].includes(name))
-      return { get() {
-        state.reads.push(name)
-        const queue = state.queues.get(name)
-        if (queue?.length) return queue.shift().promise
-        return Promise.resolve({ data: plain(state.documents[name]) })
-      } }
-    } }) } }
+    require(name) {
+      if (name === './backendClient') return backend
+      if (name === './locationConfig') return { loadLocationConfig: options => client.load(options) }
+      if (name === './placeCatalog') return require('../utils/placeCatalog')
+      throw new Error(name)
+    },
+    wx: { cloud: { database: () => assert.fail('no direct collection reads') } }
   })
-  const hold = name => {
-    const held = deferred()
-    const queue = state.queues.get(name) || []
-    queue.push(held)
-    state.queues.set(name, queue)
-    return held
-  }
-  return { api: module.exports, state, hold }
+  return { api: module.exports, state, hold() { const value = deferred(); state.queue.push(value); return value } }
 }
 
-test('shared fixed configuration reads existing collection values and keeps the fixed catalog, shared order and configured price keys', async () => {
+test('ride options preserve canonical server order and current labels, with a complete fixed offline catalog', async () => {
   const { api, state } = harness()
-  const result = await api.loadRideAddressConfig()
-  assert.deepEqual(plain(result), {
-    fromPlaces: ['Fort Lee 核心区', '哥大', 'Flushing', 'JFK机场', 'Newark Airport', 'LGA', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '广场'],
-    toPlaces: ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR机场', 'LGA 机场', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '博物馆']
-  })
-  assert.deepEqual(state.reads, ['Departure', 'Arrival'])
+  state.catalog.rideAddresses.offer.fromPlaces.push('广场')
+  state.catalog.rideAddresses.offer.toPlaces.push('博物馆')
+  assert.deepEqual(plain(await api.loadRideAddressConfig()), state.catalog.rideAddresses.offer)
+  assert.deepEqual(state.reads, ['/api/v1/locations'])
+  assert.deepEqual(plain(api.getStaticRideAddressConfig()), { fromPlaces: defaults, toPlaces: defaults })
   assert.equal(api.ADDRESS_CONFIG_CACHE_MS, 300000)
-  state.documents.Departure = [{ _id: 'from', jfk: 'JFK', plaza: '新广场' }]
-  state.documents.Arrival = [{ _id: 'to', last: '新地点' }]
-  const replaced = await api.loadRideAddressConfig({ force: true })
-  assert.deepEqual(plain(replaced), { fromPlaces: [...defaults, '新广场'], toPlaces: [...defaults, '新地点'] }, 'curated fixed places survive configuration gaps; removed custom places do not')
+  state.catalog.rideAddresses.offer.fromPlaces = [...defaults, '新广场']
+  state.catalog.rideAddresses.offer.toPlaces = [...defaults, '新地点']
+  assert.deepEqual(plain(await api.loadRideAddressConfig({ force: true })), state.catalog.rideAddresses.offer)
 })
 
-test('pages share in-flight reads, receive independent arrays and reuse successful configuration for exactly five minutes', async () => {
-  const { api, state, hold } = harness()
-  const from = hold('Departure'), to = hold('Arrival')
-  const first = api.loadRideAddressConfig()
-  const second = api.loadRideAddressConfig({ force: true })
-  assert.deepEqual(state.reads, ['Departure', 'Arrival'])
+test('pages share in-flight reads, receive independent arrays and reuse verified configuration for exactly five minutes', async () => {
+  const { api, state, hold } = harness(), held = hold()
+  const first = api.loadRideAddressConfig(), second = api.loadRideAddressConfig({ force: true })
+  await Promise.resolve()
+  assert.deepEqual(state.reads, ['/api/v1/locations'])
   assert.equal(api.getCachedRideAddressConfig(), null)
-  from.resolve({ data: [{ airport: 'EWR', duplicate: '纽瓦克' }] })
-  to.resolve({ data: [{ campus: '哥大' }] })
+  held.resolve(plain(catalog))
   const [a, b] = await Promise.all([first, second])
   a.fromPlaces.push('local edit')
-  assert.deepEqual(plain(b), { fromPlaces: defaults.map(value => value === 'EWR 机场' ? 'EWR' : value), toPlaces: defaults })
-  const cached = api.getCachedRideAddressConfig()
-  cached.toPlaces.push('another local edit')
+  assert.deepEqual(plain(b), catalog.rideAddresses.offer)
+  api.getCachedRideAddressConfig().toPlaces.push('another local edit')
   state.now += 299999
-  assert.deepEqual(plain(await api.loadRideAddressConfig()), { fromPlaces: defaults.map(value => value === 'EWR 机场' ? 'EWR' : value), toPlaces: defaults })
-  assert.equal(state.reads.length, 2)
+  assert.deepEqual(plain(await api.loadRideAddressConfig()), catalog.rideAddresses.offer)
+  assert.equal(state.reads.length, 1)
   state.now++
   assert.equal(api.getCachedRideAddressConfig(), null)
   await api.loadRideAddressConfig()
-  assert.equal(state.reads.length, 4)
+  assert.equal(state.reads.length, 2)
 })
 
-test('failed or incomplete configuration is not cached and the next page can retry both collections', async () => {
-  for (const invalid of [[], [null], [{}], [{ _id: 'no-places' }], [{ bad: [] }], [{ bad: true }], [{ bad: ' ' }]]) {
+test('invalid and failed responses never become a successful cache and the next page can retry', async () => {
+  for (const invalid of [null, {}, { offer: {} }, { offer: { fromPlaces: [], toPlaces: ['哥大'] } },
+    { offer: { fromPlaces: ['Fort Lee'], toPlaces: [' '] } }]) {
     const { api, state } = harness()
-    state.documents.Arrival = invalid
-    await assert.rejects(api.loadRideAddressConfig())
+    state.catalog.rideAddresses = invalid
+    await assert.rejects(api.loadRideAddressConfig(), /配置格式/)
     assert.equal(api.getCachedRideAddressConfig(), null)
-    state.documents.Arrival = [{ good: '哥大' }]
-    assert.deepEqual(plain((await api.loadRideAddressConfig()).toPlaces), defaults)
-    assert.equal(state.reads.length, 4)
+    state.catalog = plain(catalog)
+    assert.deepEqual(plain(await api.loadRideAddressConfig()), catalog.rideAddresses.offer)
+    assert.equal(state.reads.length, 2)
   }
-  const { api, state, hold } = harness()
-  const from = hold('Departure')
+  const { api, state, hold } = harness(), held = hold()
   const failed = api.loadRideAddressConfig()
-  from.reject(new Error('offline'))
+  held.reject(new Error('offline'))
   await assert.rejects(failed, /offline/)
   assert.equal(api.getCachedRideAddressConfig(), null)
   await api.loadRideAddressConfig()
-  assert.equal(state.reads.length, 4)
+  assert.equal(state.reads.length, 2)
 })
 
-test('clock rollback forces a fresh configuration read and failure cannot replace a completed cache with partial data', async () => {
+test('clock rollback and authority changes cannot reuse stale choices; failed refresh preserves only the completed cache', async () => {
   const { api, state, hold } = harness()
   const original = plain(await api.loadRideAddressConfig())
-  const failedArrival = hold('Arrival')
-  state.documents.Departure = [{ replacement: '未完成更新' }]
-  const failed = api.loadRideAddressConfig({ force: true })
-  failedArrival.reject(new Error('offline'))
-  await assert.rejects(failed)
+  const held = hold(), failed = api.loadRideAddressConfig({ force: true })
+  held.reject(new Error('offline'))
+  await assert.rejects(failed, /offline/)
   assert.deepEqual(plain(api.getCachedRideAddressConfig()), original)
   state.now--
   assert.equal(api.getCachedRideAddressConfig(), null)
+  state.catalog.rideAddresses.offer.fromPlaces.push('新地点')
   await api.loadRideAddressConfig()
-  assert.equal(state.reads.length, 6)
-  assert.deepEqual(plain(api.getCachedRideAddressConfig().fromPlaces), [...defaults, '未完成更新'])
+  assert.equal(state.reads.length, 3)
+  assert.ok(api.getCachedRideAddressConfig().fromPlaces.includes('新地点'))
+  state.enabled = false
+  assert.equal(api.getCachedRideAddressConfig(), null)
+  await assert.rejects(api.loadRideAddressConfig(), /地点服务尚未切换/)
+  assert.equal(state.reads.length, 3)
 })

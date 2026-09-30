@@ -1,4 +1,4 @@
-const CITY_TREE_COLLECTION = 'CITY_TREE'
+const { loadLocationConfig } = require('./locationConfig')
 
 const REGION_TREE_STORAGE_KEY = 'city_region_tree_v2'
 const REGION_TREE_CACHE_MS = 90 * 24 * 60 * 60 * 1000
@@ -344,37 +344,11 @@ function writeCachedRegionTree(tree) {
   } catch (e) {}
 }
 
-async function loadCityTreeDocsFromDB() {
-  if (require('./backendClient').isBackendEnabled()) {
-    return (await require('./locationConfig').loadLocationConfig()).regionTree
-  }
-  // TEMPORARY FALLBACK — configuration reads for the existing CloudBase mode.
-  const db = wx.cloud.database()
-  const pageSize = 100
-  let skip = 0
-  let all = []
-
-  while (true) {
-    const res = await db.collection(CITY_TREE_COLLECTION)
-      .skip(skip)
-      .limit(pageSize)
-      .get()
-
-    const rows = res.data || []
-    all = all.concat(rows)
-
-    if (rows.length < pageSize) break
-    skip += pageSize
-  }
-
-  return all
-}
-
 async function loadRegionTreeConfig(options = {}) {
   const cached = options.useCache !== false ? readCachedRegionTree() : null
 
   try {
-    const docs = await loadCityTreeDocsFromDB()
+    const docs = (await loadLocationConfig(options)).regionTree
     const tree = normalizeRegionTree(docs)
 
     writeCachedRegionTree(tree)
@@ -401,7 +375,6 @@ async function loadCityTreeConfig(options = {}) {
 }
 
 module.exports = {
-  CITY_TREE_COLLECTION,
   REGION_TREE_STORAGE_KEY,
   REGION_TREE_CACHE_MS,
   DEFAULT_REGION_TREE,

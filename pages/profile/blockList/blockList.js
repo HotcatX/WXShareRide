@@ -25,15 +25,11 @@ function formatTime(value) {
 }
 
 function normalizeItem(item = {}) {
-  const openid = profile.isBackendEnabled() ? "" : item.targetOpenid || item.openid || ""
   return {
     ...item,
-    openid,
-    targetOpenid: openid,
-    targetUserId: profile.isBackendEnabled() ? item.targetUserId : "",
     name: item.name || "未设置昵称",
     avatarUrl: item.avatarUrl || "/images/profile.png",
-    wechatID: (profile.isBackendEnabled() ? item.wechatId : item.wechatID) || "",
+    wechatID: item.wechatId || "",
     reason: item.reason || "",
     blockedAtText: formatTime(item.blockedAt || item.createdAt)
   }
@@ -91,7 +87,7 @@ Page({
       if (result && (result.ok || result.success)) {
         const list = Array.isArray(result.list) ? result.list.map(normalizeItem) : []
         this.setData({ list, loading: false })
-        if (profile.isBackendEnabled() && !this._hidden) {
+        if (!this._hidden) {
           this._refreshTimer = setTimeout(() => { this._refreshTimer = null; this.loadBlockList() }, 240000)
           this._refreshTimer?.unref?.()
         }
@@ -112,7 +108,7 @@ Page({
     const allowed = () => !this._disposed && identity === profile.identity() && identity === this._listIdentity
     if (!allowed()) return
     const target = contacts.target(e)
-    const targetId = target.targetUserId || target.targetOpenid
+    const targetId = target.targetUserId
     const targetName = dataset.name || "该用户"
     if (!targetId) return
 
@@ -131,7 +127,7 @@ Page({
 
           if (result && (result.ok || result.success)) {
             markRideListStale()
-            const list = this.data.list.filter(item => (item.targetUserId || item.targetOpenid) !== targetId)
+            const list = this.data.list.filter(item => item.targetUserId !== targetId)
             this.setData({ list })
             wx.showToast({ title: result.recovered ? "已确认上次操作" : "已解除", icon: "success" })
             return

@@ -13,7 +13,7 @@ function clear(page, message = '') {
     isMyRequest: false, isCreator: false, kickMode: false, isTripCompleted: false, isRequestCompleted: false })
 }
 function actionGuard(page) {
-  if (!rides.isBackendEnabled()) return () => true
+  if (!rides.isBackendEnabled()) return () => false
   const identity = profile.identity(), revision = page._detailRevision
   return () => !page._detailDisposed && !!page.data.trip && page._detailIdentity === identity &&
     profile.identity() === identity && page._detailRevision === revision
@@ -28,7 +28,7 @@ function scheduleRefresh(page) {
 }
 function onHide(page) { page._detailHidden = true; cancelRefresh(page) }
 function onShow(page, reload) {
-  if (!rides.isBackendEnabled()) return
+  if (!rides.isBackendEnabled()) { clear(page, '业务服务尚未切换'); return }
   page._detailHidden = false
   const identity = profile.identity()
   if (page._detailIdentity !== undefined && page._detailIdentity !== identity) {
@@ -84,6 +84,6 @@ async function load(page, type, id, role, options = {}) {
 }
 function target(e) {
   const data = e?.currentTarget?.dataset || {}
-  return rides.isBackendEnabled() ? { targetUserId: data.userId || '' } : { targetOpenid: data.openid || '' }
+  return { targetUserId: data.userId || '' }
 }
 module.exports = { isBackendEnabled: rides.isBackendEnabled, load, onShow, onHide, onUnload, actionGuard, toState, target }

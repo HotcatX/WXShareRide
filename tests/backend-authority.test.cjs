@@ -1,7 +1,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { createBackendAuthority, SERVER_KEY, APP_ID } = require('../utils/backendAuthority')
-const { createBackendClient, PENDING_KEY } = require('../utils/backendClient')
+const { createBackendClient, PENDING_KEY, SESSION_KEY } = require('../utils/backendClient')
+const { sha256 } = require('../utils/hash')
 const { createBackendPageGate } = require('../utils/backendPageGate')
 const { createBackendHandler } = require('../cloudfunctions/backend/handler')
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -39,7 +40,7 @@ test('unknown source blocks both transports and user mutations are never queued 
   const client = createBackendClient({ wx: h.wx, authority: h.authority })
   assert.throws(client.isBackendEnabled, is('BACKEND_NOT_READY'))
   await assert.rejects(client.mutate('test', 'POST', '/api/v1/rides', {}), is('BACKEND_NOT_READY'))
-  await assert.rejects(client.cloudMutate('test', 'templates.delete', { id: 'x' }), is('BACKEND_NOT_READY'))
+  await assert.rejects(client.retryCloudPending('templates.delete:x'), is('BACKEND_NOT_READY'))
   assert.deepEqual(h.calls, []); assert.deepEqual(h.requests, []); assert.equal(h.storage[PENDING_KEY], undefined)
   await h.authority.ready()
   assert.equal(client.isBackendEnabled(), false)
@@ -101,17 +102,30 @@ test('a failed server marker write cannot resume CloudBase or lose confirmed han
   assert.equal(h.calls.length, count); assert.equal(h.storage[SERVER_KEY], 'server')
 })
 
-test('foreground revalidation preserves old same-source SDK ACKs but blocks new requests', async () => {
-  const h = harness({ openid: 'synthetic-openid-user', isGuest: false }); await h.authority.ready()
+test('server foreground refresh preserves the original pending ACK without another authority probe or duplicate write', async () => {
+  const openid = 'synthetic-openid-user', id = '00000000-0000-4000-8000-000000000001'
+  const h = harness({ openid, isGuest: false })
+  h.state.call = async () => reply('server'); await h.authority.ready()
+  h.storage[SESSION_KEY] = { token: 'a'.repeat(43), expiresAt: new Date(Date.now() + 3600000).toISOString(),
+    user: { id, openid, referralCode: 'ref_0123456789ab' } }
+  const original = { userId: id, scope: 'templates.delete:x', key: 'original-template-key',
+    fingerprint: sha256(JSON.stringify(['CLOUD', 'templates.delete', '{"id":"x"}'])),
+    request: { method: 'CLOUD', path: 'templates.delete', body: { id: 'x' } } }
+  h.storage[PENDING_KEY] = [original]
   const client = createBackendClient({ wx: h.wx, authority: h.authority }), old = deferred()
-  h.state.call = input => input.data.action === 'authority' ? Promise.resolve(reply('cloudbase')) : old.promise
-  const read = client.cloudRead('identity')
-  const checking = deferred(); h.state.call = () => checking.promise
-  const refreshed = h.authority.refresh()
-  await assert.rejects(client.cloudRead('identity'), is('BACKEND_NOT_READY'))
-  old.resolve({ result: { ok: true, actor: { appId: APP_ID, openid: 'synthetic-openid-user', id: '00000000-0000-4000-8000-000000000001' }, data: {} } })
-  assert.deepEqual(await read, {})
-  checking.resolve(reply('cloudbase')); await refreshed
+  h.state.call = () => old.promise
+  const write = client.retryCloudPending(original.scope, { validate: result => result.deleted === true })
+  await tick()
+  assert.deepEqual(h.calls.at(-1), { name: 'backend', data: { action: 'templates.delete', body: { id: 'x' },
+    expectedOpenid: openid, key: original.key, expectedAuthority: 'server' } })
+  assert.equal(await h.authority.refresh(), 'server')
+  const duplicate = client.retryCloudPending(original.scope, { validate: result => result.deleted === true })
+  await tick()
+  assert.equal(h.calls.length, 2, 'one initial authority probe and one recovery operation')
+  assert.deepEqual(h.storage[PENDING_KEY], [original])
+  old.resolve({ result: { ok: true, actor: { appId: APP_ID, openid, id }, data: { deleted: true } } })
+  assert.deepEqual(await write, { deleted: true }); assert.deepEqual(await duplicate, { deleted: true })
+  assert.equal(h.storage[PENDING_KEY], undefined)
 })
 
 function pageHarness(authority) {

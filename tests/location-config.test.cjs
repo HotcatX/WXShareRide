@@ -40,27 +40,38 @@ test('disabled mode cannot use HTTP, and errors/empty results do not poison the 
 
 test('server mode adapts all existing config readers without CloudBase calls and does not hide request errors', async () => {
   const backend = { isBackendEnabled: () => true }
-  let error = null, reads = 0
+  let error = null, reads = 0, preview = false
+  const storage = {}
   const loadLocationConfig = async () => { reads++; if (error) throw error; return copy(catalog) }
   function load(name) {
     const module = { exports: {} }
     const filename = path.join(__dirname, '../utils', name)
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, console, Date,
       require: value => value === './backendClient' ? backend : value === './locationConfig' ? { loadLocationConfig }
-        : value === './timeline' ? { isTimelinePreview: () => false } : require(path.join(path.dirname(filename), value)),
+        : value === './timeline' ? { isTimelinePreview: () => preview } : require(path.join(path.dirname(filename), value)),
       wx: { cloud: { database: () => assert.fail('unexpected cloud DB'), callFunction: () => assert.fail('unexpected function') },
-        getStorageSync: () => null, setStorageSync: () => {} } })
+        getStorageSync: key => storage[key], setStorageSync: (key, value) => { storage[key] = value } } })
     return module.exports
   }
-  const address = load('rideAddressConfig.js'), cloud = load('cloudConfig.js'), region = load('Region.js')
+  const address = load('rideAddressConfig.js'), city = load('cityTree.js'), marketRegion = load('regionTree.js'), region = load('Region.js')
   assert.deepEqual(copy(await address.loadRideAddressConfig()), catalog.rideAddresses.offer)
-  assert.deepEqual(copy(await cloud.loadPublicConfigDoc('cityTree')), catalog.cityTree)
-  assert.deepEqual(copy(await cloud.loadPublicConfigDoc('regionTree')), catalog.marketRegionTree)
+  assert.deepEqual(copy(await city.loadCityTreeConfig()), copy(city.normalizeCityTree(catalog.cityTree)))
+  assert.deepEqual(copy((await marketRegion.loadRegionTreeConfig()).tree), copy(marketRegion.normalizeRegionTree(catalog.marketRegionTree)))
   assert.deepEqual(copy((await region.loadRegionTreeConfig()).tree), catalog.regionTree)
   assert.equal(reads, 4)
   error = new Error('offline')
   await assert.rejects(address.loadRideAddressConfig({ force: true }), /offline/)
-  await assert.rejects(cloud.loadPublicConfigDoc('cityTree'), /offline/)
+  await assert.rejects(city.loadCityTreeConfig(), /offline/)
+  await assert.rejects(marketRegion.loadRegionTreeConfig(), /offline/)
   const fallback = await region.loadRegionTreeConfig()
-  assert.equal(fallback.fromCloud, false); assert.equal(fallback.error, error, 'existing UI fallback retains an explicit error')
+  assert.equal(fallback.fromCloud, false); assert.equal(fallback.fromCache, true)
+  assert.deepEqual(copy(fallback.tree), catalog.regionTree)
+  assert.equal(fallback.error, error, 'existing UI fallback retains an explicit error')
+  const fixed = await region.loadRegionTreeConfig({ useCache: false })
+  assert.equal(fixed.fromCache, false); assert.deepEqual(copy(fixed.tree), catalog.regionTree)
+  preview = true
+  const before = reads
+  assert.deepEqual(copy(await city.loadCityTreeConfig()), copy(city.normalizeCityTree(city.DEFAULT_CITY_TREE)))
+  assert.equal((await marketRegion.loadRegionTreeConfig()).fromCloud, false)
+  assert.equal(reads, before, 'timeline preview uses fixed defaults without a server request')
 })

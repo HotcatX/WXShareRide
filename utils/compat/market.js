@@ -1,12 +1,10 @@
-// Temporary CloudBase boundary. Delete the legacy branches after the released
-// server client and imported market records are verified. HTTP failures never
-// read or write the old database. Legacy field names below belong only to the
-// existing page view models; canonical requests contain no CloudBase aliases.
+// Adapt canonical market responses to the existing page view models. All I/O
+// uses the single business backend; failed writes retain their original key.
 const backend = require('../backendClient')
 const profile = require('./profile')
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)
 const fail = (code, message) => Object.assign(new Error(message), { code })
-const identity = () => backend.isBackendEnabled() ? profile.identity() : 'cloudbase'
+const identity = () => profile.identity()
 const current = (page, owner) => {
   try { return !page._marketUnloaded && owner === identity() }
   catch (_) { return false } // authority is being rechecked; discard stale UI work
@@ -86,10 +84,7 @@ function item(value) {
 async function imageURLs(ids, options = {}) {
   const unique = [...new Set(ids.filter(Boolean))]
   if (!unique.length) return {}
-  if (!backend.isBackendEnabled()) {
-    const result = await wx.cloud.getTempFileURL({ fileList: unique })
-    return Object.fromEntries((result.fileList || []).filter(file => file.tempFileURL).map(file => [file.fileID, file.tempFileURL]))
-  }
+
   const map = {}
   for (let i = 0; i < unique.length; i += 50) {
     const entries = await backend.resolveImages(unique.slice(i, i + 50), { public: true, ...options })
@@ -113,7 +108,7 @@ async function call({ name = 'marketApi', data = {}, ...callbacks } = {}) {
   if (name === 'getUserInfo') {
     const promise = profile.getUserInfo().then(async response => {
       const user = response?.result?.data?.[0]
-      if (backend.isBackendEnabled() && user?.avatarFileId) {
+      if (user?.avatarFileId) {
         try { user.avatarUrl = (await imageURLs([user.avatarFileId]))[user.avatarFileId] || '' } catch (_) {}
       }
       if (owner !== identity()) throw fail('REQUEST_CANCELLED', '当前操作已取消')
@@ -122,7 +117,8 @@ async function call({ name = 'marketApi', data = {}, ...callbacks } = {}) {
     if (callbacks.success || callbacks.fail) promise.then(callbacks.success, callbacks.fail)
     return promise
   }
-  if (!backend.isBackendEnabled()) return wx.cloud.callFunction({ name, data, ...callbacks })
+
+  if (name !== 'marketApi') throw fail('UNSUPPORTED_ACTION', '暂不支持此操作')
   const action = data.action, id = encodeURIComponent(data.id || ''), path = '/api/v1/market/listings'
   let result
   if (['list', 'myList', 'sellerList'].includes(action)) {
@@ -181,7 +177,7 @@ async function getSeller(id) {
   return result
 }
 async function refreshImages(page, options = {}) {
-  if (!backend.isBackendEnabled() || page.data.imageUploading) return
+  if (page.data.imageUploading) return
   const owner = identity(), rows = [], fields = ['allGoods', 'filteredGoods', 'displayGoods', 'displayFeed', 'goods', 'list']
   fields.forEach(key => { if (Array.isArray(page.data[key])) rows.push(...page.data[key]) })
   if (page.data.item) rows.push(page.data.item)
@@ -216,14 +212,14 @@ async function refreshImages(page, options = {}) {
 // links while visible. The backend's own identity guards also reject late I/O.
 function page(definition) {
   // Module registration precedes the handshake. Always install these wrappers;
-  // only lifecycle calls inspect the runtime's fixed authority.
+  // lifecycle calls bind their work to the current authenticated account.
   const originalLoad = definition.onLoad, originalShow = definition.onShow
   const originalHide = definition.onHide, originalUnload = definition.onUnload
   const initial = JSON.parse(JSON.stringify(definition.data || {}))
   function stop(target) { if (target._marketImageTimer) clearTimeout(target._marketImageTimer); target._marketImageTimer = null }
   function schedule(target) {
     stop(target)
-    if (!backend.isBackendEnabled() || target._marketUnloaded) return
+    if (target._marketUnloaded) return
     target._marketImageTimer = setTimeout(() => {
       if (current(target, target._marketOwner) && target.refreshMarketImages) Promise.resolve(target.refreshMarketImages()).catch(() => {})
       schedule(target)
@@ -240,7 +236,7 @@ function page(definition) {
     return originalLoad?.call(this, options)
   }
   definition.onShow = function() {
-    if (backend.isBackendEnabled() && this._marketOwner !== identity()) {
+    if (this._marketOwner !== identity()) {
       this._marketOwner = identity()
       this._marketSetData?.call(this, JSON.parse(JSON.stringify(initial)))
       originalLoad?.call(this, this._marketOptions)
@@ -260,23 +256,13 @@ function page(definition) {
   return definition
 }
 async function upload(localPath, folder, onProgress) {
-  if (backend.isBackendEnabled()) {
-    if (onProgress) onProgress(1)
-    const result = await backend.uploadImage(localPath, folder === 'market_thumb' ? 'market.thumbnail' : 'market.image')
-    if (onProgress) onProgress(100)
-    return result.fileId
-  }
-  const match = String(localPath).match(/\.([a-z0-9]+)(?:\?|$)/i)
-  const ext = match ? match[1] : 'jpg'
-  return new Promise((resolve, reject) => {
-    const task = wx.cloud.uploadFile({ cloudPath: `${folder}/${Date.now()}_${Math.random().toString(16).slice(2)}.${ext}`,
-      filePath: localPath, success: value => resolve(value.fileID || ''), fail: reject })
-    if (task?.onProgressUpdate && onProgress) task.onProgressUpdate(value => onProgress(value.progress))
-  })
+  if (onProgress) onProgress(1)
+  const result = await backend.uploadImage(localPath, folder === 'market_thumb' ? 'market.thumbnail' : 'market.image')
+  if (onProgress) onProgress(100)
+  return result.fileId
 }
 const UPLOADS_KEY = 'linkx.market.uploads.v1'
 function pendingUploads() {
-  if (!backend.isBackendEnabled()) return []
   const entries = wx.getStorageSync(UPLOADS_KEY) || []
   if (!Array.isArray(entries) || entries.length > 12 || entries.some(entry => !entry || typeof entry.owner !== 'string' ||
     typeof entry.localPath !== 'string' || typeof entry.mainPath !== 'string' || typeof entry.thumbPath !== 'string')) {
@@ -292,7 +278,6 @@ function saveUpload(entry, remove = false) {
   wx.setStorageSync(UPLOADS_KEY, next)
 }
 async function prepareUpload(localPath, mainPath, thumbPath) {
-  if (!backend.isBackendEnabled()) return { localPath, mainPath, thumbPath }
   const owner = identity(), previous = pendingUploads().find(entry => entry.localPath === localPath)
   if (previous) return previous
   if (pendingUploads().length >= 6 || (wx.getStorageSync(UPLOADS_KEY) || []).length >= 12) throw fail('PENDING_OPERATION', '请先重试未完成的图片上传')
@@ -320,7 +305,7 @@ async function prepareUpload(localPath, mainPath, thumbPath) {
   return entry
 }
 async function uploadPrepared(entry, mainProgress, thumbProgress) {
-  const active = () => !backend.isBackendEnabled() || entry.owner === identity()
+  const active = () => entry.owner === identity()
   if (!active()) throw fail('REQUEST_CANCELLED', '当前操作已取消')
   const send = async (property, path, folder, progress) => {
     if (entry[property]) return entry[property]
@@ -328,7 +313,7 @@ async function uploadPrepared(entry, mainProgress, thumbProgress) {
     const value = await upload(path, folder, progress)
     if (!active()) throw fail('REQUEST_CANCELLED', '当前操作已取消')
     entry[property] = value
-    if (backend.isBackendEnabled()) saveUpload(entry)
+    saveUpload(entry)
     return value
   }
   // Wait for both uploads to settle, including partial failure: a successful
@@ -338,15 +323,13 @@ async function uploadPrepared(entry, mainProgress, thumbProgress) {
   const error = results.find(result => result.status === 'rejected')
   if (error) throw error.reason
   let previewPath = entry.localPath
-  if (backend.isBackendEnabled()) {
-    try { previewPath = (await imageURLs([results[0].value]))[results[0].value] || previewPath } catch (_) {}
-    saveUpload(entry, true)
-    for (const filePath of [entry.mainPath, entry.thumbPath].filter(Boolean)) {
-      if (typeof wx.removeSavedFile === 'function') wx.removeSavedFile({ filePath, fail() {} })
-    }
+  try { previewPath = (await imageURLs([results[0].value]))[results[0].value] || previewPath } catch (_) {}
+  saveUpload(entry, true)
+  for (const filePath of [entry.mainPath, entry.thumbPath].filter(Boolean)) {
+    if (typeof wx.removeSavedFile === 'function') wx.removeSavedFile({ filePath, fail() {} })
   }
   return { fileID: results[0].value, thumbFID: results[1].value, previewPath }
 }
 module.exports = { call, item, content, money, hydrate, imageURLs, sellerProfile, getSeller, identity, current, loggedIn, upload, page, refreshImages,
   pendingUploads, prepareUpload, uploadPrepared,
-  isBackendEnabled: backend.isBackendEnabled, isFileId: value => backend.isBackendEnabled() ? uuid(value) : typeof value === 'string' && value.startsWith('cloud://') }
+  isFileId: uuid }

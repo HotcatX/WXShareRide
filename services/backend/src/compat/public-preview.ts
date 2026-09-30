@@ -11,6 +11,7 @@ import type { FileStorage } from '../files/routes.ts';
 // TEMPORARY COMPATIBILITY — old public websites retain their wire contracts,
 // but every listing/ride/image is read from the canonical PostgreSQL services.
 // There is deliberately no CloudBase read fallback after the writer handoff.
+// Remove only after the supported public sites have migrated these URLs.
 export const publicWebPath = '/api/v1/compat/public-web';
 export const houseSharePath = '/api/v1/compat/house-share';
 export const defaultHouseShareOrigins = ['https://linkxweb.xshawh.workers.dev', 'http://127.0.0.1:5174', 'http://localhost:5174'];

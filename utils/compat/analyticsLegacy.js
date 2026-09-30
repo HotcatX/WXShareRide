@@ -2,8 +2,8 @@
 // deployed protocol/storage identifiers so upgrading does not lose queued events,
 // forget pending withdrawals, or invalidate an existing server authorization.
 // This module contains identifiers only: no second state, identity, or transport.
-// Remove only after the next production release is verified AND an explicit
-// server-grant/local-storage migration has drained or migrated all older records.
+// Remove only after a server-grant/local-storage migration has drained or
+// migrated all older records; a release alone does not retire stored records.
 // Renaming modules alone is not evidence that stored data is safe to discard.
 module.exports = Object.freeze({
   STORAGE_KEY: 'ride_research_queue_v1',

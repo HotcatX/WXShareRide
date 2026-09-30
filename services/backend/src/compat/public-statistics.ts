@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-// TEMPORARY FALLBACK — remove only after the next production release is verified
-// and no supported client uses /v1/public-stats. The old source string is a
+// TEMPORARY COMPATIBILITY — remove when no supported client uses
+// /v1/public-stats. The old source string is a
 // required v1 wire discriminator, not the current database provider. All values
 // come from the same PostgreSQL query as the canonical statistics endpoint.
 export function legacyPublicStatistics(value: { servedCount: number; coverageText: string | null }, acquiredAt: number) {

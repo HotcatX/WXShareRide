@@ -22,7 +22,7 @@
 | 模板、通知、部分资料及配置 | 仍有客户端直接读写云数据库 | 仅迁移云函数不能把这些调用搬走 |
 | 头像、商品图片等 | 仍使用云存储上传及临时链接 | 属于另一类依赖，业务 API 迁移不会自动解除 |
 
-源码证据：[公开统计配置](../config/publicStats.js:1)、[HTTP 与回云实现](../utils/publicStatsClient.js:177)、[采集批次配置](../config/analytics.js:1)、[推荐请求](../utils/analyticsClient.js:378)、[地点基础配置](../utils/rideAddressConfig.js:22)、[登录](../cloudfunctions/login/index.js:14)、[图片上传](../pages/profile/addInfo/addInfo.js:76)。旧推荐入口见 Git 历史 `fd21ce5^:utils/ridePlaceOptions.js`；当前转发实现见 `utils/ridePlaceOptions.js:56`。
+源码证据：[公开统计配置](../config/publicStats.js:1)、[HTTP 与回云实现](../utils/publicStatsClient.js:177)、[采集批次配置](../config/analytics.js:1)、[推荐请求](../utils/analyticsClient.js:378)、[地点基础配置](../utils/rideAddressConfig.js:22)、[登录](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/login/index.js#L14)、[图片上传](../pages/profile/addInfo/addInfo.js:76)。旧推荐入口见 Git 历史 `fd21ce5^:utils/ridePlaceOptions.js`；当前转发实现见 `utils/ridePlaceOptions.js:56`。
 
 ### 迁移过渡本身也增加调用
 

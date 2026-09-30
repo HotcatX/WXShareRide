@@ -2,7 +2,7 @@
 
 `config/analytics.js` 是唯一客户端采集配置。`app.js` 将前后台、页面显示和登录身份变化交给 `analyticsSession.js`；后者持有一个 `analyticsClient.js` 实例，管理服务端授权、上传调度和账号切换。`tripFollowup.js` 管理首页的是／否回访，`analyticsSchema.js` 校验事件，`hash.js` 提供无状态哈希工具。没有新增按钮、授权弹窗或独立设置页。
 
-当前 HTTPS 接口仍为 `https://collect.linkx.ink/v1/batches`，各构建渠道配置为 100%。源码改名不代表小程序发布已经完成；部署状态看 [后端部署记录](../docs/backend-foundation-deployment-2026-09-25.md)。
+当前 HTTPS 接口仍为 `https://collect.linkx.ink/v1/batches`，各构建渠道配置为 100%。5.1.0 已正式发布，业务服务已切换至 PostgreSQL；实际部署与验证边界见 [切库记录](../docs/backend-cutover-2026-09-30.md)。
 
 ## 身份和存量兼容
 

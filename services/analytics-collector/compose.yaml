@@ -1,31 +1,4 @@
 services:
-  public-read-pilot:
-    build: ../public-read-pilot
-    image: linkx-public-read-pilot:20260923-rollout
-    profiles: [pilot]
-    restart: unless-stopped
-    init: true
-    read_only: true
-    user: "1000:1000"
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 64
-    mem_limit: 128m
-    cpus: 0.5
-    environment:
-      HOST: 0.0.0.0
-      PORT: 3100
-      SNAPSHOT_PATH: /snapshot/snapshot.json
-      PUBLIC_STATS_SYNC_KEY_FILE: /secrets/sync.key
-      PUBLIC_STATS_READ_ENABLED: "${PUBLIC_STATS_READ_ENABLED:-true}"
-    volumes:
-      - "${PUBLIC_READ_SNAPSHOT_DIR:-/var/lib/linkx-public-read-pilot}:/snapshot"
-      - "/etc/linkx-public-stats:/secrets:ro"
-    tmpfs:
-      - /tmp:size=8m,mode=1777
-    logging:
-      driver: json-file
-      options: { max-size: "2m", max-file: "2" }
   collector:
     build: .
     # Preserve existing mounts/project identity when updating this image.

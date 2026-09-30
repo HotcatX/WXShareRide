@@ -12,17 +12,16 @@ WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX**. It br
 
 ## Architecture
 
-The Mini Program uses **JavaScript, WXML, and WXSS**. Production bookings and marketplace operations still use **Tencent CloudBase**. Analytics and public statistics reads use the Tencent Cloud server. A Node.js 24/PostgreSQL business backend is being built alongside production; its current internal deployment has not taken over booking writes.
+The Mini Program uses **JavaScript, WXML, and WXSS**. Production business operations use a single **Node.js 24/PostgreSQL** backend on the Tencent Cloud server. CloudBase retains the WeChat identity bridge and compatibility entry points; those entry points use the same PostgreSQL database. A separate analytics collector receives batched events. Public statistics come directly from the business backend.
 
 | Location | Contents |
 | --- | --- |
 | [`pages/`](pages/) | Ride, marketplace, account, and trip-management screens |
 | [`components/`](components/) | Shared calendar, time picker, announcement, and other UI components |
 | [`utils/`](utils/) | Time-zone handling, caching, location choices, and client helpers |
-| [`cloudfunctions/`](cloudfunctions/) | Cloud functions for rides, accounts, and marketplace operations |
-| [`services/backend/`](services/backend/) | New business backend, canonical schema and isolated PostgreSQL tests |
+| [`cloudfunctions/`](cloudfunctions/) | WeChat identity and compatibility entry points; restricted deployment list |
+| [`services/backend/`](services/backend/) | Production business backend, canonical schema and isolated PostgreSQL tests |
 | [`services/analytics-collector/`](services/analytics-collector/) | Deployed telemetry receiver, local operations and backup tools |
-| [`services/public-read-pilot/`](services/public-read-pilot/) | Deployed public-statistics replica; existing host name retained for compatibility |
 | [`styles/`](styles/) and [`templates/`](templates/) | Shared presentation and templates |
 | [`tests/`](tests/) | Automated regression tests |
 | [`docs/`](docs/) | Architecture notes, maintenance records, and feature documentation |
@@ -35,7 +34,7 @@ Useful starting points:
 - [Place recommendation design and catalog maintenance](docs/place-recommendation-and-data-plan-2026-09-23.md)
 - [Community announcements and remote configuration](docs/community-hot-update.md)
 - [Ride completion statistics](docs/ride-completion-stats.md)
-- [Current backend deployment boundary](docs/backend-foundation-deployment-2026-09-25.md)
+- [Production database cutover and verification](docs/backend-cutover-2026-09-30.md)
 - [Public statistics operation and fallback](docs/public-statistics.md)
 - [Canonical backend data contract](services/backend/SCHEMA.md)
 

@@ -7,10 +7,11 @@
 以下旧入口的源码暂留作迁移恢复资料，生产已停用；不要重新部署、恢复旧定时器或把它们加入正常部署清单：
 
 - `createTrip`、`joinTrip`、`tripManage`
-- `login`、`updateUser`、`clearUserNotifications`
-- `rideDemand`、`referralApi`
+- `updateUser`
 - `syncTripStatus`、`syncMyTripStatus`
 - `cleanupMarketImages`、`syncPublicStatsReplica`
+
+`login`、`clearUserNotifications`、`rideDemand`、`referralApi` 的旧实现已从当前源码树移除，可在 [a82f73b 的 cloudfunctions](https://github.com/HotcatX/WXShareRide/tree/a82f73b/cloudfunctions) 和私有切库恢复包中核对。本地源码清理没有删除线上维护入口；其拒写行为继续保留，不应从历史版本重新部署旧实现。
 
 旧版 `marketApi` 的 CloudBase 写入实现同样属于临时恢复资料；正常目录必须使用 PostgreSQL 兼容入口才能部署。其他旧查询函数仍用于历史兼容，不属于正常部署白名单。
 

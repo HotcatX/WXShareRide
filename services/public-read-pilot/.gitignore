@@ -1,5 +1,0 @@
-snapshot.json
-*.snapshot.json
-data/
-.env
-node_modules/

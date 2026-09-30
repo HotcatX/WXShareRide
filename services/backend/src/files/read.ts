@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import type { AdminIdentity } from '../admin/service.ts';
 import { lockAdmin } from '../admin/service.ts';
@@ -25,9 +25,15 @@ const unavailable = () => new AppError(404, 'FILE_NOT_FOUND', '图片不存在�
  */
 export async function authorizeFileReads(pool: Pool, appId: string, fileIds: unknown,
   viewer?: FileReadViewer): Promise<ReadableFile[]> {
+  return transaction(pool, client => authorizeFileReadsInTransaction(client, appId, fileIds, viewer));
+}
+
+/** Reuse the caller's transaction and connection without changing file ACLs.
+ * In particular, a compatibility read must not acquire a second pool slot. */
+export async function authorizeFileReadsInTransaction(client: PoolClient, appId: string, fileIds: unknown,
+  viewer?: FileReadViewer): Promise<ReadableFile[]> {
   appSchema.parse(appId);
   const ids = [...new Set(idsSchema.parse(fileIds))];
-  return transaction(pool, async client => {
     let userId: string | null = null, ownerKey: string | null = null, accountId: string | null = null;
     if (viewer && 'admin' in viewer) {
       if (viewer.admin.appId !== appId) throw new AppError(401, 'ADMIN_UNAUTHORIZED', '管理员登录已失效，请重新登录');
@@ -104,5 +110,4 @@ export async function authorizeFileReads(pool: Pool, appId: string, fileIds: unk
     // A mixed batch must not return any provider locators on partial success.
     if (rows.length !== ids.length) throw unavailable();
     return rows;
-  });
 }

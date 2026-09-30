@@ -11,6 +11,11 @@ import { parseListedPrice } from '../prices.ts';
 import { listNotifications, unreadNotifications, markNotificationReadInTransaction,
   markAllNotificationsReadInTransaction, clearNotificationsInTransaction } from '../notifications/service.ts';
 import { updateUserAddressInTransaction } from '../users/service.ts';
+import { runProfileRead } from './legacy-profile.ts';
+import { runProfilesRead } from './legacy-profiles.ts';
+import { runLegacyRideRead, legacyRideSchemas } from './legacy-rides.ts';
+
+export type CompatReadDependencies = { avatarUrl?: (client: PoolClient, fileId: string, viewerId: string) => Promise<string> };
 
 type Actor = { appId: string; openid: string; id: string };
 type Form = z.infer<typeof compatTemplateForm>;
@@ -47,11 +52,14 @@ function templateInput(form: Form, previous?: TemplateDefinition) {
 
 /** Caller owns the nonce + identity + mutation transaction. Never creates a
  * user/session or opens CloudBase. Remove with the finite transitional bridge. */
-export async function runCompatAction(client: PoolClient, appId: string, openid: string, action: string, input: unknown, key?: unknown) {
+export async function runCompatAction(client: PoolClient, appId: string, openid: string, action: string, input: unknown, key?: unknown, deps: CompatReadDependencies = {}) {
   const body = parseCompatAction(action, input);
   const user = (await client.query<{ id: string }>('SELECT id FROM users WHERE app_id=$1 AND openid=$2', [appId, openid])).rows[0];
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', '账号不存在，请先登录');
   const actor: Actor = { appId, openid, id: user.id };
+  // File authorization shares the bridge's connection/transaction. Holding one
+  // pool client while asking for another can deadlock a saturated pool.
+  const readDeps = { avatarUrl: deps.avatarUrl ? (fileId: string, viewerId: string) => deps.avatarUrl!(client, fileId, viewerId) : undefined };
   const write = async () => {
     if (action === 'templates.create' || action === 'templates.update') {
       const form = body.form as Form;
@@ -79,7 +87,10 @@ export async function runCompatAction(client: PoolClient, appId: string, openid:
   }
   if (key !== undefined) throw new AppError(400, 'INVALID_INPUT', '读取操作不接受请求编号');
   let data: Record<string, unknown>;
-  if (action === 'identity') data = actor;
+  if (action === 'profile.get') data = await runProfileRead(client, appId, openid, readDeps);
+  else if (action === 'profiles.list') data = await runProfilesRead(client, appId, openid, body, readDeps);
+  else if (Object.hasOwn(legacyRideSchemas, action)) data = await runLegacyRideRead(client, appId, openid, action, body, readDeps);
+  else if (action === 'identity') data = actor;
   else if (action === 'templates.list') {
     const page = body.page as number;
     data = { page, items: (await templateRows(client, user.id, page, 100, 'created')).slice(0, 100).map(row => legacyTemplate(templateDto(row), actor)) };

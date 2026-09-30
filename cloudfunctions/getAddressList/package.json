@@ -1,0 +1,8 @@
+{
+  "name": "linkx-legacy-address-list",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "type": "commonjs",
+  "dependencies": {}
+}

@@ -71,8 +71,9 @@ expired, cross-app and replayed requests are rejected. The companion
 does not automatically deploy or enable a new environment.
 
 The temporary `POST /internal/v1/compat/cloudbase` bridge reuses that mounted key
-with a separate signing purpose. It supports only the finite deployed template,
-notification and saved-address contract. It looks up an existing migrated user;
+with separate signing purposes. It supports the finite deployed template,
+notification and saved-address contract, plus bounded legacy read projections.
+It looks up an existing migrated user;
 it cannot create identities or issue sessions. Its nonce, canonical mutation and
 permanent receipt share one transaction. Completed CloudBase `OperationReceipts`
 are imported into the existing `idempotency_requests` table without re-executing
@@ -83,6 +84,27 @@ Generate the isolated cloud bundles' authority files from `config/backend.js`
 with `node scripts/sync-cloud-authority.mjs`; `--check` detects stale copies.
 This repository and the deployed bridges now use `server` authority following
 the completed single-writer handoff. Do not restore CloudBase write authority.
+
+The six legacy query adapters use `purpose: compat-read` and an action-specific
+HMAC leaf derived from the existing mounted root. Each cloud function receives
+only its own leaf; it cannot sign a login, mutation or another query. Trusted
+CloudBase context supplies AppID/OpenID, never request fields. Profile, contact
+and ride projections use the current canonical permissions and file references.
+One repeatable-read transaction covers paginated rows, the nonce and file ACL;
+avatar signing reuses that transaction's connection to avoid pool deadlock.
+No profile/session is created by a query, and no archived private fields are
+substituted for current data. An unsupported legacy shape or oversized complete
+result fails explicitly instead of returning partial data or reading CloudBase.
+
+Generate the five public files per query function with
+`node scripts/sync-cloud-queries.mjs`; `--check` verifies exact copies. A separate
+private `query-bridge.secret` is injected only into each sealed deployment pack.
+These functions are not in the ordinary bulk deployment whitelist. The backend
+must be deployed and verified before updating them. Once query consumers are
+using this contract, an older backend image without these actions is no longer
+a compatible rollback; recovery must retain this contract against the same PG.
+See [cloud deployment status](../../cloudfunctions/DEPLOYMENT.md) for the actual
+deployed versus staged state.
 
 The mini-program reads that same choice through `backend`'s public `authority`
 action before starting page business work. The packaged configuration is not a

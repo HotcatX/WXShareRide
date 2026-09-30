@@ -25,6 +25,7 @@ import { registerAdminMarketTemplateRoutes } from './admin/market-template-route
 import { registerAdRoutes } from './ads/routes.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import type { FileStorage } from './files/routes.ts';
+import { authorizeFileReadsInTransaction } from './files/read.ts';
 import { cloudBaseLoginPath, createCloudBaseLoginBridge } from './auth/cloudbase.ts';
 import { registerLocationRoutes } from './locations/routes.ts';
 import { registerCityRequestRoutes } from './locations/requests.ts';
@@ -74,7 +75,13 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
     return { ok: true, data: { status: 'ready' }, requestId: request.id };
   });
   if (deps.config.authBridgeKey) {
-    const compat = createCompatBridge({ pool: deps.pool, appId: deps.config.appId, key: deps.config.authBridgeKey, isActive });
+    const compat = createCompatBridge({ pool: deps.pool, appId: deps.config.appId, key: deps.config.authBridgeKey, isActive,
+      avatarUrl: async (client, fileId, viewerId) => {
+        if (!deps.storage) throw new AppError(503, 'FILE_STORAGE_UNAVAILABLE', '图片服务暂不可用，请稍后重试');
+        const [file] = await authorizeFileReadsInTransaction(client, deps.config.appId, [fileId], { userId: viewerId });
+        if (!file) throw new AppError(404, 'FILE_NOT_FOUND', '图片不存在或不可访问');
+        return deps.storage.readUrl(file, 300);
+      } });
     app.register(async scope => {
       scope.removeAllContentTypeParsers();
       scope.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 69632 }, (_request, body, done) => done(null, body));

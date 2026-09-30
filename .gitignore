@@ -48,3 +48,4 @@ miniprogram_npm/
 /cloudfunctions/statistics/sync.secret
 /cloudfunctions/backend/auth-bridge.secret
 /cloudfunctions/statistics/analytics.secret.json
+/cloudfunctions/*/query-bridge.secret

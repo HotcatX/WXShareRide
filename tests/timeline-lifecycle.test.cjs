@@ -327,7 +327,7 @@ test('failed public redirection stays on an information fallback without private
   assert.equal(harness.navigation.length, 1)
 })
 
-function makeAppHarness(scene = 1001) {
+function makeAppHarness(scene = 1001, { authority = 'cloudbase' } = {}) {
   const cloudCalls = []
   const cloudInit = []
   const storageWrites = []
@@ -349,7 +349,7 @@ function makeAppHarness(scene = 1001) {
       callFunction(config) {
         cloudCalls.push(plain(config))
         if (config.name === 'backend' && config.data.action === 'authority') return Promise.resolve({ result: {
-          ok: true, data: { appId: 'wx8a8a389199aa2a0e', authority: 'cloudbase' } } })
+          ok: true, data: { appId: 'wx8a8a389199aa2a0e', authority } } })
         return Promise.resolve({ result: { ok: true, referralCode: 'generated_code' } })
       }
     }
@@ -462,21 +462,28 @@ test('preview shares do not invoke the original callback with private page state
 })
 
 test('App scene transition restores page referral attribution from original preview options', async () => {
-  const harness = makeAppHarness(1154)
-  const originalLoads = []
-  harness.enter({ scene: 1154, query: { id: 'trip_1', ref: 'original_ref' } })
+  const harness = makeAppHarness(1154, { authority: 'server' })
+  const originalLoads = [], code = 'ref_0123456789ab'
+  harness.enter({ scene: 1154, query: { id: 'trip_1', ref: code } })
   const page = harness.register({ onLoad(options) { originalLoads.push(plain(options)) } })
-  page.onLoad({ id: 'trip_1', ref: 'original_ref', scene: '1154' })
+  page.onLoad({ id: 'trip_1', ref: code, scene: '1154' })
   page.onReady()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(originalLoads, [])
+  assert.equal(harness.storage.has('pending_referral'), false)
   harness.enter({ scene: 1001 }, 'onShow')
   page.onShow()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(harness.timeline.isTimelinePreview(), false)
-  assert.deepEqual(originalLoads, [{ id: 'trip_1', ref: 'original_ref', scene: '1154' }])
-  const visit = harness.cloudCalls.find(call => call.name === 'referralApi' && call.data.action === 'trackVisit')
-  assert.equal(visit?.data.referralCode, 'original_ref')
-  assert.equal(visit?.data.path, PUBLIC_CARPOOL)
-  assert.equal(visit?.data.query.id, 'trip_1')
+  assert.deepEqual(originalLoads, [{ id: 'trip_1', ref: code, scene: '1154' }])
+  const visit = harness.storage.get('pending_referral').visits.find(item => item.source === 'pageLoad')
+  assert.equal(visit.code, code)
+  assert.equal(visit.entry, 'trip_detail')
+  assert.equal(page.__referralShareOptions.id, 'trip_1')
+  assert.equal(page.__referralShareOptions.ref, code)
+  assert.equal(visit.owner, ''); assert.equal(visit.queued, false)
+  assert.equal(harness.cloudCalls.some(call => call.name === 'referralApi'), false)
+  page.onUnload(); harness.app.onHide()
 })
 
 test('every registered page declares the preview and gates the entire original WXML branch', () => {

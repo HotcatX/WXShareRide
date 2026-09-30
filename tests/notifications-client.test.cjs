@@ -78,16 +78,43 @@ test('guest and stale IDs cannot write or navigate, and invalid times stay empty
  h.storage.isGuest=true;await h.page.onGoRating(event('a'));await h.page.loadList();assert.equal(h.state.mutations.length,0);assert.equal(h.state.navigation.length,0)
  assert.equal(h.page.data.unreadCount,0);assert.equal(h.page.formatTime('invalid'),'')
 })
-test('CloudBase mode uses narrow backend actions for list/read/readAll/clear and never client database writes',async()=>{
- const calls=[]
- const h=harness({server:false,backend:{
-  cloudRead:async(action)=>{calls.push([action]);return {items:[{_id:'legacy',_openid:'synthetic_a',type:'RATING_INVITE',extra:{requestId:'old_trip'},read:false,createdAt:0}],unreadCount:101}},
-  cloudMutate:async(scope,action,body)=>{calls.push([action,plain(body)]);return action==='notifications.read'?{id:body.id,read:true}:action==='notifications.readAll'?{changed:101}:{deleted:101}}
- }})
- await h.page.loadList();assert.equal(h.page.data.list[0].rateTripId,'old_trip');assert.equal(h.page.data.unreadCount,101)
- await h.api.markRead('legacy');await h.api.markAllRead();await h.api.clear()
- assert.deepEqual(calls,[['notifications.list'],['notifications.read',{id:'legacy'}],['notifications.readAll',{}],['notifications.clear',{}]])
- assert.equal(h.state.cloud.length,0);assert.equal(h.state.mutations.length,0)
+test('notifications reject unready and non-server authority before any HTTP or cloud operation',async()=>{
+ const {createBackendClient}=require('../utils/backendClient')
+ for(const [mode,ready,code] of [['server',false,'BACKEND_NOT_READY'],['cloudbase',true,'BACKEND_DISABLED'],['invalid',true,'BACKEND_DISABLED']]){
+  const h=harness()
+  h.wx.request=()=>assert.fail('blocked authority must not send HTTP')
+  Object.assign(h.backend,createBackendClient({wx:h.wx,authority:{getMode:()=>mode,isReady:()=>ready,subscribe(){}}}))
+  for(const action of [()=>h.api.list(),()=>h.api.markRead('a'),()=>h.api.markAllRead(),()=>h.api.clear()]){
+   await assert.rejects(action(),{code})
+  }
+  assert.deepEqual(h.state.cloud,[]);assert.deepEqual(h.state.mutations,[])
+ }
+})
+test('notifications recover a persisted cloud receipt with its original key through the same PG bridge, without a fresh mutation',async()=>{
+ const {createBackendClient,SESSION_KEY,PENDING_KEY}=require('../utils/backendClient')
+ const {sha256}=require('../utils/hash')
+ const h=harness(),openid='synthetic-notifications-owner',userId='00000000-0000-4000-8000-000000000001'
+ h.storage.openid=openid
+ h.storage[SESSION_KEY]={token:'a'.repeat(43),expiresAt:new Date(Date.now()+3600000).toISOString(),user:{id:userId,openid,referralCode:'ref_0123456789ab'}}
+ const pending={userId,scope:'notifications.readAll',key:'original-notification-key',fingerprint:sha256(JSON.stringify(['CLOUD','notifications.readAll','{}'])),
+  request:{method:'CLOUD',path:'notifications.readAll',body:{}}}
+ const foreign={...pending,userId:'00000000-0000-4000-8000-000000000002',key:'foreign-notification-key'}
+ h.storage[PENDING_KEY]=[pending,foreign]
+ h.wx.removeStorageSync=key=>{delete h.storage[key]}
+ h.wx.request=()=>assert.fail('pending receipt must not become a fresh HTTP write')
+ let fail=true
+ h.wx.cloud.callFunction=async input=>{
+  h.state.cloud.push(plain(input))
+  if(fail)throw new Error('synthetic lost ACK')
+  return {result:{ok:true,actor:{id:userId,openid,appId:'wx8a8a389199aa2a0e'},data:{changed:3}}}
+ }
+ Object.assign(h.backend,createBackendClient({wx:h.wx,config:{mode:'server'}}))
+ await assert.rejects(h.api.markAllRead(),{code:'NETWORK_ERROR'})
+ assert.deepEqual(h.storage[PENDING_KEY],[pending,foreign])
+ fail=false
+ assert.deepEqual(plain(await h.api.markAllRead()),{changed:3,recovered:true})
+ assert.deepEqual(h.state.cloud,[0,1].map(()=>({name:'backend',data:{action:'notifications.readAll',body:{},expectedOpenid:openid,key:pending.key,expectedAuthority:'server'}})))
+ assert.deepEqual(h.storage[PENDING_KEY],[foreign]);assert.deepEqual(h.state.mutations,[])
 })
 
 module.exports={harness}

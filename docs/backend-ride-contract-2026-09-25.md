@@ -15,10 +15,10 @@
 | 求车人数 | 创建者可代表 1–4 人；另一个账号加入增加一人；司机接单不占乘客席。 | [createTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js#L269)、[joinTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js#L250)、[acceptRequest](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/tripManage/index.js#L511) |
 | 供车上下车点 | 页面要求乘客填写两个非空文本，最长 60 字符，并提供“私议”等自由值；云函数写入乘客对象。它们不是选择路线 stop 的 ID，也没有时间或空间验证。旧服务本身未强制非空。 | [tripDetail 输入](../pages/home/tripDetail/tripDetail.wxml#L152)、[加入校验](../pages/home/tripDetail/tripDetail.js#L658)、[joinTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js#L196) |
 | 求车上下车点 | 当前加入求车不收集个人接送说明；没有证据可以用用户住址或路线端点补造。 | [joinRequest](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js#L250)、[requestDetail](../pages/home/requestDetail/requestDetail.js#L490) |
-| 车辆 | 当前发车页面先校验个人资料中的车牌/品牌/型号；实际行程文档不保存车辆。成员看到的是司机当前个人资料，不是发布时车辆快照。 | [newTrip 资料](../pages/home/newTrip/newTrip.js#L257)、[发布参数](../pages/home/newTrip/newTrip.js#L837)、[getDriverData](../cloudfunctions/getTripDetail/index.js#L178) |
+| 车辆 | 当前发车页面先校验个人资料中的车牌/品牌/型号；实际行程文档不保存车辆。成员看到的是司机当前个人资料，不是发布时车辆快照。 | [newTrip 资料](../pages/home/newTrip/newTrip.js#L257)、[发布参数](../pages/home/newTrip/newTrip.js#L837)、[getDriverData](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/getTripDetail/index.js#L178) |
 | 行李 | `largeLuggageCount` 属于求车，不是车辆行李容量，也不是每个后加入成员的行李数。当前求车页面固定提交 0；历史仍有正数，并在司机接单后的页面展示。 | [passenger_submitRequest](../pages/home/newTrip/newTrip.js#L953)、[createRequest](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js#L269)、[司机求车详情](../pages/profile/myRequestDetailDriver/myRequestDetailDriver.js#L210) |
-| 供车 Zelle | 个人资料的 `defaultShowZelle` 是将来发布的默认选择；发车把当次选择保存为行程 `zelle=yes/no`。资料修改不改变既有行程的展示选择；实际姓名/账号仍实时来自个人资料。仅向行程参与者展示。 | [newTrip](../pages/home/newTrip/newTrip.js#L271)、[getDriverData](../cloudfunctions/getTripDetail/index.js#L189)、[tripDetail WXML](../pages/home/tripDetail/tripDetail.wxml#L103) |
-| 求车 Zelle | 旧实现向已加入的求车参与者显示接单司机 Zelle，没有供车式的每行程开关。不能假称两类旧流程已经使用相同开关。 | [getDriverData](../cloudfunctions/getTripDetail/index.js#L189)、[求车乘客页面](../pages/profile/myTripRequestPassenger/myTripRequestPassenger.wxml#L105) |
+| 供车 Zelle | 个人资料的 `defaultShowZelle` 是将来发布的默认选择；发车把当次选择保存为行程 `zelle=yes/no`。资料修改不改变既有行程的展示选择；实际姓名/账号仍实时来自个人资料。仅向行程参与者展示。 | [newTrip](../pages/home/newTrip/newTrip.js#L271)、[getDriverData](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/getTripDetail/index.js#L189)、[tripDetail WXML](../pages/home/tripDetail/tripDetail.wxml#L103) |
+| 求车 Zelle | 旧实现向已加入的求车参与者显示接单司机 Zelle，没有供车式的每行程开关。不能假称两类旧流程已经使用相同开关。 | [getDriverData](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/getTripDetail/index.js#L189)、[求车乘客页面](../pages/profile/myTripRequestPassenger/myTripRequestPassenger.wxml#L105) |
 | Zelle 的业务性质 | 页面展示/复制姓名和账号，没有付款、扣款、支付成功或成交确认协议。 | [copyZelle](../pages/home/tripDetail/tripDetail.js#L830) |
 
 “最后一站还没出发，所以可以在任意站加入”“上下车说明对应某一站”“下车后释放席位”都没有源代码依据。本轮不引入这些规则。
@@ -124,8 +124,8 @@ type JoinRide =
 
 存在两个实际旧暴露面，不能复制为新 API 的兼容承诺：
 
-1. [getUserInfoByOpenids](../cloudfunctions/getUserInfoByOpenids/index.js) 接受任意 OpenID 列表，没有 actor/行程关系校验，返回电话、住所相关字段和 Zelle。旧页面有关系判断也不能代替服务端授权。新 participants 失败时不能自动回退这个通用查人接口来绕过授权。
-2. [getTripDetail.sanitizeTripDoc](../cloudfunctions/getTripDetail/index.js#L135) 主要删除旧别名，仍返回整个行程文档；offer.passengers 中的个人接送说明不因此变成可公开数据。
+1. [getUserInfoByOpenids](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/getUserInfoByOpenids/index.js) 接受任意 OpenID 列表，没有 actor/行程关系校验，返回电话、住所相关字段和 Zelle。旧页面有关系判断也不能代替服务端授权。新 participants 失败时不能自动回退这个通用查人接口来绕过授权。
+2. [getTripDetail.sanitizeTripDoc](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/getTripDetail/index.js#L135) 主要删除旧别名，仍返回整个行程文档；offer.passengers 中的个人接送说明不因此变成可公开数据。
 
 当前求车同组页面还展示 `p.address`，来自个人资料，不是本次提交的 pickupAddress。新 canonical profile 已把 location 私有化；建议此旧字段不进入 participants，不能改名为 pickupAddress 掩盖来源。这是需随下一客户端适配处理的明确差异，不在本次文档中改线上 UI。
 

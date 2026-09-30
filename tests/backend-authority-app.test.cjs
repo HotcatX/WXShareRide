@@ -103,19 +103,27 @@ test('real App fails closed, recovers on the next foreground and keeps the origi
   h.state.next = () => fail.promise
   const page = h.page({ onLoad() { events.push('load') }, submit() { events.push('write') },
     onPullDownRefresh() { events.push('business-refresh') } })
-  const capturedAt = h.state.now
-  h.launch({ ref: 'captured_invite' }); page.onLoad({}); page.onShow()
+  const capturedAt = h.state.now, code = 'ref_0123456789ab'
+  h.launch({ ref: code }); page.onLoad({}); page.onShow()
   fail.reject(Error('offline')); await tick(); page.submit()
   assert.deepEqual(events, []); assert.equal(h.state.cloud.length, 1)
   page.onPullDownRefresh()
   assert.equal(h.state.stoppedPulls, 1); assert.deepEqual(events, [])
   assert.equal(h.storage.pending_referral, undefined)
   h.app.onHide(); page.onHide(); h.state.now += 8000
-  h.state.next = () => Promise.resolve(reply('cloudbase'))
+  h.state.next = () => Promise.resolve(reply('server'))
   h.app.onShow({ scene: 1001 }); page.onShow(); await tick()
   assert.deepEqual(events, ['load'])
-  const visit = h.state.cloud.find(call => call.name === 'referralApi')
-  assert.equal(visit.data.capturedAtMs, capturedAt)
+  // Guests retain the original capture for the existing authenticated batch
+  // queue; recovery must not rewrite its clock or call the retired endpoint.
+  const pending = h.storage.pending_referral
+  assert.equal(pending.capturedAtMs, capturedAt)
+  assert.equal(pending.visits.length, 1)
+  const visit = pending.visits[0]
+  assert.equal(visit.code, code); assert.equal(visit.occurredAt, capturedAt)
+  assert.equal(visit.source, 'appLaunch'); assert.equal(visit.entry, 'home')
+  assert.equal(visit.owner, ''); assert.equal(visit.queued, false)
+  assert.equal(h.state.cloud.some(call => call.name === 'referralApi'), false)
   page.onUnload(); h.app.onHide()
 })
 

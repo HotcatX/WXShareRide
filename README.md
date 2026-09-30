@@ -12,7 +12,7 @@ WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX**. It br
 
 ## Architecture
 
-The Mini Program uses **JavaScript, WXML, and WXSS**. Production business operations use a single **Node.js 24/PostgreSQL** backend on the Tencent Cloud server. CloudBase retains the WeChat identity bridge and compatibility entry points; those entry points use the same PostgreSQL database. A separate analytics collector receives batched events. Public statistics come directly from the business backend.
+The Mini Program uses **JavaScript, WXML, and WXSS**. The released 5.1.0 client uses a single **Node.js 24/PostgreSQL** business backend on the Tencent Cloud server. CloudBase supplies WeChat identity and same-database compatibility bridges. A separate analytics collector receives batched events; public statistics come from the business backend. Some older cloud read functions remain deployed against the frozen historical database, outside the current client's server path and the [normal deployment list](cloudfunctions/DEPLOYMENT.md).
 
 | Location | Contents |
 | --- | --- |

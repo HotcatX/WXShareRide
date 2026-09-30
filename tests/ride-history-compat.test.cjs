@@ -38,14 +38,18 @@ test('the four-hour elapsed-time rule remains correct across both DST changes af
   }
 })
 
-test('history loader defaults to the old read and never falls back after a server error', async () => {
+test('history loader rejects unready and non-server authority and never falls back after a server error', async () => {
+  const { createBackendClient } = require('../utils/backendClient')
   let cloudCalls = 0
   const wx = { getStorageSync: key => key === 'openid' ? own : false,
-    cloud: { callFunction: async input => { cloudCalls++; assert.deepEqual(input, { name: 'getMyTripHistory' }); return { result: { ok: true, data: [] } } } } }
-  const disabled = { isBackendEnabled: () => false, get: () => assert.fail('unexpected HTTP') }
-  assert.deepEqual(await loadRideHistory(own, { wx, backend: disabled }), { result: { ok: true, data: [] } })
+    request: () => assert.fail('blocked authority must not send HTTP'),
+    cloud: { callFunction: async () => { cloudCalls++; assert.fail('legacy history must not be called') } } }
+  for (const [mode, ready, code] of [['server', false, 'BACKEND_NOT_READY'], ['cloudbase', true, 'BACKEND_DISABLED'], ['invalid', true, 'BACKEND_DISABLED']]) {
+    const backend = createBackendClient({ wx, authority: { getMode: () => mode, isReady: () => ready, subscribe() {} } })
+    await assert.rejects(loadRideHistory(own, { wx, backend }), { code })
+  }
   await assert.rejects(loadRideHistory(own, { wx, backend: { isBackendEnabled: () => true, get: async () => { throw new Error('offline') } } }), /offline/)
-  assert.equal(cloudCalls, 1)
+  assert.equal(cloudCalls, 0)
 })
 
 test('private history pagination is complete, validates progress, and cancels when the account changes', async () => {

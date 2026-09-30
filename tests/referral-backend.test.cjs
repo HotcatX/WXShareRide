@@ -35,7 +35,7 @@ function harness(overrides = {}) {
     module,wx,Date:clock,require:name=> name==='./timeline'?{isTimelinePreview:()=>state.preview}:name==='./analyticsSession'?analytics:transport.exports
   })
   const ready=()=>{state.ready=true;state.listeners.forEach(cb=>cb({collectionReady:true}))}
-  return {api:module.exports,backend,state,storage,ready,analytics}
+  return {api:module.exports,transport:transport.exports,wx,backend,state,storage,ready,analytics}
 }
 const capture=(h,code=CODE)=>h.api.captureReferral({path:'pages/home/tripDetail/tripDetail',query:{ref:code,phone:'must-not-leak'},scene:1001},'appShow')
 
@@ -127,12 +127,15 @@ test('bounded pending visits report queue overflow and expiry through existing d
   assert.deepEqual(h.state.records.map(e=>e.data),[{reason:'queue_limit',droppedCount:2},{reason:'expired',droppedCount:32}])
 })
 
-test('default legacy mode still uses its existing referral endpoint and isolates asynchronous account ownership',async()=>{
-  const h=harness({isBackendEnabled:()=>false})
-  await h.api.ensureReferralCode();capture(h,OTHER);await h.api.bindPendingReferral()
-  assert.deepEqual(h.state.cloud.map(x=>x.data.action),['getMyReferralCode','trackVisit','bindReferral'])
-  assert.equal(h.state.mutations.length,0)
-  assert.equal(h.storage.pending_referral,undefined)
+test('referrals reject unready and non-server authority without a legacy call or new mutation',async()=>{
+  const {createBackendClient}=require('../utils/backendClient')
+  for(const [mode,ready,code] of [['server',false,'BACKEND_NOT_READY'],['cloudbase',true,'BACKEND_DISABLED'],['invalid',true,'BACKEND_DISABLED']]){
+    const h=harness()
+    h.wx.request=()=>assert.fail('blocked authority must not send HTTP')
+    Object.assign(h.backend,createBackendClient({wx:h.wx,authority:{getMode:()=>mode,isReady:()=>ready,subscribe(){}}}))
+    for(const action of ['getMyReferralCode','bindReferral'])await assert.rejects(h.transport.call(action,{referralCode:CODE}),{code})
+    assert.deepEqual(h.state.cloud,[]);assert.deepEqual(h.state.mutations,[])
+  }
 })
 
 test('client and collector agree on referral_visit and reject metadata/contact smuggling and invalid codes',async()=>{

@@ -1,13 +1,8 @@
 const backend = require('../backendClient')
 
-// Temporary CloudBase fallback selected only by deployment mode. Server errors
-// are returned to the caller and never repeat a write against the old database.
+// Keep the existing referral caller contract while using the server API only.
 async function call(action, data = {}) {
-  if (!backend.isBackendEnabled()) {
-    if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') throw new Error('REFERRAL_UNAVAILABLE')
-    const response = await wx.cloud.callFunction({ name: 'referralApi', data: { action, ...data } })
-    return response && response.result || { ok: false, error: 'INVALID_RESPONSE' }
-  }
+  if (!backend.isBackendEnabled()) throw Object.assign(new Error('业务服务尚未切换'), { code: 'BACKEND_DISABLED' })
   if (action === 'getMyReferralCode') {
     const result = await backend.get('/api/v1/referrals/me')
     return { ok: true, referralCode: result.code, referralCount: result.referralCount }

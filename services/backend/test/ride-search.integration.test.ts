@@ -7,6 +7,103 @@ import { createApp } from '../src/app.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const enabled = { skip: !process.env.BACKEND_TEST_DATABASE_URL };
+test('calendar counts a complete busy leap day and keeps New York month and year boundaries', enabled, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const appId = 'synthetic-calendar-boundaries';
+  const owner = (await db.pool.query("INSERT INTO users(app_id,openid) VALUES($1,'calendar-owner') RETURNING id", [appId])).rows[0].id;
+  for (const [kind, count] of [['offer', 135], ['request', 110]] as const) {
+    await db.pool.query(`INSERT INTO rides(id,kind,creator_id,city_key,status,seat_capacity,departure_at,time_zone)
+      SELECT $1||'-'||lpad(i::text,3,'0'),$1,$2,'ny_nj','open',4,'2036-02-29T15:00:00Z','America/New_York'
+      FROM generate_series(1,$3::int) i`, [kind, owner, count]);
+  }
+  for (const [id, at] of [
+    ['before-month', '2036-02-01T04:59:59.999Z'], ['month-start', '2036-02-01T05:00:00Z'],
+    ['month-end', '2036-03-01T04:59:59.999Z'], ['next-month', '2036-03-01T05:00:00Z'],
+    ['year-end', '2037-01-01T04:59:59.999Z'], ['new-year', '2037-01-01T05:00:00Z'],
+  ]) {
+    await db.pool.query(`INSERT INTO rides(id,kind,creator_id,city_key,status,seat_capacity,departure_at,time_zone)
+      VALUES($1,'offer',$2,'ny_nj','open',4,$3,'America/New_York')`, [id, owner, at]);
+  }
+  assert.deepEqual(await rideCalendar(db.pool, { month: '2036-02' }, undefined, appId), {
+    month: '2036-02', days: [{ date: '2036-02-01', offerCount: 1, requestCount: 0 },
+      { date: '2036-02-29', offerCount: 136, requestCount: 110 }],
+  });
+  assert.deepEqual((await rideCalendar(db.pool, { month: '2036-02', kind: 'request' }, undefined, appId)).days,
+    [{ date: '2036-02-29', offerCount: 0, requestCount: 110 }]);
+  assert.deepEqual((await rideCalendar(db.pool, { month: '2036-12' }, undefined, appId)).days,
+    [{ date: '2036-12-31', offerCount: 1, requestCount: 0 }]);
+  assert.deepEqual((await rideCalendar(db.pool, { month: '2037-01' }, undefined, appId)).days,
+    [{ date: '2037-01-01', offerCount: 1, requestCount: 0 }]);
+  const ids: string[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const result = await listRides(db.pool,
+      { startDate: '2036-02-29', endDateExclusive: '2036-03-01', page, limit: 50 }, undefined, appId);
+    assert.equal(result.rides.length, page < 5 ? 50 : 46);
+    assert.equal(result.nextPage, page < 5 ? page + 1 : null);
+    assert.equal(result.nextDate, '2036-03-01');
+    ids.push(...result.rides.map(row => row.id));
+  }
+  assert.equal(ids.length, 246); assert.equal(new Set(ids).size, 246);
+  assert.ok(ids.includes('month-end')); assert.ok(!ids.includes('next-month'));
+});
+
+test('SQL list and calendar share airport and neighborhood aliases without widening custom addresses', enabled, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const appId = 'synthetic-place-boundaries';
+  const owner = (await db.pool.query("INSERT INTO users(app_id,openid) VALUES($1,'place-owner') RETURNING id", [appId])).rows[0].id;
+  const groups = [
+    ['EWR', ['EWR', 'Newark Liberty International Airport', 'EWR Terminal C', '纽瓦克机场 T1']],
+    ['JSQ', ['Journal Square', 'JSQ PATH']],
+    ['LIC', ['Long Island City', 'LIC']],
+    ['Inwood', ['Inwood', 'Inwood Manhattan', 'Inwood Park entrance']],
+    ['中城', ['Midtown', 'Midtown Manhattan', 'Midtown West', '中城 Bryant Park']],
+  ] as const;
+  const unrelated = ['Newark', '纽瓦克', 'Newark Broad Street', 'fewr station', 'Jersey City', 'Long Island',
+    'Inwoodman', 'Midtown Jersey City', 'Downtown Brooklyn', 'Queensboro Plaza'];
+  const rows = [...groups.flatMap(([group, addresses]) => addresses.map((address, i) => ({ id: `${group}-${i}`, address }))),
+    ...unrelated.map((address, i) => ({ id: `unrelated-${i}`, address }))];
+  for (const { id, address } of rows) {
+    await db.pool.query(`INSERT INTO rides(id,kind,creator_id,city_key,status,seat_capacity,departure_at,time_zone)
+      VALUES($1,'offer',$2,'ny_nj','open',4,'2036-04-10T15:00:00Z','America/New_York')`, [id, owner]);
+    await db.pool.query(`INSERT INTO ride_stops(ride_id,position,kind,address,departure_at)
+      VALUES($1,0,'departure',$2,'2036-04-10T15:00:00Z'),($1,1,'destination',$2,NULL)`, [id, address]);
+  }
+  for (const [group, addresses] of groups) {
+    const filter = { fromPlace: group, toPlace: group };
+    assert.deepEqual((await listRides(db.pool, filter, undefined, appId)).rides.map(row => row.id).sort(),
+      addresses.map((_, i) => `${group}-${i}`).sort());
+    assert.deepEqual((await rideCalendar(db.pool, { ...filter, month: '2036-04' }, undefined, appId)).days,
+      [{ date: '2036-04-10', offerCount: addresses.length, requestCount: 0 }]);
+  }
+  for (const address of ['EWR Terminal C', 'Inwood Park entrance', 'Midtown West']) {
+    const filter = { fromPlace: address, toPlace: address };
+    assert.deepEqual((await listRides(db.pool, filter, undefined, appId)).rides.map(row => row.id),
+      [rows.find(row => row.address === address)!.id]);
+    assert.equal((await rideCalendar(db.pool, { ...filter, month: '2036-04' }, undefined, appId)).days[0].offerCount, 1);
+  }
+  const other = { fromPlace: '其他', fromPresets: JSON.stringify(groups.map(([group]) => group)) };
+  assert.deepEqual((await listRides(db.pool, other, undefined, appId)).rides.map(row => row.id).sort(),
+    unrelated.map((_, i) => `unrelated-${i}`).sort());
+  assert.deepEqual((await rideCalendar(db.pool, { ...other, month: '2036-04' }, undefined, appId)).days,
+    [{ date: '2036-04-10', offerCount: unrelated.length, requestCount: 0 }]);
+});
+
+test('calendar rejects malformed month and filter inputs without returning a successful empty month', enabled, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  assert.deepEqual(await rideCalendar(db.pool, { month: '2036-02' }, undefined, 'synthetic-empty-calendar'),
+    { month: '2036-02', days: [] });
+  for (const change of [
+    { month: undefined }, { month: '' }, { month: '2036-2' }, { month: '2036-00' }, { month: '2036-13' },
+    { month: '2036-02-01' }, { month: '2036-02 ' }, { month: { month: '2036-02' } }, { month: '9999-12' },
+    { kind: 'driver' }, { kind: null }, { cityKey: {} }, { cityKey: 'a'.repeat(81) },
+    { fromPlace: 12 }, { toPlace: {} }, { fromPlace: 'a'.repeat(201) }, { fromPlace: 'Fort\u0000Lee' },
+    { fromPresets: 'Fort Lee' }, { toPresets: Array(101).fill('x') }, { toPresets: ['a'.repeat(201)] },
+  ]) {
+    await assert.rejects(rideCalendar(db.pool, { month: '2036-02', ...change }, undefined, 'synthetic-empty-calendar'),
+      { name: 'ZodError' });
+  }
+});
+
 test('ride search paginates the New York day, finds next nonempty day, and groups DST correctly', enabled, async t => {
   const db = await createTestDatabase(); t.after(db.close);
   const appId = 'synthetic-search', owner = (await db.pool.query("INSERT INTO users(app_id,openid) VALUES($1,'search-owner') RETURNING id", [appId])).rows[0].id;

@@ -1,6 +1,6 @@
-// TEMPORARY DTO ADAPTER — remove with the old history view after the next
-// release is verified. Membership authority comes from /me/rides, never public
-// ride fields. Only the current caller is projected into legacy OpenID slots.
+// DTO adapter for the current history view and followup client. Membership
+// authority comes from /me/rides, never public ride fields. Only the current
+// caller is projected into the view's OpenID slots.
 const backend = require('../backendClient')
 const rideTime = require('../rideTime')
 const object = value => value && typeof value === 'object' && !Array.isArray(value)
@@ -51,11 +51,7 @@ async function loadRideHistory(account, options = {}) {
   const wxApi = options.wx || wx
   const current = () => !wxApi.getStorageSync('isGuest') && wxApi.getStorageSync('openid') === account
   if (typeof account !== 'string' || !account || !current()) throw invalid()
-  if (!api.isBackendEnabled()) {
-    // TEMPORARY FALLBACK — default mode retains the existing read. A server
-    // failure never switches to this older source or becomes empty success.
-    return wxApi.cloud.callFunction({ name: 'getMyTripHistory' })
-  }
+  if (!api.isBackendEnabled()) throw Object.assign(new Error('业务服务尚未切换'), { code: 'BACKEND_DISABLED' })
   const rows = [], seen = new Set()
   let page = 1
   while (page !== null) {

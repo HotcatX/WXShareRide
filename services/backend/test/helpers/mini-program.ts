@@ -26,7 +26,6 @@ export function miniProgram(options: { url: string; appId: string; bridgeKey: Bu
   const modules = new Map<string, any>(), failures = new Set<string>();
   let bridgeCalls = 0, authorityCalls = 0, definition: any;
   const authority = createBackendHandler({ authority: 'server',
-    getDb() { throw Error('Authority metadata must not access a database'); },
     getKey() { throw Error('Authority metadata must not log in'); } });
   const wx: any = {
     getStorageSync: (key: string) => plain(storage.get(key)),

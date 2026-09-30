@@ -24,13 +24,14 @@ function harness(initial = {}) {
 }
 
 test('authority is public finite deployment metadata and cannot invoke login, database or a supplied override', async () => {
-  for (const mode of ['cloudbase', 'server']) {
-    const handler = createBackendHandler({ authority: mode, getDb() { throw Error('must not read') }, getKey() { throw Error('must not log in') } })
-    assert.deepEqual(await handler({ action: 'authority' }, {}), reply(mode).result)
-    assert.deepEqual(await handler({ action: 'authority', userInfo: { openid: 'untrusted' } }, {}), reply(mode).result)
-    assert.equal((await handler({ action: 'authority', authority: 'server' }, {})).ok, false)
+  const handler = createBackendHandler({ authority: 'server', getKey() { throw Error('must not log in') } })
+  assert.deepEqual(await handler({ action: 'authority' }, {}), reply('server').result)
+  assert.deepEqual(await handler({ action: 'authority', userInfo: { openid: 'untrusted' }, tcbContext: { authority: 'cloudbase' } }, {}), reply('server').result)
+  assert.equal((await handler({ action: 'authority', authority: 'server' }, {})).ok, false)
+  for (const mode of ['cloudbase', 'auto', null, undefined]) {
+    const invalid = createBackendHandler({ authority: mode, getKey() { throw Error('must not log in') } })
+    assert.equal((await invalid({ action: 'authority' }, {})).error.code, 'AUTHORITY_NOT_READY')
   }
-  assert.equal((await createBackendHandler({ authority: 'auto' })({ action: 'authority' }, {})).ok, false)
 })
 
 test('unknown source blocks both transports and user mutations are never queued behind readiness', async () => {

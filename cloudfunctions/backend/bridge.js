@@ -1,10 +1,10 @@
 const crypto = require('crypto')
 const https = require('https')
 const { APPID, getIdentity } = require('./context')
+const { record } = require('./contract')
 const PATH = '/internal/v1/auth/cloudbase'
 const ENDPOINT = 'https://collect.linkx.ink' + PATH
 const DOMAIN = 'linkx-auth-bridge-v1'
-const record = value => value && typeof value === 'object' && !Array.isArray(value)
 const unavailable = () => ({ ok: false, error: { code: 'LOGIN_UNAVAILABLE', message: '登录服务暂不可用，请重试' } })
 
 function projectReply(reply, identity, now = Date.now()) {

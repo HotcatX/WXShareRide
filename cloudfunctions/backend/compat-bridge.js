@@ -1,8 +1,7 @@
 const crypto = require('crypto')
 const https = require('https')
 const { APPID, getIdentity } = require('./context')
-const { READS, WRITES } = require('./compat')
-const { record } = require('./receipts')
+const { READS, WRITES, record } = require('./contract')
 const PATH = '/internal/v1/compat/cloudbase', DOMAIN = 'linkx-compat-bridge-v1'
 const ENDPOINT = 'https://collect.linkx.ink' + PATH
 const unavailable = () => ({ok:false,error:{code:'OPERATION_UNAVAILABLE',status:503,message:'操作暂未完成，请重试'}})

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { compatOperation } from '../src/compat/contract.ts';
 import { runCompatAction } from '../src/compat/service.ts';
@@ -12,10 +13,6 @@ import { serializeSource, sourceHash } from '../src/migration/source.ts';
 import type { Document } from '../src/migration/types.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
-const require = createRequire(import.meta.url);
-const { createCompatHandler } = require('../../../cloudfunctions/backend/compat.js');
-const { hash } = require('../../../cloudfunctions/backend/receipts.js');
-const createStore = require('../../../tests/helpers/cloud-transaction-store.cjs');
 const appId = 'wx8a8a389199aa2a0e', openid = 'synthetic-receipt-owner';
 const userId = migrationUserId(appId, openid), at = Date.parse('2026-09-01T12:00:00Z');
 const form = { templateName: '周二上课', departureAddress: 'Fort Lee', destinationAddress: '哥大',
@@ -25,51 +22,13 @@ type Snapshot = { kind: 'cloudbase-full-export'; appId: string; collections: Rec
 const convert = (source: unknown) => normalizeCloudBaseExport(source, { timeZone: 'America/New_York' });
 const pgOptions = { skip: !process.env.BACKEND_TEST_DATABASE_URL, timeout: 30000 };
 
-// This is the export representation, not a proposed runtime date converter.
-// Root's real CloudBase create/retry/export smoke confirmed this distinction.
-function exportDates(value: unknown): unknown {
-  if (value instanceof Date) return { $date: value.getTime() };
-  if (Array.isArray(value)) return value.map(exportDates);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, exportDates(item)]));
-  return value;
-}
-async function produce() {
-  const store = createStore(), handler = createCompatHandler({ getDb: () => store.db });
-  store.seed('userInfo', 'synthetic-user-document', { _openid: openid, name: 'Synthetic Receipt Owner', createdAt: new Date(at), pickupSpot: ['Fort Lee'] });
-  for (const id of ['notification-1', 'notification-2', 'notification-3']) {
-    store.seed('Notifications', id, { _openid: openid, read: false, createdAt: new Date(at) });
-  }
-  const context = { environment: JSON.stringify({ TCB_SOURCE: 'wx_client', WX_APPID: appId, WX_OPENID: openid }) };
-  const wire = new Map<string, Document>();
-  async function invoke(action: string, body: Document, key = `original-${action}`) {
-    const response = await handler({ action, body, key, expectedOpenid: openid }, context);
-    assert.equal(response.ok, true);
-    wire.set(key, JSON.parse(JSON.stringify(response.data)));
-    return response.data;
-  }
-  const created = await invoke('templates.create', { form });
-  await invoke('templates.update', { id: created._id, form: { ...form, departureTime: '16:00' } });
-  await invoke('templates.delete', { id: created._id });
-  await invoke('notifications.read', { id: 'notification-1' });
-  await invoke('notifications.readAll', {});
-  await invoke('notifications.clear', {});
-  await invoke('profile.spots.add', { field: 'pickupSpot', value: 'JFK' });
-  await invoke('profile.spots.remove', { field: 'pickupSpot', value: 'JFK' });
-  // An update can legitimately retain metadata of a legacy template which
-  // disappears again before cutover. Its old response must still be replayable.
-  store.seed('CarpoolTemplate', 'legacy-template-id', { ...form, _openid: openid,
-    driverID: 'legacy-user-document', carNumber: 'SYNTHETIC', createdAt: new Date(at) });
-  await invoke('templates.update', { id: 'legacy-template-id', form }, 'original-legacy-update');
-  await invoke('templates.delete', { id: 'legacy-template-id' }, 'original-legacy-delete');
-  const source: Snapshot = { kind: 'cloudbase-full-export', appId, collections: {
-    userInfo: exportDates(store.all('userInfo')) as Document[], Carpool: [], CarpoolRequest: [],
-    CarpoolTemplate: [], Notifications: [], UserBlocks: [], TripRatings: [],
-    PublicStats: [{ _id: 'home', servedTrips: 0, updatedAt: new Date(at).toISOString() }],
-    OperationReceipts: exportDates(store.all('OperationReceipts')) as Document[],
-  } };
-  return { source, wire };
-}
-const original = await produce();
+// Fixed synthetic records captured from the retired producer, including its
+// separate ISO wire replies. Never regenerate these from today's PG behavior.
+const original: { source: Snapshot; wire: Record<string, Document> } = JSON.parse(
+  readFileSync(new URL('./fixtures/cloud-operation-receipts.json', import.meta.url), 'utf8'));
+const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(ordered)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, ordered(item)])) : value;
+const hash = (value: unknown) => createHash('sha256').update(serializeSource(ordered(value))).digest('hex');
 const fixture = () => structuredClone(original.source);
 const receipt = (source: Snapshot, action: string) => source.collections.OperationReceipts!.find(row => row.action === action)!;
 function refreshIdentity(row: Document) {
@@ -83,7 +42,7 @@ function rejected(source: Snapshot, expected?: string) {
   assert.doesNotMatch(JSON.stringify(result.report), /synthetic-receipt-owner|original-templates|legacy-template-id|private-value/);
 }
 
-test('actual cloud producer receipts preserve original intent and wire replies, even after their entities were deleted', () => {
+test('fixed historical cloud receipts preserve original intent and wire replies after their entities were deleted', () => {
   const source = fixture(), raw = serializeSource(source), result = convert(source);
   assert.equal(result.report.ready, true, JSON.stringify(result.report.issues));
   assert.equal(serializeSource(source), raw);
@@ -94,7 +53,7 @@ test('actual cloud producer receipts preserve original intent and wire replies, 
     const sourceRow = source.collections.OperationReceipts!.find(item => item.key === row.requestKey)!;
     assert.equal(row.operation, `compat.${sourceRow.action}`);
     assert.equal(row.userId, userId); assert.equal(row.payloadHash, sourceRow.payloadHash); assert.equal(row.responseStatus, 200);
-    assert.deepEqual(row.responseBody, original.wire.get(row.requestKey));
+    assert.deepEqual(row.responseBody, original.wire[row.requestKey]);
     const archive = result.plan!.sources.find(item => item.collection === 'OperationReceipts' && item.sourceId === sourceRow._id)!;
     assert.equal(archive.documentJson, serializeSource(sourceRow));
     assert.equal(archive.sha256, sourceHash(archive.documentJson));
@@ -190,7 +149,7 @@ test('real PG imports and replays cloud receipts without repeating deleted entit
   for (const originalRow of source.collections.OperationReceipts!) {
     const reply = await withIdempotency(db.pool, userId, compatOperation(originalRow.action as string), originalRow.key, originalRow.payload,
       async () => { assert.fail('a migrated receipt must replay before executing the business mutation'); });
-    assert.deepEqual(reply, { status: 200, data: original.wire.get(originalRow.key as string) });
+    assert.deepEqual(reply, { status: 200, data: original.wire[originalRow.key as string] });
     // Exercise the actual bridge's dispatcher too: receipt lookup must precede
     // its legacy-ID mapping, missing-entity reads and all mutation helpers.
     const dispatched = await transaction(db.pool, client => runCompatAction(client, appId, openid,

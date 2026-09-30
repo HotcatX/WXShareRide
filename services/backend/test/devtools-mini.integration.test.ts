@@ -24,7 +24,7 @@ test('compiled DevTools pages use isolated real HTTP/PG after the fail-closed bo
     assert.equal(new URL(url).hostname, '127.0.0.1');
     const requests: Array<{ kind: string; path: string; status: number }> = [];
     const authority = createBackendHandler({ authority: 'server',
-      getKey() { throw Error('authority must not load a key'); }, getDb() { throw Error('authority must not read CloudBase'); } });
+      getKey() { throw Error('authority must not load a key'); } });
     const { readServerStats, createPublicStatsReader, ENDPOINT } = require('../../../cloudfunctions/statistics/provider.js');
     const { createStatisticsHandler } = require('../../../cloudfunctions/statistics/handler.js');
     const statistics = createStatisticsHandler({ authority: 'server',

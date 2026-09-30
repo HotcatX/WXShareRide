@@ -10,12 +10,4 @@ function getKey() {
     return Buffer.from(value, 'hex')
 }
 
-let database
-exports.main = createBackendHandler({ authority: require('./authority'), getKey, getDb() {
-  if (!database) {
-    const cloud = require('wx-server-sdk')
-    cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
-    database = cloud.database()
-  }
-  return database
-} })
+exports.main = createBackendHandler({ authority: require('./authority'), getKey })

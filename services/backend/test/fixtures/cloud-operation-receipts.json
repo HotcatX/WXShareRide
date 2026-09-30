@@ -1,0 +1,570 @@
+{
+  "description": "Synthetic export and independent wire replies captured from the retired CloudBase producer. Immutable fixture; contains no live user data.",
+  "source": {
+    "kind": "cloudbase-full-export",
+    "appId": "wx8a8a389199aa2a0e",
+    "collections": {
+      "userInfo": [
+        {
+          "_openid": "synthetic-receipt-owner",
+          "name": "Synthetic Receipt Owner",
+          "createdAt": {
+            "$date": 1788264000000
+          },
+          "pickupSpot": [
+            "Fort Lee"
+          ],
+          "_id": "synthetic-user-document",
+          "updateTime": {
+            "$date": 1790747978688
+          }
+        }
+      ],
+      "Carpool": [],
+      "CarpoolRequest": [],
+      "CarpoolTemplate": [],
+      "Notifications": [],
+      "UserBlocks": [],
+      "TripRatings": [],
+      "PublicStats": [
+        {
+          "_id": "home",
+          "servedTrips": 0,
+          "updatedAt": "2026-09-01T12:00:00.000Z"
+        }
+      ],
+      "OperationReceipts": [
+        {
+          "id": "ddc60deed56b791d6dc86d06381ee6318016c9c0663c4395d5056aefb774be29",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "templates.create",
+          "key": "original-templates.create",
+          "payload": {
+            "form": {
+              "comment": "{\"$date\": 1788264000000}",
+              "departureAddress": "Fort Lee",
+              "departureTime": "15:00",
+              "destinationAddress": "哥大",
+              "passengerCount": 3,
+              "referencePrice": "11-13$",
+              "templateName": "周二上课",
+              "weekdayIndex": 1,
+              "weekdayText": "周二"
+            }
+          },
+          "payloadHash": "e76ecd9afafb6a893893f419e401bd74939a98e777ab62b08ba5b302749f6b3c",
+          "state": "completed",
+          "response": {
+            "_id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+            "templateName": "周二上课",
+            "departureAddress": "Fort Lee",
+            "destinationAddress": "哥大",
+            "weekdayIndex": 1,
+            "weekdayText": "周二",
+            "departureTime": "15:00",
+            "passengerCount": 3,
+            "referencePrice": "11-13$",
+            "comment": "{\"$date\": 1788264000000}",
+            "_openid": "synthetic-receipt-owner",
+            "createdAt": {
+              "$date": 1790747978685
+            },
+            "updatedAt": {
+              "$date": 1790747978685
+            }
+          },
+          "createdAt": {
+            "$date": 1790747978685
+          },
+          "completedAt": {
+            "$date": 1790747978685
+          },
+          "_id": "ddc60deed56b791d6dc86d06381ee6318016c9c0663c4395d5056aefb774be29"
+        },
+        {
+          "id": "8f7fe9899254135a992c9e015f0db9e571da1ea461bc4e4e47b1bfc91fd4a24f",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "templates.update",
+          "key": "original-templates.update",
+          "payload": {
+            "form": {
+              "comment": "{\"$date\": 1788264000000}",
+              "departureAddress": "Fort Lee",
+              "departureTime": "16:00",
+              "destinationAddress": "哥大",
+              "passengerCount": 3,
+              "referencePrice": "11-13$",
+              "templateName": "周二上课",
+              "weekdayIndex": 1,
+              "weekdayText": "周二"
+            },
+            "id": "8ad7163f-8d73-451b-acdf-493cc121fb3a"
+          },
+          "payloadHash": "b233330c35766b170fe819f208de91771f7ed6a15d7777d84c78e1cea3d96e93",
+          "state": "completed",
+          "response": {
+            "_id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+            "templateName": "周二上课",
+            "departureAddress": "Fort Lee",
+            "destinationAddress": "哥大",
+            "weekdayIndex": 1,
+            "weekdayText": "周二",
+            "departureTime": "16:00",
+            "passengerCount": 3,
+            "referencePrice": "11-13$",
+            "comment": "{\"$date\": 1788264000000}",
+            "_openid": "synthetic-receipt-owner",
+            "createdAt": {
+              "$date": 1790747978685
+            },
+            "updatedAt": {
+              "$date": 1790747978687
+            }
+          },
+          "createdAt": {
+            "$date": 1790747978687
+          },
+          "completedAt": {
+            "$date": 1790747978687
+          },
+          "_id": "8f7fe9899254135a992c9e015f0db9e571da1ea461bc4e4e47b1bfc91fd4a24f"
+        },
+        {
+          "id": "3b1db09024ee1824512560b6747abdd404d3adf3702e8f6421f3f652043f59c1",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "templates.delete",
+          "key": "original-templates.delete",
+          "payload": {
+            "id": "8ad7163f-8d73-451b-acdf-493cc121fb3a"
+          },
+          "payloadHash": "04af244ecd0fbae846649d911ad01da2872be33f05ba56074ffa16049fe58053",
+          "state": "completed",
+          "response": {
+            "id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+            "deleted": true
+          },
+          "createdAt": {
+            "$date": 1790747978687
+          },
+          "completedAt": {
+            "$date": 1790747978687
+          },
+          "_id": "3b1db09024ee1824512560b6747abdd404d3adf3702e8f6421f3f652043f59c1"
+        },
+        {
+          "id": "c866313fbdb971690828adccf66d20478953ea1a9a5b49e68e611972bba9008b",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "notifications.read",
+          "key": "original-notifications.read",
+          "payload": {
+            "id": "notification-1"
+          },
+          "payloadHash": "a0383af4235181619147a771317134dd12d731394b26b1cc1b1470b8409aca2d",
+          "state": "completed",
+          "response": {
+            "id": "notification-1",
+            "read": true
+          },
+          "createdAt": {
+            "$date": 1790747978687
+          },
+          "completedAt": {
+            "$date": 1790747978687
+          },
+          "_id": "c866313fbdb971690828adccf66d20478953ea1a9a5b49e68e611972bba9008b"
+        },
+        {
+          "id": "90d95262a8cfd295f59d14c7173f1e51fce4e7e7847f72a3404756bd61e8db7a",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "notifications.readAll",
+          "key": "original-notifications.readAll",
+          "payload": {},
+          "payloadHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "state": "completed",
+          "targets": [
+            "notification-2",
+            "notification-3"
+          ],
+          "offset": 2,
+          "affected": 2,
+          "createdAt": {
+            "$date": 1790747978687
+          },
+          "_id": "90d95262a8cfd295f59d14c7173f1e51fce4e7e7847f72a3404756bd61e8db7a",
+          "response": {
+            "changed": 2
+          },
+          "completedAt": {
+            "$date": 1790747978687
+          }
+        },
+        {
+          "id": "35aa136b40774b9c8c46ebf5bb55a5cb695dadee71b733674a9496c3ce1ba86e",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "notifications.clear",
+          "key": "original-notifications.clear",
+          "payload": {},
+          "payloadHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "state": "completed",
+          "targets": [
+            "notification-1",
+            "notification-2",
+            "notification-3"
+          ],
+          "offset": 3,
+          "affected": 3,
+          "createdAt": {
+            "$date": 1790747978687
+          },
+          "_id": "35aa136b40774b9c8c46ebf5bb55a5cb695dadee71b733674a9496c3ce1ba86e",
+          "response": {
+            "deleted": 3
+          },
+          "completedAt": {
+            "$date": 1790747978688
+          }
+        },
+        {
+          "id": "2914b262e6b22f26e57fd12b8add3c2566acc8a354b33a35b8360210350360e7",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "profile.spots.add",
+          "key": "original-profile.spots.add",
+          "payload": {
+            "field": "pickupSpot",
+            "value": "JFK"
+          },
+          "payloadHash": "67a7a40dd668eefdc1510125e98ef17383de7cf7393236c450461453cdf1fc43",
+          "state": "completed",
+          "response": {
+            "field": "pickupSpot",
+            "values": [
+              "Fort Lee",
+              "JFK"
+            ]
+          },
+          "createdAt": {
+            "$date": 1790747978688
+          },
+          "completedAt": {
+            "$date": 1790747978688
+          },
+          "_id": "2914b262e6b22f26e57fd12b8add3c2566acc8a354b33a35b8360210350360e7"
+        },
+        {
+          "id": "8acbcf783c1d968eef95935411625f410bddc90d0dc0d25a185953e6a7fe853c",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "profile.spots.remove",
+          "key": "original-profile.spots.remove",
+          "payload": {
+            "field": "pickupSpot",
+            "value": "JFK"
+          },
+          "payloadHash": "67a7a40dd668eefdc1510125e98ef17383de7cf7393236c450461453cdf1fc43",
+          "state": "completed",
+          "response": {
+            "field": "pickupSpot",
+            "values": [
+              "Fort Lee"
+            ]
+          },
+          "createdAt": {
+            "$date": 1790747978688
+          },
+          "completedAt": {
+            "$date": 1790747978688
+          },
+          "_id": "8acbcf783c1d968eef95935411625f410bddc90d0dc0d25a185953e6a7fe853c"
+        },
+        {
+          "id": "b9a7dccd5a42ed960b8197fdbb5bd262fc1f92466dcfda824dab6338d33d86e2",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "templates.update",
+          "key": "original-legacy-update",
+          "payload": {
+            "form": {
+              "comment": "{\"$date\": 1788264000000}",
+              "departureAddress": "Fort Lee",
+              "departureTime": "15:00",
+              "destinationAddress": "哥大",
+              "passengerCount": 3,
+              "referencePrice": "11-13$",
+              "templateName": "周二上课",
+              "weekdayIndex": 1,
+              "weekdayText": "周二"
+            },
+            "id": "legacy-template-id"
+          },
+          "payloadHash": "4ec08b5d0c45f19b334ff1360092e9bdeae029959991e0fdeb4eb8710e0294e1",
+          "state": "completed",
+          "response": {
+            "_id": "legacy-template-id",
+            "templateName": "周二上课",
+            "departureAddress": "Fort Lee",
+            "destinationAddress": "哥大",
+            "weekdayIndex": 1,
+            "weekdayText": "周二",
+            "departureTime": "15:00",
+            "passengerCount": 3,
+            "referencePrice": "11-13$",
+            "comment": "{\"$date\": 1788264000000}",
+            "_openid": "synthetic-receipt-owner",
+            "driverID": "legacy-user-document",
+            "carNumber": "SYNTHETIC",
+            "createdAt": {
+              "$date": 1788264000000
+            },
+            "updatedAt": {
+              "$date": 1790747978688
+            }
+          },
+          "createdAt": {
+            "$date": 1790747978688
+          },
+          "completedAt": {
+            "$date": 1790747978688
+          },
+          "_id": "b9a7dccd5a42ed960b8197fdbb5bd262fc1f92466dcfda824dab6338d33d86e2"
+        },
+        {
+          "id": "cf931a5a0cd5c0553dc5ac36d66a88145ccb070c2a8a194893b1bd352d1570d3",
+          "appId": "wx8a8a389199aa2a0e",
+          "openid": "synthetic-receipt-owner",
+          "action": "templates.delete",
+          "key": "original-legacy-delete",
+          "payload": {
+            "id": "legacy-template-id"
+          },
+          "payloadHash": "da602fa8c355705af6210136330c68cd41cbbdc2bf81f2f96b62c80938b5e7f2",
+          "state": "completed",
+          "response": {
+            "id": "legacy-template-id",
+            "deleted": true
+          },
+          "createdAt": {
+            "$date": 1790747978688
+          },
+          "completedAt": {
+            "$date": 1790747978688
+          },
+          "_id": "cf931a5a0cd5c0553dc5ac36d66a88145ccb070c2a8a194893b1bd352d1570d3"
+        }
+      ]
+    }
+  },
+  "wire": {
+    "original-templates.create": {
+      "_id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+      "templateName": "周二上课",
+      "departureAddress": "Fort Lee",
+      "destinationAddress": "哥大",
+      "weekdayIndex": 1,
+      "weekdayText": "周二",
+      "departureTime": "15:00",
+      "passengerCount": 3,
+      "referencePrice": "11-13$",
+      "comment": "{\"$date\": 1788264000000}",
+      "_openid": "synthetic-receipt-owner",
+      "createdAt": "2026-09-30T05:59:38.685Z",
+      "updatedAt": "2026-09-30T05:59:38.685Z"
+    },
+    "original-templates.update": {
+      "_id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+      "templateName": "周二上课",
+      "departureAddress": "Fort Lee",
+      "destinationAddress": "哥大",
+      "weekdayIndex": 1,
+      "weekdayText": "周二",
+      "departureTime": "16:00",
+      "passengerCount": 3,
+      "referencePrice": "11-13$",
+      "comment": "{\"$date\": 1788264000000}",
+      "_openid": "synthetic-receipt-owner",
+      "createdAt": "2026-09-30T05:59:38.685Z",
+      "updatedAt": "2026-09-30T05:59:38.687Z"
+    },
+    "original-templates.delete": {
+      "id": "8ad7163f-8d73-451b-acdf-493cc121fb3a",
+      "deleted": true
+    },
+    "original-notifications.read": {
+      "id": "notification-1",
+      "read": true
+    },
+    "original-notifications.readAll": {
+      "changed": 2
+    },
+    "original-notifications.clear": {
+      "deleted": 3
+    },
+    "original-profile.spots.add": {
+      "field": "pickupSpot",
+      "values": [
+        "Fort Lee",
+        "JFK"
+      ]
+    },
+    "original-profile.spots.remove": {
+      "field": "pickupSpot",
+      "values": [
+        "Fort Lee"
+      ]
+    },
+    "original-legacy-update": {
+      "_id": "legacy-template-id",
+      "templateName": "周二上课",
+      "departureAddress": "Fort Lee",
+      "destinationAddress": "哥大",
+      "weekdayIndex": 1,
+      "weekdayText": "周二",
+      "departureTime": "15:00",
+      "passengerCount": 3,
+      "referencePrice": "11-13$",
+      "comment": "{\"$date\": 1788264000000}",
+      "_openid": "synthetic-receipt-owner",
+      "driverID": "legacy-user-document",
+      "carNumber": "SYNTHETIC",
+      "createdAt": "2026-09-01T12:00:00.000Z",
+      "updatedAt": "2026-09-30T05:59:38.688Z"
+    },
+    "original-legacy-delete": {
+      "id": "legacy-template-id",
+      "deleted": true
+    }
+  },
+  "lostAck": {
+    "appId": "wx8a8a389199aa2a0e",
+    "openid": "synthetic-compat-owner",
+    "oldId": "old-template-source",
+    "form": {
+      "templateName": "周二上课",
+      "departureAddress": "Fort Lee",
+      "destinationAddress": "哥大",
+      "weekdayIndex": 1,
+      "weekdayText": "周二",
+      "departureTime": "15:00",
+      "passengerCount": 3,
+      "referencePrice": "11-13$",
+      "comment": "",
+      "carBrand": "snapshot only"
+    },
+    "pending": [
+      {
+        "userId": "72aab049-a368-896e-8128-826d55d8dde4",
+        "scope": "templates.update:old-template-source",
+        "fingerprint": "1d8556e6a5d210b724572233cf9a9e6f098995bf68aedf3d4020121c8d54035e",
+        "key": "op_mtime4tc_1_80000000800000008000000080000000",
+        "request": {
+          "method": "CLOUD",
+          "path": "templates.update",
+          "body": {
+            "form": {
+              "carBrand": "snapshot only",
+              "comment": "",
+              "departureAddress": "Fort Lee",
+              "departureTime": "15:00",
+              "destinationAddress": "哥大",
+              "passengerCount": 3,
+              "referencePrice": "11-13$",
+              "templateName": "周二上课",
+              "weekdayIndex": 1,
+              "weekdayText": "周二"
+            },
+            "id": "old-template-source"
+          }
+        }
+      }
+    ],
+    "original": {
+      "action": "templates.update",
+      "body": {
+        "form": {
+          "carBrand": "snapshot only",
+          "comment": "",
+          "departureAddress": "Fort Lee",
+          "departureTime": "15:00",
+          "destinationAddress": "哥大",
+          "passengerCount": 3,
+          "referencePrice": "11-13$",
+          "templateName": "周二上课",
+          "weekdayIndex": 1,
+          "weekdayText": "周二"
+        },
+        "id": "old-template-source"
+      },
+      "expectedOpenid": "synthetic-compat-owner",
+      "key": "op_mtime4tc_1_80000000800000008000000080000000"
+    },
+    "templates": [
+      {
+        "templateName": "周二上课",
+        "departureAddress": "Fort Lee",
+        "destinationAddress": "哥大",
+        "weekdayIndex": 1,
+        "weekdayText": "周二",
+        "departureTime": "15:00",
+        "passengerCount": 3,
+        "referencePrice": "11-13$",
+        "comment": "",
+        "carBrand": "snapshot only",
+        "_openid": "synthetic-compat-owner",
+        "createdAt": "2026-09-01T12:00:00.000Z",
+        "updatedAt": "2026-09-30T06:00:35.255Z",
+        "_id": "old-template-source"
+      }
+    ],
+    "receipts": [
+      {
+        "id": "8b5b4393a5d595561e84d239381a6698e12be30c570c5658385cf0d51d1adf5a",
+        "appId": "wx8a8a389199aa2a0e",
+        "openid": "synthetic-compat-owner",
+        "action": "templates.update",
+        "key": "op_mtime4tc_1_80000000800000008000000080000000",
+        "payload": {
+          "form": {
+            "carBrand": "snapshot only",
+            "comment": "",
+            "departureAddress": "Fort Lee",
+            "departureTime": "15:00",
+            "destinationAddress": "哥大",
+            "passengerCount": 3,
+            "referencePrice": "11-13$",
+            "templateName": "周二上课",
+            "weekdayIndex": 1,
+            "weekdayText": "周二"
+          },
+          "id": "old-template-source"
+        },
+        "payloadHash": "1c9272cdc1c42b70f9164101381ae88d1c552a5ca162a18e4eace6e9d0a5c23a",
+        "state": "completed",
+        "response": {
+          "_id": "old-template-source",
+          "templateName": "周二上课",
+          "departureAddress": "Fort Lee",
+          "destinationAddress": "哥大",
+          "weekdayIndex": 1,
+          "weekdayText": "周二",
+          "departureTime": "15:00",
+          "passengerCount": 3,
+          "referencePrice": "11-13$",
+          "comment": "",
+          "carBrand": "snapshot only",
+          "_openid": "synthetic-compat-owner",
+          "createdAt": "2026-09-01T12:00:00.000Z",
+          "updatedAt": "2026-09-30T06:00:35.255Z"
+        },
+        "createdAt": "2026-09-30T06:00:35.255Z",
+        "completedAt": "2026-09-30T06:00:35.255Z",
+        "_id": "8b5b4393a5d595561e84d239381a6698e12be30c570c5658385cf0d51d1adf5a"
+      }
+    ]
+  }
+}

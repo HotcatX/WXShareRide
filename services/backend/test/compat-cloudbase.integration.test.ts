@@ -22,7 +22,7 @@ const { createBackendHandler } = require('../../../cloudfunctions/backend/handle
 const { send } = require('../../../cloudfunctions/backend/compat-bridge.js');
 const { createBackendClient, PENDING_KEY, SESSION_KEY } = require('../../../utils/backendClient.js');
 const { createRideTemplateClient } = require('../../../utils/compat/rideTemplates.js');
-const createStore = require('../../../tests/helpers/cloud-transaction-store.cjs');
+const historicalReceipts = require('./fixtures/cloud-operation-receipts.json');
 const appId = 'wx8a8a389199aa2a0e', openid = 'synthetic-compat-owner', key = Buffer.alloc(32, 71);
 const form = { templateName: '周二上课', departureAddress: 'Fort Lee', destinationAddress: '哥大', weekdayIndex: 1,
   weekdayText: '周二', departureTime: '15:00', passengerCount: 3, referencePrice: '11-13$', comment: '', carBrand: 'snapshot only' };
@@ -148,13 +148,14 @@ test('compat proof purpose, identity, replay and staging are enforced inside the
   assert.equal(alias.statusCode, 404); assert.equal(alias.json().error.code, 'TEMPLATE_NOT_FOUND');
 });
 
-// Actual Cloud handler -> source normalization -> PostgreSQL receipt -> actual
+// Fixed legacy export and lost-ACK client state -> PostgreSQL receipt -> actual
 // SDK and signed Cloud transport. All identities/data are synthetic and local.
-test('lost Cloud ACK survives cutover, authority mismatch, denied retries and expired login with its original key/body', pg, async t => {
+test('recorded lost Cloud ACK survives authority mismatch, denied retries and expired login with its original key/body', pg, async t => {
   const db = await createTestDatabase(); t.after(() => db.close());
-  const owner = migrationUserId(appId, openid), store = createStore(), storage: Record<string, any> = { openid, isGuest: false };
-  const oldId = 'old-template-source'; store.seed('CarpoolTemplate', oldId, { ...form, _openid: openid, createdAt: new Date('2026-09-01T12:00:00Z') });
-  let authority = 'cloudbase', drop = true, denied = 0, failAlias = false; const requests: any[] = [];
+  const recorded = structuredClone(historicalReceipts.lostAck);
+  const { openid, oldId, pending, original } = recorded;
+  const owner = migrationUserId(appId, openid), storage: Record<string, any> = { openid, isGuest: false, [PENDING_KEY]: structuredClone(pending) };
+  let authority = 'cloudbase', denied = 0, failAlias = false; const requests: any[] = [];
   const app = await createApp({ pool: db.pool, config, exchange: async () => ({ openid }) }); t.after(() => app.close());
   const sessions = sessionService(db.pool, config, async () => ({ openid }));
   const request = (url: string, options: any, callback: (response: any) => void) => {
@@ -166,14 +167,13 @@ test('lost Cloud ACK survives cutover, authority mismatch, denied retries and ex
     })().catch(error => req.emit('error', error)); }; return req;
   };
   const handler = () => createBackendHandler({ authority, getKey: () => key,
-    getDb: () => { assert.equal(authority, 'cloudbase'); return store.db; }, transport: (body: unknown, secret: Buffer) => send(body, secret, { request }) });
+    transport: (body: unknown, secret: Buffer) => send(body, secret, { request }) });
   const wx: any = { getStorageSync: (k: string) => structuredClone(storage[k]), setStorageSync: (k: string, v: unknown) => { storage[k] = structuredClone(v); },
     removeStorageSync: (k: string) => { delete storage[k]; }, cloud: { callFunction: async ({ data }: any) => {
       if (data.action === 'login') return { result: { ok: true, data: await sessions.login('synthetic') } };
       requests.push(structuredClone(data));
       if (denied) return { result: { ok: false, error: { code: 'UNAUTHORIZED', status: denied, message: 'denied' } } };
-      const result = await handler()(data, context());
-      if (drop && data.key && result.ok) { drop = false; throw Error('lost ACK'); }
+      const result = await handler()(data, context(openid));
       return { result: JSON.parse(JSON.stringify(result)) };
     } }, request: (options: any) => {
       void (async () => {
@@ -183,11 +183,8 @@ test('lost Cloud ACK survives cutover, authority mismatch, denied retries and ex
       })().catch(options.fail); return { abort() {} };
     } };
   const make = (mode: string) => createBackendClient({ wx, config: { mode, origin: 'https://collect.linkx.ink' } });
-  const old = make('cloudbase');
-  await assert.rejects(old.cloudMutate(`templates.update:${oldId}`, 'templates.update', { id: oldId, form }, { validate: (row: any) => row._id === oldId }), { code: 'NETWORK_ERROR' });
-  const pending = structuredClone(storage[PENDING_KEY]), original = requests.find(row => row.key);
-  const receipts = normalizeOperationReceipts(JSON.parse(JSON.stringify(store.all('OperationReceipts'))), { appId, users: [{ id: owner, appId, openid }] }, () => assert.fail('invalid receipt'));
-  const templates = normalizeTemplates(JSON.parse(JSON.stringify(store.all('CarpoolTemplate'))), [{ id: owner, appId, openid }], (_c, _code, _f, severity) => { if (severity !== 'notice') assert.fail('invalid template'); });
+  const receipts = normalizeOperationReceipts(recorded.receipts, { appId, users: [{ id: owner, appId, openid }] }, () => assert.fail('invalid receipt'));
+  const templates = normalizeTemplates(recorded.templates, [{ id: owner, appId, openid }], (_c, _code, _f, severity) => { if (severity !== 'notice') assert.fail('invalid template'); });
   await db.pool.query('INSERT INTO users(id,app_id,openid) VALUES($1,$2,$3)', [owner, appId, openid]);
   for (const row of templates) await db.pool.query('INSERT INTO ride_templates(id,user_id,name,weekday,local_time,time_zone,definition,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
     [row.id, row.userId, row.name, row.weekday, row.localTime, row.timeZone, row.definition, row.createdAt, row.updatedAt]);
@@ -215,7 +212,7 @@ test('lost Cloud ACK survives cutover, authority mismatch, denied retries and ex
   const replay = requests.filter(row => row.key).at(-1); assert.deepEqual(replay, { ...original, expectedAuthority: 'server' });
   assert.equal((await db.pool.query('SELECT * FROM ride_templates')).rowCount, 1);
   assert.equal((await db.pool.query('SELECT * FROM idempotency_requests')).rowCount, 1);
-  assert.equal(store.all('OperationReceipts').length, 1);
+  assert.deepEqual(recorded, historicalReceipts.lostAck, 'recovery does not rewrite the historical sample');
   assert.equal(idempotencyInput(original.key, original.body).hash, receipts[0]!.payloadHash);
   await api.saveRideTemplate({ ...recovered, departureTime: '16:00' }, { id: recovered._id, previous: recovered });
   assert.equal((await db.pool.query('SELECT local_time FROM ride_templates')).rows[0].local_time, '16:00');

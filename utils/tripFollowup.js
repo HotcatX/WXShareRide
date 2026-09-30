@@ -39,9 +39,9 @@ function eligibleTrip(trip, account, now) {
   })
   const departureAt = Math.max(0, ...times)
   if (!departureAt || now - departureAt > 7 * DAY || now < departureAt) return null
-  const local = rideTime.getRideDateTime(departureAt)
-  const nextMorning = rideTime.parseRideDateTime(rideTime.shiftRideDate(local.date, 1), '09:00')
-  if (!Number.isFinite(nextMorning) || now < Math.max(departureAt + 4 * 3600000, nextMorning)) return null
+  // A past status only means departure has passed, not that the ride arrived.
+  // Keep a short completion buffer; there is no longer a next-morning gate.
+  if (now < departureAt + 4 * 3600000) return null
   return { tripKey: text(trip._id), tripType: type, role, departureAt, trip }
 }
 
@@ -71,7 +71,7 @@ function createFollowupController(options = {}) {
     try {
       const saved = wxApi.getStorageSync(storageKey(value))
       if (!saved) return { version: 1, lastPromptAt: 0, entries: {} }
-      if (saved.version !== 1 || !Number.isSafeInteger(saved.lastPromptAt) || saved.lastPromptAt < 0 ||
+      if (saved.version !== 1 || !Number.isSafeInteger(saved.lastPromptAt) || saved.lastPromptAt < 0 || saved.lastPromptAt > now() ||
         !saved.entries || typeof saved.entries !== 'object' || Array.isArray(saved.entries) || Object.keys(saved.entries).length > 64) return null
       const entries = {}
       for (const [key, entry] of Object.entries(saved.entries)) {
@@ -99,26 +99,39 @@ function createFollowupController(options = {}) {
     if (active === item) active = null
     setView(item && item.page, { followupVisible: false, followupBusy: false, followupError: '' })
   }
-  function considerTrips(page, list) {
+  function canConsider() {
     if (active && !matches(active)) closeView(active)
-    if (!foreground || usedThisForeground || active || storageBlocked || disposed.has(page) || !Array.isArray(list)) return false
+    return foreground && !usedThisForeground && !active && !storageBlocked && !!identity() && !!scope()
+  }
+  function considerTrips(page, list) {
+    if (!canConsider() || disposed.has(page) || !Array.isArray(list)) return false
     const account = identity(), currentScope = scope()
     if (!account || !currentScope) return false
     const state = readState(currentScope)
-    if (!state || state.lastPromptAt && now() - state.lastPromptAt < DAY) return false
+    if (!state || Object.keys(state.entries).length >= 64) return false
     const candidates = list.map(trip => eligibleTrip(trip, account, now())).filter(Boolean).sort((a, b) => b.departureAt - a.departureAt)
     const candidate = candidates.find(item => {
       item.followupId = sha256([participantScope(currentScope), item.tripType, item.tripKey, item.role].join('|'))
-      return !completedInMemory.has(item.followupId) && !(state.entries[item.followupId] && state.entries[item.followupId].status === 'answered')
+      // Showing once consumes this trip's prompt, including old dismissed
+      // entries and an interrupted session. Never infer an answer from shown.
+      return !completedInMemory.has(item.followupId) && !state.entries[item.followupId]
     })
     if (!candidate) return false
     const shownAt = now()
+    const previousPromptAt = state.lastPromptAt
     state.lastPromptAt = shownAt
     state.entries[candidate.followupId] = { status: 'shown', at: shownAt }
     if (!saveState(currentScope, state)) return false
     const item = Object.assign(candidate, { page, scope: currentScope, account, state, submitted: false, attempt: null })
     const presented = record('followup_presented', base(item), eventMeta(shownAt))
-    if (!presented.ok || !matches(item)) return false
+    if (!presented.ok) {
+      // No prompt was displayed. Queue pressure must not consume its one chance.
+      delete state.entries[candidate.followupId]
+      state.lastPromptAt = previousPromptAt
+      saveState(currentScope, state)
+      return false
+    }
+    if (!matches(item)) return false
     active = item; usedThisForeground = true
     const trip = item.trip, departure = Array.isArray(trip.departures) ? trip.departures[0] || {} : {}
     const destination = Array.isArray(trip.destinations) ? trip.destinations[0] || {} : {}
@@ -141,7 +154,7 @@ function createFollowupController(options = {}) {
     setView(page, { followupBusy: true, followupError: '' })
     const result = record('followup_answer', data, item.attempt.meta)
     if (!result.ok) {
-      setView(page, { followupBusy: false, followupError: '暂未保存，可重试或稍后回答。' })
+      setView(page, { followupBusy: false, followupError: '暂未保存，请重试。' })
       return { ok: false }
     }
     item.submitted = true
@@ -151,26 +164,33 @@ function createFollowupController(options = {}) {
     closeView(item)
     return { ok: true }
   }
-  function hide(page) {
+  function hide(page, explicitClose = false) {
     const item = active
     if (!item || item.page !== page) return
     if (!item.submitted && matches(item)) {
-      record('followup_dismissed', base(item), eventMeta(now()))
+      const data = Object.assign(base(item), { dismissalReason: explicitClose ? 'close' : 'hidden' })
+      // A close is the product's default outcome, not a self-reported answer.
+      // Background/navigation never opts the user into that assumption.
+      if (explicitClose) Object.assign(data, { assumedOutcome: 'yes',
+        outcomeScope: item.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking' }, price(item.trip))
+      record('followup_dismissed', data, eventMeta(now()))
+      completedInMemory.add(item.followupId)
       item.state.entries[item.followupId] = { status: 'dismissed', at: now() }
       saveState(item.scope, item.state)
     }
     closeView(item)
   }
+  function dismiss(page) { hide(page, true) }
   function dispose(page) { hide(page); disposed.add(page) }
   function beginForeground() { if (!foreground) { foreground = true; usedThisForeground = false } }
   function endForeground() { if (active) hide(active.page); foreground = false }
-  return { considerTrips, answer, hide, dispose, beginForeground, endForeground }
+  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createFollowupController(); return singleton }
 const exported = { createFollowupController, eligibleTrip, referencePrice, STORAGE_PREFIX }
-;['considerTrips', 'answer', 'hide', 'dispose', 'beginForeground', 'endForeground'].forEach(name => {
+;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

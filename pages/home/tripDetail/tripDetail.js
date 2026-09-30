@@ -9,6 +9,7 @@ const DETAIL_PREVIEW_TTL = 2 * 60 * 1000
 const { blockRideUser, formatRidePricePerPerson, formatRideStats, markRideListStale } = require("../../../utils/tripManage")
 const { readTripDetailCache, fetchTripDetail } = require("../../../utils/tripDetailCache")
 const { isRouteExpired } = require("../../../utils/routeExpiry")
+const { routeKey, readJoinAddresses, rememberJoinAddresses } = require("../../../utils/joinAddresses")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -219,8 +220,11 @@ Page({
     this._detailAccount = accountKey()
     if (changedAccount) {
       this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+      this._joinAddressRoute = ''
+      this._joinAddressEdited = {}
       this.setData({ trip: null, driverInfo: null, isOwner: false, hasJoined: false, joinedByMe: false, acceptedByMe: false,
-        driverUserId: '', ownerUserId: '', driverOpenid: '', ownerOpenid: '', pickupSpotList: [], dropoffSpotList: [] })
+        driverUserId: '', ownerUserId: '', driverOpenid: '', ownerOpenid: '', pickupSpotList: [], dropoffSpotList: [],
+        pickupAddress: '', dropoffAddress: '', showPickupOptions: false, showDropoffOptions: false })
       this._lastDetailLoadedAt = 0
       if (this.data.tripId) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
     }
@@ -288,6 +292,7 @@ Page({
         pickupAddress: String(action.pickupAddress || this.data.pickupAddress || ''),
         dropoffAddress: String(action.dropoffAddress || this.data.dropoffAddress || '')
       })
+      this._joinAddressEdited = { pickupAddress: true, dropoffAddress: true }
 
       wx.removeStorageSync('postLoginAction')
       wx.removeStorageSync('pendingPage')
@@ -309,6 +314,7 @@ Page({
   },
 
   onPickupInput(e) {
+    this._joinAddressEdited = { ...this._joinAddressEdited, pickupAddress: true }
     this.setData({
       pickupAddress: e.detail.value,
       showPickupOptions: false
@@ -316,6 +322,7 @@ Page({
   },
 
   onDropoffInput(e) {
+    this._joinAddressEdited = { ...this._joinAddressEdited, dropoffAddress: true }
     this.setData({
       dropoffAddress: e.detail.value,
       showDropoffOptions: false
@@ -323,33 +330,32 @@ Page({
   },
 
   onPickupOptionTap(e) {
-    this.setData({
-      pickupAddress: e.currentTarget.dataset.value,
-      showPickupOptions: false
-    })
+    this.onPickupInput({ detail: { value: e.currentTarget.dataset.value } })
   },
 
   onDropoffOptionTap(e) {
-    this.setData({
-      dropoffAddress: e.currentTarget.dataset.value,
-      showDropoffOptions: false
-    })
+    this.onDropoffInput({ detail: { value: e.currentTarget.dataset.value } })
   },
 
   onPickupTagSelect(e) {
-    const v = String(e.currentTarget.dataset.value || '').trim()
-    this.setData({
-      pickupAddress: v,
-      showPickupOptions: false
-    })
+    this.onPickupInput({ detail: { value: String(e.currentTarget.dataset.value || '').trim() } })
   },
 
   onDropoffTagSelect(e) {
-    const v = String(e.currentTarget.dataset.value || '').trim()
-    this.setData({
-      dropoffAddress: v,
-      showDropoffOptions: false
-    })
+    this.onDropoffInput({ detail: { value: String(e.currentTarget.dataset.value || '').trim() } })
+  },
+
+  rememberedJoinAddresses(trip) {
+    const route = routeKey(trip)
+    if (!route || this._joinAddressRoute === route) return {}
+    this._joinAddressRoute = route
+    const remembered = readJoinAddresses(trip, wx) || {}
+    const patch = {}
+    for (const field of ['pickupAddress', 'dropoffAddress']) {
+      // A later preview/network response must also respect an intentionally cleared field.
+      if (!this._joinAddressEdited?.[field]) patch[field] = remembered[field] || ''
+    }
+    return patch
   },
 
 
@@ -550,6 +556,7 @@ Page({
 
     this.setData({
       trip,
+      ...(!hasJoined && !isOwner ? this.rememberedJoinAddresses(trip) : {}),
       loadError: '',
       notFound: false,
       routeExpired: false,
@@ -701,13 +708,6 @@ Page({
     if (this.checkRouteExpiry() || !this.data.trip) return
     const { trip, hasJoined, submitting, isOwner, tripId, pickupAddress, dropoffAddress } = this.data
 
-    // const p = String(this.data.pickupAddress || '').trim()
-    // const d = String(this.data.dropoffAddress || '').trim()
-    // if (!p || !d) {
-    //   wx.showToast({ title: '请先填写上车点和下车点', icon: 'none' })
-    //   return
-    // }
-
     if (isOwner) {
       wx.showToast({ title: '无法加入自己发布的路线', icon: 'none' })
       return
@@ -792,8 +792,8 @@ Page({
           tripId: trip._id,
           passengerInfo: {
             ...userInfo,
-            pickupAddress: this.data.pickupAddress,
-            dropoffAddress: this.data.dropoffAddress
+            pickupAddress: p,
+            dropoffAddress: d
           }
       })
       if (!isCurrent()) return
@@ -804,6 +804,7 @@ Page({
         return
       }
 
+      rememberJoinAddresses(trip, { pickupAddress: p, dropoffAddress: d }, wx)
       markRideListStale()
       wx.showToast({ title: cResult.recovered ? '已确认上次操作' : '加入成功', icon: 'success', duration: 2000 })
       this.setData({ hasJoined: true, showPickupOptions: false, showDropoffOptions: false })

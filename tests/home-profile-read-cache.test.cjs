@@ -52,6 +52,8 @@ function harness(kind, existingStorage) {
     Page: value => { definition = value }, wx, Date: Clock, console: { error() {} },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     require(name) {
+      if (name.endsWith('/tripFollowup')) return { hide() {}, canConsider: () => false }
+      if (name.endsWith('/analyticsSession')) return { subscribe: () => () => {} }
       if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => false, ...require('../utils/compat/rides').createRideClient({ wx, backend: { isBackendEnabled: () => false } }) }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }

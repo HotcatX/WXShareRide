@@ -43,16 +43,16 @@ function harness() {
 }
 const row = id => ({ _id: id, historySource: 'carpool', historyRole: 'driver_create', departures: [{ date: '2026-09-22', time: '18:00' }] })
 
-test('onLoad/onShow share one history call and only consider rendered successful data', async () => {
+test('history shares one read and no longer owns the follow-up prompt', async () => {
   const h = harness(); const load = h.page.onLoad(); const show = h.page.onShow()
   await tick(); assert.equal(h.state.requests.length, 1); assert.equal(h.state.considered.length, 0)
   h.resolve(0, [row('fresh'), { missing: true, _id: 'deleted' }]); await Promise.all([load, show])
-  assert.equal(h.state.considered.length, 1)
-  assert.equal(h.state.considered[0].list[0]._id, 'fresh')
+  assert.equal(h.state.considered.length, 0)
+  assert.equal(h.page.data.historyTrips[0]._id, 'fresh')
   assert.equal(h.page.data.loading, false)
   h.state.listeners.forEach(fn => fn())
   assert.equal(h.state.requests.length, 1, 'authorization readiness reuses visible history without extra cloud calls')
-  assert.equal(h.state.considered.length, 2)
+  assert.equal(h.state.considered.length, 0)
 })
 
 test('a hidden page and an unloaded page cannot show a late follow-up', async () => {
@@ -61,7 +61,7 @@ test('a hidden page and an unloaded page cannot show a late follow-up', async ()
     h.page[method](); h.resolve(0, [row('late')]); await Promise.all([load, show])
     assert.equal(h.state.considered.length, 0)
     assert.equal(h.state.listeners.size, 0)
-    assert.ok(h.state.hides >= 1)
+    assert.equal(h.state.hides, 0)
   }
 })
 
@@ -80,7 +80,7 @@ test('account switch discards late old history and does not join an old account 
   h.resolve(1, [row('b')]); await b
   h.resolve(0, [row('a')]); await a
   assert.equal(h.page.data.historyTrips[0]._id, 'b')
-  assert.deepEqual(h.state.considered.map(item => item.account), ['fixture-b'])
+  assert.equal(h.state.considered.length, 0)
   h.state.account = 'fixture-a'; const back = h.page.loadHistoryTrips(); await tick()
   assert.equal(h.state.requests.length, 3); h.resolve(2, [row('new-a')]); await back
   assert.equal(h.page.data.historyTrips[0]._id, 'new-a')
@@ -95,21 +95,21 @@ test('guest transition invalidates the flight, then re-login fetches again rathe
   assert.equal(h.page.data.historyTrips[0]._id, 'fresh')
 })
 
-test('onShow refreshes before asking again and cannot present stale previous-visit membership', async () => {
+test('onShow refreshes history without presenting a second feedback entry', async () => {
   const h = harness(); const load = h.page.onLoad(); const show = h.page.onShow(); await tick()
   h.resolve(0, [row('old')]); await Promise.all([load, show]); h.page.onHide()
   const before = h.state.considered.length
   const again = h.page.onShow(); await tick()
   assert.equal(h.state.considered.length, before, 'synchronous subscription must not ask using the previous list')
   h.resolve(1, []); await again
-  assert.deepEqual(h.state.considered[h.state.considered.length - 1].list, [])
+  assert.equal(h.page.data.historyTrips.length, 0)
+  assert.equal(h.state.considered.length, 0)
 })
 
-test('authorization notification after account change closes the current account question immediately', async () => {
-  const h = harness(); const load = h.page.onLoad(); const show = h.page.onShow(); await tick()
-  h.resolve(0, [row('a')]); await Promise.all([load, show])
-  const before = h.state.hides
-  h.state.account = 'fixture-b'; h.state.listeners.forEach(fn => fn())
-  assert.equal(h.state.hides, before + 1)
-  assert.equal(h.state.considered.length, 1)
+test('history has no analytics subscription or follow-up overlay', () => {
+  const h = harness()
+  assert.equal(h.state.listeners.size, 0)
+  assert.equal(h.page.onFollowupAnswer, undefined)
+  assert.equal(h.page._considerFollowup, undefined)
+  assert.doesNotMatch(fs.readFileSync(path.resolve(__dirname, '../pages/profile/tripHistory/tripHistory.wxml'), 'utf8'), /followupVisible/)
 })

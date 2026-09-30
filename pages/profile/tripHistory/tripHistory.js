@@ -1,6 +1,4 @@
 // pages/profile/tripHistory/tripHistory.js
-const followup = require('../../../utils/tripFollowup')
-const analytics = require('../../../utils/analyticsSession')
 const { loadRideHistory } = require('../../../utils/compat/rideHistory')
 
 function cleanText(value) {
@@ -18,13 +16,7 @@ Page({
     statusBarHeight: 80,
     pageTitle: '历史行程',
     ratingTripId: '',
-    ratingPrompted: false,
-    followupVisible: false,
-    followupBusy: false,
-    followupError: '',
-    followupTime: '',
-    followupRoute: '',
-    followupQuestion: ''
+    ratingPrompted: false
   },
 
   async onLoad(options = {}) {
@@ -44,41 +36,19 @@ Page({
 
   async onShow() {
     this._historyActive = true
-    this._historyDataFresh = false
-    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
-    this._analyticsUnsubscribe = analytics.subscribe(() => this._considerFollowup())
     await this.loadHistoryTrips()
   },
 
   onHide() {
     this._historyActive = false
-    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
-    this._analyticsUnsubscribe = null
     if (this._ratingTimer) clearTimeout(this._ratingTimer)
     this._ratingTimer = null
-    followup.hide(this)
   },
 
   onUnload() {
     this.onHide()
     this._historyDisposed = true
-    followup.dispose(this)
   },
-
-  _considerFollowup() {
-    if (this._historyLoadedIdentity !== historyIdentity()) { followup.hide(this); return }
-    if (!this._historyActive || this._historyDisposed || this.data.loading || this.data.ratingTripId ||
-      !this._historyDataFresh) return
-    followup.considerTrips(this, this.data.historyTrips)
-  },
-
-  onFollowupAnswer(event) {
-    const outcome = event && event.currentTarget && event.currentTarget.dataset.outcome
-    followup.answer(this, outcome)
-  },
-
-  onFollowupClose() { followup.hide(this) },
-  onFollowupTouch() {},
 
   // =========================
   // 数据格式化（用于新卡片样式）
@@ -157,15 +127,12 @@ Page({
     const identity = historyIdentity()
     if (!identity) {
       this._historyFlight = null
-      this._historyDataFresh = false
-      followup.hide(this)
       this.setData({ historyTrips: [], loading: false })
       return Promise.resolve()
     }
     if (this._historyFlight && this._historyFlight.identity === identity) return this._historyFlight.promise
     const entry = { identity, promise: null }
     this._historyFlight = entry
-    this._historyDataFresh = false
     this.setData({ loading: true })
     const current = () => !this._historyDisposed && this._historyFlight === entry && historyIdentity() === identity
     entry.promise = Promise.resolve().then(() => loadRideHistory(identity)).then(res => {
@@ -179,11 +146,8 @@ Page({
         // 生成新卡片需要的一行字段
         const displayList = cleaned.map((t) => this._formatTripForCard(t))
 
-        this._historyLoadedIdentity = identity
-        this._historyDataFresh = true
         this.setData({ historyTrips: displayList, loading: false }, () => {
           this._maybeOpenRatingDetail()
-          this._considerFollowup()
         })
       } else {
         wx.showToast({

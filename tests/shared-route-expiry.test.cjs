@@ -71,6 +71,7 @@ function fixture(kind, { stackDepth = 2, cached = null, fetchResult, fetchResult
         isRouteExpired: (trip, now = clock.now) => expiry.isRouteExpired(trip, now)
       }
       if (name.endsWith('/tripDetailCache')) return cache
+      if (name.endsWith('/joinAddresses')) return require('../utils/joinAddresses')
       if (name.endsWith('/tripManage')) return tripManage
       throw new Error(`Unexpected dependency: ${name}`)
     }

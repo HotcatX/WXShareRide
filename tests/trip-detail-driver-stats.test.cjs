@@ -22,6 +22,7 @@ function harness() {
       if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')()
       if (name.endsWith('tripManage')) return tripManage
       if (name.endsWith('tripDetailCache')) return {}
+      if (name.endsWith('/joinAddresses')) return require('../utils/joinAddresses')
       if (name.endsWith('routeExpiry')) return require('../utils/routeExpiry')
       throw new Error(`Unexpected dependency ${name}`)
     }

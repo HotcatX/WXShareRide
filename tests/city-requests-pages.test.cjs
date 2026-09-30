@@ -22,6 +22,7 @@ function harness(kind, server = true) {
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, kind === 'home' ? '../pages/home/home.js' : '../pages/home/carpoolList/carpoolList.js'), 'utf8'), {
     Page: value => { definition = value }, wx, console, setTimeout, clearTimeout,
     require(name) {
+      if (name.endsWith('/tripFollowup')) return { hide() {}, dispose() {} }
       if (name.endsWith('/compat/rides')) return rides
       if (name.endsWith('/cityTree')) return city
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')

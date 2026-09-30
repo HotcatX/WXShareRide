@@ -311,5 +311,22 @@
     bind:close="onCommunityNoticeClose"
     bind:preview="onAnnouncementPreview"
   />
+  <view wx:if="{{followupVisible}}" class="home-followup-mask" catchtap="onFollowupTouch" catchtouchmove="onFollowupTouch">
+    <view class="home-followup-panel" catchtap="onFollowupTouch" aria-role="dialog" aria-label="行程回访">
+      <view class="home-followup-head">
+        <text class="home-followup-title">行程回访</text>
+        <view class="home-followup-close" bindtap="onFollowupClose" aria-role="button" aria-label="关闭回访">×</view>
+      </view>
+      <text class="home-followup-time">{{followupTime}}</text>
+      <text wx:if="{{followupRoute}}" class="home-followup-route">{{followupRoute}}</text>
+      <text class="home-followup-question">{{followupQuestion}}</text>
+      <text class="home-followup-note">仅询问一次，关闭后不再提醒。</text>
+      <text wx:if="{{followupError}}" class="home-followup-error">{{followupError}}</text>
+      <view class="home-followup-actions">
+        <button class="home-followup-no" data-outcome="no" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">否</button>
+        <button class="home-followup-yes" data-outcome="yes" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">是</button>
+      </view>
+    </view>
+  </view>
 </view>
 </block>

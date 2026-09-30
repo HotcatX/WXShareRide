@@ -1,5 +1,8 @@
 const profileApi = require("../../utils/compat/profile")
 const rides = require("../../utils/compat/rides")
+const { loadRideHistory } = require('../../utils/compat/rideHistory')
+const followup = require('../../utils/tripFollowup')
+const analytics = require('../../utils/analyticsSession')
 const HOME_REFRESH_INTERVAL = 30 * 1000
 const PUBLIC_STATS_CACHE_KEY = 'homePublicStatsCacheV1'
 const PUBLIC_STATS_CACHE_TTL = 24 * 60 * 60 * 1000
@@ -291,6 +294,12 @@ Page({
     communityGroupLoading: false,
     communityNoticeVisible: false,
     communityNotice: null,
+    followupVisible: false,
+    followupBusy: false,
+    followupError: '',
+    followupTime: '',
+    followupRoute: '',
+    followupQuestion: '',
 
     isLoggedIn: false,
     customTabMarketBadge: 0,
@@ -364,6 +373,7 @@ Page({
   },
 
   async refreshHomeByUser() {
+    this._homeFollowup = null
     this.syncLoginState()
     try {
       await Promise.all([
@@ -372,6 +382,7 @@ Page({
         this.refreshHomeData(true),
         this.loadUnreadCount({ force: true })
       ])
+      await this.loadHomeFollowup(true)
     } catch (e) {
       console.error('refreshHomeByUser error', e)
     }
@@ -397,16 +408,27 @@ Page({
       this.setData({ rideDemandSubmitting: false, rideDemandRequested: false })
     }
     this._communityActive = true
+    this._homeFollowupVisit = { ready: false }
     this._announcementShownOnVisit = !!this._skipNextAnnouncementShow
     this._skipNextAnnouncementShow = false
     this.setData({ communityGroupLoading: false })
     this.syncLoginState()
+    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
+    this._analyticsUnsubscribe = analytics.subscribe(() => {
+      this.syncLoginState()
+      // Analytics also emits after periodic uploads. Invalidate an open prompt
+      // when authorization changes, but never turn those emissions into polling.
+      followup.canConsider()
+      if (this._homeFollowup && this._homeFollowup.key !== this.homeReadKey()) this._homeFollowup = null
+      if (this._homeFollowupVisit && this._homeFollowupVisit.ready && !this._homeFollowup) this.loadHomeFollowup()
+    })
     this.scheduleHomeShowRefresh()
     this.refreshCommunityConfig()
   },
 
   onHide() {
     this._communityActive = false
+    this.clearHomeFollowup()
     this._communityRequestVersion += 1
     this.onCommunityNoticeClose()
     this.clearHomeShowRefresh()
@@ -415,6 +437,8 @@ Page({
   onUnload() {
     this._cityRequestDisposed = true
     this._communityActive = false
+    this.clearHomeFollowup()
+    followup.dispose(this)
     this._communityRequestVersion += 1
     this.clearCommunityNoticeExpiry()
     this.clearHomeShowRefresh()
@@ -426,7 +450,12 @@ Page({
       this._homeShowTimer = null
       if (this.data.isRideServiceAvailable) {
         this.loadPublicStats()
-        this.refreshHomeData(false, { forceStatus: false })
+        const visit = this._homeFollowupVisit
+        Promise.resolve(this.refreshHomeData(false, { forceStatus: false })).then(() => {
+          if (!this._communityActive || !visit || this._homeFollowupVisit !== visit) return
+          visit.ready = true
+          this.loadHomeFollowup()
+        })
       }
       this.loadUnreadCount()
     }, 300)
@@ -437,6 +466,64 @@ Page({
     clearTimeout(this._homeShowTimer)
     this._homeShowTimer = null
   },
+
+  clearHomeFollowup() {
+    this._homeFollowupVisit = null
+    this._homeFollowup = null
+    if (this._homeReads) delete this._homeReads.followup
+    if (this._analyticsUnsubscribe) this._analyticsUnsubscribe()
+    this._analyticsUnsubscribe = null
+    followup.hide(this)
+  },
+
+  // The home card list only contains current memberships; completed rides move
+  // into history. Reuse the normal status sync before one deduplicated history
+  // read, with no background polling and no requests after this session's prompt.
+  async loadHomeFollowup(force = false) {
+    if (!this._communityActive || !(this._homeFollowupVisit && this._homeFollowupVisit.ready) || !this.data.isRideServiceAvailable ||
+      !homeIdentity() || !followup.canConsider()) return
+    const identity = homeIdentity()
+    let key = this.homeReadKey()
+    try {
+      await readHomeResource(this, 'followup', key, force, async isCurrent => {
+        this._homeFollowup = null
+        const current = () => isCurrent() && this._communityActive &&
+          identity === homeIdentity() && key === this.homeReadKey()
+        await this.refreshHomeStatusInBackground(false)
+        if (!isCurrent() || !this._communityActive || identity !== homeIdentity() || !followup.canConsider()) return false
+        // Status sync can move a just-finished trip and bump the list revision.
+        key = this.homeReadKey()
+        const response = await loadRideHistory(identity)
+        if (!current()) return false
+        if (!response || !response.result || response.result.ok !== true || !Array.isArray(response.result.data)) return false
+        this._homeFollowup = { key, identity, at: Date.now(), trips: response.result.data }
+        this._considerHomeFollowup()
+      })
+    } catch (_) {
+      // Optional feedback must never interrupt the home page or show old data.
+    }
+  },
+
+  _considerHomeFollowup() {
+    const entry = this._homeFollowup
+    if (entry && entry.identity !== homeIdentity()) { followup.hide(this); return }
+    if (!this._communityActive || !(this._homeFollowupVisit && this._homeFollowupVisit.ready) || !entry || entry.key !== this.homeReadKey() ||
+      this.data.loading || this.data.cityPickerVisible || this.data.communityNoticeVisible ||
+      this.data.communityGroupLoading || this._communityRequestPending || this._skipNextAnnouncementShow ||
+      !this.data.isRideServiceAvailable) return
+    if (Date.now() < entry.at || Date.now() - entry.at >= HOME_REFRESH_INTERVAL) {
+      this.loadHomeFollowup()
+      return
+    }
+    followup.considerTrips(this, entry.trips)
+  },
+
+  onFollowupAnswer(event) {
+    followup.answer(this, event && event.currentTarget && event.currentTarget.dataset.outcome)
+  },
+
+  onFollowupClose() { followup.dismiss(this) },
+  onFollowupTouch() {},
 
   clearCommunityNoticeExpiry() {
     this._communityNoticeExpiryVersion += 1
@@ -471,6 +558,7 @@ Page({
 
   async refreshCommunityConfig({ force = false } = {}) {
     const version = ++this._communityRequestVersion
+    this._communityRequestPending = version
     try {
       const config = await community.loadCommunityConfig({ force, maxAgeMs: HOME_REFRESH_INTERVAL })
       if (!this._communityActive || version !== this._communityRequestVersion) return
@@ -486,7 +574,7 @@ Page({
         }
         return
       }
-      if (this._announcementShownOnVisit || this.data.cityPickerVisible ||
+      if (this._announcementShownOnVisit || this.data.cityPickerVisible || this.data.followupVisible ||
         this.data.communityGroupLoading || !this.data.isRideServiceAvailable ||
         !community.shouldShowAnnouncement(config)) return
       // Persist before showing so a failed storage write cannot cause repeat popups.
@@ -500,6 +588,11 @@ Page({
       if (this._communityActive && version === this._communityRequestVersion) {
         this.onCommunityNoticeClose()
       }
+    } finally {
+      if (this._communityRequestPending === version) {
+        this._communityRequestPending = null
+        this._considerHomeFollowup()
+      }
     }
   },
 
@@ -507,6 +600,7 @@ Page({
     this.clearCommunityNoticeExpiry()
     this._communityNoticeManual = false
     this.setData({ communityNoticeVisible: false, communityNotice: null })
+    this._considerHomeFollowup()
   },
 
   onAnnouncementPreview() {
@@ -515,9 +609,10 @@ Page({
   },
 
   async onJoinCommunityGroup() {
-    if (this.data.communityGroupLoading) return
+    if (this.data.communityGroupLoading || this.data.followupVisible) return
     this._announcementShownOnVisit = true
     const version = ++this._communityRequestVersion
+    this._communityRequestPending = version
     this.setData({ communityGroupLoading: true })
     try {
       const config = await community.loadCommunityConfig({ force: true })
@@ -536,6 +631,10 @@ Page({
       }
     } finally {
       if (this._communityActive) this.setData({ communityGroupLoading: false })
+      if (this._communityRequestPending === version) {
+        this._communityRequestPending = null
+        this._considerHomeFollowup()
+      }
     }
   },
 
@@ -546,6 +645,9 @@ Page({
       this._homeReads = this._homeReads || {}
       delete this._homeReads.trips
       delete this._homeReads.unread
+      delete this._homeReads.followup
+      this._homeFollowup = null
+      followup.hide(this)
       this._statusRefreshPromise = null
       this._statusRefreshIdentity = ''
       this.setData({
@@ -623,6 +725,7 @@ Page({
   },
 
   onTapCity() {
+    if (this.data.followupVisible) return
     const cityTree = this.data.cityTree || DEFAULT_CITY_TREE
     const cityPickerGroups = getCountryGroups(
       cityTree,
@@ -639,6 +742,7 @@ Page({
 
   onCityPickerCancel() {
     this.setData({ cityPickerVisible: false, citySearchKeyword: "" })
+    this._considerHomeFollowup()
   },
 
   stopTouchMove() {},
@@ -828,7 +932,10 @@ Page({
           if (loaded !== false) this.refreshHomeStatusInBackground(forceStatus)
           return loaded
         } finally {
-          if (isCurrent() && key === this.homeReadKey()) this.setData({ loading: false })
+          if (isCurrent() && key === this.homeReadKey()) {
+            this.setData({ loading: false })
+            this._considerHomeFollowup()
+          }
         }
       })
     } catch (e) {

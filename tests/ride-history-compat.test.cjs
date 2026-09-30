@@ -18,7 +18,7 @@ test('history conversion preserves actual last departure and authoritative price
   assert.equal(trip.departures[0].time, '15:00')
   assert.equal(trip.departures[1].time, '18:00')
   assert.equal(eligibleTrip(trip, own, now).departureAt, Date.parse(base.latestDepartureAt))
-  assert.equal(eligibleTrip(trip, own, now - 1), null)
+  assert.equal(eligibleTrip(trip, own, Date.parse(base.latestDepartureAt) + 4 * 3600000 - 1), null)
   assert.deepEqual(referencePrice(trip), { referencePriceCents: 1500, currency: 'USD', priceKind: 'listed_reference' })
   assert.doesNotMatch(JSON.stringify(trip), /private-/)
   for (const label of ['15/人', '待定', '10至20', '免费']) {
@@ -29,10 +29,10 @@ test('history conversion preserves actual last departure and authoritative price
   assert.equal(eligibleTrip(toHistoryRide({ ...base, status: 'open', followupEligible: false }, own), own, now), null)
 })
 
-test('the existing New York timing algorithm remains correct across both DST changes after DTO conversion', () => {
-  for (const [last, next] of [['2026-03-08T04:30:00.000Z', '2026-03-08'], ['2026-11-01T03:30:00.000Z', '2026-11-01']]) {
+test('the four-hour elapsed-time rule remains correct across both DST changes after DTO conversion', () => {
+  for (const last of ['2026-03-08T04:30:00.000Z', '2026-11-01T03:30:00.000Z']) {
     const dto = { ...base, departureAt: last, latestDepartureAt: last, stops: [{ ...base.stops[0], departureAt: last }, base.stops[2]] }
-    const trip = toHistoryRide(dto, own), due = rideTime.parseRideDateTime(next, '09:00')
+    const trip = toHistoryRide(dto, own), due = Date.parse(last) + 4 * 3600000
     assert.equal(eligibleTrip(trip, own, due - 1), null)
     assert.ok(eligibleTrip(trip, own, due))
   }

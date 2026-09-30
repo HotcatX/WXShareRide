@@ -84,6 +84,27 @@ test('follow-up roles have different outcome scopes and cannot claim a payment o
     { ...event.data, outcome: 'maybe' }, { ...event.data, confirmedPayment: true }, { ...event.data, comment: 'free text' }]) parity({ ...event, data }, false)
 })
 
+test('only an explicit close may carry a default outcome, and legacy or interrupted dismissals remain unknown', () => {
+  const event = fixture('followup_dismissed')
+  parity(event, true, 'legacy dismissal remains valid')
+  parity({ ...event, data: { ...event.data, dismissalReason: 'hidden' } }, true)
+  for (const role of ['driver', 'passenger']) {
+    const data = { ...event.data, role, dismissalReason: 'close', assumedOutcome: 'yes',
+      outcomeScope: role === 'driver' ? 'driver_any_passenger' : 'respondent_booking',
+      referencePriceCents: 2000, currency: 'USD', priceKind: 'listed_reference' }
+    parity({ ...event, data }, true)
+    for (const patch of [{ dismissalReason: 'hidden' }, { dismissalReason: undefined },
+      { assumedOutcome: undefined }, { assumedOutcome: 'no' }, { outcomeScope: undefined },
+      { outcomeScope: role === 'driver' ? 'respondent_booking' : 'driver_any_passenger' }, { outcome: 'yes' }]) {
+      parity({ ...event, data: { ...data, ...patch } }, false)
+    }
+  }
+  for (const patch of [{ dismissalReason: 'close' }, { dismissalReason: 'back' },
+    { referencePriceCents: 2000 }, { outcomeScope: 'driver_any_passenger' }, { assumedOutcome: 'yes' }]) {
+    parity({ ...event, data: { ...event.data, ...patch } }, false)
+  }
+})
+
 test('service diagnostics bound request IDs to 16..128 and never admit response bodies or errors as free text', () => {
   const event = fixture('service_request')
   for (const length of [16,128]) parity({ ...event, data: { ...event.data, cloudRequestId: 'r'.repeat(length) } }, true)

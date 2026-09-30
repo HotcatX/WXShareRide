@@ -82,7 +82,12 @@ const validators = {
     action: enumeration('copy', 'call'), outcome: enumeration('attempt', 'success', 'failure', 'missing'),
     targetRole: enumeration('driver', 'passenger', 'unknown') }),
   followup_presented: shape(followup),
-  followup_dismissed: shape(followup),
+  followup_dismissed: value => shape(followup, Object.assign({
+    dismissalReason: enumeration('close', 'hidden'), assumedOutcome: enumeration('yes'),
+    outcomeScope: enumeration('driver_any_passenger', 'respondent_booking') }, quote))(value) &&
+    (value.dismissalReason === 'close'
+      ? value.assumedOutcome === 'yes' && value.outcomeScope === (value.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking')
+      : !['assumedOutcome', 'outcomeScope', ...Object.keys(quote)].some(key => Object.prototype.hasOwnProperty.call(value, key))),
   followup_answer: value => shape(Object.assign({}, followup, { outcome: enumeration('yes', 'no'),
     outcomeScope: enumeration('driver_any_passenger', 'respondent_booking') }), quote)(value) &&
     value.outcomeScope === (value.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking'),

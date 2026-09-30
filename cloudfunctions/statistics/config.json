@@ -1,5 +1,7 @@
 {
   "timeout": 15,
-  "triggers": [{ "name": "placeBusinessFiveMinutes", "type": "timer", "config": "0 */5 * * * * *" }],
-  "permissions": { "openapi": [] }
+  "triggers": [],
+  "permissions": {
+    "openapi": []
+  }
 }

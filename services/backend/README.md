@@ -1,8 +1,10 @@
 # LinkX backend
 
-Single Node.js 24 application and PostgreSQL business database. This service is
-being built alongside the live CloudBase application. **It is not yet a complete
-replacement and must not receive production ride writes.**
+Single Node.js 24 application and PostgreSQL business database. Production
+switched to this backend on 2026-09-30; PostgreSQL is the sole business writer.
+CloudBase retains the trusted identity bridge, limited compatibility routes and
+read-only recovery data. See [the cutover record](../../docs/backend-cutover-2026-09-30.md)
+for the maintenance window, live verification and remaining validation limits.
 
 ## Run and verify
 
@@ -65,7 +67,8 @@ production import and old-writer handoff. There is no automatic database fallbac
 CloudBase invocation identity and issues the same business session as code2session.
 No key means no bridge route. Its nonce and session commit atomically; unsigned,
 expired, cross-app and replayed requests are rejected. The companion
-`cloudfunctions/backend` source is not automatically deployed or enabled.
+`cloudfunctions/backend` bridge is deployed in production; committing its source
+does not automatically deploy or enable a new environment.
 
 The temporary `POST /internal/v1/compat/cloudbase` bridge reuses that mounted key
 with a separate signing purpose. It supports only the finite deployed template,
@@ -78,7 +81,8 @@ After handoff a pending cloud request retains its original action, key and body;
 neither a timeout nor an unavailable bridge permits a write back to CloudBase.
 Generate the isolated cloud bundles' authority files from `config/backend.js`
 with `node scripts/sync-cloud-authority.mjs`; `--check` detects stale copies.
-This repository remains in CloudBase mode until the single-writer handoff.
+This repository and the deployed bridges now use `server` authority following
+the completed single-writer handoff. Do not restore CloudBase write authority.
 
 The mini-program reads that same choice through `backend`'s public `authority`
 action before starting page business work. The packaged configuration is not a
@@ -213,8 +217,9 @@ Private converters and the bootstrap importer cover their supported historical
 models, preserving expiry and unknown metadata. The COS adapter signs only
 authorized references, bounds downloads and verifies uploaded bytes before a
 file becomes ready. Existing cloud references can keep their original objects;
-only their exact configured bucket/environment may resolve. Credentials, real
-provider checks and mini-program/website DTO adaptation remain deployment gates.
+only their exact configured bucket/environment may resolve. Each new deployment
+must validate its credentials, provider access and mini-program/website DTO
+compatibility; the production cutover record documents the completed checks.
 Profile avatars use the same file UUIDs and references: `PATCH /me` accepts
 `avatarFileId` (omit to preserve, null to clear). Contact views authorize current
 member/seller avatars; a detached old avatar does not remain publicly readable.
@@ -242,22 +247,23 @@ executable requires `COLLECTOR_BRIDGE_KEY_FILE`, containing the existing
 collector bridge key. `COLLECTOR_ORIGIN` defaults to `https://collect.linkx.ink`
 and accepts only a trusted HTTPS origin. There is no second outbox or grant
 database. Shutdown drains work before closing the pool, and failures retry with
-bounded backoff. Production remains staged: activation must accompany the
-completed import, old pending-event handoff and client compatibility.
+bounded backoff. Production switched to PostgreSQL on 2026-09-30 after the
+complete frozen import, event handoff, reconciliation and isolated restore.
+See `../../docs/backend-cutover-2026-09-30.md` for deployment evidence and limits.
 The existing collector remains authoritative for place and follow-up data.
 
 The deployment Compose binds only `127.0.0.1:3101`; PostgreSQL has no host port.
 The existing collector stack must already supply `linkx-collector_default`.
 Only the backend joins that network as `linkx-business`; PostgreSQL remains on
 the backend network. The collector Caddyfile proxies `/api/v1/*` and the two
-signed internal bridges to the backend, while the staged gate still rejects
-all business requests. Image POST routes accept at most 2 MiB; other requests
+signed internal bridges to the backend. The default staged configuration rejects
+business requests; the production Compose is explicitly active after handoff. Image POST routes accept at most 2 MiB; other requests
 retain the existing 128 KiB proxy limit. Publishing routes is not a cutover.
-Keep the current mini-program on CloudBase until missing feature compatibility,
-backup/restore, complete import reconciliation, trusted login and capacity checks
-pass. Preserve existing collector storage, credentials and CloudBase data.
+The released 5.1.0 client selects PostgreSQL through its trusted authority
+handshake. Preserve existing collector storage, credentials and the read-only
+CloudBase recovery data. Do not reactivate CloudBase writers after the handoff.
 
-Reads may temporarily use the explicitly isolated legacy fallback. Writes must
+Temporary compatibility fallbacks use the same PostgreSQL database. Writes must
 have one authoritative database; a timeout must never send the same booking to
 an independent old writer. Retire fallback only after the next production app
 release and observed healthy behavior, not merely after this service starts.

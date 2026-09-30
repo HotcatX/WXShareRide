@@ -53,21 +53,22 @@ else if(tool==='cloud_db_read_struct'){
  if(fixture.mode==='unknown')rows[0].TableName='referral_codes';
  if(fixture.mode==='duplicate-name')rows[0].TableName=rows[1].TableName;
  if(fixture.mode==='count-string')rows[0].Count=String(rows[0].Count);
- if(fixture.mode==='inventory-drift'&&n>0)rows[0].Count++;
+ if(fixture.mode==='stale-inventory')for(const row of rows)row.Count+=n?3:1;
  emit({success:true,collections:rows,pager:{Offset:0,Limit:100,Total:fixture.mode==='inventory-truncated'?50:rows.length}});
 }else{
- assert.equal(tool,'cloud_db_read_doc');assert.equal(get('--limit'),'500');
+ assert.equal(tool,'cloud_db_read_doc');const limit=+get('--limit');assert.ok([1,500].includes(limit));
  assert.deepEqual(JSON.parse(fs.readFileSync(get('--sort-file'),'utf8')),[{key:'_id',direction:1}]);
  const name=get('--collection-name'),query=JSON.parse(fs.readFileSync(get('--query-file'),'utf8'));
- assert.deepEqual(Object.keys(query),query._id?['_id']:[]);if(query._id)assert.deepEqual(Object.keys(query._id),['$gt']);
+ assert.deepEqual(Object.keys(query),['_id']);assert.ok(Object.keys(query._id).length===1&&('$gt' in query._id||query._id.$exists===true));
  let rows=fixture.collections[name].slice().sort((a,b)=>Buffer.compare(Buffer.from(a._id),Buffer.from(b._id)));
- if(query._id&&fixture.mode!=='ignored-cursor')rows=rows.filter(row=>Buffer.compare(Buffer.from(row._id),Buffer.from(query._id.$gt))>0);
- const total=rows.length;rows=rows.slice(0,500);
+ if('$gt' in query._id&&fixture.mode!=='ignored-cursor')rows=rows.filter(row=>Buffer.compare(Buffer.from(row._id),Buffer.from(query._id.$gt))>0);
+ if(fixture.mode==='inventory-drift'&&limit===1&&name==='Arrival')rows.push({_id:'late-arrival'});
+ const total=rows.length;rows=rows.slice(0,limit);
  if(fixture.mode==='short-page'&&rows.length)rows=[];
- if(fixture.mode==='duplicate-id'&&name==='Arrival'&&!query._id){rows=[rows[0],rows[0]];}
+ if(fixture.mode==='duplicate-id'&&name==='Arrival'&&query._id.$exists){rows=[rows[0],rows[0]];}
  if(fixture.mode==='invalid-id'&&rows.length)rows[0]={...rows[0],_id:0};
- if(fixture.mode==='wrong-collection')emit({success:true,collection:'userInfo',collectionName:name,data:rows,total,pager:{Offset:0,Limit:500,Total:total}});
- else emit({success:true,collection:name,collectionName:name,data:rows,total:fixture.mode==='wrong-total'?total+1:total,pager:{Offset:fixture.mode==='wrong-offset'?1:0,Limit:500,Total:total}});
+ if(fixture.mode==='wrong-collection')emit({success:true,collection:'userInfo',collectionName:name,data:rows,total,pager:{Offset:0,Limit:limit,Total:total}});
+ else emit({success:true,collection:name,collectionName:name,data:rows,total:fixture.mode==='wrong-total'?total+1:total,pager:{Offset:fixture.mode==='wrong-offset'?1:0,Limit:limit,Total:total}});
 }
 `, { mode: 0o700 });
   const args = ['--output', output, '--expected-app-id', importAppId, '--expected-env', importEnvironment];
@@ -88,8 +89,10 @@ test('real fake-CLI export preserves >64KiB pages, exact raw documents and dates
   assert.deepEqual(audit.source.collections.userInfo, b.collections.userInfo);
   assert.ok(Date.parse(audit.observation.at) >= start && Date.parse(audit.observation.at) <= Date.now());
   assert.ok((await lstat(join(b.output, 'raw', 'userInfo-page-0000-response.json'))).size > 65536);
-  const calls = await b.log(), pages = calls.filter(args => args[2] === 'cloud_db_read_doc' && args.includes('userInfo'));
+  const calls = await b.log(), pages = calls.filter(args => args[2] === 'cloud_db_read_doc' && args.includes('userInfo') && args[args.indexOf('--limit') + 1] === '500');
   assert.equal(pages.length, 3); assert.equal(calls.filter(args => args[2] === 'cloud_db_read_struct').length, 2);
+  assert.equal(calls.filter(args => args[2] === 'cloud_db_read_doc' && args[args.indexOf('--limit') + 1] === '1').length, 49);
+  assert.deepEqual(JSON.parse(await readFile(join(b.output, 'raw', 'userInfo-page-0000-query.json'), 'utf8')), { _id: { $exists: true } });
   assert.deepEqual(JSON.parse(await readFile(join(b.output, 'raw', 'userInfo-page-0001-query.json'), 'utf8')), { _id: { $gt: 'user-0499' } });
   assert.equal(JSON.parse(await readFile(join(b.output, 'raw', 'userInfo-page-0002-response.json'), 'utf8')).result.data.length, 0);
   assert.equal((await lstat(b.output)).mode & 0o777, 0o700);
@@ -98,6 +101,20 @@ test('real fake-CLI export preserves >64KiB pages, exact raw documents and dates
   }
   const metadata = JSON.parse(await readFile(join(b.output, 'raw', 'inventory-before-metadata.json'), 'utf8'));
   assert.equal(metadata.exitCode, 0); assert.ok(metadata.startedAt <= metadata.finishedAt);
+});
+
+test('stale structural inventory totals never replace precise before/after query counts', async t => {
+  const b = await fixture(t, 'stale-inventory');
+  const result = await runExport(b.args, b.command);
+  assert.equal(result.exitCode, 0);
+  const manifest = JSON.parse(await readFile(join(b.output, 'manifest.json'), 'utf8'));
+  for (const collection of manifest.collections) {
+    assert.equal(collection.inventoryBefore, b.collections[collection.name]!.length);
+    assert.equal(collection.inventoryAfter, b.collections[collection.name]!.length);
+  }
+  const rawBefore = JSON.parse(await readFile(join(b.output, 'raw', 'inventory-before-response.json'), 'utf8'));
+  assert.equal(rawBefore.result.collections[0].Count, b.collections.Arrival!.length + 1);
+  assert.equal(JSON.parse(await readFile(join(b.output, 'raw', 'Arrival-count-after-response.json'), 'utf8')).result.total, b.collections.Arrival!.length);
 });
 
 test('unknown/missing inventory, duplicate collections, nonnumeric counts and post-export count drift never publish a final manifest', async t => {

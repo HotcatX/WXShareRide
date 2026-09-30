@@ -38,7 +38,8 @@ class BackupTests(unittest.TestCase):
             target.write(DUMP)
             self.assertEqual(list(self.root.glob('linkx-pg-v1-*.dump')), self.before)
         if arguments[0] == 'pg_restore':
-            self.assertEqual(source.read(), DUMP)
+            # subprocess stdin consumes the OS descriptor, not Python's buffer.
+            self.assertEqual(os.read(source.fileno(), len(DUMP) + 1), DUMP)
             self.assertIn('--file=/dev/null', arguments)
             self.assertNotIn('--dbname=linkx', arguments)
             self.validated = True

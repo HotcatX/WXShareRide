@@ -43,7 +43,7 @@ function fixture(document, options = {}) {
 
 function entry(f) {
   const exports = {}
-  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
+  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js')
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     exports, require(name) {
       if (name === 'wx-server-sdk') return f.cloud
@@ -269,7 +269,7 @@ test('configuration text is bounded and control characters do not enter the resp
   assert.ok(!/[\u0000\u202e\r]/.test(result.announcement.title+result.announcement.body))
 })
 
-test('actual marketApi dispatch preserves the anonymous guard and keeps preview isolated', async () => {
+test('retained marketApi fallback dispatch preserves the anonymous guard and keeps preview isolated', async () => {
   const f=fixture(null),main=entry(f)
   for(const action of ['communityConfig','publicConfig','list','create','delete']){
     const result=await main({action,OPENID:'forged-user',collection:'userInfo',id:'private-user'})

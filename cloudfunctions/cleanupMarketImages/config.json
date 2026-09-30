@@ -1,12 +1,6 @@
 {
   "timeout": 60,
-  "triggers": [
-    {
-      "name": "cleanupMarketImagesDaily",
-      "type": "timer",
-      "config": "0 0 4 * * * *"
-    }
-  ],
+  "triggers": [],
   "permissions": {
     "openapi": []
   }

@@ -91,12 +91,18 @@ function inventoryOf(value: unknown): Map<string, number> {
   }
   return inventory;
 }
-function pageOf(value: unknown, name: string, remaining: number): JsonRecord[] {
+function pageOf(value: unknown, name: string, remaining: number, limit = pageSize): JsonRecord[] {
   const result = resultOf(value, 'cloud_db_read_doc');
   if (result.collection !== name || result.collectionName !== name || result.total !== remaining || !Array.isArray(result.data)) fail('EXPORT_PAGE_DRIFT');
-  pagerOf(result, pageSize, remaining);
-  if (result.data.length !== Math.min(pageSize, remaining) || !result.data.every(record)) fail('EXPORT_PAGE_DRIFT');
+  pagerOf(result, limit, remaining);
+  if (result.data.length !== Math.min(limit, remaining) || !result.data.every(record)) fail('EXPORT_PAGE_DRIFT');
   return result.data as JsonRecord[];
+}
+function exactCountOf(value: unknown, name: string, limit: number): number {
+  const total = resultOf(value, 'cloud_db_read_doc').total;
+  if (!count(total)) fail('EXPORT_INVALID_PAGER');
+  pageOf(value, name, total, limit);
+  return total;
 }
 
 /** Read-only export. A matching inventory and a successful import audit do not
@@ -114,20 +120,23 @@ export async function runExport(args: string[], command: Command = { executable:
     await mkdir(rawDirectory, { mode: 0o700 });
     const startedAt = timestamp(), base = ['-c', input.client], target = ['--appid', input.appId, '--env', input.environment];
     const inventoryArgs = [...base, 'cloud_db_read_struct', ...target, '--action', 'listCollections', '--limit', String(inventoryLimit), '--offset', '0'];
-    const before = inventoryOf(await capture(command, inventoryArgs, rawDirectory, 'inventory-before'));
+    // Struct Count (and an empty query's total) can be stale CloudBase metadata.
+    // Keep it as evidence and validate all collection names, not as an exact count.
+    inventoryOf(await capture(command, inventoryArgs, rawDirectory, 'inventory-before'));
     const sortPath = join(rawDirectory, 'sort.json'); await save(sortPath, [{ key: '_id', direction: 1 }]);
     const source: CloudBaseExport = { kind: 'cloudbase-full-export', appId: input.appId, collections: {} };
     const collections: ImportManifest['collections'] = []; let bundleBytes = 0;
     for (const name of importCollections) {
-      const collectionStartedAt = timestamp(), expected = before.get(name)!;
+      const collectionStartedAt = timestamp(); let expected = 0;
       const documents: JsonRecord[] = []; let lastId: string | undefined, page = 0;
       // Always request an actual terminal empty page, even after a short page.
       for (;;) {
         const label = `${name}-page-${String(page++).padStart(4, '0')}`, queryPath = join(rawDirectory, `${label}-query.json`);
-        await save(queryPath, lastId === undefined ? {} : { _id: { $gt: lastId } });
+        await save(queryPath, lastId === undefined ? { _id: { $exists: true } } : { _id: { $gt: lastId } });
         const response = await capture(command, [...base, 'cloud_db_read_doc', ...target,
           '--collection-name', name, '--query-file', queryPath, '--sort-file', sortPath,
           '--limit', String(pageSize), '--offset', '0'], rawDirectory, label);
+        if (lastId === undefined) expected = exactCountOf(response, name, pageSize);
         const rows = pageOf(response, name, expected - documents.length);
         for (const row of rows) {
           const id = row._id;
@@ -145,8 +154,20 @@ export async function runExport(args: string[], command: Command = { executable:
         inventoryBefore: expected, inventoryAfter: expected, startedAt: collectionStartedAt, finishedAt: timestamp() });
       collectionCount++; documentCount += documents.length;
     }
-    const after = inventoryOf(await capture(command, inventoryArgs, rawDirectory, 'inventory-after'));
-    for (const name of importCollections) if (after.get(name) !== before.get(name)) fail('EXPORT_INVENTORY_DRIFT');
+    inventoryOf(await capture(command, inventoryArgs, rawDirectory, 'inventory-after'));
+    // A second precise count for every collection is taken after all pages have
+    // completed. Independent readbacks are bounded to four concurrent CLI calls.
+    for (let offset = 0; offset < collections.length; offset += 4) {
+      const checks = await Promise.allSettled(collections.slice(offset, offset + 4).map(async collection => {
+        const response = await capture(command, [...base, 'cloud_db_read_doc', ...target,
+          '--collection-name', collection.name, '--query-file', join(rawDirectory, `${collection.name}-page-0000-query.json`),
+          '--sort-file', sortPath, '--limit', '1', '--offset', '0'], rawDirectory, `${collection.name}-count-after`);
+        const exact = exactCountOf(response, collection.name, 1);
+        if (exact !== collection.inventoryBefore) fail('EXPORT_INVENTORY_DRIFT');
+        collection.inventoryAfter = exact;
+      }));
+      for (const check of checks) if (check.status === 'rejected') throw check.reason;
+    }
     const finishedAt = timestamp(), sourceSha256 = sourceHash(serializeSource(source));
     const manifest: ImportManifest = { kind: 'linkx-cloudbase-import-manifest', version: 1, appId: input.appId,
       environment: input.environment, snapshotConsistency: 'non-atomic', startedAt, finishedAt,

@@ -101,7 +101,7 @@ function fixture(data = {}, options = {}) {
 
 function entry(f, { publicConfig = () => require('../cloudfunctions/marketApi/publicConfig.generated.js') } = {}) {
   const exports = {}
-  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
+  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js')
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     exports, require(name) {
       if (name === 'wx-server-sdk') return f.cloud
@@ -138,10 +138,10 @@ function assertPublicItem(item) {
   assert.ok(item.tags.every(tag => typeof tag === 'string'))
 }
 
-test('actual marketApi entry rejects every old action anonymously before any database work', async () => {
+test('retained marketApi fallback entry rejects every old action anonymously before any database work', async () => {
   const f = fixture()
   const main = entry(f)
-  const source = fs.readFileSync(path.resolve(__dirname, '../cloudfunctions/marketApi/index.js'), 'utf8')
+  const source = fs.readFileSync(path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js'), 'utf8')
   const actions = [...source.matchAll(/if \(action === "([^"]+)"\)/g)].map(match => match[1]).filter(action => action !== 'publicPreview')
   assert.ok(actions.includes('list') && actions.includes('publicConfig') && actions.includes('create') && actions.includes('delete'))
   for (const action of [...new Set(actions), 'unknown', '']) {
@@ -156,7 +156,7 @@ test('actual marketApi entry rejects every old action anonymously before any dat
   assert.deepEqual(f.calls, { collections: [], reads: [], writes: [], images: [], functions: [] })
 })
 
-test('actual entry allows anonymous publicPreview only and dispatches previewAction independently', async () => {
+test('retained fallback entry allows anonymous publicPreview only and dispatches previewAction independently', async () => {
   const f = fixture({ market_goods: [goods({ expireTime: Date.now() + 86400000 })] })
   const main = entry(f)
   const result = await main({ action: 'publicPreview', previewAction: 'marketList' })

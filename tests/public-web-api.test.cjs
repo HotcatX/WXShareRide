@@ -126,9 +126,9 @@ test('private errors stay generic and pagination never advertises an out-of-rang
   assert.equal(body(await last.handle(last.event())).hasMore, false)
 })
 
-test('actual marketApi entry separates website read path, admin authentication and mini-program identity', async () => {
+test('retained marketApi fallback entry separates website read path, admin authentication and mini-program identity', async () => {
   const calls = { public: [], admin: [], db: [] }
-  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
+  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js')
   const exports = {}
   const cloud = { DYNAMIC_CURRENT_ENV: 'dynamic', init() {}, database() { return { command: {}, collection(name) { calls.db.push(name); throw new Error('Unexpected database access') } } }, getWXContext: () => ({ OPENID: '' }) }
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {

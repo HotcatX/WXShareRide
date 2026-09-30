@@ -55,7 +55,7 @@ function fixture(options = {}) {
   const cloud = { init() {}, database: () => db, getWXContext: () => ({ OPENID: options.openid ?? 'seller' }),
     async deleteFile(input) { deletions.push(input); return { fileList: input.fileList.map(fileID => ({ fileID, status: 0 })) } }
   }
-  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
+  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js')
   const exports = {}
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     exports, require(name) {

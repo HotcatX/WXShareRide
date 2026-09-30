@@ -54,10 +54,12 @@
         reverse_proxy collector:3000
     }
     handle @publicStats {
-        reverse_proxy public-read-pilot:3100
+        rewrite * /api/v1/statistics/legacy
+        reverse_proxy linkx-business:3100
     }
+    # The legacy CloudBase snapshot publisher is retired after writer handoff.
     handle @statsSync {
-        reverse_proxy public-read-pilot:3100
+        respond "" 410
     }
     handle {
         respond 404

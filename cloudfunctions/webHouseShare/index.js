@@ -1,3 +1,3 @@
 'use strict'
 const { createLegacyPublicRelay } = require('./publicRelay.js')
-exports.main = createLegacyPublicRelay('public-web')
+exports.main = createLegacyPublicRelay('house-share')

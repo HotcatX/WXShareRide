@@ -58,7 +58,9 @@ def run_backup():
             docker(['pg_dump', *CONNECTION, '--format=custom', '--compress=6'], target=output)
             output.flush()
             os.fsync(output.fileno())
-        with temporary.open('rb') as source:
+        # The subprocess inherits the raw descriptor. Buffered read-ahead while
+        # checking the header would otherwise leave that descriptor mid-file.
+        with temporary.open('rb', buffering=0) as source:
             if source.read(5) != b'PGDMP':
                 raise RuntimeError('INVALID_BACKUP_ARCHIVE')
             source.seek(0)

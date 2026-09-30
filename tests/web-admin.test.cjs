@@ -63,7 +63,7 @@ function fixture(options = {}) {
   seed('WebAdminSessions', hash(TOKEN), { tokenHash: hash(TOKEN), accountId: 'admin', passwordVersion: 1, status: 'active', expiresAtMs: NOW + 3600000 })
   seed('CITY_TREE', 'NJ', { 'Fort Lee': ['Fort Lee 核心区', 'Fort Lee 非核心区'] })
   const exports = {}
-  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/index.js')
+  const filename = path.resolve(__dirname, '../cloudfunctions/marketApi/fallback.js')
   const source = fs.readFileSync(filename, 'utf8') + '\nexports.helpers = { buildCreateItemForSave, normalizePayloadForSave, attachMarketFiles, collectMarketFiles };'
   vm.runInNewContext(source, { exports, require(name) {
     if (name === 'wx-server-sdk') return cloud

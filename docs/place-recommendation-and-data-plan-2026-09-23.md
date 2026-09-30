@@ -10,7 +10,7 @@ CloudBase `Departure` 文档 `b4498fc86903a813018505643bc4ca31` 与 `Arrival` �
 
 ## 历史依据
 
-21:21:39–21:21:53 UTC 分页读取 Carpool 3,659 条、CarpoolRequest 186 条，集合内按 `_id` 去重，各页总数一致。仅投影行程 ID、地点、日期、状态、城市等必要字段，临时原始文件已清除；永久结果只保留聚合。[聚合结果](../research/paper-feasibility-2026-09-22/evidence/place-distribution-2026-09-23.json)与[重跑脚本](../research/paper-feasibility-2026-09-22/scripts/audit-places.mjs)。
+21:21:39–21:21:53 UTC 分页读取 Carpool 3,659 条、CarpoolRequest 186 条，集合内按 `_id` 去重，各页总数一致。仅投影行程 ID、地点、日期、状态、城市等必要字段，临时原始文件已清除；永久结果只保留聚合。[聚合结果](../research/paper-feasibility-2026-09-22/evidence/place-distribution-2026-09-23.json)与[历史提取脚本（固定提交）](https://github.com/HotcatX/WXShareRide/blob/52f4405f91b8045176dc42c68110558262e69dfd/research/paper-feasibility-2026-09-22/scripts/audit-places.mjs)。该脚本针对当时 CloudBase 记录，不是当前 PostgreSQL 的测量入口；当前数据源见[切库记录](backend-cutover-2026-09-30.md)。
 
 计数为一份行程/求车文档涉及该地点一次，同一文档两端或多站重复出现不重复计；一条路线可以同时涉及两个地点，因此不能把各行相加当总行程。现存记录包括未来预约，不代表成行、用户数量、选择次数或全部历史需求。在线分页非原子快照；别名分类是规划用启发式，不能把整个区域理解为同一具体接送点。
 

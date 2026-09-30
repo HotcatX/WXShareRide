@@ -44,11 +44,11 @@
 | [当前数据聚合](evidence/current-data.json) | 本轮只读提取的Carpool聚合及读取完整性信息，不含原始用户行 |
 | [功效情景](evidence/power-scenarios.json) | 明确标为假设的样本量敏感性，不是平台真实基线 |
 | [合成事件示例](synthetic-collection-events.json) | 六个全合成示例，不含真实账号或行程 |
-| [只读审计脚本](scripts/audit-live.mjs)、[地点审计脚本](scripts/audit-places.mjs) | 原聚合的提取方法；显式指定环境、仅读取，重跑是新的观察 |
+| [历史只读审计脚本](https://github.com/HotcatX/WXShareRide/blob/52f4405f91b8045176dc42c68110558262e69dfd/research/paper-feasibility-2026-09-22/scripts/audit-live.mjs)、[历史地点审计脚本](https://github.com/HotcatX/WXShareRide/blob/52f4405f91b8045176dc42c68110558262e69dfd/research/paper-feasibility-2026-09-22/scripts/audit-places.mjs) | 固定提交保存原 CloudBase 聚合的提取方法；切库后不能用于测量当前 PostgreSQL 业务 |
 | [功效脚本](scripts/power-scenarios.py)、[调用模型脚本](scripts/collection-call-model.mjs) | 离线复算假设情景，价格参数固定于历史核验日期 |
 | [已退役的地点历史基线导出器](https://github.com/HotcatX/WXShareRide/blob/a82f73b/research/paper-feasibility-2026-09-22/scripts/bootstrap-place-history.cjs) | 一次性脚本已移至 Git 历史；当前合同测试使用固定 synthetic 事件样本。保留原始私有导出，不能重新生成已投递的版本0事实 |
 
-2026-09-26 整理时移除了三份已被实现替代的实施提示/选型流程，研究测量要求和成本论证合并到上述原有文件。论文列表、统计论证、证据JSON和五个仍有用途的脚本均保留。不要使用调用模型的 `--write` 覆盖原日期证据来冒充新测量；新情景另存带日期结果。运行云审计脚本属于新的只读访问，本次整理未执行。
+2026-09-26 整理时移除了三份已被实现替代的实施提示/选型流程，研究测量要求和成本论证合并到上述原有文件。论文列表、统计论证和证据 JSON 保留；功效与调用模型脚本仍可离线复算。两个旧 CloudBase 审计器仅作为历史提取方法链接，不是当前生产测量入口。不要使用调用模型的 `--write` 覆盖原日期证据来冒充新测量；新情景另存带日期结果。当前数据库与部署边界见[切库记录](../../docs/backend-cutover-2026-09-30.md)，本次整理未执行新的云数据读取。
 
 ## 研究推进顺序（不是当前工程待办）
 

@@ -30,8 +30,8 @@ export type Config = {
   appSecret?: string; sessionTtlSeconds: number;
   businessMode?: 'staged' | 'active'; authBridgeKey?: Buffer;
   collector?: { origin: string; key: Buffer; subjectKey?: Buffer };
-  // TEMPORARY FALLBACK — remove only after the next production release is verified.
-  // Existing public website credentials/origins, kept in one private file.
+  // Supported public website credentials/origins for the same PostgreSQL service.
+  // Retire after the actual legacy URL consumers are removed; kept in one private file.
   legacyPublic?: { secret: string; houseShareOrigins: string[]; houseShareCurrency: string };
   cos?: CosConfig;
 };

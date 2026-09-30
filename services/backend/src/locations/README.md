@@ -2,13 +2,14 @@
 
 Edit only the root `config/locationCatalog.json`. Run
 `node services/backend/scripts/sync-location-catalog.mjs` to regenerate
-`src/locations/catalog.generated.json` and the mini-program's
-`utils/locationCatalog.generated.js`, plus the self-contained `placeCatalog.js`
-bundles in the five legacy ride cloud functions and the independent collector. These are committed deployment assets;
-the consistency test rejects drift. Docker continues packaging only the backend.
-Lookup behavior remains authored once in `utils/placeCatalog.js`; cloud bundles
-inline the generated fixed catalog because CloudBase deploys each function folder
-independently. Do not copy the mini-program's `require` into those bundles.
+exactly three committed deployment assets: `src/locations/catalog.generated.json`,
+the mini-program's `utils/locationCatalog.generated.js`, and the independent
+collector's `services/analytics-collector/src/place-catalog.cjs` (repository-relative).
+The consistency check rejects drift. The backend Docker image packages only the
+backend. Lookup behavior remains authored once in `utils/placeCatalog.js`; the
+collector copy inlines the generated public catalog because its deployment cannot
+require files from the repository root. No legacy cloud-function catalog bundle
+is generated.
 
 `GET /api/v1/locations` is a public, read-only configuration endpoint. Its data
 contains the fixed place catalog, separate offer/request address options,

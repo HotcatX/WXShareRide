@@ -1,5 +1,7 @@
 # 调用迁移计量与后台重整方案（2026-09-25）
 
+> 历史审计说明（2026-09-29）：本文诊断代码范围描述对应旧版。新版已移除客户端调用／异常采集；历史统计仍不可作为完整账单。当前采集规则见[数据合同](ride-research-data-contract.md)。
+
 审计基线为提交 `88a9221`；2026-09-25 重构后，死代码已删除，当前调用文件名已同步更新。历史风险证据的行号指向该基线，不代表问题尚未修复。
 本文件基于仓库源码和已有部署记录进行只读审计；没有修改服务、云函数、数据库或小程序。本文件不把过去一次上线检查当作持续运行证据。正式版 5.0.6 已发布是本轮用户提供的事实；即时调用数与云账单应以本轮另行读取的运行数据为准。
 
@@ -64,7 +66,7 @@
 
 因此建议先增加低开销、持久化的**聚合计数**：服务器按 route/status 每分钟汇总；客户端把旧接口 transport/cache/fallback 的小计混入现有批次，避免为计量新增逐次 CloudBase 请求。平台用量单独按日留档。日志不需要记录完整 OpenID、正文或访问令牌；排障关联使用现有账号映射和请求 ID。
 
-证据：[本地统计计数](../utils/publicStatsClient.js:24)、[诊断范围](../utils/rideDiagnostics.js:5)、[诊断限额](../utils/rideDiagnostics.js:90)、[Caddy 路由](../services/analytics-collector/Caddyfile:1)、[collector 日志](../services/analytics-collector/src/server.mjs:68)、[现有安全指标](../services/analytics-collector/src/metrics.mjs:1)。
+证据：[本地统计计数](../utils/publicStatsClient.js:24)、[诊断范围](https://github.com/HotcatX/WXShareRide/blob/3914201/utils/rideDiagnostics.js#L5)、[诊断限额](https://github.com/HotcatX/WXShareRide/blob/3914201/utils/rideDiagnostics.js#L90)、[Caddy 路由](../services/analytics-collector/Caddyfile:1)、[collector 日志](../services/analytics-collector/src/server.mjs:68)、[现有安全指标](../services/analytics-collector/src/metrics.mjs:1)。
 
 ## 3. 全迁移前必须解决的具体问题
 

@@ -76,6 +76,28 @@ test('real App and module registration make no business calls until the handshak
   page.onUnload(); h.app.onHide()
 })
 
+test('App lifecycle leaves cloud calls unwrapped and installs no diagnostic error handlers', async () => {
+  const h = harness(), originalCall = h.wx.cloud.callFunction
+  const response = deferred(), failure = Error('business request failed')
+  const request = { name: 'getTripDetail', data: { type: 'carpool', id: 'synthetic-trip' } }
+  h.state.business = input => {
+    assert.equal(input, request)
+    return response.promise
+  }
+  h.launch(); await tick()
+  assert.equal(h.wx.cloud.callFunction, originalCall)
+  assert.equal(h.app.onError, undefined)
+  assert.equal(h.app.onUnhandledRejection, undefined)
+  const pending = h.wx.cloud.callFunction(request)
+  assert.equal(pending, response.promise)
+  h.app.onHide(); h.app.onShow({ scene: 1001 }); await tick()
+  assert.equal(h.wx.cloud.callFunction, originalCall)
+  response.reject(failure)
+  await assert.rejects(pending, error => error === failure)
+  assert.deepEqual(h.state.cloud.filter(input => input.name !== 'backend'), [request])
+  h.app.onHide()
+})
+
 test('real App fails closed, recovers on the next foreground and keeps the original referral capture clock', async () => {
   const h = harness(), fail = deferred(), events = []
   h.state.next = () => fail.promise

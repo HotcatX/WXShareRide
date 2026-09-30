@@ -3,7 +3,6 @@ const timeline = require("./utils/timeline")
 const tabMemory = require("./utils/tabMemory")
 const analytics = require("./utils/analyticsSession")
 const rideTelemetry = require("./utils/rideTelemetry")
-const rideDiagnostics = require("./utils/rideDiagnostics")
 const tripFollowup = require("./utils/tripFollowup")
 const authority = require('./utils/backendAuthority')
 const { createBackendPageGate } = require('./utils/backendPageGate')
@@ -150,7 +149,6 @@ App({
       catch (_) { authorityUnavailable({ code: 'BACKEND_RESTART_REQUIRED' }) }
     })
     authority.ready().catch(authorityUnavailable)
-    if (!timeline.isTimelinePreview()) rideDiagnostics.install(wx, analytics)
 
     // 强制重新登录（可保留）
     // wx.clearStorageSync()
@@ -166,7 +164,7 @@ App({
       if (!this._authorityVisible || this._authorityEpoch !== epoch || !authority.isReady()) return
       if (timeline.isTimelinePreview()) return
       this._authorityForeground = true
-      rideDiagnostics.beginForeground(); tripFollowup.beginForeground(); analytics.beginForeground()
+      tripFollowup.beginForeground(); analytics.beginForeground()
       if (this._authorityLaunch) {
         const launch = this._authorityLaunch; this._authorityLaunch = null
         referral.captureReferral(launch.options, 'appLaunch', launch.capturedAt)
@@ -189,13 +187,9 @@ App({
   stopAuthorityForeground() {
     if (!this._authorityForeground) return
     this._authorityForeground = false
-    rideDiagnostics.endForeground()
     tripFollowup.endForeground()
     analytics.endForeground()
   },
-
-  onError(error) { rideDiagnostics.captureError('runtime', error) },
-  onUnhandledRejection(event) { rideDiagnostics.captureError('unhandled_rejection', event && event.reason) },
 
   withReferralShare(config = {}) {
     if (!authority.isReady()) return { title: config.title || '志远共享', path: '/pages/home/home', query: '' }

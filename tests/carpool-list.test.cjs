@@ -23,9 +23,10 @@ const response = (carpool = [], request = []) => ({ result: {
   success: true, data: { carpool, request },
   page: { startDate: '2030-01-01', endDateExclusive: '2030-01-03', nextDate: '', hasMore: false }
 } })
-function harness({ store, now = NOW, holdTimers = false } = {}) {
+function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = false } = {}) {
   let definition
-  const state = { now, calls: [], store: store || { openid: 'viewer-a' }, next: null, readError: false, writeError: false, timers: [] }
+  const state = { now, calls: [], store: store || { openid: 'viewer-a' }, next: null, readError: false, writeError: false, timers: [], events: [] }
+  let eventSequence = 0
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [state.now])) }
     static now() { return state.now }
@@ -56,8 +57,16 @@ function harness({ store, now = NOW, holdTimers = false } = {}) {
         if (!context._placeModules) context._placeModules = require('./helpers/load-place-modules.cjs')(context, context.require('analyticsSession'))
         return context._placeModules(name)
       }
-      if (name.includes('rideTelemetry')) return require('./helpers/load-ride-telemetry.cjs')(context.require('analyticsSession'), { wx: context.wx, Date: typeof Clock === 'undefined' ? Date : Clock })
-      if (name.includes('analyticsSession')) return { recordSearch: () => '', recordResults: () => ({ ok: false }) }
+      if (name.includes('rideTelemetry')) {
+        if (!state.telemetry) state.telemetry = require('./helpers/load-ride-telemetry.cjs')(context.require('analyticsSession'), { wx: context.wx, Date: typeof Clock === 'undefined' ? Date : Clock })
+        return state.telemetry
+      }
+      if (name.includes('analyticsSession')) return { recordSearch: () => '', recordResults: () => ({ ok: false }),
+        ...(analyticsEnabled ? {
+          getCollectionScope: () => `test:${state.store.openid}:1`,
+          makeEventId: () => `selection_synthetic_${++eventSequence}`,
+          recordEvent(name, data) { state.events.push({ name, data: plain(data) }); return { ok: true } }
+        } : {}) }
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return city
       if (name.includes('ridePlaceOptions')) return require('../utils/ridePlaceOptions')
@@ -358,6 +367,84 @@ test('identity change clears the old visible list even when the new request fail
   await page.loadBothLists()
   assert.equal(state.calls.length, 3)
 })
+
+test('returning to visible cached cards restores analytics before a slow or failed background refresh without changing cache invalidation', async () => {
+  const { page, state, ids } = harness({ analyticsEnabled: true })
+  state.next = deferred()
+  const first = page.loadBothLists()
+  state.next.resolve(response([route('still-visible')]))
+  await first; await tick()
+  const firstId = state.events[0].data.selectionSetId
+  page.onHide(); state.telemetry.pageHidden(page)
+  state.now += 300000
+  state.next = deferred()
+  state.telemetry.pageVisible(page); page.onShow()
+  const refresh = page._listLoadingPromise
+  await tick()
+  assert.deepEqual(ids(), ['still-visible'])
+  assert.equal(state.calls.length, 2)
+  assert.equal(state.events.length, 2, 'cached visible cards do not wait for the network')
+  assert.notEqual(state.events[1].data.selectionSetId, firstId)
+  assert.equal(state.events[1].data.source, 'cache')
+  state.next.reject(new Error('offline'))
+  await refresh
+  assert.deepEqual(ids(), ['still-visible'])
+  assert.equal(page._loadedListKey, null, 'the existing business retry/cache invalidation contract remains intact')
+  assert.equal(state.store.carpoolListDataV1, undefined)
+  assert.equal(page._rideResultSet.id, state.events[1].data.selectionSetId)
+})
+
+test('returning under a changed account does not recreate an old viewer exposure while the new request is pending', async () => {
+  const { page, state, ids } = harness({ analyticsEnabled: true })
+  state.next = deferred()
+  const first = page.loadBothLists()
+  state.next.resolve(response([route('viewer-a-only')]))
+  await first; await tick()
+  page.onHide(); state.telemetry.pageHidden(page)
+  state.store.openid = 'viewer-b'; state.next = deferred()
+  state.telemetry.pageVisible(page); page.onShow()
+  const refresh = page._listLoadingPromise
+  await tick()
+  assert.deepEqual(ids(), [])
+  assert.equal(state.events.length, 1)
+  assert.equal(page._rideResultSet, null)
+  state.next.reject(new Error('offline'))
+  await refresh
+  assert.equal(state.events.length, 1)
+})
+
+for (const [name, items] of [['empty results', []], ['identical candidates without server generation timestamps', [route('same-trip')]]]) {
+  test(`a successful network refresh of ${name} is a new opportunity while UI/cache re-renders remain deduplicated`, async () => {
+    const { page, state } = harness({ analyticsEnabled: true })
+    state.next = deferred()
+    const first = page.loadBothLists()
+    state.next.resolve(response(items))
+    await first; await tick()
+    assert.equal(state.events.length, 1)
+    const firstId = state.events[0].data.selectionSetId
+    page.applyAllFiltersAndGroup(); await tick()
+    assert.equal(state.events.length, 1, 'pure UI rendering does not create another opportunity')
+    state.now += 1000; state.next = deferred()
+    const refresh = page.loadBothLists({ force: true, showLoading: false })
+    state.next.resolve(response(items))
+    await refresh; await tick()
+    assert.equal(state.events.length, 2, 'a new successful request must not be merged into its predecessor')
+    assert.notEqual(state.events[1].data.selectionSetId, firstId)
+    assert.equal(state.events[0].data.source, 'network')
+    assert.equal(state.events[1].data.source, 'network')
+    assert.equal(state.events[1].data.renderedCount, items.length)
+    page.applyAllFiltersAndGroup(); await tick()
+    assert.equal(state.events.length, 2)
+    await page.loadBothLists(); await tick()
+    assert.equal(state.events.length, 3, 'the network to cache source transition is retained')
+    const cachedId = state.events[2].data.selectionSetId
+    await page.loadBothLists(); await tick()
+    assert.equal(page.restoreCachedLists(), true); await tick()
+    assert.equal(state.events.length, 3, 'in-memory and persistent reuse retain the original successful request timestamp')
+    assert.equal(page._rideResultSet.id, cachedId)
+    assert.equal(state.calls.length, 2)
+  })
+}
 
 test('persistent empty cache is reusable but future timestamps and a different viewer are not', async () => {
   const { page, state } = harness()

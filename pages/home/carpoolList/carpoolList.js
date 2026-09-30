@@ -191,6 +191,10 @@ Page({
     if (this.data.calendarVisible) this.loadCalendarCounts()
     // 首屏由 onLoad 负责；返回时复用短缓存，身份/路线变更会立即失效。
     if (!this.data.hasLoadedOnce) return
+    // The existing cards remain visible while a background refresh is pending
+    // or fails. Re-establish their exposure opportunity before that request.
+    this._analyticsResultSource = 'cache'
+    this.resumeAnalyticsList()
     this.loadBothLists({ showLoading: false })
   },
 
@@ -1379,7 +1383,9 @@ Page({
       this._loadedListKey !== this.getListRequestKey()) return
     const activeSearch = search && search === this._analyticsSearch && !search.emitted &&
       search.key === this.getListRequestKey() && this.getInitialDatePage().exactDate
-    const id = rideTelemetry.renderList(this, groups, { searchId: activeSearch ? search.id : '', source: this._analyticsResultSource })
+    const queryKey = JSON.stringify([this.getListRequestKey(), this._loadedOnceAt, this.data.routeTypeFilter, this.data.timeFilterIndex,
+      this.data.selectedDate, this.data.selectedFromPlace, this.data.selectedToPlace, this.data.hideFullTrips])
+    const id = rideTelemetry.renderList(this, groups, { searchId: activeSearch ? search.id : '', source: this._analyticsResultSource, queryKey })
     if (id && activeSearch) search.emitted = true
   },
 

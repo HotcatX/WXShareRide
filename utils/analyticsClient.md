@@ -1,6 +1,6 @@
 # 数据采集客户端
 
-`config/analytics.js` 是唯一客户端采集配置。`app.js` 将前后台、页面显示和登录身份变化交给 `analyticsSession.js`；后者持有一个 `analyticsClient.js` 实例，管理服务端授权、上传调度和账号切换。`tripFollowup.js` 管理历史行程的是／否回访，`analyticsSchema.js` 校验事件，`hash.js` 提供无状态哈希工具。没有新增按钮、授权弹窗或独立设置页。
+`config/analytics.js` 是唯一客户端采集配置。`app.js` 将前后台、页面显示和登录身份变化交给 `analyticsSession.js`；后者持有一个 `analyticsClient.js` 实例，管理服务端授权、上传调度和账号切换。`tripFollowup.js` 管理首页的是／否回访，`analyticsSchema.js` 校验事件，`hash.js` 提供无状态哈希工具。没有新增按钮、授权弹窗或独立设置页。
 
 当前 HTTPS 接口仍为 `https://collect.linkx.ink/v1/batches`，各构建渠道配置为 100%。源码改名不代表小程序发布已经完成；部署状态看 [后端部署记录](../docs/backend-foundation-deployment-2026-09-25.md)。
 
@@ -20,11 +20,11 @@ develop/trial 请求 `collectionMode:'test'`，release 使用真实命名空间�
 - 行程行为：`rideTelemetry.js` 记录可见卡片、点击、详情和联系操作，不发送联系方式。曝光要求卡片至少一半可见并持续 1 秒。
 - 地点选择：`placePickerTelemetry.js` 记录打开、展示、选择和手动输入结果，携带地点 ID、位置和推荐版本。
 - 回访：`tripFollowup.js` 记录展示、是／否回答和关闭。关闭不算否；牌面价格标作 `listed_reference`，不称实际成交价。持久事件队列接收成功后才标记已答。
-- 诊断：`rideDiagnostics.js` 只记录操作白名单内请求和清理后的客户端错误，并有每次前台上限，不等于完整计费请求日志。
+- 新版不再生成云函数成功／失败调用诊断及客户端异常事件；旧版 `service_request` / `client_error` 协议继续接受，避免已有批次整批失败。删除的是独立采集包装，不影响业务本身的错误处理。
 
 `analyticsSchema.js` 使用字段白名单，拒绝自由文本、联系方式、住宅地址、坐标和伪造业务成功事件。行程提交事实由服务端业务日志产生，不能用曝光、联系、系统结束状态或回访代替可信履约记录。
 
-回访在历史页成功渲染后进行，评分跳转优先。候选须能确认本人创建/参与，状态为已结束、最近7天内，并达到“末次出发后4小时”和“纽约次日09:00”中较晚的时间；取消、删除、缺失或身份/时间不明的记录不进入候选。每次前台最多一次，同一参与者本机每24小时最多一次；跨设备不承诺绝无重复，分析通过稳定followupId关联。司机的“是”表示至少接送过一名乘客（driver_any_passenger），乘客的“是”表示本次预订至少一人实际乘车（respondent_booking），不能推成整车结果。没有金额输入，缺失回答/关闭均不能当“否”。
+回访在首页取得本账号新鲜历史且没有其它弹层时进行；最近7天内本人参与的结束记录，最晚出发后至少4小时（CloudBase个人历史目前6小时后可用），不再等次日。每次前台最多一次，本机已展示条目不重问；跨设备／清缓存不承诺绝无重复。司机的“是”表示至少接到一位乘客，乘客的“是”表示本人乘车；不能推成整车结果。点叉按运营默认yes，来源为dismissed_default，与明确self_report分开；切后台／离页为hidden，不默认yes。细节及分析边界见[数据合同](../docs/ride-research-data-contract.md)。
 
 入队仅写本地存储。首批尽快发送，其余事件合批，至少间隔 15 秒，每次前台最多 40 次上传；重复 onShow 不重置限额。onHide 只尝试一次受限 flush 并停止计时，不保证后台完成。
 
@@ -44,7 +44,7 @@ develop/trial 请求 `collectionMode:'test'`，release 使用真实命名空间�
 ## 验证
 
 ```sh
-node --test tests/analytics-client.test.cjs tests/analytics-session.test.cjs tests/ride-telemetry.test.cjs tests/ride-diagnostics.test.cjs tests/trip-followup.test.cjs tests/trip-history-followup.test.cjs
+node --test tests/analytics-client.test.cjs tests/analytics-session.test.cjs tests/ride-telemetry.test.cjs tests/trip-followup.test.cjs tests/trip-history-followup.test.cjs tests/home-followup.test.cjs
 ```
 
 测试覆盖旧版持久队列原字节续传、待撤回操作重试、账号隔离、回访去重和事件协议。构造器允许注入配置、存储、传输、时钟与随机数。回归使用 `tests/analytics-*.test.cjs` 及采集服务 `test/`；一次性容器联调脚本已移除，协议测试不能代替小程序 HTTPS 验收。测试夹具和日志不得包含私钥、管理员 token 或真实用户 token。

@@ -131,7 +131,6 @@ test('App restores after the first page is ready, preserving page callbacks and 
       if (name === './utils/backendAuthority') return { getMode: () => 'cloudbase', isReady: () => true, ready: async () => 'cloudbase',
         refresh: async () => 'cloudbase', subscribe: () => () => {} }
       if (name === './utils/rideTelemetry') return require('./helpers/load-ride-telemetry.cjs')()
-      if (name === './utils/rideDiagnostics') return { install() {}, beginForeground() {}, endForeground() {}, captureError() {} }
       if (name === './utils/tripFollowup') return { beginForeground() {}, endForeground() {} }
       if (name === './utils/analyticsSession') return { beginForeground() {}, endForeground() {}, pageShown() {} }
       if (name === './utils/tabMemory') return h.memory

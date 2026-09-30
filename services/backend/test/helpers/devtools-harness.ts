@@ -21,13 +21,12 @@ const runId = ${JSON.stringify(runId)};
 let sequence = 0, ready = [], pending = {}, storage = {}, blocked = [], completed = 0, cloudMethods = [];
 const guards = [];
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-function bind(target, key, value, allowDiagnosticWrapper) {
+function bind(target, key, value, nativeProxyMethod) {
   target[key] = value;
   if (target[key] !== value) throw Error('ISOLATION_UNAVAILABLE:' + key);
-  // rideDiagnostics legitimately wraps this captured stub. Sealing a native
-  // cloud Proxy data property conflicts with its wrapper getter. No native
+  // Sealing the native cloud Proxy data property conflicts with its getter. No native
   // reference survives here; the captured stub still enforces the queue rules.
-  if (allowDiagnosticWrapper) return;
+  if (nativeProxyMethod) return;
   Object.defineProperty(target, key, { value, writable: false, configurable: false });
   guards.push(() => target[key] === value);
 }
@@ -80,7 +79,7 @@ function install() {
     }
   };
   // DevTools exposes a non-replaceable cloud object. Its methods are verified
-  // individually; callFunction alone permits the reviewed diagnostic wrapper.
+  // individually; callFunction keeps the native Proxy's property descriptor.
   const cloud = wx.cloud;
   if (!cloud) throw Error('ISOLATION_UNAVAILABLE:cloud');
   const required = ['init','callFunction','database','uploadFile','deleteFile','downloadFile','getTempFileURL','callContainer','Cloud'];

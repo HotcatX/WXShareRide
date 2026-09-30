@@ -59,7 +59,7 @@ function scope() {
 }
 function listVisible(page) {
   const data = page.data || {}
-  return !page._listDisposed && page._analyticsVisible !== false && !data.loading && !data.placePickerVisible &&
+  return !page._listDisposed && !page._rideTelemetryHidden && page._analyticsVisible !== false && !data.loading && !data.placePickerVisible &&
     !data.refineFiltersVisible && !data.calendarVisible && !data.cityPickerVisible
 }
 function stopList(page) {
@@ -115,16 +115,27 @@ function renderList(page, groups, options = {}) {
   const at = Date.now()
   const candidates = trips.map((trip, position) => validTripId(trip._id)
     ? { tripKey: trip._id, tripType: tripType(trip._type), position, ...snapshot(trip, at) } : null).filter(Boolean)
-  const id = analytics.makeEventId()
-  const summary = { selectionSetId: id, source: options.source === 'network' ? 'network' : 'cache',
+  const summary = { source: options.source === 'network' ? 'network' : 'cache',
     renderedCount: trips.length, hasMore: page.data.hasMoreDays === true,
     candidates: candidates.slice(0, 50), candidatesComplete: candidates.length === trips.length && trips.length <= 50 }
+  // A filter panel closing or unchanged UI render is still the same choice set.
+  // Compare every candidate (including those beyond the wire limit), preserving
+  // business/freshness changes but excluding the local re-sampling timestamp.
+  const signature = JSON.stringify([options.queryKey || '', summary.source, summary.renderedCount,
+    summary.hasMore, summary.candidatesComplete, candidates.map(({ snapshotAt, ...candidate }) => candidate)])
+  const previous = page._rideResultSet
+  if (!options.searchId && previous && previous.scope === currentScope && previous.signature === signature) {
+    observeList(page)
+    return previous.id
+  }
+  const id = analytics.makeEventId()
+  summary.selectionSetId = id
   let result
   if (options.searchId && typeof analytics.recordResults === 'function') {
     result = analytics.recordResults({ ...summary, searchId: options.searchId, loadedDateCount: 1 })
   } else result = emit('list_snapshot', summary)
   if (!result || !result.ok) { page._rideResultSet = null; return '' }
-  page._rideResultSet = { id, scope: currentScope, seen: new Set(), byKey: new Map(candidates.map(item => [`${item.tripType}:${item.tripKey}`, item])) }
+  page._rideResultSet = { id, scope: currentScope, signature, seen: new Set(), byKey: new Map(candidates.map(item => [`${item.tripType}:${item.tripKey}`, item])) }
   observeList(page)
   return id
 }
@@ -141,6 +152,8 @@ function pageVisible(page) {
 }
 function pageHidden(page) {
   page._rideTelemetryHidden = true; stopList(page)
+  // Re-entering the page is a new exposure opportunity, even for cached data.
+  page._rideResultSet = null
   if (page._rideDetailSubscription) page._rideDetailSubscription()
   page._rideDetailSubscription = null; page._rideDetailPending = null
 }

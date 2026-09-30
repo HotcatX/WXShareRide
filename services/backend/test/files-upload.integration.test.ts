@@ -70,6 +70,32 @@ test('upload: valid decoded image formats, fixed locator and metadata; concurren
   assert.equal((await db.pool.query('SELECT count(*) FROM idempotency_requests')).rows[0].count, '0');
 });
 
+test('admin upload: decoded JPEGs retain trailing WeChat metadata while truncated scans cannot publish objects', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const identity = await admin(db.pool), store = storage(), source = await png();
+  const trailer = Buffer.from('synthetic WeChat trailing metadata');
+  for (const progressive of [false, true]) {
+    const jpeg = await sharp(source).jpeg({ progressive }).toBuffer();
+    for (const append of [false, true]) {
+      const bytes = append ? Buffer.concat([jpeg, trailer]) : jpeg;
+      const result = await uploadAdminImage(db.pool, identity, `wechat-jpeg-${progressive}-${append}`, bytes, store.config);
+      const row = (await rows(db.pool)).find(value => value.id === result.fileId);
+      assert.equal(result.mediaType, 'image/jpeg'); assert.equal(result.sha256, sha(bytes));
+      assert.equal(result.sizeBytes, bytes.length); assert.equal(row.status, 'ready');
+      assert.equal(row.uploaded_by_admin_id, identity.accountId); assert.equal(row.sha256, sha(bytes));
+      assert.deepEqual(store.objects.get(row.locator)?.body, bytes);
+    }
+    // An EOI marker inside an APP segment must not hide a truncated real scan.
+    const fakeEndMetadata = Buffer.from([0xff, 0xe1, 0x00, 0x04, 0xff, 0xd9]);
+    const before = { ...store.calls };
+    for (const invalid of [jpeg.subarray(0, -2), Buffer.concat([jpeg.subarray(0, 2), fakeEndMetadata, jpeg.subarray(2, -2)])]) {
+      await assert.rejects(uploadAdminImage(db.pool, identity, `invalid-jpeg-${progressive}`, invalid, store.config), { code: 'INVALID_IMAGE' });
+    }
+    assert.deepEqual(store.calls, before);
+  }
+  assert.equal((await rows(db.pool)).length, 4);
+});
+
 test('upload: different bytes cannot replace one key, including concurrent attempts; other actors keep separate identities', integration, async t => {
   const db = await createTestDatabase(); t.after(db.close);
   const first = await user(db.pool), second = await user(db.pool), store = storage();

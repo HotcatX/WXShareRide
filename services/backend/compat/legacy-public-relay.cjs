@@ -1,4 +1,4 @@
-// TEMPORARY FALLBACK — remove only after the next production release is verified.
+// Supported legacy URLs relay to the same PostgreSQL backend; retire when callers no longer depend on them.
 // Package this single source as publicRelay.js beside each legacy index.js.
 // Old cloud URLs retain read compatibility; no CloudBase SDK or second writer.
 'use strict'

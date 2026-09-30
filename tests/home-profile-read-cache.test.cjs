@@ -22,18 +22,12 @@ function personalRides(id) {
 
 function harness(kind, existingStorage) {
   const storage = existingStorage || { openid: 'user-a', isGuest: false }
-  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [], http: [], env: 'release', rollout: { enabled: true, rolloutPercent: { develop: 0, trial: 0, release: 0 } } }
+  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [], stats: { servedCount: 42, coverageText: 'NY / NJ' } }
   class Clock extends Date { static now() { return state.now } }
   const wx = {
     getStorageSync: key => storage[key],
     setStorageSync: (key, value) => { storage[key] = value },
     removeStorageSync: key => { delete storage[key] },
-    getAccountInfoSync: () => ({ miniProgram: { envVersion: state.env } }),
-    request(options) {
-      state.http.push(options)
-      if (!state.deferHttp) options.success({ statusCode: 200, data: state.snapshot })
-      return { abort() {} }
-    },
     navigateTo: value => state.navigations.push(value.url), showToast: value => state.toasts.push(value),
     cloud: {
       callFunction({ name }) {
@@ -41,8 +35,7 @@ function harness(kind, existingStorage) {
         if (state.pending[name]) return state.pending[name]
         const result = name === 'getUserInfo'
           ? { data: [{ _openid: storage.openid, name: storage.openid, rideStats: {} }] }
-          : name === 'statistics' ? { success: true, data: { servedTrips: 42 } }
-            : { ok: true, data: {} }
+          : { ok: true, data: {} }
         return Promise.resolve({ result })
       },
       database: () => ({ collection: () => ({ where: () => ({ count: () => {
@@ -51,11 +44,15 @@ function harness(kind, existingStorage) {
       } }) }) })
     }
   }
-  const pilotModule = { exports: {} }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/publicStatsClient.js'), 'utf8'), {
-    module: pilotModule, wx, Date: Clock, setTimeout, clearTimeout,
-    require: name => name === '../config/publicStats' ? state.rollout : require(path.join(__dirname, '../utils', name))
-  })
+  const backend = {
+    ready: () => state.pending.ready || Promise.resolve(),
+    get(route, options) {
+      assert.equal(route, '/api/v1/statistics/public')
+      assert.equal(options.anonymous, true)
+      state.calls.push(route)
+      return state.pending.statistics || Promise.resolve(state.stats)
+    }
+  }
   const rides = require('../utils/compat/rides').createRideClient({ wx, backend: {
     isBackendEnabled: () => true,
     get(route) {
@@ -74,7 +71,7 @@ function harness(kind, existingStorage) {
       if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, ...rides }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
-      if (name.includes('publicStatsClient')) return pilotModule.exports
+      if (name.endsWith('/backendClient')) return backend
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return {
         getCitySnapshot: () => ({ key: 'ny_nj' }), getCountryTabs: () => [], getCountryGroups: () => []
@@ -99,7 +96,7 @@ test('home reuses ordinary personal reads for 30 seconds, preserves forced refre
   const { page, state } = harness('home')
   const read = () => Promise.all([page.refreshHomeData(), page.loadPublicStats(), page.loadUnreadCount()])
   await Promise.all([read(), read()])
-  assert.deepEqual(state.calls, ['/api/v1/me/rides', 'statistics', 'unread'])
+  assert.deepEqual(state.calls, ['/api/v1/me/rides', 'unread', '/api/v1/statistics/public'])
   state.now += 29999
   await read()
   assert.equal(state.calls.length, 3)
@@ -188,7 +185,7 @@ test('public statistics persist for 24 hours and keep their original sync time a
   storage.rideListShouldRefreshAt = 123
   page.syncLoginState()
   await page.loadPublicStats()
-  assert.equal(state.calls.filter(name => name === 'statistics').length, 1)
+  assert.equal(state.calls.filter(name => name === '/api/v1/statistics/public').length, 1)
   assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
   assert.equal(page.data.publicStats.servedTripsText, '42')
 
@@ -199,98 +196,103 @@ test('public statistics persist for 24 hours and keep their original sync time a
   assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
   reopened.state.now++
   await reopened.page.loadPublicStats()
-  assert.deepEqual(reopened.state.calls, ['statistics'])
+  assert.deepEqual(reopened.state.calls, ['/api/v1/statistics/public'])
   await reopened.page.loadPublicStats({ force: true })
   assert.equal(reopened.state.calls.length, 2)
 })
 
-function trialSnapshot(now, servedTrips) {
-  const data = { _id: 'home', servedTrips, coverageText: 'NY / NJ' }
-  return { ok: true, schemaVersion: 1, source: 'cloudbase-snapshot', snapshotAt: now - 1000, expiresAt: now + 60000,
-    revision: require('node:crypto').createHash('sha256').update(JSON.stringify(data)).digest('hex'), data }
-}
-
-test('home rollout retains the shared 24-hour stats cache and force refresh persists server data', async () => {
+test('home keeps the shared cache until expiry and forced canonical reads replace it', async () => {
   const { page, state, storage } = harness('home')
   await page.loadPublicStats()
   const original = storage.homePublicStatsCacheV1
-  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'
-  state.snapshot = trialSnapshot(state.now, 84)
+  state.stats.servedCount = 84
   await page.loadPublicStats()
-  assert.equal(state.http.length, 0)
+  assert.equal(state.calls.length, 1)
   assert.equal(storage.homePublicStatsCacheV1, original)
   await page.loadPublicStats({ force: true })
-  assert.equal(state.http.length, 1)
+  assert.equal(state.calls.length, 2)
   assert.equal(page.data.publicStats.servedTripsText, '84')
-  assert.equal(page._publicStatsReadDiagnostic.source, 'lighthouse')
-  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 84)
   const serverCachedAt = storage.homePublicStatsCacheV1.syncedAt
-  state.rollout.enabled = false
   state.now += 1000
   await page.loadPublicStats()
-  assert.equal(page.data.publicStats.servedTripsText, '84')
-  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
-  assert.equal(state.calls.filter(name => name === 'statistics').length, 1)
+  assert.equal(state.calls.length, 2)
   assert.equal(storage.homePublicStatsCacheV1.syncedAt, serverCachedAt)
-  state.rollout.enabled = true
   state.now = serverCachedAt + 24 * 3600000
-  state.snapshot = trialSnapshot(state.now, 85)
+  state.stats.servedCount = 85
   await page.loadPublicStats()
-  assert.equal(state.http.length, 2)
+  assert.equal(state.calls.length, 3)
   assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 85)
 })
 
-test('home ignores a late rollout response after rollback even when CloudBase mode returns from cache', async () => {
+test('late statistics cannot overwrite a cached screen after an account switch', async () => {
   const { page, state, storage } = harness('home')
   await page.loadPublicStats()
   const original = storage.homePublicStatsCacheV1
-  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'; state.deferHttp = true
+  const old = deferred()
+  state.pending.statistics = old.promise
   const pending = page.loadPublicStats({ force: true })
   await tick()
-  state.rollout.enabled = false
+  storage.openid = 'user-b'; page.syncLoginState()
   await page.loadPublicStats()
-  state.http[0].success({ statusCode: 200, data: trialSnapshot(state.now, 999) })
+  old.resolve({ servedCount: 999, coverageText: 'old' })
   await pending
   assert.equal(page.data.publicStats.servedTripsText, '42')
-  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
   assert.equal(storage.homePublicStatsCacheV1, original)
 })
 
-test('home rollout fallback refreshes the shared cache and avoids another ordinary network read', async () => {
+test('statistics A-to-B-to-A transitions never reuse an old pending read or refresh its timestamp', async () => {
   const { page, state, storage } = harness('home')
-  await page.loadPublicStats()
+  const old = deferred()
+  state.pending.statistics = old.promise
+  const pending = page.loadPublicStats()
+  await tick()
+  const obsolete = page._homeReads.stats
+  delete state.pending.statistics
+  for (const openid of ['user-b', 'user-a']) {
+    storage.openid = openid; page.syncLoginState()
+    await page.loadPublicStats({ force: true })
+  }
+  const current = storage.homePublicStatsCacheV1
   state.now += 1000
-  state.rollout.rolloutPercent.develop = 100; state.env = 'develop'; state.snapshot = null
-  await page.loadPublicStats({ force: true })
-  assert.equal(state.http.length, 1)
-  assert.equal(state.calls.filter(name => name === 'statistics').length, 2)
-  assert.equal(page._publicStatsReadDiagnostic.source, 'cloudbase')
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, state.now)
-  await page.loadPublicStats()
-  assert.equal(state.http.length, 1)
-  assert.equal(state.calls.filter(name => name === 'statistics').length, 2)
+  old.resolve({ servedCount: 999, coverageText: 'old' })
+  await pending
+  assert.equal(state.calls.length, 3)
+  assert.equal(obsolete.at, 0)
+  assert.equal(storage.homePublicStatsCacheV1, current)
+  assert.equal(page.data.publicStats.servedTrips, 42)
 })
 
-test('release 100 percent merges forced home reads without creating a bucket and keeps its 24-hour cache and cloud fallback', async () => {
+test('statistics do not start a request for an account changed while service readiness was pending', async () => {
   const { page, state, storage } = harness('home')
-  state.rollout.rolloutPercent.release = 100
-  state.snapshot = trialSnapshot(state.now, 84)
-  await Promise.all(Array.from({ length: 5 }, () => page.loadPublicStats({ force: true })))
-  assert.equal(state.http.length, 1)
+  const ready = deferred(); state.pending.ready = ready.promise
+  const pending = page.loadPublicStats()
+  await tick()
+  storage.openid = 'user-b'; page.syncLoginState()
+  ready.resolve(); await pending
   assert.equal(state.calls.length, 0)
-  assert.equal(storage.linkxPublicStatsRolloutV1, undefined)
-  assert.equal(page._publicStatsReadDiagnostic.source, 'lighthouse')
-  const syncedAt = storage.homePublicStatsCacheV1.syncedAt
+  assert.equal(storage.homePublicStatsCacheV1, undefined)
   await page.loadPublicStats()
-  assert.equal(page._publicStatsReadDiagnostic.source, 'local-cache')
-  assert.equal(state.http.length, 1)
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
-  state.snapshot = null
+  assert.equal(state.calls.length, 1)
+})
+
+test('concurrent forced reads merge, failed refreshes retain the cache, and a fresh attempt retries immediately', async () => {
+  const { page, state, storage } = harness('home')
+  await Promise.all(Array.from({ length: 5 }, () => page.loadPublicStats({ force: true })))
+  assert.deepEqual(state.calls, ['/api/v1/statistics/public'])
+  const cached = storage.homePublicStatsCacheV1
+  state.pending.statistics = Promise.reject(new Error('temporary failure'))
   await page.loadPublicStats({ force: true })
-  assert.equal(state.http.length, 2)
-  assert.deepEqual(state.calls, ['statistics'])
-  assert.equal(page._publicStatsReadDiagnostic.source, 'cloudbase')
-  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 42)
+  assert.equal(state.calls.length, 2)
+  assert.equal(storage.homePublicStatsCacheV1, cached)
+  assert.equal(page.data.publicStats.servedTrips, 42)
+  delete state.pending.statistics
+  await page.loadPublicStats()
+  assert.equal(state.calls.length, 2)
+  state.stats.servedCount = 84; state.now += 1000
+  await page.loadPublicStats({ force: true })
+  assert.equal(state.calls.length, 3)
+  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 84)
+  assert.equal(storage.homePublicStatsCacheV1.syncedAt, state.now)
 })
 
 test('home request entry opens passenger mode for members and guests without changing the default driver entry', () => {
@@ -323,7 +325,7 @@ test('public statistics reject malformed, expired and future-dated cache entries
   ]) {
     const { page, state, storage } = harness('home')
     storage.homePublicStatsCacheV1 = entry
-    state.pending.statistics = Promise.resolve({ result: { success: false, data: { servedTrips: 0 } } })
+    state.pending.statistics = Promise.reject(new Error('temporary failure'))
     await page.loadPublicStats()
     assert.equal(storage.homePublicStatsCacheV1, entry)
     delete state.pending.statistics

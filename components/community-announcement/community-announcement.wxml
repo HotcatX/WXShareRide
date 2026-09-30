@@ -11,8 +11,8 @@
 
     <scroll-view class="announcement-scroll" scroll-y="{{true}}" enhanced="{{true}}" bounces="{{false}}" show-scrollbar="{{true}}">
       <view class="announcement-content">
-        <text class="announcement-title">{{notice.title || '社区公告'}}</text>
-        <text wx:if="{{notice.body}}" class="announcement-body">{{notice.body}}</text>
+        <text class="announcement-title" user-select="{{true}}" selectable="{{true}}">{{notice.title || '社区公告'}}</text>
+        <text wx:if="{{notice.body}}" class="announcement-body" user-select="{{true}}" selectable="{{true}}">{{notice.body}}</text>
         <view wx:if="{{notice.imageUrl}}" class="announcement-image-area">
           <view wx:if="{{imageFailed}}" class="announcement-image-error">图片暂时加载失败，请稍后重新打开公告。</view>
           <block wx:else>

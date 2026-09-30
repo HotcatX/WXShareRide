@@ -1,5 +1,7 @@
 # 管理功能迁至独立网站
 
+> 本文保留 2026-09 的旧实现与验收历史，不是当前部署手册。旧 `marketApi` 管理、写入模块及专属测试已从本地退役，旧部署和测试命令不得执行。当前管理 API 使用 PostgreSQL；`marketApi` 保留的旧公开 HTTP URL 仅经 relay 读取同一 PostgreSQL，不读取冻结的 CloudBase 库。现状见 [9 月 30 日切库记录](backend-cutover-2026-09-30.md) 与 [云函数部署边界](../cloudfunctions/DEPLOYMENT.md)。本文历史登录结果不代表本次重新验证了管理员实登。
+
 ## 2026-09-10 变更
 
 原 `pages/market/marketTrade/marketTrade` 隐藏管理员入口已移除，包括手势、假错误密码框、六位处理码、会话恢复、本地管理令牌、批量草稿表单、管理图片上传和相关样式。该页继续承担已卖 / 已买交易列表、分页、详情与微信号复制。
@@ -37,7 +39,7 @@
 
 CloudBase HTTP 网关对 JSON/文本请求体限制为 100 KB；原先图片转 Base64 后放入 JSON，即使图片小于后台标示的 2 MB，也会被网关拒绝为 `413 EXCEED_MAX_PAYLOAD_SIZE`。该网关错误没有 CORS 头，浏览器只能显示连接失败。相同原图使用 `application/octet-stream` 后可通过网关的二进制通道，函数按 `isBase64Encoded` 解码并读取原 JSON 上传参数。
 
-仅 `uploadImage` 使用二进制传输；其他后台动作仍使用 JSON。来源白名单、Bearer 会话、最大 2 MB、真实图片格式、账号归属、哈希去重和审计均保持原校验。后端 `webAdmin.js` 应先于新版管理前端部署，继续兼容旧客户端的小图 JSON 上传。无需新增函数、集合或临时分块。
+当时仅 `uploadImage` 使用二进制传输，其他后台动作仍使用 JSON，保留来源、会话、图片和审计校验。当时的发布顺序是先部署 `webAdmin.js` 再发布管理前端；该旧文件现已退役，不得按此顺序恢复部署。
 
 限制依据：[CloudBase EXCEED_MAX_PAYLOAD_SIZE](https://docs.cloudbase.net/en/error-code/EXCEED_MAX_PAYLOAD_SIZE)。生产接口已只读复现原图 143,841 字节 JSON 被网关拒绝；二进制同字节请求可进入函数。
 
@@ -49,7 +51,7 @@ CloudBase HTTP 网关对 JSON/文本请求体限制为 100 KB；原先图片转 
 
 ## 验证
 
-- 小程序/云函数：`node --test tests/*.test.cjs`，168 项通过。
+- 当时的小程序/云函数回归共 168 项通过；这是历史计数，不是当前测试命令或结果。
 - 小程序 5 个页面/组件的 WXML/WXSS 编译共 10 项通过。
 - 网站构建及模型/API/静态产物测试位于 `../wx.web`。
 - 真实 HTTPS 7 项已通过：未登录 401、错误来源 403、登录 / 会话 / bootstrap / 登出 200、已登出令牌再次调用 401。另以官方函数调用验证 SDK 事务、配置读取正常。未发布测试商品或改动现有群二维码。

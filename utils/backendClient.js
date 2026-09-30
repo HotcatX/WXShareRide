@@ -163,8 +163,8 @@ function createBackendClient(options = {}) {
     requireEnabled()
     if (!CLOUD_WRITES.has(action)) throw failure('INVALID_REQUEST', '操作类型无效')
   }
-  // TEMPORARY FALLBACK — remove only after the next production release is verified
-  // and persisted pre-cutover requests are drained.
+  // TEMPORARY FALLBACK — retained only for persisted pre-cutover requests.
+  // Remove when those original requests no longer need recovery.
   // This bridge retries an existing key against the same PostgreSQL writer; it
   // cannot start a fresh operation or fall back to the frozen CloudBase data.
   async function cloudCall(action, body, key) {

@@ -24,7 +24,7 @@
 
 ## TEMPORARY FALLBACK — 同一 PostgreSQL 的兼容路径
 
-`backend` 的登录和有限兼容桥、`statistics` 的公开统计与账号桥继续服务已发布客户端，不能因删除旧 writer 而一并移除。旧版 `marketApi` 的 CloudBase 写入实现暂留作恢复资料，正常入口只能使用 PostgreSQL 只读兼容 relay；本轮没有清理旧网站和管理站实现。上述仍部署的旧库查询入口与此同 PG 兼容路径不同，不属于正常部署白名单。
+`backend` 的登录和有限兼容桥、`statistics` 的公开统计与账号桥继续服务已发布客户端，不能因删除旧 writer 而一并移除。`marketApi` 正常入口只加载 PostgreSQL 只读兼容 `publicRelay.js`；未被入口加载的旧 CloudBase 写入、公开查询、社区及网站管理模块和旧配置副本已从本地树移除，可从上述固定 Git 提交和私有恢复包核对。这次清理没有部署云函数或改动网站、管理站；当前服务器上的市场、社区、管理 API 及旧公开 HTTP 协议的同 PG relay 继续保留。上述仍部署的旧库查询入口与此同 PG 兼容路径不同，不属于正常部署白名单。
 
 `cleanupMarketImagesDaily`、`placeBusinessFiveMinutes`、`publicStatsHourly` 已停用，正常部署配置中不再声明这些触发器。原始导出、恢复包与迁移工作记录不随源码退役删除，不为旧实现新增开关。
 

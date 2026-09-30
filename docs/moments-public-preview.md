@@ -1,5 +1,7 @@
 # 朋友圈公开预览
 
+> 本文记录旧 CloudBase 实现。相关 `marketApi` 公开查询模块及专属测试已从本地退役，下面的旧权限示例只供历史核对，旧部署、回滚及测试命令不得执行。当前小程序公开读取使用服务器 API；保留的旧公开 HTTP URL 经 relay 读取同一 PostgreSQL，不读取冻结的 CloudBase 库。当前状态以 [9 月 30 日切库记录](backend-cutover-2026-09-30.md) 和 [云函数部署边界](../cloudfunctions/DEPLOYMENT.md) 为准。
+
 朋友圈单页模式（场景值 `1154`）没有常规小程序登录态，不能在页面间跳转。原页面直接调用要求 `auth != null` 的云函数，会收到 `-501023 permission denied`。
 
 本次复用现有 `marketApi`，云函数总数仍为 20。没有独立的 `publicPreview` 云函数。
@@ -14,7 +16,7 @@
 
 ## 云端权限
 
-部署带有身份校验的新 `marketApi` 后，云函数调用规则为：
+当时为旧 `marketApi` 配置的调用规则如下；这不是当前可执行的权限变更方案：
 
 ```json
 {
@@ -41,17 +43,11 @@
 
 ## 验证与发布
 
-本地回归测试：
-
-```sh
-node --test tests/*.test.cjs
-```
+当时的本地回归覆盖如下；旧专项及其命令已退役，不能用历史测试数量代表当前结果。
 
 覆盖匿名鉴权、数据投影和脱敏、有效期、列表筛选、分页、图片路径、分享来源映射、生命周期恢复、请求竞态及错误展示。开发者工具可用 `simulator_open_page --scene 1154` 验证单页模式，完成后用 `--scene 1001` 检查正常页面。模拟器验证不能代替正式版本的 iOS/Android 朋友圈实机验收。
 
-发布顺序：备份当前云端代码/配置/规则 → 部署现有 `marketApi` → 放开该函数的调用规则 → 验证公开读取及原操作鉴权 → 通过正常审核流程发布小程序前端。仅部署云函数不会修复仍运行旧前端的已发布版本。
-
-如需回滚，先将函数规则恢复为备份中的 `auth != null`，再恢复旧 `marketApi` 代码与配置。旧代码没有统一匿名入口校验，不能在开放调用规则下直接恢复。
+旧方案曾通过 `marketApi` 实现匿名公开读取。该 CloudBase 实现已退役；不得恢复旧代码、写权限或定时器。当前兼容 URL 的修复仍须连接同一 PostgreSQL，具体部署边界见本文顶部链接。
 
 官方说明：[朋友圈单页模式](https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/share-timeline.html)、[云函数安全规则](https://docs.cloudbase.net/cloud-function/security-rules)。
 

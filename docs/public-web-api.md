@@ -1,5 +1,7 @@
 # Cloudflare public website read API
 
+> Historical CloudBase implementation record. Since the [2026-09-30 cutover](backend-cutover-2026-09-30.md), the supported old public HTTP URL relays to the same PostgreSQL backend; it does not read the frozen CloudBase database. The old implementation and its dedicated tests have been retired locally. Do not run their old deployment or test commands. Current deployment boundaries are in [cloudfunctions/DEPLOYMENT.md](../cloudfunctions/DEPLOYMENT.md). Protocol details and observations below describe the historical implementation, not current deployment instructions or a new website/admin verification.
+
 The Tencent-hosted homepage, `/admin/` website and `/admin-api` authentication remain separate. The independent English Cloudflare site uses the existing HTTP prefix mapping to the `marketApi` cloud function: the external URL ends in `/admin-api/public-api`, and CloudBase forwards that suffix as the internal event path `/public-api`. No new HTTP binding, cloud function or database collection is needed. The nested URL is a separate authenticated read handler; it is not an admin operation.
 
 ## Trust boundary
@@ -44,20 +46,14 @@ Images must already be referenced by a visible market listing. Only current-envi
 
 Error responses contain only `{ok:false,error}` and no raw database errors. Relevant HTTP statuses are 400 (invalid input), 401 (missing/wrong credential), 404 (missing/hidden/kind-mismatched item), 405 (method), 415 (content type), and 503 (unconfigured/unavailable service).
 
-## Deployment and verification
+## Historical deployment and verification
 
-Deploy `index.js`, `publicPreview.js` and `publicWeb.js` together in `marketApi`. Prefer the function's `PUBLIC_WEB_API_SECRET` environment value. Preserve existing environment variables and route bindings. The public read path stays unavailable until the secret is configured.
+The old package combined `index.js`, `publicPreview.js` and `publicWeb.js`; these are not the current deployment set. Restoring that package would restore the retired CloudBase implementation and is prohibited after the PostgreSQL cutover. The supported `marketApi` entry now loads only `publicRelay.js`.
 
-If Tencent CLI environment configuration is unavailable but authorized Developer Tools deployment is available, deploy the server-only `publicWeb.secret.json` file containing exactly one `PUBLIC_WEB_API_SECRET` string property. Stage it outside the mini-program repository in the ignored web-repository working directory, currently `wx.web/work/linkx-public-deploy/marketApi/publicWeb.secret.json`, with local permissions `0600`. Upload that file only into the existing `marketApi` cloud function using the authorized deployment tool, never static hosting. It is not created inside the mini-program repository or either website build. An exact Git ignore entry for `cloudfunctions/marketApi/publicWeb.secret.json` is retained as an additional guard against accidental future placement there. Do not print the contents or include them in deployment logs. Cloud function source downloads/backups containing this file must be treated as private credentials.
+The retired implementation supported `PUBLIC_WEB_API_SECRET` in its environment or a private `publicWeb.secret.json` fallback. This documents the old secret format only, not an instruction to recreate or deploy it. Existing backups containing credentials remain private; they must not enter Git, browser assets or logs.
 
-The private file is read only when the environment key is absent. An existing environment key with an empty or invalid value returns 503 and never falls back. Missing, malformed, extra-key or invalid private configuration also returns 503. The loader adds no database calls. A complete function redeployment must preserve the private configuration or set the environment value first; omission fails closed and makes the public website unavailable without changing the mini-program/admin paths. JSON modules are cached per function instance, so credential rotation requires redeploying/restarting the function and updating the Cloudflare Worker secret. Rollbacks must preserve the current credential intentionally rather than restoring an older credential from a source backup.
+Historically the private file was read only when the environment key was absent; malformed configuration failed closed. Those loader details are not the current relay's configuration contract. Use the current deployment record rather than restoring an old credential or implementation from a source backup.
 
 The external upstream URL is `https://cloud1-7gmtcu4s3aebce27-1383643768.ap-shanghai.app.tcloudbase.com/admin-api/public-api`. CloudBase's existing `/admin-api` prefix mapping strips the prefix, so the handler must continue validating internal `/public-api` exactly. Direct `/public-api` on that hostname is not the configured binding. Do not broaden the internal path match to the admin root or allow actions to select a handler.
 
-Run:
-
-```sh
-node --test tests/public-web-api.test.cjs tests/public-preview.test.cjs tests/web-admin.test.cjs
-```
-
-The tests cover the actual function dispatch boundary, absent/invalid server credentials, duplicate headers, path conflicts, malformed input, write attempts, private-action separation, English projections, route privacy, hidden records, image restrictions and unchanged admin behavior. Verify live reads with the server-side secret without printing the value, and verify unauthenticated direct HTTP requests return 401. A request carrying a valid public credential plus any write/action/query key must fail before any database read.
+The old `public-web-api`, `public-preview` and `web-admin` test files were dedicated to the retired handler and have been removed; their old commands must not be run. Current compatibility coverage lives in `tests/cloud-public-relay.test.cjs`, `services/backend/test/legacy-public-relay.test.ts` and `services/backend/test/legacy-public-preview.integration.test.ts`. Canonical PostgreSQL admin, market and image tests cover the corresponding authorization and business behavior. These references describe retained tests, not a claim of new live website or administrator verification.

@@ -263,7 +263,9 @@ The released 5.1.0 client selects PostgreSQL through its trusted authority
 handshake. Preserve existing collector storage, credentials and the read-only
 CloudBase recovery data. Do not reactivate CloudBase writers after the handoff.
 
-Temporary compatibility fallbacks use the same PostgreSQL database. Writes must
-have one authoritative database; a timeout must never send the same booking to
-an independent old writer. Retire fallback only after the next production app
-release and observed healthy behavior, not merely after this service starts.
+Compatibility protocols use the same PostgreSQL database. Writes have one
+authoritative database; a timeout must never send the same booking to an
+independent old writer. New client operations use the canonical HTTP API. The
+remaining client recovery bridge retries only persisted pre-cutover requests;
+remove it when those original requests no longer need recovery. Keep the server
+protocols needed by supported released clients, independently of client cleanup.

@@ -12,6 +12,7 @@ const environmentSchema = z.object({
   AUTH_BRIDGE_KEY_FILE: z.string().min(1).optional(),
   COLLECTOR_BRIDGE_KEY_FILE: z.string().min(1).optional(),
   COLLECTOR_SUBJECT_KEY_FILE: z.string().min(1).optional(),
+  LEGACY_PUBLIC_CONFIG_FILE: z.string().min(1).optional(),
   COLLECTOR_ORIGIN: z.url().refine(value => { try { const url = new URL(value); return url.protocol === 'https:' && url.origin === value; } catch { return false; } }).default('https://collect.linkx.ink'),
   COS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}-[0-9]{5,20}$/).optional(),
   COS_REGION: z.string().regex(/^[a-z]{2}-[a-z]+(?:-[0-9]+)?$/).optional(),
@@ -29,6 +30,9 @@ export type Config = {
   appSecret?: string; sessionTtlSeconds: number;
   businessMode?: 'staged' | 'active'; authBridgeKey?: Buffer;
   collector?: { origin: string; key: Buffer; subjectKey?: Buffer };
+  // TEMPORARY FALLBACK — remove only after the next production release is verified.
+  // Existing public website credentials/origins, kept in one private file.
+  legacyPublic?: { secret: string; houseShareOrigins: string[]; houseShareCurrency: string };
   cos?: CosConfig;
 };
 
@@ -53,6 +57,18 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Config
   }
   let cos: CosConfig | undefined;
   let collector: Config['collector'];
+  let legacyPublic: Config['legacyPublic'];
+  if (env.LEGACY_PUBLIC_CONFIG_FILE) {
+    try {
+      const origin = z.string().max(2048).refine(value => {
+        try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) && url.origin === value; }
+        catch { return false; }
+      });
+      legacyPublic = z.strictObject({ secret: z.string().regex(/^[A-Za-z\d_-]{32,128}$/),
+        houseShareOrigins: z.array(origin).max(30), houseShareCurrency: z.string().max(20) })
+        .parse(JSON.parse(readFileSync(env.LEGACY_PUBLIC_CONFIG_FILE, 'utf8')));
+    } catch { throw new Error('Invalid LEGACY_PUBLIC_CONFIG_FILE'); }
+  }
   if (env.COLLECTOR_BRIDGE_KEY_FILE) {
     try {
       const key = readFileSync(env.COLLECTOR_BRIDGE_KEY_FILE, 'utf8').trim();
@@ -76,7 +92,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): Config
     } catch { throw new Error('Invalid COS_CREDENTIALS_FILE'); }
   }
   return {
-    databaseUrl, host: env.HOST, port: env.PORT,
+    databaseUrl, host: env.HOST, port: env.PORT, legacyPublic,
     appId: env.WECHAT_APP_ID, appSecret, sessionTtlSeconds: env.SESSION_TTL_SECONDS, cos,
     businessMode: env.BUSINESS_MODE, authBridgeKey, collector
   };

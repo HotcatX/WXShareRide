@@ -76,3 +76,17 @@ test('collection account subjects require the original distinct file-only key',t
   writeFileSync(subject,'a'.repeat(64));
   assert.throws(()=>loadConfig({...base,COLLECTOR_BRIDGE_KEY_FILE:bridge}),{message:'Invalid COLLECTOR_SUBJECT_KEY_FILE'});
 });
+
+test('legacy public credentials preserve explicit origins and fail closed without printing secrets', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'linkx-public-config-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'public.json');
+  const base = { DATABASE_URL: 'postgresql://localhost/linkx', WECHAT_APP_ID: 'wx8a8a389199aa2a0e', LEGACY_PUBLIC_CONFIG_FILE: file };
+  const value = { secret: 'SyntheticExistingSecret000000000000', houseShareOrigins: ['https://site.example', 'http://localhost:5174'], houseShareCurrency: 'USD' };
+  writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
+  assert.deepEqual(loadConfig(base).legacyPublic, value);
+  for (const changed of [{ ...value, secret: 'secret-do-not-log' }, { ...value, extra: 'forbidden' },
+    { ...value, houseShareOrigins: ['https://user:password@site.example'] }, { ...value, houseShareOrigins: ['https://site.example/path'] }]) {
+    writeFileSync(file, JSON.stringify(changed));
+    assert.throws(() => loadConfig(base), { message: 'Invalid LEGACY_PUBLIC_CONFIG_FILE' });
+  }
+});

@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260929-analytics-names
+    image: linkx-backend:20260930-cutover
     restart: unless-stopped
     init: true
     read_only: true
@@ -50,6 +50,8 @@ services:
       DATABASE_URL_FILE: /run/secrets/database_url
       WECHAT_APP_ID: wx8a8a389199aa2a0e
       BUSINESS_MODE: staged
+      # Temporary compatibility for existing public website URLs, same old key.
+      LEGACY_PUBLIC_CONFIG_FILE: /run/secrets/identity/legacy-public.json
     # Direct access stays host-local; Caddy reaches the staged service below.
     ports: ["127.0.0.1:3101:3100"]
     networks:

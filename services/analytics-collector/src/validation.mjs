@@ -90,7 +90,11 @@ export const eventSchemas = {
   contact_action: v => shape(v, { tripKey: recordId, tripType, channel: values('wechat', 'phone', 'zelle'),
     action: values('copy', 'call'), outcome: values('attempt', 'success', 'failure', 'missing'), targetRole: values('driver', 'passenger', 'unknown') }),
   followup_presented: v => shape(v, followup),
-  followup_dismissed: v => shape(v, followup),
+  followup_dismissed: v => shape(v, { ...followup, dismissalReason: values('close', 'hidden'),
+    assumedOutcome: values('yes'), outcomeScope: values('driver_any_passenger', 'respondent_booking'), ...quote }, Object.keys(followup)) &&
+    (v.dismissalReason === 'close'
+      ? v.assumedOutcome === 'yes' && v.outcomeScope === (v.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking')
+      : !['assumedOutcome', 'outcomeScope', ...Object.keys(quote)].some(key => Object.hasOwn(v, key))),
   followup_answer: v => shape(v, { ...followup, outcome: values('yes', 'no'),
     outcomeScope: values('driver_any_passenger', 'respondent_booking'), ...quote }, [...Object.keys(followup), 'outcome', 'outcomeScope']) &&
     v.outcomeScope === (v.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking'),

@@ -166,6 +166,10 @@ Management remains HTTP over a protected UNIX socket only. `scripts/admin.mjs st
 
 `ops/diagnose-account.mjs` provides direct OpenID lookup through the authenticated UNIX-only `/v1/diagnostics/account` endpoint. It returns account state and a bounded timeline of retained, authorized events/batch receipts, without grants, tokens or keys. Default is the last 24 hours of real data, at most 50 events and 50 receipts; test mode is explicit and limits cap at 100. See [the short operations guide](ops/diagnose-account.md). `operational_events` joins the single account OpenID and each event's `tripKey` for internal analysis; do not use that identity-bearing view as the research export.
 
+`operational_followup_outcomes` derives one current outcome per OpenID, real/test mode, trip type, trip and role from those authorized, deduplicated events. `source=self_report` is an explicit yes/no answer. Only a new `followup_dismissed` with `dismissalReason=close`, `assumedOutcome=yes` and the matching role scope receives operational `outcome=yes,source=dismissed_default`. This is a product default, not a confirmed ride. Legacy dismissals, page hiding and presentation without a response remain `outcome=NULL,source=unanswered`; there is no historical yes backfill. An explicit answer always outranks a default, even if the close event arrives later. Explicit corrections use event time, not upload order. The view preserves role scope and optional listed reference price; it does not establish actual payment. It inherits authorization, retention and restore-gate filtering, and contains OpenID, so it is an internal operations view.
+
+`places-status.followupOutcomes` reports counts separately by real/test mode, role/scope, source and outcome. For an operational default-based rate, retain unanswered observed opportunities in the denominator and show the self-reported, defaulted and unknown counts alongside the rate. A self-reported rate must exclude defaulted responses and report its response coverage. Do not pool driver “any passenger” with passenger “my booking” outcomes or present defaulted yes as observed research labels. `place_outcomes` and the circle algorithm continue to use explicit answers only.
+
 A customer-service stop request must be verified against the current mini-program account. Authorized operations derive its account subject with the same scoped identity key, then call the authenticated bridge `status` followed by `withdraw` with the exact current version. The separate host-only operations helper accepts the account ID through private stdin/file, and must not log it, its derived subject, participant ID or any token. It must not share identity secrets with Caddy, the collector container or clients. The existing customer-service channel remains the user entry; no new self-service button or collection settings page is claimed here.
 
 Withdrawal and batch receive transactions mutually exclude one another. Successful withdrawal immediately blocks old grants and deletes the participant's online payloads, while retaining minimal authorization/anti-replay metadata. It does **not** certify instantaneous forensic erasure of WAL, disk sectors, backups or exported copies. Report success only after server acknowledgment; a locally cleared queue does not prove server withdrawal.
@@ -242,7 +246,7 @@ Local UNIX admin operations (stdin JSON; no secrets in argv):
 
 - `node scripts/admin.mjs places-status`: safe counts, real/test split, sync
   freshness, source-separated historical/transaction counts, followup eligible
-  population and actual presentation/answer counts.
+  population, actual presentation/answer counts and source-separated outcomes.
 - `places-pending`: `{ "limit": 25 }`; only pending candidates, private entries
   excluded. The response contains internal candidate labels, so keep it private.
 - `places-approve`: `{candidateId,label,parentRegionId,verification:
@@ -262,6 +266,14 @@ deletions and explicit negative followups. Delayed outbox facts reconcile stored
 vote/usage circle attribution; immutable rank response snapshots preserve what
 was actually returned. A later public classification does not invent an earlier
 route-circle association for a then-unknown endpoint.
+
+Home followup qualification uses the latest planned departure plus four hours,
+an active past/close participation and a seven-day expiry. `places-status`
+reports this as `followupEligibilityPolicy=departure_plus_4h_v2`; it derives
+current eligibility from the immutable departure-based expiry, so older stored
+`eligible_at` values retain the original next-morning policy rather than being
+rewritten. Newly received business projections use the four-hour clock. These
+eligibility facts are not proof that a prompt was displayed or a trip completed.
 
 All new tables inherit the global SQLite `max_page_count` (default 1 GiB), both
 new public write paths enforce the existing free-disk reserve, and queries have

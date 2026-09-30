@@ -95,6 +95,40 @@ export function initializePlaces(db) {
       openid TEXT NOT NULL, role TEXT NOT NULL, trip_version INTEGER NOT NULL, eligible_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL, active INTEGER NOT NULL, source TEXT NOT NULL,
       PRIMARY KEY(synthetic,trip_id,trip_type,openid)) STRICT;
+    DROP VIEW IF EXISTS operational_followup_outcomes;
+    CREATE VIEW operational_followup_outcomes AS
+      WITH events AS (
+        SELECT openid,synthetic,participant_key,event_id,event_json,
+          json_extract(event_json,'$.eventName') AS event_name,
+          json_extract(event_json,'$.occurredAt') AS occurred_at,
+          json_extract(event_json,'$.data.followupId') AS followup_id,
+          json_extract(event_json,'$.data.tripKey') AS trip_id,
+          json_extract(event_json,'$.data.tripType') AS trip_type,
+          json_extract(event_json,'$.data.role') AS role,
+          json_extract(event_json,'$.data.dismissalReason') AS dismissal_reason,
+          CASE WHEN json_extract(event_json,'$.data.role')='driver'
+            THEN 'driver_any_passenger' ELSE 'respondent_booking' END AS outcome_scope
+        FROM operational_events WHERE openid IS NOT NULL AND
+          json_extract(event_json,'$.eventName') IN ('followup_presented','followup_dismissed','followup_answer')
+      ), classified AS (
+        SELECT *, CASE WHEN event_name='followup_answer' THEN 'self_report'
+          WHEN event_name='followup_dismissed' AND dismissal_reason='close'
+            AND json_extract(event_json,'$.data.assumedOutcome')='yes'
+            AND json_extract(event_json,'$.data.outcomeScope')=outcome_scope THEN 'dismissed_default'
+          ELSE 'unanswered' END AS source FROM events
+      ), ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY synthetic,openid,trip_id,trip_type,role
+          ORDER BY CASE source WHEN 'self_report' THEN 2 WHEN 'dismissed_default' THEN 1 ELSE 0 END DESC,
+            occurred_at DESC,event_id DESC) AS response_rank FROM classified
+      )
+      SELECT openid,synthetic,participant_key,trip_id,trip_type,role,outcome_scope,followup_id,event_id,event_name,
+        occurred_at,dismissal_reason,source,
+        CASE source WHEN 'self_report' THEN json_extract(event_json,'$.data.outcome')
+          WHEN 'dismissed_default' THEN 'yes' ELSE NULL END AS outcome,
+        json_extract(event_json,'$.data.referencePriceCents') AS reference_price_cents,
+        json_extract(event_json,'$.data.currency') AS currency,
+        json_extract(event_json,'$.data.priceKind') AS price_kind
+      FROM ranked WHERE response_rank=1;
   `);
   if (!db.prepare('PRAGMA table_info(place_public_usage)').all().some(c => c.name === 'evidence_at')) {
     db.exec('ALTER TABLE place_public_usage ADD COLUMN evidence_at INTEGER NOT NULL DEFAULT 0');
@@ -193,11 +227,11 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
         const active = activeStatus && current.has(account);
         db.prepare('INSERT INTO place_membership_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(Number(e.synthetic), account, e.eventId, e.tripId, e.tripType,
           e.version, e.eventAtMs, s.cityKey, s.serviceDate, p.role, Number(active), pointId(s.departures[0], s.cityKey), pointId(s.destinations[0], s.cityKey), e.source || 'transaction');
-        // Same qualification clock as client: max(last departure +4h, next NY day 09h).
+        // Same qualification clock as the home prompt: last departure +4h.
         // A lower-bound marker is retained even when precise departure is unknown.
         const dep = s.latestDepartureAtMs || s.departureAtMs;
         if (dep !== null) {
-          const eligibleAt = Math.max(dep + 4 * 3_600_000, nextNewYorkMorning(dep));
+          const eligibleAt = dep + 4 * 3_600_000;
           db.prepare(`INSERT INTO place_followup_population VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(synthetic,trip_id,trip_type,openid) DO UPDATE SET
             role=excluded.role,trip_version=excluded.trip_version,eligible_at=excluded.eligible_at,expires_at=excluded.expires_at,active=excluded.active,source=excluded.source
             WHERE excluded.trip_version>place_followup_population.trip_version`).run(Number(e.synthetic), e.tripId, e.tripType, account, p.role, e.version, eligibleAt, dep + 7 * DAY, Number(active && ['past', 'close'].includes(s.status)), e.source || 'transaction');
@@ -213,6 +247,8 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     if (!account) return;
     const d = event.data; const synthetic = participant.synthetic;
     if (event.eventName === 'followup_answer') {
+      // Defaults from closing a prompt belong only to the operational view.
+      // They are never self-reported ride evidence for the circle algorithm.
       db.prepare('INSERT OR IGNORE INTO place_outcomes VALUES (?,?,?,?,?,?,?)').run(synthetic, account, d.tripKey, d.tripType, event.eventId, event.occurredAt, d.outcome);
       reconcile(account, synthetic, event.occurredAt);
     }
@@ -327,9 +363,14 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
     businessBySource: db.prepare("SELECT synthetic,COALESCE(json_extract(payload,'$.source'),'transaction') AS source,COUNT(*) AS count,MAX(received_at) AS lastReceivedAt FROM place_business_events GROUP BY synthetic,source").all(),
     selections: db.prepare('SELECT synthetic,COUNT(*) AS deduplicatedVotes FROM place_selection_votes GROUP BY synthetic').all(),
     snapshots: db.prepare('SELECT synthetic,COUNT(*) AS count FROM place_rank_snapshots GROUP BY synthetic').all(),
-    followupPopulation: db.prepare(`SELECT synthetic,source,COUNT(*) AS records,SUM(CASE WHEN active=1 AND eligible_at<=? AND expires_at>? THEN 1 ELSE 0 END) AS currentlyEligible FROM place_followup_population GROUP BY synthetic,source`).all(now, now),
+    followupEligibilityPolicy: 'departure_plus_4h_v2',
+    // expires_at always equals latest departure +7d, including older rows.
+    // Compute the current policy without rewriting their historical clocks.
+    followupPopulation: db.prepare(`SELECT synthetic,source,COUNT(*) AS records,SUM(CASE WHEN active=1 AND expires_at-${7 * DAY}+${4 * 3_600_000}<=? AND expires_at>? THEN 1 ELSE 0 END) AS currentlyEligible FROM place_followup_population GROUP BY synthetic,source`).all(now, now),
     followupInteractions: db.prepare(`SELECT synthetic,json_extract(event_json,'$.eventName') AS eventName,COUNT(*) AS count
       FROM operational_events WHERE json_extract(event_json,'$.eventName') IN ('followup_presented','followup_dismissed','followup_answer') GROUP BY synthetic,eventName`).all(),
+    followupOutcomes: db.prepare(`SELECT synthetic,role,outcome_scope AS outcomeScope,source,outcome,COUNT(*) AS count
+      FROM operational_followup_outcomes GROUP BY synthetic,role,outcome_scope,source,outcome`).all(),
   });
   const prune = now => {
     const counts = {};
@@ -345,14 +386,4 @@ export function createPlacesStore(db, { realEnabled = false } = {}) {
   return { resolve, circles, recordEvent, ingestBusiness: (body, now = Date.now()) => ingestBusiness.immediate(body, now),
     suggestions, approve: (body, now = Date.now()) => approve.immediate(body, now),
     seed: (body, now = Date.now()) => seed.immediate(body, now), pending, status, prune };
-}
-function nextNewYorkMorning(time) {
-  const parts = dayAt(time).split('-').map(Number); const tomorrow = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + 1, 9));
-  // Find 09:00 wall time using timezone formatting; handles DST transitions.
-  for (let offset = 4; offset <= 5; offset++) {
-    const candidate = tomorrow.getTime() + offset * 3_600_000;
-    const hour = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23' }).format(new Date(candidate));
-    if (hour === '09') return candidate;
-  }
-  return tomorrow.getTime() + 5 * 3_600_000;
 }

@@ -29,7 +29,7 @@ services:
   collector:
     build: .
     # Preserve existing mounts/project identity when updating this image.
-    image: linkx-analytics-collector:20260929-unified-names
+    image: linkx-analytics-collector:20260930-followup-outcomes
     restart: unless-stopped
     init: true
     read_only: true

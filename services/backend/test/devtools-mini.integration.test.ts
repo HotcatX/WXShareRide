@@ -25,12 +25,10 @@ test('compiled DevTools pages use isolated real HTTP/PG after the fail-closed bo
     const requests: Array<{ kind: string; path: string; status: number }> = [];
     const authority = createBackendHandler({ authority: 'server',
       getKey() { throw Error('authority must not load a key'); } });
-    const { readServerStats, createPublicStatsReader, ENDPOINT } = require('../../../cloudfunctions/statistics/provider.js');
+    const { readServerStats, ENDPOINT } = require('../../../cloudfunctions/statistics/provider.js');
     const { createStatisticsHandler } = require('../../../cloudfunctions/statistics/handler.js');
     const statistics = createStatisticsHandler({ authority: 'server',
-      readPublicStats: createPublicStatsReader({ authority: 'server',
-        readCloudStats() { throw Error('statistics must never read old CloudBase'); },
-        readServer: () => readServerStats((target: string, options: RequestOptions, callback: (response: IncomingMessage) => void) => {
+      readPublicStats: () => readServerStats((target: string, options: RequestOptions, callback: (response: IncomingMessage) => void) => {
           assert.equal(target, ENDPOINT);
           assert.equal(target, 'https://collect.linkx.ink/api/v1/statistics/public');
           assert.equal(options.method, 'GET');
@@ -39,9 +37,7 @@ test('compiled DevTools pages use isolated real HTTP/PG after the fail-closed bo
             callback(response);
           });
         }),
-      }),
       account() { throw Error('public read must not access account state'); },
-      getSyncKey() { throw Error('public read must not load a key'); },
     });
     let session: any;
     async function dispatch(entry: RuntimeRequest) {

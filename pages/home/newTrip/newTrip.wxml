@@ -42,7 +42,7 @@
           <text>{{publishedRide.destinationAddress}}</text>
         </view>
         <text wx:if="{{publishedRide.stops.length > 2}}" style="white-space: pre-line;">{{publishedRide.routeSummary}}</text>
-        <text class="create-published-meta">{{publishedRide.passengerCount}} {{publishedRide.kind === 'request' ? '人' : '个座位'}} · {{publishedRide.referencePrice}}{{serverMode ? '' : ' $/人'}}</text>
+        <text class="create-published-meta">{{publishedRide.passengerCount}} {{publishedRide.kind === 'request' ? '人' : '个座位'}} · {{publishedRide.referencePrice}}</text>
       </view>
     </view>
 
@@ -113,13 +113,12 @@
 
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">可乘人数</text>
-            <input class="ride-input ride-input-inline" type="number" value="{{passengerCountInput}}" bindinput="onPassengerInput" placeholder="{{serverMode ? '1-8' : '1-7'}}" placeholder-class="ride-placeholder" />
+            <input class="ride-input ride-input-inline" type="number" value="{{passengerCountInput}}" bindinput="onPassengerInput" placeholder="1-8" placeholder-class="ride-placeholder" />
           </view>
           <view class="ride-field ride-field-inline">
             <text class="ride-field-label">价格</text>
             <view class="ride-price-input-wrap">
-              <input class="ride-input ride-input-inline create-price-input" type="{{serverMode ? 'text' : 'digit'}}" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="请填写" placeholder-class="ride-placeholder" />
-              <text wx:if="{{!serverMode}}" class="ride-input-suffix">$/人</text>
+              <input class="ride-input ride-input-inline create-price-input" type="text" value="{{referencePrice}}" bindinput="onReferencePriceInput" placeholder="请填写" placeholder-class="ride-placeholder" />
             </view>
           </view>
         </view>

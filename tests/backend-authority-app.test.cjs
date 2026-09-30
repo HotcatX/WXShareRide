@@ -119,43 +119,43 @@ test('real App fails closed, recovers on the next foreground and keeps the origi
   page.onUnload(); h.app.onHide()
 })
 
-test('real legacy publish ACK completes during foreground checks without replaying blocked user events', async () => {
-  for (const succeeds of [true, false]) {
-    const h = harness(), ack = deferred(), checking = deferred(), events = []
-    const publish = h.load('utils/compat/ridePublish.js').createRidePublishClient({
-      wx: { cloud: h.wx.cloud, getStorageSync: key => key === 'openid' ? 'synthetic-owner' : false }
-    })
-    h.state.business = input => {
-      assert.equal(input.name, 'createTrip')
-      return ack.promise
-    }
-    const page = h.page({ data: { busy: false }, onLoad() {},
-      async submit() {
-        this.setData({ busy: true })
-        const result = await publish.publishRide({ openid: 'synthetic-owner' }, { trip: 'unchanged legacy payload' })
-        this.finishPublish(result.id)
-      },
-      finishPublish(id) { events.push('completed'); this.setData({ busy: false, publishedId: id }) },
-      onPullDownRefresh() { events.push('refresh') }, onReachBottom() { events.push('more') }
-    })
-    h.launch(); page.onLoad({}); page.onShow(); await tick()
-    const submitted = page.submit({ type: 'tap', currentTarget: {} })
-    assert.equal(page.data.busy, true)
-    h.app.onHide(); page.onHide(); h.state.next = () => checking.promise
-    h.app.onShow({ scene: 1001 }); page.onShow(); await tick()
-    assert.equal(h.load('utils/backendAuthority.js').isReady(), false)
-    for (const type of ['tap', 'change', 'submit']) page.submit({ type, detail: {}, currentTarget: {} })
-    page.onPullDownRefresh(); page.onReachBottom()
-    ack.resolve({ result: { success: true, id: 'original-cloud-trip' } }); await submitted
-    assert.deepEqual(events, ['completed'])
-    assert.equal(page.data.publishedId, 'original-cloud-trip'); assert.equal(page.data.busy, false)
-    if (succeeds) checking.resolve(reply('cloudbase')); else checking.reject(Error('offline'))
-    await tick()
-    assert.equal(page.data.publishedId, 'original-cloud-trip')
-    assert.equal(h.state.cloud.filter(input => input.name === 'createTrip').length, 1)
-    assert.deepEqual(events, ['completed'])
-    page.onUnload(); h.app.onHide()
-  }
+test('server publish keeps one original HTTP write across foreground and duplicate taps', async () => {
+  const h = harness(), ack = deferred(), events = [], requests = []
+  h.state.next = () => Promise.resolve(reply('server'))
+  const owner = 'synthetic-publish-owner', id = '00000000-0000-4000-8000-000000000001'
+  const backendModule = h.load('utils/backendClient.js')
+  const local = { openid: owner, isGuest: false, [backendModule.SESSION_KEY]: {
+    token: 't'.repeat(43), expiresAt: new Date(h.state.now + 3600000).toISOString(),
+    user: { id, openid: owner, referralCode: 'ref_0123456789ab' }
+  } }
+  const wx = { getStorageSync: key => local[key], setStorageSync: (key, value) => { local[key] = plain(value) },
+    removeStorageSync: key => { delete local[key] }, cloud: { callFunction() { throw Error('publish cannot use the old cloud writer') } },
+    request(options) { requests.push(options); ack.promise.then(data => options.success({ statusCode: 201, data })); return { abort() {} } } }
+  const publish = h.load('utils/compat/ridePublish.js').createRidePublishClient({ wx,
+    backend: backendModule.createBackendClient({ wx, authority: h.load('utils/backendAuthority.js') }) })
+  const future = h.load('utils/rideTime.js').getRideDateTime(h.state.now + 2 * 86400000)
+  const draft = { openid: owner, kind: 'offer', cityKey: 'ny_nj', departureAddress: 'Fort Lee', destinationAddress: '哥大',
+    departureDate: future.date, departureTime: future.time, passengerCount: 3, referencePrice: '8.50', comment: '' }
+  const page = h.page({ data: { busy: false }, onLoad() {}, async submit() {
+    if (this.data.busy) return
+    this.setData({ busy: true })
+    const result = await publish.publishRide(draft)
+    events.push('completed'); this.setData({ busy: false, publishedId: result.id })
+  } })
+  h.launch(); page.onLoad({}); page.onShow(); await tick()
+  const submitted = page.submit({ type: 'tap', currentTarget: {} }); await tick()
+  assert.equal(page.data.busy, true); assert.equal(requests.length, 1)
+  const pending = plain(local[backendModule.PENDING_KEY])
+  h.app.onHide(); page.onHide(); h.app.onShow({ scene: 1001 }); page.onShow(); await tick()
+  for (const type of ['tap', 'change', 'submit']) page.submit({ type, detail: {}, currentTarget: {} })
+  assert.deepEqual(plain(local[backendModule.PENDING_KEY]), pending)
+  ack.resolve({ ok: true, data: { rideId: id, version: 1, status: 'open', changed: true } }); await submitted
+  assert.equal(page.data.publishedId, id); assert.equal(page.data.busy, false)
+  assert.equal(requests.length, 1); assert.equal(requests[0].url, 'https://collect.linkx.ink/api/v1/rides')
+  assert.equal(requests[0].data.listedPriceCents, 850)
+  assert.equal(requests[0].header['Idempotency-Key'], pending[0].key)
+  assert.deepEqual(events, ['completed']); assert.equal(local[backendModule.PENDING_KEY], undefined)
+  page.onUnload(); h.app.onHide()
 })
 
 test('server handoff stops the old App, restarts once, and a new runtime keeps pending without any CloudBase handshake', async () => {

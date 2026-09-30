@@ -24,10 +24,10 @@
 
 ## 当前小程序的价格到底是什么
 
-- **Carpool：司机每人挂牌参考价。** [发布输入](../../pages/home/newTrip/newTrip.js:457)可手动更改；[createTrip](../../cloudfunctions/createTrip/index.js:221)保存referencePrice。预填可来自[个人常用价/平台默认](../../utils/driverRideDefaults.js:17)或[模板](../../pages/home/newTrip/newTrip.js:579)，旧记录未标来源。它不是付款记录。
-- **Request：配置生成的参考价。** [newTrip](../../pages/home/newTrip/newTrip.js:483)按OD读取Request_Price；页面锁定输入，但[后端](../../cloudfunctions/createTrip/index.js:275)仍接受客户端值，不独立核验来源。不是乘客最高愿付价，也不是当时Uber/Lyft的真实报价。
+- **Carpool：司机每人挂牌参考价。** [发布输入](../../pages/home/newTrip/newTrip.js:457)可手动更改；[createTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js#L221)保存referencePrice。预填可来自[个人常用价/平台默认](../../utils/driverRideDefaults.js:17)或[模板](../../pages/home/newTrip/newTrip.js:579)，旧记录未标来源。它不是付款记录。
+- **Request：配置生成的参考价。** [newTrip](../../pages/home/newTrip/newTrip.js:483)按OD读取Request_Price；页面锁定输入，但[后端](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js#L275)仍接受客户端值，不独立核验来源。不是乘客最高愿付价，也不是当时Uber/Lyft的真实报价。
 - **单位需审查。** UI按每人展示，求车还有平摊说明；人数改变没有同步重新计算。团体席位、账号人数和报价单位不能推定一致。模板可含区间/自由文本，既有[展示解析](../../utils/tripManage.js:21)可能只取第一个数字，研究解析不能照搬。
-- **没有完整价格历程或结算。** [加入](../../cloudfunctions/joinTrip/index.js:194)及[接单](../../cloudfunctions/tripManage/index.js:593)没有预约时价格快照；现有管理动作未发现已发布行程正式改价接口。个人默认价/模板调整不等于该行程改价。[Zelle入口](../../pages/profile/myTripDetailPassenger/myTripDetailPassenger.js:401)仅复制信息，不证实转账。
+- **没有完整价格历程或结算。** [加入](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js#L194)及[接单](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/tripManage/index.js#L593)没有预约时价格快照；现有管理动作未发现已发布行程正式改价接口。个人默认价/模板调整不等于该行程改价。[Zelle入口](../../pages/profile/myTripDetailPassenger/myTripDetailPassenger.js:401)仅复制信息，不证实转账。
 
 ## 现在低负担补上，后续再决定是否研究定价
 

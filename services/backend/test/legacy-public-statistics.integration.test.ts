@@ -89,16 +89,14 @@ test('the existing client cloud fallback reaches the same PG authority and never
   await db.pool.query('INSERT INTO public_statistics(app_id,served_count,coverage_text) VALUES($1,321,$2),($3,999,$4)',
     [appId, '纽约 / 新泽西', 'another-app', 'private-other-app']);
 
-  const { readServerStats, createPublicStatsReader, ENDPOINT } = require('../../../cloudfunctions/statistics/provider.js');
+  const { readServerStats, ENDPOINT } = require('../../../cloudfunctions/statistics/provider.js');
   const { createStatisticsHandler } = require('../../../cloudfunctions/statistics/handler.js');
   let oldDatabaseReads = 0, primaryHttpCalls = 0, cloudCalls = 0;
   const serverStatuses: number[] = [];
   const handler = createStatisticsHandler({ authority: 'server',
-    readPublicStats: createPublicStatsReader({ authority: 'server',
-      readCloudStats: async () => { oldDatabaseReads++; throw Error('unexpected old CloudBase database read'); },
-      // Only the native HTTPS transport is replaced: the provider still checks
-      // real response bytes/headers from the composed app and its actual PG query.
-      readServer: () => readServerStats((url: string, options: RequestOptions, callback: (response: IncomingMessage) => void) => {
+    // Only the native HTTPS transport is replaced: the provider still checks
+    // real response bytes/headers from the composed app and its actual PG query.
+    readPublicStats: () => readServerStats((url: string, options: RequestOptions, callback: (response: IncomingMessage) => void) => {
         assert.equal(url, ENDPOINT);
         assert.equal(url, 'https://collect.linkx.ink/api/v1/statistics/public');
         assert.equal(options.method, 'GET');
@@ -106,9 +104,7 @@ test('the existing client cloud fallback reaches the same PG authority and never
           serverStatuses.push(response.statusCode!); callback(response);
         });
       }),
-    }),
     account() { throw Error('public reads must not use account state'); },
-    getSyncKey() { throw Error('public reads must not use timer credentials'); },
   });
 
   async function readThroughFallback() {

@@ -4,27 +4,22 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const { EventEmitter } = require('node:events')
 const { createStatisticsHandler } = require('../cloudfunctions/statistics/handler')
 const { normalizeStats } = require('../cloudfunctions/statistics/public')
-const { verifyRelay, deriveRelayKey } = require('../cloudfunctions/statistics/relay')
-const { makeRelay, createLegacyTimer } = require('../cloudfunctions/syncPublicStatsReplica/relay')
-const NOW = 1800000000000
-const KEY = Buffer.alloc(32, 8)
-const timer = { Type: 'Timer', TriggerName: 'publicStatsHourly' }
 const context = (source, identity = {}) => ({ environment: JSON.stringify({ TCB_SOURCE: source, ...identity }) })
 function setup() {
-  const state = { reads: 0, sends: [], account: [], logs: [] }
-  const deps = { getSyncKey: () => KEY,
+  const state = { reads: 0, account: [] }
+  const deps = { authority: 'server',
     readPublicStats: async () => { state.reads++; return { servedTrips: '12.9', coverageText: 'NY / NJ', _openid: 'private', lastTripId: 'private' } },
-    account: async (event, invocation) => { state.account.push([event,invocation]); return { ok: true, marker: 'account' } },
-    send: async (snapshot, key) => state.sends.push({ snapshot, key }), now: () => NOW, log: value => state.logs.push(value) }
+    account: async (event, invocation) => { state.account.push([event,invocation]); return { ok: true, marker: 'account' } } }
   return { state, deps, run: (event, ctx) => createStatisticsHandler(deps)(event, ctx) }
 }
 
 test('public action preserves the response envelope and only three public fields', async () => {
   const h = setup()
   assert.deepEqual(await h.run({ action: 'publicStats' }), { success: true, data: { _id: 'home', servedTrips: 12, coverageText: 'NY / NJ' } })
-  assert.equal(h.state.reads, 1); assert.equal(h.state.sends.length, 0)
+  assert.equal(h.state.reads, 1)
   assert.equal((await h.run({ action: 'publicStats', openid: 'private' })).success, false)
   assert.equal(h.state.reads, 1)
   assert.deepEqual(normalizeStats({ servedTrips: Number.MAX_VALUE, coverageText: { private: 'field' } }), { _id: 'home', servedTrips: null, coverageText: 'N/A' })
@@ -42,62 +37,7 @@ test('authorization actions preserve the exact existing request/context and do n
     assert.equal(h.state.account.at(-1)[0], event); assert.equal(h.state.account.at(-1)[1], ctx)
   }
   assert.equal((await h.run({ action: 'consent' }, ctx)).error, 'INVALID_ACTION')
-  assert.equal(h.state.reads, 0); assert.equal(h.state.sends.length, 0)
-})
-
-test('direct Timer requires the original trusted trigger context and supports the canonical action alias', async () => {
-  const h = setup()
-  for (const ctx of [undefined, {}, context('wx_client'), context('wx_trigger,scf'), context('wx_trigger',{WX_OPENID:'user'})]) {
-    assert.equal((await h.run({ ...timer, action:'publicStatsHourlyTimer' }, ctx)).error, 'TIMER_ONLY')
-  }
   assert.equal(h.state.reads, 0)
-  assert.equal((await h.run(timer, context('wx_trigger'))).ok, true)
-  assert.equal((await h.run({...timer,action:'publicStatsHourlyTimer'},context('wx_trigger'))).ok, true)
-  assert.equal(h.state.reads, 2)
-  const snapshot = h.state.sends[0].snapshot
-  assert.deepEqual(snapshot.data,{_id:'home',servedTrips:12,coverageText:'NY / NJ'})
-  assert.equal(snapshot.expiresAt-snapshot.snapshotAt,7200000)
-  assert.equal(JSON.stringify(h.state.sends).includes('private'),false)
-})
-
-test('legacy relay uses a domain-separated key, five-minute clock window and no user identity', async () => {
-  const h = setup(); const relay = makeRelay(KEY, NOW)
-  assert.notDeepEqual(deriveRelayKey(KEY), KEY)
-  const rawKeySignature = crypto.createHmac('sha256',KEY).update(`legacyPublicStatsTimer\n${NOW}`).digest('hex')
-  assert.equal(verifyRelay({...relay,signature:rawKeySignature},{SOURCE:'scf'},KEY,NOW),false)
-  for (const [event,ctx] of [
-    [{...relay,signature:'a'.repeat(64)},context('scf')], [makeRelay(KEY,NOW-300001),context('scf')],
-    [makeRelay(KEY,NOW+300001),context('scf')], [{...relay,openid:'injected'},context('scf')],
-    [relay,undefined], [relay,{environment:'malformed'}], [relay,context('scf',{WX_OPENID:'user'})],
-    [relay,context('scf',{WX_FROM_OPENID:'user'})],
-  ]) assert.equal((await h.run(event,ctx)).error,'RELAY_UNAUTHORIZED')
-  assert.equal(h.state.reads,0)
-  // Do not guess that the real cross-function source is a particular string.
-  assert.equal((await h.run(relay,context('future_cross_function_source'))).ok,true)
-  assert.equal((await h.run(makeRelay(KEY,NOW-300000),context('scf'))).ok,true)
-  assert.equal((await h.run(makeRelay(KEY,NOW+300000),context('scf'))).ok,true)
-  assert.equal(h.state.reads,3)
-})
-
-test('legacy timer wrapper authenticates original Timer before signing/calling canonical function', async () => {
-  const calls=[]
-  const run=createLegacyTimer({getKey:()=>KEY,now:()=>NOW,invoke:async value=>{calls.push(value);return {result:{ok:true,snapshotAt:NOW}}}})
-  for(const ctx of [undefined,context('wx_client'),context('wx_trigger',{WX_OPENID:'private'})]) {
-    assert.equal((await run(timer,ctx)).error,'TIMER_ONLY')
-  }
-  assert.equal((await run({...timer,TriggerName:'other'},context('wx_trigger'))).error,'TIMER_ONLY')
-  assert.equal(calls.length,0)
-  assert.deepEqual(await run(timer,context('wx_trigger')),{ok:true,snapshotAt:NOW})
-  assert.equal(calls[0].name,'statistics')
-  assert.equal(verifyRelay(calls[0].data,{SOURCE:'scf'},KEY,NOW),true)
-})
-
-test('legacy timer and canonical publication failures are sanitized',async()=>{
-  const h=setup();h.deps.send=async()=>{throw Error('private key or transport payload')}
-  await assert.rejects(h.run(timer,context('wx_trigger')),/^Error: PUBLIC_STATS_SYNC_FAILED$/)
-  assert.equal(JSON.stringify(h.state.logs).includes('private'),false)
-  const wrapper=createLegacyTimer({getKey:()=>KEY,invoke:async()=>{throw Error('private details')}})
-  await assert.rejects(wrapper(timer,context('wx_trigger')),/^Error: PUBLIC_STATS_SYNC_FAILED$/)
 })
 
 test('old public wrapper ignores caller arguments, does not read DB, and delegates a fixed public action',async()=>{
@@ -161,29 +101,107 @@ test('status/activate/withdraw accept platform metadata but authenticate only in
   assert.equal(h.state.reads,0)
 })
 
-test('ignoring platform metadata cannot authenticate a fabricated Timer or bypass a relay signature',async()=>{
-  const h=setup()
-  const userInfo={SOURCE:'wx_trigger',OPENID:'',appId:'spoofed'}
-  const tcbContext={environment:JSON.stringify({TCB_SOURCE:'wx_trigger'}),SOURCE:'wx_trigger'}
-  assert.equal((await h.run({...timer,userInfo,tcbContext},context('wx_client',{WX_OPENID:'caller'}))).error,'TIMER_ONLY')
-  const relay=makeRelay(KEY,NOW)
-  assert.equal((await h.run({...relay,userInfo,tcbContext,signature:'0'.repeat(64)},context('scf'))).error,'RELAY_UNAUTHORIZED')
-  assert.equal((await h.run({...relay,userInfo,tcbContext},context('scf',{WX_OPENID:'caller'}))).error,'RELAY_UNAUTHORIZED')
-  assert.equal(h.state.reads,0)
-  assert.equal((await h.run({...relay,userInfo,tcbContext},context('scf'))).ok,true)
-  assert.equal((await h.run({...relay,userInfo,tcbContext,extra:true},context('scf'))).error,'RELAY_UNAUTHORIZED')
-  assert.equal(h.state.reads,1)
+test('all retired timer and relay forms are rejected without reading statistics or account state', async () => {
+  const h = setup()
+  const events = [
+    { Type: 'Timer', TriggerName: 'publicStatsHourly' },
+    { Type: 'Timer', TriggerName: 'placeBusinessFiveMinutes' },
+    { action: 'publicStatsHourlyTimer' }, { action: 'placeBusinessTimer' },
+    { action: 'legacyPublicStatsTimer', timestamp: '1800000000000', signature: 'a'.repeat(64) },
+    null, {}, { action: 'unknown' }
+  ]
+  for (const event of events) {
+    for (const ctx of [undefined, context('wx_client'), context('wx_trigger'), context('scf')]) {
+      assert.deepEqual(await h.run(event, ctx), { ok: false, error: 'INVALID_ACTION' })
+    }
+  }
+  assert.equal(h.state.reads, 0); assert.equal(h.state.account.length, 0)
 })
 
-test('five-minute business timer authenticates separately and never runs public stats database path', async () => {
-  const h = setup(); let calls = 0
-  h.deps.synchronizePlaces = async () => { calls++; return { ok: true, delivered: 3 } }
-  const event = { Type: 'Timer', TriggerName: 'placeBusinessFiveMinutes' }
-  for (const ctx of [undefined, context('wx_client'), context('wx_trigger', { WX_OPENID: 'user' })]) {
-    assert.equal((await h.run(event, ctx)).error, 'TIMER_ONLY')
+function actualEntry() {
+  const directory = path.resolve(__dirname, '../cloudfunctions/statistics')
+  const calls = [], keyReads = [], modules = new Map()
+  const keys = { bridge: '11'.repeat(32), subject: '22'.repeat(32) }
+  const request = (url, options, callback) => {
+    const req = new EventEmitter()
+    req.destroy = () => {}
+    req.end = raw => queueMicrotask(() => {
+      calls.push({ url, options, raw })
+      const body = raw ? JSON.parse(raw) : undefined
+      const response = body ? { ok: true, status: 'none', statusVersion: 0,
+        purposeVersion: body.purposeVersion, noticeVersion: body.noticeVersion }
+        : { ok: true, data: { servedCount: 55, coverageText: 'NY / NJ' } }
+      const res = new EventEmitter()
+      Object.assign(res, { statusCode: 200, headers: {}, destroy() {} })
+      callback(res); res.emit('data', Buffer.from(JSON.stringify(response))); res.emit('end')
+    })
+    return req
   }
-  assert.equal((await h.run({ action: 'placeBusinessTimer', ...event }, context('wx_trigger'))).delivered, 3)
-  assert.equal(calls, 1); assert.equal(h.state.reads, 0); assert.equal(h.state.sends.length, 0)
-  assert.equal((await h.run(timer, context('wx_trigger'))).ok, true)
-  assert.equal(calls, 1); assert.equal(h.state.reads, 1)
+  function load(filename) {
+    if (modules.has(filename)) return modules.get(filename).exports
+    const module = { exports: {} }
+    modules.set(filename, module)
+    vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, exports: module.exports, __dirname: path.dirname(filename),
+      Buffer, TextDecoder, Date, setTimeout, clearTimeout,
+      require(id) {
+        if (id === 'fs') return { readFileSync(file) {
+          assert.equal(file, path.join(directory, 'analytics.secret.json'))
+          keyReads.push(file); return JSON.stringify(keys)
+        } }
+        if (id === 'https') return { request }
+        if (id === 'path' || id === 'crypto') return require(id)
+        assert.match(id, /^\.\/[a-zA-Z-]+$/, 'entry must use only built-ins and local modules')
+        return load(path.join(directory, id + '.js'))
+      }
+    }, { filename })
+    return module.exports
+  }
+  return { main: load(path.join(directory, 'index.js')).main, calls, keyReads, keys }
+}
+
+test('actual dependency-free entry reads the fixed PG API and never loads obsolete sync credentials', async () => {
+  const h = actualEntry()
+  const result = await h.main({ action: 'publicStats', userInfo: { openid: 'ignored' } })
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: true, data: { _id: 'home', servedTrips: 55, coverageText: 'NY / NJ' }
+  })
+  assert.equal(h.calls.length, 1)
+  assert.equal(h.calls[0].url, 'https://collect.linkx.ink/api/v1/statistics/public')
+  assert.equal(h.calls[0].options.method, 'GET')
+  for (const event of [{ Type: 'Timer', TriggerName: 'publicStatsHourly' },
+    { action: 'placeBusinessTimer' }, { action: 'legacyPublicStatsTimer' }]) {
+    assert.equal((await h.main(event, context('wx_trigger'))).error, 'INVALID_ACTION')
+  }
+  assert.equal(h.calls.length, 1); assert.equal(h.keyReads.length, 0)
+  const pkg = require('../cloudfunctions/statistics/package.json')
+  const lock = require('../cloudfunctions/statistics/package-lock.json')
+  assert.equal(pkg.dependencies, undefined)
+  assert.deepEqual(Object.keys(lock.packages), [''])
+  for (const file of ['sync.js', 'relay.js', 'placesSync.js', 'businessOutbox.js', 'timer-context.js']) {
+    assert.equal(fs.existsSync(path.join(__dirname, '../cloudfunctions/statistics', file)), false)
+  }
+})
+
+test('actual entry preserves the account bridge endpoint, signed bytes and trusted identity for all supported actions', async () => {
+  const h = actualEntry()
+  const { APPID } = require('../cloudfunctions/statistics/context')
+  const { PURPOSE, NOTICE } = require('../cloudfunctions/statistics/bridge')
+  const openid = 'actual_entry_account_123456'
+  const ctx = context('wx_client', { WX_APPID: APPID, WX_OPENID: openid })
+  for (const action of ['status', 'activate', 'withdraw']) {
+    const result = await h.main({ action, requestId: 'actual_entry_operation_12345',
+      expectedStatusVersion: 0, purposeVersion: PURPOSE, noticeVersion: NOTICE,
+      userInfo: { openid: 'untrusted' }, tcbContext: { openid: 'untrusted' } }, ctx)
+    assert.equal(result.ok, true)
+    const call = h.calls.at(-1), body = JSON.parse(call.raw), headers = call.options.headers
+    assert.equal(call.url, 'https://collect.linkx.ink/internal/v1/analytics/accounts')
+    assert.equal(call.options.method, 'POST')
+    assert.equal(body.action, action); assert.equal(body.openid, openid)
+    assert.equal(call.raw.includes('untrusted'), false)
+    assert.equal(body.accountSubject, crypto.createHmac('sha256', Buffer.from(h.keys.subject, 'hex'))
+      .update(`linkx-research-account-v1\n${APPID}\n${openid}`).digest('hex'))
+    assert.equal(headers['X-Linkx-Signature'], crypto.createHmac('sha256', Buffer.from(h.keys.bridge, 'hex'))
+      .update(`${headers['X-Linkx-Timestamp']}\n${headers['X-Linkx-Nonce']}\n${call.raw}`).digest('hex'))
+  }
+  assert.equal(h.calls.length, 3); assert.equal(h.keyReads.length, 3)
 })

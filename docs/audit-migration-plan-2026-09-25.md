@@ -33,7 +33,7 @@
 
 以上是**源码级执行/数据库操作估算，不是腾讯云最终计费次数**；平台的调用次数、数据库读写与函数执行资源需分别从用量明细对账。不能直接把它们相加当作同一个套餐指标。
 
-证据：[授权客户端](../utils/analyticsSession.js:122)、[过期刷新](../utils/analyticsSession.js:178)、[令牌默认期限](../services/analytics-collector/src/config.mjs:27)、[事务内台账](../cloudfunctions/createTrip/businessLedger.js:61)、[定时器配置](../cloudfunctions/statistics/config.json:1)、[读队列与 ACK](../cloudfunctions/statistics/businessOutbox.js:1)、[公共统计迁移执行成本](public-statistics.md)。
+证据：[授权客户端](../utils/analyticsSession.js:122)、[过期刷新](../utils/analyticsSession.js:178)、[令牌默认期限](../services/analytics-collector/src/config.mjs:27)、[事务内台账](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/businessLedger.js#L61)、[定时器配置](../cloudfunctions/statistics/config.json:1)、[读队列与 ACK](../cloudfunctions/statistics/businessOutbox.js:1)、[公共统计迁移执行成本](public-statistics.md)。
 
 ## 2. 多久能测出来，怎样才算准确
 
@@ -74,7 +74,7 @@
 
 `businessLedger.snapshot()` 只保留限定数量的地点、参与者、状态、座位及参考价格等研究字段；备注、支付偏好、完整个人资料等业务字段不在快照里。它还会清理、截断字段，并把不认识的地点保留为空标识。因此当前服务器里的研究/成员历史不能直接提升为小程序业务主库。
 
-真正迁库需要：全量导出和字段映射、稳定原 ID、完整业务增量或暂停写入窗口、按表计数与关键字段校验、删除标记、关系约束和最终对账。不能只把现有研究库“接给列表页”。证据：[业务快照](../cloudfunctions/createTrip/businessLedger.js:11)。
+真正迁库需要：全量导出和字段映射、稳定原 ID、完整业务增量或暂停写入窗口、按表计数与关键字段校验、删除标记、关系约束和最终对账。不能只把现有研究库“接给列表页”。证据：[业务快照](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/businessLedger.js#L11)。
 
 ### 3.2 当前同步有明确的积压边界
 
@@ -94,7 +94,7 @@
 
 网络超时可能发生在服务器已经成功加入行程、但成功响应丢失之后。若再向 CloudBase 执行一次，会重复发布、重复加入或分裂库存。当前 `createTrip` 每次直接 `.add()`；研究台账的 `eventId` 只去重业务事实，不是创建请求的跨后台幂等键。
 
-迁移后的每个业务命令应有 `Idempotency-Key`、请求摘要、结果记录，同一键和正文重试返回原结果，正文不同拒绝。所有请求路由到同一权威写库；不确定结果先查状态或重试同一端。对于座位共享的行程，所有用户的写操作必须落到同一处，不能按用户随机各写一半新旧数据库。证据：[当前创建事务](../cloudfunctions/createTrip/index.js:230)、[台账事件 ID](../cloudfunctions/createTrip/businessLedger.js:61)。
+迁移后的每个业务命令应有 `Idempotency-Key`、请求摘要、结果记录，同一键和正文重试返回原结果，正文不同拒绝。所有请求路由到同一权威写库；不确定结果先查状态或重试同一端。对于座位共享的行程，所有用户的写操作必须落到同一处，不能按用户随机各写一半新旧数据库。证据：[当前创建事务](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js#L230)、[台账事件 ID](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/businessLedger.js#L61)。
 
 ## 4. 建议的简单后台目标
 

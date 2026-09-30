@@ -9,7 +9,8 @@ const profile = extra => ({ wechatID: 'test-driver', carNumber: 'TEST123', carBr
 
 function fixture() {
   let definition
-  const state = { user: profile(), calls: [], modals: [], navigation: [], toast: [], response: null }
+  const now = Date.parse('2030-01-15T17:30:00Z')
+  const state = { user: profile(), writes: [], calls: [], modals: [], navigation: [], toast: [], response: null }
   const wx = {
       getStorageSync: key => key === 'openid' ? 'driver' : false, setStorageSync() {},
       showToast: value => state.toast.push(value),
@@ -18,16 +19,25 @@ function fixture() {
       cloud: { callFunction(args) {
         state.calls.push(plain(args))
         if (args.name === 'getUserInfo') return state.response || Promise.resolve({ result: { data: state.user ? [state.user] : [] } })
-        if (args.name === 'createTrip') return Promise.resolve({ result: { success: true, id: 'test-only' } })
         throw new Error(`Unexpected call ${args.name}`)
       } }
     }
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])) }; static now() { return now } }
   vm.runInNewContext(fs.readFileSync(path.join(root, 'pages/home/newTrip/newTrip.js'), 'utf8'), {
-    wx, Page: value => { definition = value }, console: { log() {}, error() {} },
+    wx, Date: Clock, Page: value => { definition = value }, console: { log() {}, error() {} },
     setTimeout() {}, clearTimeout() {},
     require(name) {
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
-      if (name.endsWith('/compat/ridePublish')) return require('../utils/compat/ridePublish').createRidePublishClient({ wx, backend: { isBackendEnabled: () => false } })
+      if (name.endsWith('/compat/ridePublish')) {
+        const publish = require('../utils/compat/ridePublish')
+        return { ...publish, ...publish.createRidePublishClient({ wx, now: () => now, backend: { isBackendEnabled: () => true,
+          retryPending: async () => null, async mutate(scope, method, route, body, options) {
+            assert.equal(scope, 'rides.create'); assert.equal(method, 'POST'); assert.equal(route, '/api/v1/rides')
+            state.writes.push(plain(body))
+            const receipt = { rideId: '00000000-0000-4000-8000-000000000001', version: 1, status: 'open', changed: true }
+            assert.equal(options.validate(receipt), true); return receipt
+          } } }), toRideInput: draft => publish.toRideInput(draft, now) }
+      }
       if (name.endsWith('/placePickerTelemetry')) return { closePlacePicker() {} }
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale() {} }
@@ -45,6 +55,8 @@ function fixture() {
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
   page.data.departureAddress = 'Fort Lee'
   page.data.destinationAddress = '哥大'
+  page.data.departureDate = '2030-01-16'
+  page.data.departureTime = '15:00'
   return { page, state }
 }
 
@@ -110,25 +122,28 @@ test('saved templates retain price and comment but cannot override the profile Z
     await page.loadUserInfo()
     page.setData({ templatesExpanded: true, templates: [{ _id: 'template', departureAddress: 'Fort Lee', destinationAddress: '哥大', referencePrice: '11$/人', zelle: enabled ? 'no' : 'yes', comment: 'Template note', weekdayIndex: 1, passengerCount: 3 }] })
     page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
-    assert.equal(page.data.referencePrice, '11')
+    assert.equal(page.data.referencePrice, '11$/人')
     assert.equal(page.data.showZelle, enabled)
     assert.equal(page.data.commentExpanded, true)
     assert.equal(page.data.templatesExpanded, false)
     await page.loadUserInfo()
-    assert.equal(page.data.referencePrice, '11')
+    assert.equal(page.data.referencePrice, '11$/人')
   }
 })
 
-test('publishing snapshots the explicit Zelle choice and fare without rewriting profile defaults or vehicles', async () => {
+test('server publishing preserves the listed fare and leaves vehicle/payment preferences in the profile', async () => {
   for (const enabled of [true, false]) {
     const { page, state } = fixture()
     state.user = profile({ defaultShowZelle: enabled })
     await page.loadUserInfo()
     page.onReferencePriceInput({ detail: { value: '8.50' } })
     await page.driver_submitTrip()
-    const payload = state.calls.find(call => call.name === 'createTrip').data
-    assert.equal(payload.zelle, enabled ? 'yes' : 'no')
-    assert.equal(payload.referencePrice, '8.50$/人')
+    assert.equal(state.writes.length, 1)
+    const payload = state.writes[0]
+    assert.equal(payload.listedPriceLabel, '8.50'); assert.equal(payload.listedPriceCents, 850)
+    assert.equal(payload.kind, 'offer'); assert.equal(payload.stops[0].departureAt, '2030-01-16T20:00:00.000Z')
+    assert.equal('zelle' in payload, false); assert.equal('showZelle' in payload, false)
+    assert.equal(state.user.defaultShowZelle, enabled); assert.equal(page.data.showZelle, enabled)
     assert.equal('customPrice' in payload, false)
     assert.equal('carNumber' in payload, false)
     assert.equal('carBrand' in payload, false)

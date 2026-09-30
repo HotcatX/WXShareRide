@@ -20,6 +20,16 @@ function clientHarness(server = true) {
   return { state, wx, backend, api: createRideTemplateClient({ wx, backend }) }
 }
 
+test('retired authority cannot start template reads, writes or pending recovery through any old transport', async () => {
+  const h = clientHarness(false)
+  h.backend.cloudRead = h.backend.cloudMutate = h.backend.retryCloudPending = () => assert.fail('retired source must not be called')
+  for (const action of [() => h.api.loadRideTemplates(), () => h.api.getRideTemplate(id), () => h.api.saveRideTemplate(form()),
+    () => h.api.deleteRideTemplate(id), () => h.api.recoverRideTemplate(id)]) {
+    await assert.rejects(action(), { code: 'BACKEND_DISABLED' })
+  }
+  assert.deepEqual(h.state.requests, []); assert.deepEqual(h.state.writes, []); assert.equal(h.state.cloud, 0)
+})
+
 test('template reads use real owner endpoint pagination; malformed pages, foreign IDs and changed accounts fail closed', async () => {
   const h = clientHarness()
   h.state.get = async route => route.includes('page=1&') ? { items: Array.from({ length: 100 }, (_, i) => row({ id: idAt(i + 1) })), page: 1, limit: 100, hasMore: true }

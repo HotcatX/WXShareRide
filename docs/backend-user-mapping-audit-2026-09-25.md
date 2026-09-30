@@ -70,14 +70,14 @@
 | 写入口 | 更新时间行为 | 推论 |
 | --- | --- | --- |
 | [login](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/login/index.js) | 新资料 createdTime/updateTime；已有资料仅在补 status/referralCode 时实际提交 updateTime | 不是每次登录都会刷新，更不是 lastLogin |
-| [updateUser](../cloudfunctions/updateUser/index.js) | 资料、常用备注写 updateTime | updateTime 可以表示资料修改，但不是专用资料版本号 |
-| [createTrip](../cloudfunctions/createTrip/index.js)、[joinTrip](../cloudfunctions/joinTrip/index.js)、[syncMyTripStatus](../cloudfunctions/syncMyTripStatus/index.js) | 角色/行程索引也写 updateTime | 较新的 updateTime 可能只是行程关系变化 |
-| [tripManage](../cloudfunctions/tripManage/index.js) 接单 | 写 updatedAt；新建时 createdAt/updatedAt | updatedAt 与 updateTime 都可能是真实较新的行级写时间 |
+| [updateUser](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/updateUser/index.js) | 资料、常用备注写 updateTime | updateTime 可以表示资料修改，但不是专用资料版本号 |
+| [createTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/createTrip/index.js)、[joinTrip](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js)、[syncMyTripStatus](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/syncMyTripStatus/index.js) | 角色/行程索引也写 updateTime | 较新的 updateTime 可能只是行程关系变化 |
+| [tripManage](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/tripManage/index.js) 接单 | 写 updatedAt；新建时 createdAt/updatedAt | updatedAt 与 updateTime 都可能是真实较新的行级写时间 |
 | tripManage 退出/剔除、评分汇总 | 部分路径同时写两者 | 两个字段不同不能简单认定有一个错误 |
 | [referralApi](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/referralApi/index.js) | 补邀请码或绑定资料写 updateTime | 非资料编辑也会刷新 |
 | [marketApi.upsertUserRegion](../cloudfunctions/marketApi/index.js) | 写 bigregionUpdatedAt，未同步更新前两者 | 29 条有该时间，其中 7 条晚于前两者最大值 |
 | [常用地点页](../pages/home/CarpoolTemplateList/CarpoolTemplateList.js) | addToSet/pull 写 pickupSpot/dropoffSpot，不更新时间 | 即使取三个字段的最大值也不能保证捕获全部最后写入 |
-| [rideCompletion](../cloudfunctions/syncMyTripStatus/rideCompletion.js) | 写完成事实键与计数，不更新用户两个时间 | 不能拿用户行更新时间给每个字段排序 |
+| [rideCompletion](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/syncMyTripStatus/rideCompletion.js) | 写完成事实键与计数，不更新用户两个时间 | 不能拿用户行更新时间给每个字段排序 |
 
 建议采用一个清晰口径：有明确记录时，canonical `updated_at` 取已验证的行级写时间 `max(updatedAt,updateTime,bigregionUpdatedAt)`，含义是**最后已记录修改时间**；保留原始值及所用规则的来源证据，不新增 profile 内的时间别名。嵌套 location 的地理来源时间不自动加入此最大值，它可能表示采集时间而非用户行修改时间。
 
@@ -87,7 +87,7 @@
 
 ## 缺失加入时间的证据边界
 
-全部 3,733 条供车、188 条求车都有有效创建时间；供车只有 1 条缺更新时间。供车 4,973 个乘客对象全部有有效 joinedAt，来自 [joinTrip 的乘客对象写入](../cloudfunctions/joinTrip/index.js)。创建者/供车司机的初始成员关系可按创建动作的时间建立，不能套用到后来加入者。
+全部 3,733 条供车、188 条求车都有有效创建时间；供车只有 1 条缺更新时间。供车 4,973 个乘客对象全部有有效 joinedAt，来自 [joinTrip 的乘客对象写入](https://github.com/HotcatX/WXShareRide/blob/a82f73b/cloudfunctions/joinTrip/index.js)。创建者/供车司机的初始成员关系可按创建动作的时间建立，不能套用到后来加入者。
 
 | 当前缺加入时间的求车关系 | 额外乘客 | 接单司机 |
 | --- | ---: | ---: |

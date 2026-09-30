@@ -10,6 +10,9 @@ class ClockDate extends Date {
   static now() { return now }
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
+const publishedId = '00000000-0000-4000-8000-000000000001'
+const receipt = { rideId: publishedId, version: 1, status: 'open', changed: true }
+const tick = () => new Promise(resolve => setImmediate(resolve))
 const route = extra => ({ _id: 'template', departureAddress: 'Fort Lee', destinationAddress: '哥大',
   departureDate: '2026-09-15', departureTime: '18:00', passengerCount: 4, referencePrice: '8$/人', comment: 'Meet at campus', cityKey: 'ny_nj', ...extra })
 
@@ -25,31 +28,31 @@ function fixture(clock = now) {
       getStorageSync: key => key === 'openid' ? state.openid : '', setStorageSync() {},
       showToast: value => state.toasts.push(value), showModal: value => state.modals.push(value),
       navigateTo: value => state.navigation.push(value), reLaunch: value => state.navigation.push(value),
-      cloud: {
-        database() { return { collection(name) {
-          assert.equal(name, 'CarpoolTemplate')
-          const query = { where() { return query }, orderBy() { return query }, skip() { return query }, limit() { return query },
-            get() { state.templateReads++; return state.templateResponse || Promise.resolve({ data: state.templates }) } }
-          return query
-        } } },
-        callFunction(args) {
-          assert.equal(args.name, 'createTrip')
-          state.createCalls.push(plain(args))
-          return state.createResponse || Promise.resolve({ result: { success: true, id: 'trip-created' } })
-        }
-      }
+      cloud: { database() { throw Error('unexpected CloudBase database') }, callFunction() { throw Error('unexpected CloudBase function') } }
     }
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/home/newTrip/newTrip.js'), 'utf8'), {
     wx, Page: value => { definition = value }, Date: FixtureDate,
     console: { log() {}, error() {} }, setTimeout: fn => state.timers.push(fn), clearTimeout() {},
     require(name) {
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
-      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false, async cloudRead(action, body) {
-        assert.equal(action, 'templates.list'); assert.equal(body.page, 1); state.templateReads++
+      if (name.endsWith('/compat/rideTemplates')) return { async loadRideTemplates() {
+        state.templateReads++
         const result = state.templateResponse ? await state.templateResponse : { data: state.templates }
-        return { items: result.data.map(row => ({ ...row, _openid: state.openid })), page: 1 }
-      } } })
-      if (name.endsWith('/compat/ridePublish')) return require('../utils/compat/ridePublish').createRidePublishClient({ wx, backend: { isBackendEnabled: () => false } })
+        return result.data
+      } }
+      if (name.endsWith('/compat/ridePublish')) {
+        const publish = require('../utils/compat/ridePublish')
+        return { ...publish, ...publish.createRidePublishClient({ wx, now: () => clock, backend: {
+          isBackendEnabled: () => true, retryPending: async () => null,
+          async mutate(scope, method, route, body, options) {
+            assert.equal(scope, 'rides.create'); assert.equal(method, 'POST'); assert.equal(route, '/api/v1/rides')
+            state.createCalls.push({ scope, method, route, data: plain(body) })
+            const result = state.createResponse ? await state.createResponse : receipt
+            if (!options.validate(result)) throw Error('invalid receipt')
+            return result
+          }
+        } }), toRideInput: draft => publish.toRideInput(draft, clock) }
+      }
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale: () => state.stale++ }
@@ -80,7 +83,7 @@ test('template replaces a stale draft date with its weekday and advances an elap
   page.onTemplateTap({ currentTarget: { dataset: { id: 'template' } } })
   assert.equal(page.data.departureDate, '2026-09-22')
   assert.equal(page.data.departureTime, '15:00')
-  assert.equal(page.data.referencePrice, '8')
+  assert.equal(page.data.referencePrice, '8$/人')
   assert.equal(page.data.passengerCountInput, '4')
   assert.equal(page.data.comment, 'Meet at campus')
   assert.equal(page.data.showZelle, true)
@@ -146,14 +149,15 @@ test('confirmed snapshot cannot change during the modal/request and successful p
   state.modals[0].success({ confirm: true })
   page.driver_confirmTrip()
   await page.driver_submitTrip()
+  await tick()
   assert.equal(state.createCalls.length, 1)
-  assert.equal(state.createCalls[0].data.destinations[0].address, '哥大')
-  assert.equal(state.createCalls[0].data.referencePrice, '8$/人')
-  response.resolve({ result: { success: true, id: 'published' } })
+  assert.equal(state.createCalls[0].data.stops[1].address, '哥大')
+  assert.equal(state.createCalls[0].data.listedPriceLabel, '8$/人')
+  response.resolve(receipt)
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(page.data.publishedRide.id, 'published')
+  assert.equal(page.data.publishedRide.id, publishedId)
   assert.equal(page.data.publishedRide.destinationAddress, '哥大')
-  assert.equal(page.data.publishedRide.referencePrice, '8')
+  assert.equal(page.data.publishedRide.referencePrice, '8$/人')
   assert.equal(state.timers.length, 0)
   assert.equal(state.navigation.length, 0)
   page.driver_confirmTrip()
@@ -170,7 +174,7 @@ test('return trip swaps snapshot, clears time, requires a later departure, and p
   assert.equal(page.data.departureDate, '2026-09-22')
   assert.equal(page.data.departureTime, '')
   assert.equal(page.data.passengerCountInput, '4')
-  assert.equal(page.data.referencePrice, '8')
+  assert.equal(page.data.referencePrice, '8$/人')
   assert.equal(page.data.preparingReturn, true)
   assert.equal(state.createCalls.length, 1)
   page.setData({ departureTime: '17:30' })
@@ -184,20 +188,20 @@ test('return trip swaps snapshot, clears time, requires a later departure, and p
   state.modals[0].success({ confirm: true })
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(state.createCalls.length, 2)
-  assert.equal(state.createCalls[1].data.departures[0].address, '哥大')
-  assert.equal(state.createCalls[1].data.departures[0].date, '2026-09-23')
+  assert.equal(state.createCalls[1].data.stops[0].address, '哥大')
+  assert.equal(state.createCalls[1].data.stops[0].departureAt, '2026-09-23T12:00:00.000Z')
   assert.equal(page.data.preparingReturn, false)
 })
 
 test('failed publication can retry while successful publication prevents a duplicate retry', async () => {
   const { page, state } = fixture()
-  state.createResponse = Promise.resolve({ result: { success: false } })
+  state.createResponse = Promise.resolve({ changed: false })
   await page.driver_submitTrip()
   assert.equal(state.createCalls.length, 1)
   assert.equal(page.data.publishedRide, null)
-  state.createResponse = Promise.resolve({ result: { success: true, id: 'retry-success' } })
+  state.createResponse = Promise.resolve(receipt)
   await page.driver_submitTrip()
-  assert.equal(page.data.publishedRide.id, 'retry-success')
+  assert.equal(page.data.publishedRide.id, publishedId)
   assert.equal(page.data.submitting, false)
   await page.driver_submitTrip()
   assert.equal(state.createCalls.length, 2)
@@ -227,8 +231,9 @@ test('a successful publication from a previous account never shows the next acco
   const response = deferred()
   state.createResponse = response.promise
   const pending = page.driver_submitTrip()
+  await tick()
   state.openid = 'other-driver'
-  response.resolve({ result: { success: true, id: 'old-account-trip' } })
+  response.resolve(receipt)
   await pending
   assert.equal(page.data.publishedRide, null)
   assert.equal(state.createCalls.length, 1)

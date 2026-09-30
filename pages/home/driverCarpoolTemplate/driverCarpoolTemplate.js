@@ -74,7 +74,7 @@ Page({
 
       // 安全：只允许编辑自己的模板（避免被别人 id 猜到）
       const myOpenid = wx.getStorageSync('openid') || ''
-      if (myOpenid && tpl._openid && tpl._openid !== myOpenid) {
+      if (!myOpenid || tpl._ownerAccount !== myOpenid) {
         wx.showToast({ title: '无权限编辑该模板', icon: 'none' })
         return
       }
@@ -94,10 +94,7 @@ Page({
         passengerCountInput: String(seat),
 
         referencePrice: tpl.referencePrice || '',
-        comment: tpl.comment || '',
-
-        // 模板存的是 zelle: "yes"/"no"
-        ...(!profileApi.isBackendEnabled() ? { showZelle: tpl.zelle === 'yes' } : {})
+        comment: tpl.comment || ''
       })
     } catch (e) {
       if (!this.isCurrentAccount(account) || revision !== this._detailRevision) return
@@ -402,17 +399,9 @@ Page({
         weekdayText,              // "周一"...
         departureTime,            // "HH:mm"
 
-        passengerCount: profileApi.isBackendEnabled() ? passengerCount : this.safeSeat(passengerCount),
+        passengerCount,
         referencePrice,
-        comment: comment || "",
-
-        // 车辆信息（模板里也存一份，后续一键带出）
-        carNumber,
-        carBrand,
-        carModel,
-
-        // Zelle
-        zelle: showZelle ? "yes" : "no"
+        comment: comment || ""
       }
 
       const saved = await templatesApi.saveRideTemplate(payload, { id: editMode ? templateId : undefined, previous: this._loadedTemplate })

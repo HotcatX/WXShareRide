@@ -48,25 +48,24 @@ function templateHarness() {
   const wx = {
     getStorageSync: key => key === 'openid' ? 'driver-1' : false, showToast() {}, navigateBack() {},
     showModal: async () => state.modalResult,
-    cloud: { database: () => ({
-      serverDate: () => 'server-date',
-      collection: () => ({
-        doc: () => ({
-          get: async () => ({ data: state.template }),
-          update: async ({ data }) => { saved.push(data); return { stats: { updated: 1 } } }
-        }),
-        add: async ({ data }) => { saved.push(data); return { _id: 'saved-template' } }
-      })
-    }) }
+    cloud: { database() { throw Error('template must not access CloudBase') } }
   }
   vm.runInNewContext(fs.readFileSync(sourcePath, 'utf8'), {
     Page: page => { definition = page }, wx, console,
     setTimeout() {},
     require(name) {
-      if (name.endsWith('/compat/rideTemplates')) return require('../utils/compat/rideTemplates').createRideTemplateClient({ wx, backend: { isBackendEnabled: () => false,
-        async cloudRead(action, body) { assert.equal(action, 'templates.get'); return { ...state.template, _id: body.id, _openid: 'driver-1' } },
-        async cloudMutate(scope, action, body) { assert.ok(['templates.create', 'templates.update'].includes(action)); saved.push(body.form); return { ...body.form, _id: body.id || 'saved-template', _openid: 'driver-1' } }
-      } })
+      if (name.endsWith('/compat/rideTemplates')) {
+        const templates = require('../utils/compat/rideTemplates'), id = '00000000-0000-4000-8000-000000000001'
+        return templates.createRideTemplateClient({ wx, backend: { isBackendEnabled: () => true, retryCloudPending: async () => null,
+          async get(route) {
+            assert.equal(route, '/api/v1/templates?page=1&limit=100')
+            return { items: [{ id, ...templates.toTemplateInput({ templateName: 'Saved route', departureTime: '15:00', comment: '', ...state.template }) }], page: 1, limit: 100, hasMore: false }
+          },
+          async mutate(scope, method, route, body) {
+            assert.equal(method, 'POST'); assert.equal(route, '/api/v1/templates'); saved.push(body); return { id, ...body }
+          }
+        } })
+      }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/error')) return { showDataError() {} }
       if (name.endsWith('/userProfileUpdate')) return { callUpdateUser: async payload => { profileUpdates.push(payload) } }
@@ -101,11 +100,14 @@ test('saved template price remains explicit and saving it does not overwrite per
     _openid: 'driver-1', departureAddress: 'Fort Lee', destinationAddress: '哥大',
     referencePrice: '17$/人', passengerCount: 3, weekdayIndex: 0, weekdayText: '周一'
   }
-  await page.loadTemplateDetail('tpl-1')
+  await page.loadTemplateDetail('00000000-0000-4000-8000-000000000001')
   assert.equal(page.data.referencePrice, '17$/人')
   page.data.userInfo = { customPrice: { fortLeeCore: '9' } }
   await page.submitTemplate('Monday route')
-  assert.equal(saved[0].referencePrice, '17$/人')
+  assert.equal(saved[0].definition.listedPriceLabel, '17$/人')
+  assert.equal(saved[0].definition.listedPriceCents, 1700)
+  assert.equal('zelle' in saved[0].definition, false)
+  assert.equal('carNumber' in saved[0].definition, false)
   assert.equal(profileUpdates.length, 1)
   assert.equal(Object.hasOwn(profileUpdates[0], 'customPrice'), false)
   assert.equal(page.data.userInfo.customPrice.fortLeeCore, '9')

@@ -1,5 +1,5 @@
-// Temporary CloudBase boundary. The selected backend is used for the entire
-// operation; an HTTP failure never reads or writes the old database.
+// Current templates use the server API. Historical pending acknowledgements
+// retain their original key and resolve through the same PostgreSQL backend.
 const backend = require('../backendClient')
 const { resolvePlaceId } = require('../placeCatalog')
 const { templateId } = require('./templateIdentity.generated.js')
@@ -103,6 +103,7 @@ function matchingTemplate(action, id) {
 function createRideTemplateClient(options = {}) {
   const api = options.backend || backend, platform = options.wx || (typeof wx !== 'undefined' ? wx : null)
   const owner = () => {
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const value = !platform.getStorageSync('isGuest') && platform.getStorageSync('openid')
     if (typeof value !== 'string' || !value) throw fail('UNAUTHORIZED', '请先登录')
     return value
@@ -110,20 +111,6 @@ function createRideTemplateClient(options = {}) {
   const current = account => { if (owner() !== account) throw fail('REQUEST_CANCELLED', '当前操作已取消') }
   async function loadRideTemplates() {
     const account = owner(), all = [], seen = new Set()
-    if (!api.isBackendEnabled()) {
-      // TEMPORARY FALLBACK: selected CloudBase mode only.
-      for (let page = 1; page <= 1000; page++) {
-        const result = await api.cloudRead('templates.list', { page })
-        current(account)
-        if (!result || result.page !== page || !Array.isArray(result.items) || result.items.length > 100) throw invalid()
-        for (const row of result.items) {
-          if (!row || typeof row._id !== 'string' || row._openid !== account || seen.has(row._id)) throw invalid()
-          seen.add(row._id); all.push(row)
-        }
-        if (result.items.length < 100) return all
-      }
-      throw invalid()
-    }
     for (let page = 1; page <= 1000; page++) {
       const data = await api.get(`/api/v1/templates?page=${page}&limit=100`)
       current(account)
@@ -140,25 +127,15 @@ function createRideTemplateClient(options = {}) {
   }
   async function getRideTemplate(id) {
     const account = owner()
-    if (api.isBackendEnabled()) {
-      if (!uuid(id)) throw invalid()
-      const found = (await loadRideTemplates()).find(t => t._id === id)
-      if (!found) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
-      return found
-    }
-    const row = await api.cloudRead('templates.get', { id })
+    if (!uuid(id)) throw invalid()
+    const found = (await loadRideTemplates()).find(t => t._id === id)
     current(account)
-    if (!row || row._id !== id || row._openid !== account) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
-    return row
+    if (!found) throw fail('TEMPLATE_NOT_FOUND', '未找到该模板')
+    return found
   }
 
   async function saveRideTemplate(form, { id, previous } = {}) {
     const account = owner()
-    if (!api.isBackendEnabled()) {
-      const row = await api.cloudMutate(id ? `templates.update:${id}` : 'templates.create', id ? 'templates.update' : 'templates.create',
-        { ...(id ? { id } : {}), form }, { validate: row => validLegacyReceipt(row, account, id) })
-      current(account); return row
-    }
     const recovered = await recoverCloudTemplate(id)
     if (recovered) return recovered
     if (id && (!uuid(id) || previous?._id !== id || previous?._ownerAccount !== account || !previous.backendTemplate)) throw invalid()
@@ -176,11 +153,6 @@ function createRideTemplateClient(options = {}) {
   }
   async function recoverRideTemplate(id) {
     const account = owner()
-    if (!api.isBackendEnabled()) {
-      const row = await api.retryCloudPending(id ? `templates.update:${id}` : 'templates.create',
-        { validate: row => validLegacyReceipt(row, account, id) })
-      current(account); return row
-    }
     const cloud = await recoverCloudTemplate(id)
     if (cloud) return cloud
     if (id && !uuid(id)) throw invalid()
@@ -192,16 +164,13 @@ function createRideTemplateClient(options = {}) {
   }
   async function deleteRideTemplate(id) {
     const account = owner()
-    if (api.isBackendEnabled()) {
-      const recovered = await api.retryCloudPending(`templates.delete:${id}`,
-        { ifPresent: true, match: matchingTemplate('templates.delete', id), validate: row => object(row) && sameTemplate(row.id, id) && row.deleted === true })
-      current(account)
-      if (recovered) return { ...recovered, recovered: true }
-      if (!uuid(id)) throw invalid()
-      const result = await api.mutate(`templates.delete:${id}`, 'DELETE', `/api/v1/templates/${id}`, {}, { validate: row => object(row) && row.id === id && row.deleted === true })
-      if (!object(result) || result.id !== id || result.deleted !== true) throw invalid()
-    } else await api.cloudMutate(`templates.delete:${id}`, 'templates.delete', { id },
-      { validate: row => object(row) && row.id === id && row.deleted === true }) // TEMPORARY CloudBase writer.
+    const recovered = await api.retryCloudPending(`templates.delete:${id}`,
+      { ifPresent: true, match: matchingTemplate('templates.delete', id), validate: row => object(row) && sameTemplate(row.id, id) && row.deleted === true })
+    current(account)
+    if (recovered) return { ...recovered, recovered: true }
+    if (!uuid(id)) throw invalid()
+    const result = await api.mutate(`templates.delete:${id}`, 'DELETE', `/api/v1/templates/${id}`, {}, { validate: row => object(row) && row.id === id && row.deleted === true })
+    if (!object(result) || result.id !== id || result.deleted !== true) throw invalid()
     current(account)
   }
   async function recoverCloudTemplate(id) {

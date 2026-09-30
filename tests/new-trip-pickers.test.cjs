@@ -53,17 +53,6 @@ function harness() {
       },
       database() {
         return { RegExp: ({ regexp, options }) => new RegExp(regexp, options), collection(name) {
-          if (name === 'Request_Price') return { where(condition) {
-            let limit = 20
-            return {
-              limit(value) { limit = value; return this },
-              get() {
-                state.priceReads.push({ condition, limit })
-                const matches = row => Object.entries(condition).every(([key, value]) => typeof value?.test === 'function' ? value.test(row[key]) : row[key] === value)
-                return Promise.resolve({ data: state.priceRows.filter(matches).slice(0, limit).map(plain) })
-              }
-            }
-          } }
           assert.ok(['Departure', 'Arrival'].includes(name), 'both modes read the same existing address configuration')
           return { get() {
             state.addressReads.push(name)
@@ -94,6 +83,10 @@ function harness() {
         return queue?.length ? queue.shift().promise : placeResponse([data.field === 'departure' ? '公共出发站' : '公共到达站'])
       }
     }
+    if (absolute === path.join(ROOT, 'utils/locationConfig.js')) return { loadLocationConfig: async () => {
+      state.priceReads.push('/api/v1/locations/catalog')
+      return { requestPrices: plain(state.priceRows) }
+    } }
     if (absolute === path.join(ROOT, 'utils/cloudConfig.js')) return { loadPublicConfigDoc: async () => null }
     if (absolute === path.join(ROOT, 'utils/error.js')) return { showDataError: (...args) => state.errors.push(args) }
     if (modules.has(absolute)) return modules.get(absolute).exports
@@ -438,22 +431,22 @@ test('expired fixed configuration refreshes underlying data while the open panel
   assert.equal(state.addressReads.length, 4)
 })
 
-test('short airport labels resolve existing passenger price rows with one query and prefer an exact configured pair', async () => {
+test('short airport labels resolve the server passenger price catalog with one read and prefer an exact configured pair', async () => {
   for (const [selected, saved] of [['EWR 机场', '纽瓦克'], ['JFK', 'JFK 机场'], ['拉瓜迪亚', 'La Guardia Airport'], ['法拉盛', 'Flushing']]) {
     const { page, start, state, readPassengerPrice } = harness()
     await start('passenger')
     Object.assign(page.data, { departureAddress: selected, destinationAddress: '哥大' })
     state.priceRows = [
-      { Departure: saved + ' Terminal C', Destination: '哥大', Price: 999 },
-      { Departure: saved, Destination: '哥大', Price: 32 }
+      { fromAddress: saved + ' Terminal C', toAddress: '哥大', label: 999 },
+      { fromAddress: saved, toAddress: '哥大', label: 32 }
     ]
     await readPassengerPrice()
     assert.equal(String(page.data.referencePrice), '32', selected)
     assert.equal(state.priceReads.length, 1)
-    state.priceRows.push({ Departure: selected, Destination: '哥大', Price: 28 })
+    state.priceRows.push({ fromAddress: selected, toAddress: '哥大', label: 28 })
     await readPassengerPrice()
     assert.equal(String(page.data.referencePrice), '28', 'exact selected pair takes precedence over legacy spelling')
-    assert.equal(state.priceReads.length, 2, 'each price update makes only one query')
+    assert.equal(state.priceReads.length, 2, 'each price update reads the catalog once')
   }
 })
 
@@ -461,15 +454,14 @@ test('airport price alias matching works in either direction and does not broade
   const { page, start, state, readPassengerPrice } = harness()
   await start('passenger')
   Object.assign(page.data, { departureAddress: '哥大', destinationAddress: 'EWR 机场' })
-  state.priceRows = [{ Departure: '哥大', Destination: 'Newark Liberty International Airport', Price: 45 }]
+  state.priceRows = [{ fromAddress: '哥大', toAddress: 'Newark Liberty International Airport', label: 45 }]
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '45')
   page.data.destinationAddress = 'EWR Terminal C'
   await readPassengerPrice()
   assert.equal(page.data.referencePrice, '参考打车价格')
-  assert.equal(state.priceReads.at(-1).condition.Destination, 'EWR Terminal C')
-  assert.equal(state.priceReads.at(-1).limit, 1)
-  state.priceRows.push({ Departure: '哥大', Destination: 'EWR Terminal C', Price: 51 })
+  assert.equal(state.priceReads.at(-1), '/api/v1/locations/catalog')
+  state.priceRows.push({ fromAddress: '哥大', toAddress: 'EWR Terminal C', label: 51 })
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '51')
   assert.equal(state.priceReads.length, 3)
@@ -480,11 +472,10 @@ test('Fort Lee core and whole-area passenger prices retain their original exact 
   await start('passenger')
   Object.assign(page.data, { departureAddress: 'Fort Lee 核心区', destinationAddress: '哥大' })
   state.priceRows = [
-    { Departure: 'Fort Lee 全区域', Destination: '哥大', Price: 15 },
-    { Departure: 'Fort Lee 核心区', Destination: '哥大', Price: 10 }
+    { fromAddress: 'Fort Lee 全区域', toAddress: '哥大', label: 15 },
+    { fromAddress: 'Fort Lee 核心区', toAddress: '哥大', label: 10 }
   ]
   await readPassengerPrice()
   assert.equal(String(page.data.referencePrice), '10')
-  assert.deepEqual(plain(state.priceReads[0].condition), { Departure: 'Fort Lee 核心区', Destination: '哥大' })
-  assert.equal(state.priceReads[0].limit, 1)
+  assert.deepEqual(state.priceReads, ['/api/v1/locations/catalog'])
 })

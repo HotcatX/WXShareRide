@@ -110,6 +110,18 @@ test('server quote transport errors are visible and never read Request_Price fro
   await assert.rejects(api.loadRequestPrice('Fort Lee', '哥大'), /offline/); assert.equal(cloud, 0)
 })
 
+test('retired authority and unresolved readiness cannot publish or discard an earlier intent', async () => {
+  for (const code of ['BACKEND_DISABLED', 'BACKEND_NOT_READY']) {
+    const api = publish.createRidePublishClient({ wx: { getStorageSync: key => key === 'openid' ? 'owner' : false,
+      cloud: { callFunction() { assert.fail('old writer must not be called') } } }, backend: {
+      isBackendEnabled() { if (code === 'BACKEND_NOT_READY') throw Object.assign(Error(code), { code }); return false },
+      retryPending() { assert.fail('pending state must not be touched') }, mutate() { assert.fail('must not publish') }
+    } })
+    await assert.rejects(api.publishRide({ openid: 'owner' }), { code })
+    await assert.rejects(api.recoverPublishedRide(), { code })
+  }
+})
+
 
 test('a changed account can edit again after the previous publish recovery finishes', async () => {
   const { page, state } = fixture(), blocked = deferred()

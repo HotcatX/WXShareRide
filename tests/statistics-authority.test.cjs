@@ -1,9 +1,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
-const { readServerStats, createPublicStatsReader, ENDPOINT } = require('../cloudfunctions/statistics/provider')
+const { readServerStats, ENDPOINT } = require('../cloudfunctions/statistics/provider')
 const { createStatisticsHandler } = require('../cloudfunctions/statistics/handler')
-const { makeRelay, createLegacyTimer } = require('../cloudfunctions/syncPublicStatsReplica/relay')
 const authority = require('../cloudfunctions/backend/authority')
 
 function transport(body, status = 200, headers = {}) {
@@ -41,45 +40,17 @@ test('server public-statistics reader projects only canonical public values and 
   }
 })
 
-test('an unavailable server or invalid authority never triggers a read from the old database', async () => {
-  let oldReads = 0, serverReads = 0
-  const dependencies = { readCloudStats: async () => { oldReads++; return { servedTrips: 1 } },
-    readServer: async () => { serverReads++; throw Error('server unavailable') } }
-  assert.deepEqual(await createPublicStatsReader({ ...dependencies, authority: 'cloudbase' })(), { servedTrips: 1 })
-  await assert.rejects(createPublicStatsReader({ ...dependencies, authority: 'server' })())
-  await assert.rejects(createPublicStatsReader({ ...dependencies, authority: 'invalid' })())
-  assert.equal(oldReads, 1); assert.equal(serverReads, 1)
-})
-
-test('after handoff authenticated legacy timers retire without publishing stale cloud snapshots', async () => {
-  const key = Buffer.alloc(32, 7), now = Date.now()
-  let reads = 0, writes = 0
-  for (const mode of ['server', 'invalid']) {
-    const run = createStatisticsHandler({ authority: mode, getSyncKey: () => key, now: () => now,
+test('only explicit server authority permits public reads or account dispatch', async () => {
+  let reads = 0, accounts = 0
+  for (const authority of [undefined, null, '', 'cloudbase', 'invalid']) {
+    const run = createStatisticsHandler({ authority,
       readPublicStats: async () => { reads++; return {} },
-      send: async () => { writes++ }, synchronizePlaces: async () => { writes++ }, getContext: value => value })
-    for (const [event, context] of [
-      [{ Type: 'Timer', TriggerName: 'publicStatsHourly' }, { SOURCE: 'wx_trigger' }],
-      [{ action: 'publicStatsHourlyTimer', Type: 'Timer', TriggerName: 'publicStatsHourly' }, { SOURCE: 'wx_trigger' }],
-      [{ Type: 'Timer', TriggerName: 'placeBusinessFiveMinutes' }, { SOURCE: 'wx_trigger' }],
-      [makeRelay(key, now), { SOURCE: 'scf' }],
-    ]) {
-      assert.deepEqual(await run(event, context), mode === 'server'
-        ? { ok: true, skipped: 'AUTHORITY_MOVED' } : { ok: false, error: 'AUTHORITY_UNAVAILABLE' })
-      assert.equal((await run(event, { SOURCE: 'wx_client', OPENID: 'caller' })).ok, false)
+      account: async () => { accounts++; return {} } })
+    assert.deepEqual(await run({ action: 'publicStats' }), { success: false,
+      errorMsg: 'PUBLIC_STATS_UNAVAILABLE', data: { _id: 'home', servedTrips: null, coverageText: 'N/A' } })
+    for (const action of ['status', 'activate', 'withdraw', 'placeBusinessTimer', 'legacyPublicStatsTimer']) {
+      assert.deepEqual(await run({ action }), { ok: false, error: 'AUTHORITY_UNAVAILABLE', statusCode: 503 })
     }
   }
-  assert.equal(reads, 0); assert.equal(writes, 0)
-})
-
-test('legacy relay accepts exactly the retired acknowledgement without inventing a snapshot timestamp', async () => {
-  const dependencies = { getKey: () => Buffer.alloc(32, 7), getContext: value => value }
-  const event = { Type: 'Timer', TriggerName: 'publicStatsHourly' }, context = { SOURCE: 'wx_trigger' }
-  const stopped = { ok: true, skipped: 'AUTHORITY_MOVED' }
-  assert.deepEqual(await createLegacyTimer({ ...dependencies, invoke: async () => ({ result: stopped }) })(event, context), stopped)
-  for (const result of [{ ok: false, skipped: 'AUTHORITY_MOVED' }, { ok: true, skipped: 'unknown' },
-    { ...stopped, extra: true }]) {
-    await assert.rejects(createLegacyTimer({ ...dependencies, invoke: async () => ({ result }) })(event, context),
-      /^Error: PUBLIC_STATS_SYNC_FAILED$/)
-  }
+  assert.equal(reads, 0); assert.equal(accounts, 0)
 })

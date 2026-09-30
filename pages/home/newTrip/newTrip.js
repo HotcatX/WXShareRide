@@ -9,12 +9,7 @@ const { shortRidePlaceLabel, resolvePlaceId } = require("../../../utils/ridePlac
 const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const placeRecommendations = require("../../../utils/placeRecommendations")
 const placePickerTelemetry = require("../../../utils/placePickerTelemetry")
-const {
-  markRideListStale,
-  normalizeRidePriceInput,
-  extractRidePriceNumber,
-  formatRidePricePerPerson
-} = require("../../../utils/tripManage")
+const { markRideListStale } = require("../../../utils/tripManage")
 const {
   DEFAULT_CITY_KEY,
   RIDE_CITY_STORAGE_KEY,
@@ -45,7 +40,6 @@ Page({
     // ====== 顶部/通用 ======
     statusBarHeight: 80,
     pageTitle: "新建路线",
-    serverMode: false,
     templateRouteSummary: "",
     mode: "driver", // 默认司机
 
@@ -100,7 +94,7 @@ Page({
     this._pageIdentity = profileApi.identity()
     const info = typeof wx.getWindowInfo === "function" ? wx.getWindowInfo() : wx.getSystemInfoSync()
     const mode = options.mode === "passenger" ? "passenger" : "driver"
-    this.setData({ statusBarHeight: info.statusBarHeight, mode, serverMode: profileApi.isBackendEnabled(),
+    this.setData({ statusBarHeight: info.statusBarHeight, mode,
       ...this.getFilterDateData(),
       ...(mode === "passenger" ? { referencePrice: "", referencePriceHasNumber: false } : {})
     })
@@ -345,7 +339,7 @@ Page({
     }
   },
 
-  // 地址变化后的分流：司机更新默认参考价；乘客查 Request_Price
+  // 地址变化后的分流：司机更新默认参考价；乘客读取路线参考价
   async afterAddressChanged() {
     this.refreshTemplateRouteSummary()
     if (this.data.mode === "driver") {
@@ -489,19 +483,13 @@ Page({
     this.setData({ passengerCountInput: v })
   },
 
-  safeSeat(val) {
-    const n = parseInt(val, 10)
-    if (isNaN(n)) return this.data.passengerCount || 1
-    return Math.min(7, Math.max(1, n))
-  },
-
   // -------------------------
   // 司机：当次价格和备注；车辆与收款偏好统一从个人资料读取。
   // -------------------------
   onReferencePriceInput(e) {
     this._priceManuallyEdited = true
     this.setData({
-      referencePrice: profileApi.isBackendEnabled() ? String(e.detail.value || "") : normalizeRidePriceInput(e.detail.value),
+      referencePrice: String(e.detail.value || ""),
       referencePriceHasNumber: true
     })
   },
@@ -522,7 +510,7 @@ Page({
   },
 
   // -------------------------
-  // 乘客：查 Request_Price
+  // 乘客：读取路线参考价
   // -------------------------
   async updateReferencePriceFromRequestPrice() {
     const dep = (this.data.departureAddress || "").trim()
@@ -534,9 +522,7 @@ Page({
     try {
       const label = await publishApi.loadRequestPrice(dep, dest)
       if (!isCurrent()) return
-      const priceNumber = profileApi.isBackendEnabled() ? null : extractRidePriceNumber(label)
-      this.setData({ referencePrice: priceNumber || label,
-        referencePriceHasNumber: profileApi.isBackendEnabled() ? false : !!priceNumber, priceLocked: true })
+      this.setData({ referencePrice: label, referencePriceHasNumber: false, priceLocked: true })
     } catch (err) {
       if (!isCurrent()) return
       console.error("updateReferencePriceFromRequestPrice error:", err)
@@ -628,8 +614,8 @@ Page({
     }
     const time = this.normalizeTimeStr(route.departureTime || "")
     const options = { now: Date.now() }
-    const occurrence = profileApi.isBackendEnabled() && route.backendTemplate ? publishApi.templateOccurrence(route.backendTemplate, options.now) : null
-    const nextDepartureDate = profileApi.isBackendEnabled() && route.backendTemplate ? occurrence?.date || ""
+    const occurrence = route.backendTemplate ? publishApi.templateOccurrence(route.backendTemplate, options.now) : null
+    const nextDepartureDate = route.backendTemplate ? occurrence?.date || ""
       : rideTime.getNextWeeklyRideDate(weekdayIndex, time, options)
     const weekdayText = weekdayIndex === null ? "" : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][weekdayIndex]
     const nextDepartureLabel = nextDepartureDate
@@ -652,9 +638,9 @@ Page({
   },
 
   applyDriverShortcut(route, date, time) {
-    this._selectedTemplate = profileApi.isBackendEnabled() ? route.backendTemplate || null : null
-    const seat = profileApi.isBackendEnabled() ? Number(route.passengerCount) : this.safeSeat(route.passengerCount)
-    const referencePrice = profileApi.isBackendEnabled() ? String(route.referencePrice ?? "") : extractRidePriceNumber(route.referencePrice) || ""
+    this._selectedTemplate = route.backendTemplate || null
+    const seat = Number(route.passengerCount)
+    const referencePrice = String(route.referencePrice ?? "")
     const comment = route.comment || ""
     this._priceManuallyEdited = !!referencePrice
     this._returnDepartureTimestamp = null
@@ -701,7 +687,7 @@ Page({
   // -------------------------
   async confirmTrip() {
     if (this.data.submitting || this._submitInFlight || this.data.publishedRide || this._calendarDisposed) return
-    if (profileApi.isBackendEnabled() && this.isLoggedIn()) {
+    if (this.isLoggedIn()) {
       const identity = profileApi.identity()
       this._submitInFlight = true
       this.setData({ submitting: true })
@@ -732,7 +718,7 @@ Page({
   driver_confirmTrip() {
     if (this.data.submitting || this._submitInFlight || this.data.publishedRide) return
     const seat = Number(this.data.passengerCountInput)
-    const maxSeats = profileApi.isBackendEnabled() ? 8 : 7
+    const maxSeats = 8
     if (!Number.isInteger(seat) || seat < 1 || seat > maxSeats) {
       this.showError(`载客数量必须为 1-${maxSeats} 的整数`)
       return
@@ -781,23 +767,20 @@ Page({
 
     const now = new Date()
     const diffMin = (selectedTime.getTime() - now.getTime()) / (1000 * 60)
-    if (diffMin < (profileApi.isBackendEnabled() ? 15 : 12)) return this.showError("发车时间需晚于当前15分钟")
+    if (diffMin < 15) return this.showError("发车时间需晚于当前15分钟")
     if (diffMin > 43200) return this.showError("发车时间不能超过30天")
     if (this.data.preparingReturn && selectedTime.getTime() <= this._returnDepartureTimestamp) {
       return this.showError("返程时间需晚于去程时间")
     }
 
-    const referencePriceText = profileApi.isBackendEnabled() ? String(referencePrice || "").trim() : formatRidePricePerPerson(referencePrice)
+    const referencePriceText = String(referencePrice || "").trim()
     if (!referencePriceText) return this.showError("请填写参考价格")
 
     let fullRoute = ""
-    if (profileApi.isBackendEnabled()) {
-      try { fullRoute = publishApi.summarizeStops(publishApi.toRideInput(this.captureDriverDraft()).stops) }
-      catch (error) { return this.showError(error.message) }
-    }
+    try { fullRoute = publishApi.summarizeStops(publishApi.toRideInput(this.captureDriverDraft()).stops) }
+    catch (error) { return this.showError(error.message) }
     const summary =
-      (fullRoute ? `${fullRoute}\n` : `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
-      `到达：${destinationAddress}\n`) +
+      `${fullRoute}\n` +
       `载客数：${passengerCount}\n` +
       `参考价格：${referencePriceText}\n` +
       `公开 Zelle 信息：${this.data.showZelle ? "是" : "否"}`
@@ -822,11 +805,10 @@ Page({
     const { departureAddress, destinationAddress, departureDate, departureTime, passengerCount, referencePrice, comment } = this.data
     const rideCity = getRideCitySnapshot()
     return { kind: "offer", departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
-      referencePrice: profileApi.isBackendEnabled() ? String(referencePrice ?? "") : extractRidePriceNumber(referencePrice) || "", comment,
-      ...(profileApi.isBackendEnabled() && this._selectedTemplate ? { template: JSON.parse(JSON.stringify(this._selectedTemplate)) } : {}),
-      showZelle: this.data.showZelle === true, hasUserInfo: !!this.data.userInfo,
-      openid: wx.getStorageSync("openid") || "", cityKey: rideCity.key || DEFAULT_CITY_KEY,
-      cityLabel: rideCity.label || "" }
+      referencePrice: String(referencePrice ?? ""), comment,
+      ...(this._selectedTemplate ? { template: JSON.parse(JSON.stringify(this._selectedTemplate)) } : {}),
+      hasUserInfo: !!this.data.userInfo,
+      openid: wx.getStorageSync("openid") || "", cityKey: rideCity.key || DEFAULT_CITY_KEY }
   },
 
   onPrepareReturnTrip() {
@@ -872,8 +854,7 @@ Page({
         departureTime,
         passengerCount,
         comment,
-        referencePrice,
-        showZelle
+        referencePrice
       } = draft
 
       if (!draft.hasUserInfo || !draft.openid || draft.openid !== (wx.getStorageSync("openid") || "")) {
@@ -881,24 +862,7 @@ Page({
         return
       }
 
-      const departures = [{ address: departureAddress, date: departureDate, time: departureTime }]
-      const destinations = [{ address: destinationAddress }]
-      const createPayload = {
-        type: "carpool",
-        cityKey: draft.cityKey,
-        cityLabel: draft.cityLabel,
-        departures,
-        destinations,
-        passengerCount,
-        availSeatNum: passengerCount,
-        status: "open",
-        passengers: [],
-        referencePrice: formatRidePricePerPerson(referencePrice),
-        comment,
-        zelle: showZelle ? "yes" : "no"
-      }
-
-      const created = await publishApi.publishRide(draft, createPayload)
+      const created = await publishApi.publishRide(draft)
       markRideListStale()
       if (!this._calendarDisposed && draft.openid === (wx.getStorageSync("openid") || "") && !wx.getStorageSync("isGuest")) {
         this._publishedOwner = draft.openid
@@ -939,7 +903,7 @@ Page({
     if (!departureAddress || !destinationAddress) return this.showError("请选择出发地和目的地")
     if (departureAddress === destinationAddress) return this.showError("出发地与目的地不能相同")
     if (!departureDate || !departureTime) return this.showError("请完善出发日期和时间")
-    const referencePriceText = profileApi.isBackendEnabled() ? String(referencePrice || "").trim() : formatRidePricePerPerson(referencePrice)
+    const referencePriceText = String(referencePrice || "").trim()
     if (!referencePriceText) return this.showError("价格信息缺失，请重新选择地址")
 
     const selectedTime = this.parseDateTimeSafe(departureDate, departureTime)
@@ -947,14 +911,12 @@ Page({
 
     const now = new Date()
     const diffMin = (selectedTime - now) / (1000 * 60)
-    if (diffMin < (profileApi.isBackendEnabled() ? 15 : 12)) return this.showError("出发时间需晚于当前15分钟")
+    if (diffMin < 15) return this.showError("出发时间需晚于当前15分钟")
     if (diffMin > 43200) return this.showError("出发时间不能超过30天")
 
     if (!Number.isInteger(Number(passengerCount)) || passengerCount < 1 || passengerCount > 4) return this.showError("乘客数需为 1-4 的整数")
-    if (profileApi.isBackendEnabled()) {
-      try { publishApi.toRideInput(this.capturePassengerDraft()) }
-      catch (error) { return this.showError(error.message) }
-    }
+    try { publishApi.toRideInput(this.capturePassengerDraft()) }
+    catch (error) { return this.showError(error.message) }
     const summary =
       `出发：${departureAddress}  ${departureDate} ${departureTime}\n` +
       `到达：${destinationAddress}\n` +
@@ -986,12 +948,12 @@ Page({
     const rideCity = getRideCitySnapshot()
     return { kind: 'request', departureAddress, destinationAddress, departureDate, departureTime, passengerCount,
       referencePrice: String(referencePrice || ''), comment: '', cityKey: rideCity.key || DEFAULT_CITY_KEY,
-      cityLabel: rideCity.label || '', openid: wx.getStorageSync('openid') || '', hasUserInfo: !!this.data.userInfo }
+      openid: wx.getStorageSync('openid') || '', hasUserInfo: !!this.data.userInfo }
   },
 
   refreshTemplateRouteSummary() {
     let templateRouteSummary = ''
-    if (profileApi.isBackendEnabled() && this._selectedTemplate?.definition.stops.length > 2) {
+    if (this._selectedTemplate?.definition.stops.length > 2) {
       try { templateRouteSummary = publishApi.summarizeStops(publishApi.toRideInput(this.captureDriverDraft()).stops) }
       catch (_) { templateRouteSummary = '多站路线：' + this._selectedTemplate.definition.stops.map(stop => stop.address).join(' → ') + '（请确认完整出发时间）' }
     }
@@ -1008,12 +970,7 @@ Page({
         this.showError("请先完善个人信息")
         return
       }
-      const created = await publishApi.publishRide(draft, {
-        type: "request", cityKey: draft.cityKey, cityLabel: draft.cityLabel,
-        departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
-        destinations: [{ address: destinationAddress }], passengerCount, largeLuggageCount: 0, comment: "",
-        referencePrice: formatRidePricePerPerson(referencePrice, referencePrice)
-      })
+      const created = await publishApi.publishRide(draft)
       markRideListStale()
       if (this._calendarDisposed || draft.openid !== (wx.getStorageSync('openid') || '') || wx.getStorageSync('isGuest')) return
       this._publishedOwner = draft.openid

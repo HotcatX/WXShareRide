@@ -1,0 +1,718 @@
+{
+  "description": "Fixed synthetic wire examples captured once from the retired CloudBase producer and one-time baseline exporter before their source removal. No production identities or contacts. Do not regenerate from the current PostgreSQL implementation.",
+  "sourceCommit": "89738571dc03f4280901b281cd2a16d2f33a32d3",
+  "observedAt": 1790193600000,
+  "transitions": [
+    {
+      "schemaVersion": 1,
+      "eventId": "40303aae2ebae0b44c76f20fcb1d85f32be621a477078ed95d58aac23e332b07",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "publish",
+      "actorOpenid": "synthetic_driver_contract_0001",
+      "eventAtMs": 1790193600000,
+      "version": 1,
+      "before": null,
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 1
+      },
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "cb91e012847b0bd71ae795fb5b3c69c4b9b09f8814e31194f807afd5b849b9a6",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "join",
+      "actorOpenid": "synthetic_passenger_contract_0003",
+      "eventAtMs": 1790193600000,
+      "version": 2,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 1
+      },
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 2,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [
+          "synthetic_passenger_contract_0003"
+        ],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          },
+          {
+            "openid": "synthetic_passenger_contract_0003",
+            "role": "passenger"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 2
+      },
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001",
+        "synthetic_passenger_contract_0003"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "1bc1f4db656f870694f8356f105c67f114c227791f2d02b406cfe5c8f205d8ca",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "quit",
+      "actorOpenid": "synthetic_passenger_contract_0003",
+      "eventAtMs": 1790193600000,
+      "version": 3,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 2,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [
+          "synthetic_passenger_contract_0003"
+        ],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          },
+          {
+            "openid": "synthetic_passenger_contract_0003",
+            "role": "passenger"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 2
+      },
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 3
+      },
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001",
+        "synthetic_passenger_contract_0003"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "0b3bf3f71a546c7f41ee1d3810dba406618cc8398a99bd2eb7189d181fe66bb8",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "kick",
+      "actorOpenid": "synthetic_driver_contract_0001",
+      "eventAtMs": 1790193600000,
+      "version": 4,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 2,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [
+          "synthetic_passenger_contract_0003"
+        ],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          },
+          {
+            "openid": "synthetic_passenger_contract_0003",
+            "role": "passenger"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 3
+      },
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 4
+      },
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001",
+        "synthetic_passenger_contract_0003"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "74cb15774c0d1d959e10e42bf23db14cd20ee186571e721fe311c1786fd28773",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "status",
+      "actorOpenid": "",
+      "eventAtMs": 1790193600000,
+      "version": 5,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 4
+      },
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "past",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 5
+      },
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "240a70dd22d93476ba4553a72761f4cbbb9f9db54733827beb7bc9abbfdf53fd",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "carpool",
+      "action": "delete",
+      "actorOpenid": "synthetic_driver_contract_0001",
+      "eventAtMs": 1790193600000,
+      "version": 6,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 3,
+        "passengerCount": 3,
+        "creatorOpenid": "synthetic_driver_contract_0001",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 5
+      },
+      "after": null,
+      "affectedOpenids": [
+        "synthetic_driver_contract_0001"
+      ],
+      "synthetic": true
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "35587628153835e243f417d63f8900afe4ec144066b7903bea749046b63771ea",
+      "tripId": "synthetic_contract_trip_1",
+      "tripType": "request",
+      "action": "accept",
+      "actorOpenid": "synthetic_driver_contract_0001",
+      "eventAtMs": 1790193600000,
+      "version": 1,
+      "before": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 2,
+        "passengerCount": 2,
+        "creatorOpenid": "synthetic_creator_contract_0002",
+        "driverOpenid": "",
+        "passengerOpenids": [
+          "synthetic_creator_contract_0002",
+          "synthetic_passenger_contract_0003"
+        ],
+        "participantEdges": [
+          {
+            "openid": "synthetic_creator_contract_0002",
+            "role": "passenger"
+          },
+          {
+            "openid": "synthetic_passenger_contract_0003",
+            "role": "passenger"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 0
+      },
+      "after": {
+        "cityKey": "ny_nj",
+        "status": "open",
+        "departures": [
+          {
+            "address": "Fort Lee",
+            "placeId": "fort_lee",
+            "date": "2026-09-23",
+            "time": "16:00"
+          }
+        ],
+        "destinations": [
+          {
+            "address": "EWR 机场",
+            "placeId": "ewr",
+            "date": "",
+            "time": ""
+          }
+        ],
+        "referencePriceCents": 1300,
+        "currency": "USD",
+        "priceKind": "listed_reference",
+        "availableSeats": 2,
+        "passengerCount": 2,
+        "creatorOpenid": "synthetic_creator_contract_0002",
+        "driverOpenid": "synthetic_driver_contract_0001",
+        "passengerOpenids": [
+          "synthetic_creator_contract_0002",
+          "synthetic_passenger_contract_0003"
+        ],
+        "participantEdges": [
+          {
+            "openid": "synthetic_driver_contract_0001",
+            "role": "driver"
+          },
+          {
+            "openid": "synthetic_creator_contract_0002",
+            "role": "passenger"
+          },
+          {
+            "openid": "synthetic_passenger_contract_0003",
+            "role": "passenger"
+          }
+        ],
+        "serviceDate": "2026-09-23",
+        "departureAtMs": 1790193600000,
+        "latestDepartureAtMs": 1790193600000,
+        "tripVersion": 1
+      },
+      "affectedOpenids": [
+        "synthetic_creator_contract_0002",
+        "synthetic_passenger_contract_0003",
+        "synthetic_driver_contract_0001"
+      ],
+      "synthetic": true
+    }
+  ],
+  "unknown": {
+    "schemaVersion": 1,
+    "eventId": "40303aae2ebae0b44c76f20fcb1d85f32be621a477078ed95d58aac23e332b07",
+    "tripId": "synthetic_contract_trip_1",
+    "tripType": "carpool",
+    "action": "delete",
+    "actorOpenid": "synthetic_driver_contract_0001",
+    "eventAtMs": 1790193600000,
+    "version": 1,
+    "before": {
+      "cityKey": "ny_nj",
+      "status": "open",
+      "departures": [
+        {
+          "address": "Fort Lee",
+          "placeId": "fort_lee",
+          "date": "",
+          "time": "bad"
+        }
+      ],
+      "destinations": [
+        {
+          "address": "",
+          "placeId": "",
+          "date": "",
+          "time": ""
+        }
+      ],
+      "referencePriceCents": null,
+      "currency": "USD",
+      "priceKind": "listed_reference",
+      "availableSeats": null,
+      "passengerCount": 0,
+      "creatorOpenid": "synthetic_driver_contract_0001",
+      "driverOpenid": "synthetic_driver_contract_0001",
+      "passengerOpenids": [],
+      "participantEdges": [
+        {
+          "openid": "synthetic_driver_contract_0001",
+          "role": "driver"
+        }
+      ],
+      "serviceDate": "",
+      "departureAtMs": null,
+      "latestDepartureAtMs": null,
+      "tripVersion": 0
+    },
+    "after": null,
+    "affectedOpenids": [
+      "synthetic_driver_contract_0001"
+    ],
+    "synthetic": true
+  },
+  "legacySnapshot": {
+    "schemaVersion": 1,
+    "eventId": "4d856ae550b958bb92d4cc1ee8f448d1ae30cca4c05e1362b421e271c8ba4d84",
+    "tripId": "synthetic_contract_trip_1",
+    "tripType": "carpool",
+    "action": "legacy_snapshot",
+    "actorOpenid": "synthetic_driver_contract_0001",
+    "eventAtMs": 1790193600000,
+    "version": 0,
+    "before": null,
+    "after": {
+      "cityKey": "ny_nj",
+      "status": "open",
+      "departures": [
+        {
+          "address": "Fort Lee",
+          "placeId": "fort_lee",
+          "date": "2026-09-23",
+          "time": "16:00"
+        }
+      ],
+      "destinations": [
+        {
+          "address": "哥大",
+          "placeId": "columbia",
+          "date": "",
+          "time": ""
+        }
+      ],
+      "referencePriceCents": 1300,
+      "currency": "USD",
+      "priceKind": "listed_reference",
+      "availableSeats": 3,
+      "passengerCount": 3,
+      "creatorOpenid": "synthetic_driver_contract_0001",
+      "driverOpenid": "synthetic_driver_contract_0001",
+      "passengerOpenids": [
+        "synthetic_passenger_contract_0003"
+      ],
+      "participantEdges": [
+        {
+          "openid": "synthetic_driver_contract_0001",
+          "role": "driver"
+        },
+        {
+          "openid": "synthetic_passenger_contract_0003",
+          "role": "passenger"
+        }
+      ],
+      "serviceDate": "2026-09-23",
+      "departureAtMs": 1790193600000,
+      "latestDepartureAtMs": 1790193600000,
+      "tripVersion": 0
+    },
+    "affectedOpenids": [
+      "synthetic_driver_contract_0001",
+      "synthetic_passenger_contract_0003"
+    ],
+    "synthetic": false,
+    "source": "legacy_snapshot"
+  }
+}

@@ -64,23 +64,16 @@ function createRidePublishClient(options = {}) {
   const current = account => { if (!account || owner() !== account) throw fail('REQUEST_CANCELLED', '当前操作已取消') }
   async function recoverPublishedRide() {
     const account = owner(); current(account)
-    if (!api.isBackendEnabled()) return null
+    if (!api.isBackendEnabled()) throw fail('BACKEND_DISABLED', '业务服务尚未切换')
     const receipt = await api.retryPending('rides.create', { validate: validReceipt })
     current(account)
     if (!receipt) return null
     if (!validReceipt(receipt)) throw fail('INVALID_RESPONSE', '发布结果尚未确认，请重试')
     return { id: receipt.rideId, version: receipt.version, status: receipt.status, recovered: true }
   }
-  async function publishRide(draft, legacyPayload) {
+  async function publishRide(draft) {
     const account = owner(); current(account)
     if (draft.openid !== account) throw fail('REQUEST_CANCELLED', '当前操作已取消')
-    if (!api.isBackendEnabled()) {
-      // TEMPORARY FALLBACK: original CloudBase payload is selected before I/O.
-      const result = await platform.cloud.callFunction({ name: 'createTrip', data: legacyPayload })
-      current(account)
-      if (!result?.result?.success || !result?.result?.id) throw fail('PUBLISH_FAILED', result?.result?.errorMsg || '路线创建失败，请重试')
-      return { id: result.result.id, recovered: false }
-    }
     const recoveredRide = await recoverPublishedRide()
     if (recoveredRide) return recoveredRide
     const payload = toRideInput(draft, options.now ? options.now() : Date.now())
@@ -100,20 +93,8 @@ function createRidePublishClient(options = {}) {
       const pattern = ridePlaceAliasPattern(selected)
       return pattern ? new RegExp(pattern, 'i').test(value) : value === selected
     }
-    let rows
-    if (api.isBackendEnabled()) {
-      const catalog = await config()
-      rows = catalog.requestPrices.filter(row => match(row.fromAddress, fromAddress) && match(row.toAddress, toAddress))
-    } else {
-      // TEMPORARY FALLBACK: retain exact old lookup in the CloudBase build.
-      const db = platform.cloud.database(), from = ridePlaceAliasPattern(fromAddress), to = ridePlaceAliasPattern(toAddress)
-      const result = await db.collection('Request_Price').where({
-        Departure: from ? db.RegExp({ regexp: from, options: 'i' }) : fromAddress,
-        Destination: to ? db.RegExp({ regexp: to, options: 'i' }) : toAddress,
-      }).limit(from || to ? 100 : 1).get()
-      if (!Array.isArray(result?.data)) throw invalid()
-      rows = result.data.map(row => ({ fromAddress: row.Departure, toAddress: row.Destination, label: row.Price }))
-    }
+    const catalog = await config()
+    const rows = catalog.requestPrices.filter(row => match(row.fromAddress, fromAddress) && match(row.toAddress, toAddress))
     const score = row => Number(row.fromAddress === fromAddress) + Number(row.toAddress === toAddress)
     const row = rows.slice().sort((a, b) => score(b) - score(a))[0]
     return row && row.label !== null && row.label !== undefined && String(row.label).trim() ? String(row.label) : '参考打车价格'

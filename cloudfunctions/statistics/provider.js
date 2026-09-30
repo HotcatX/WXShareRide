@@ -1,9 +1,7 @@
 const https = require('https')
 const ENDPOINT = 'https://collect.linkx.ink/api/v1/statistics/public'
 
-// TEMPORARY FALLBACK — remove only after the next production release is verified
-// and old clients no longer call statistics.publicStats. Server authority never
-// falls back to CloudBase: both old and new clients read the same database.
+// Installed clients retain the cloud entry, but all reads use the same PG API.
 function readServerStats(request = https.request) {
   return new Promise((resolve, reject) => {
     let settled = false, req
@@ -47,11 +45,4 @@ function readServerStats(request = https.request) {
   })
 }
 
-function createPublicStatsReader({ authority, readCloudStats, readServer = readServerStats }) {
-  return async () => {
-    if (authority === 'cloudbase') return readCloudStats()
-    if (authority === 'server') return readServer()
-    throw new Error('PUBLIC_STATS_UNAVAILABLE')
-  }
-}
-module.exports = { ENDPOINT, readServerStats, createPublicStatsReader }
+module.exports = { ENDPOINT, readServerStats }

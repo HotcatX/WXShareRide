@@ -17,10 +17,11 @@ function trip(patch = {}) {
 function harness(options = {}) {
   const store = options.store || { openid: 'driver-a' }
   const state = { now: options.now || T, scope: options.scope || SCOPE, events: [], attempts: [],
-    rejectAnswer: false, rejectPresented: false, failStorage: false, id: 0 }
+    rejectAnswer: false, rejectPresented: false, failStorage: false, id: 0, vibrations: [] }
   const wx = {
     getStorageSync(key) { if (state.failStorage) throw new Error('storage unavailable'); return copy(store[key]) },
-    setStorageSync(key, value) { if (state.failStorage) throw new Error('storage unavailable'); store[key] = copy(value) }
+    setStorageSync(key, value) { if (state.failStorage) throw new Error('storage unavailable'); store[key] = copy(value) },
+    vibrateShort(input) { state.vibrations.push(input.type) }
   }
   const analytics = {
     getCollectionScope: () => state.scope,
@@ -284,10 +285,17 @@ test('history uses accepted local choices only and short thanks remain nonblocki
   h.state.rejectAnswer = false
   assert.equal(h.controller.reportHistory(trip(), 'no', h.page).ok, true)
   assert.equal(h.page.data.feedbackThanks, true)
+  assert.deepEqual(h.state.vibrations, [])
   h.page.data.feedbackThanks = false
   h.state.now += 1
   assert.equal(h.controller.reportHistory(trip({ _id: 'trip_2' }), 'yes', h.page).ok, true)
   assert.equal(h.page.data.feedbackThanks, false)
+  h.state.now += 10000
+  h.controller.thank(h.page, false)
+  assert.deepEqual(h.state.vibrations, [])
+  h.state.now += 10000
+  h.controller.thank(h.page)
+  assert.deepEqual(h.state.vibrations, ['light'])
 })
 
 test('history accepts a presented or hidden unanswered timestamp, and a late query cannot overwrite a queued correction', async () => {

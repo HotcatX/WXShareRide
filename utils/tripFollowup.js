@@ -99,12 +99,12 @@ function createFollowupController(options = {}) {
   function eventMeta(at) {
     try { return { eventId: api.makeEventId(), occurredAt: at } } catch (_) { return null }
   }
-  function thank(page) {
+  function thank(page, haptic = true) {
     if (thankedAt && now() - thankedAt < 10000) return
     thankedAt = now()
     setView(page, { feedbackThanks: true })
     ;(options.setTimeout || setTimeout)(() => setView(page, { feedbackThanks: false }), 1400)
-    try { if (typeof wxApi?.vibrateShort === 'function') wxApi.vibrateShort({ type: 'light', fail() {} }) } catch (_) {}
+    try { if (haptic && typeof wxApi?.vibrateShort === 'function') wxApi.vibrateShort({ type: 'light', fail() {} }) } catch (_) {}
   }
   function historyItem(trip) {
     const account = identity(), currentScope = scope()
@@ -200,7 +200,7 @@ function createFollowupController(options = {}) {
     state.entries = Object.fromEntries(recent)
     saveState(item.scope, state)
     try { Promise.resolve(api.flush()).catch(() => {}) } catch (_) {}
-    thank(page)
+    thank(page, false)
     return { ok: true, outcome, source: 'self_report', occurredAt: meta.occurredAt }
   }
   function matches(item) { return item && item.scope === scope() && item.account === identity() && !disposed.has(item.page) }

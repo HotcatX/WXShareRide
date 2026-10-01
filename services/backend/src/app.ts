@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z, ZodError } from 'zod';
 import type { Pool } from 'pg';
 import type { Config } from './config.ts';
@@ -32,9 +32,21 @@ import { registerLocationRoutes } from './locations/routes.ts';
 import { registerCityRequestRoutes } from './locations/requests.ts';
 import { createCollectionSessions } from './analytics/session.ts';
 import { compatBridgePath, createCompatBridge } from './compat/bridge.ts';
+import { createRequestCounter } from './admin/traffic.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage; collectorTransport?: typeof fetch }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
+  const traffic = createRequestCounter();
+  app.addHook('onResponse', async request => { traffic.record(request.method, request.routeOptions.url); });
+  app.get('/internal/v1/monitor', async request => {
+    const expected = deps.config.adminMonitor?.token;
+    const actual = request.headers.authorization;
+    if (!expected || !actual || Buffer.byteLength(actual) !== Buffer.byteLength(`Bearer ${expected}`)
+      || !timingSafeEqual(Buffer.from(actual), Buffer.from(`Bearer ${expected}`)))
+      throw new AppError(401, 'UNAUTHORIZED', '无法访问');
+    z.strictObject({}).parse(request.query);
+    return { ok: true, ...traffic.snapshot() };
+  });
   const sessions = sessionService(deps.pool, deps.config, deps.exchange ?? wechatCodeExchange(deps.config.appId, deps.config.appSecret));
   const loginAdmission = createLoginAdmission();
   // One deployment state protects the empty first-import database, including
@@ -122,7 +134,7 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerStatisticsRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerReferralRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerAdminRoutes(app, { pool: deps.pool, appId: deps.config.appId });
-  registerAdminConsoleRoutes(app, { pool: deps.pool, appId: deps.config.appId, config: deps.config });
+  registerAdminConsoleRoutes(app, { pool: deps.pool, appId: deps.config.appId, config: deps.config, traffic });
   registerMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerCommunityRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerAdminMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId });

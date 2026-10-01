@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 import json
+import http.client
+import socket
 import math
 import os
-import shutil
 import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
 import time
-from decimal import Decimal, InvalidOperation
 
 BASE = '/opt/linkx-monitor'
 PUBLIC = BASE + '/public'
@@ -47,18 +47,6 @@ def cpu_percent(current, previous):
     return round(100 * (total - idle) / total, 2)
 
 
-def memory_snapshot():
-    values = {}
-    with open('/proc/meminfo', encoding='ascii') as source:
-        for line in source:
-            key, _, value = line.partition(':')
-            if key in ('MemTotal', 'MemAvailable'):
-                values[key] = int(value.split()[0]) * 1024
-    if not 0 <= values['MemAvailable'] <= values['MemTotal'] or values['MemTotal'] <= 0:
-        raise ValueError()
-    return {'totalBytes': values['MemTotal'], 'availableBytes': values['MemAvailable']}
-
-
 def docker(*arguments):
     result = subprocess.run(['/usr/bin/docker', '--host', 'unix:///var/run/docker.sock',
                              '--config', PRIVATE, *arguments], capture_output=True, text=True,
@@ -67,23 +55,6 @@ def docker(*arguments):
     if len(result.stdout.encode()) > 8192:
         raise ValueError()
     return result.stdout.splitlines()
-
-
-def byte_size(value):
-    units = {'B': 1, 'KB': 1000, 'MB': 1000 ** 2, 'GB': 1000 ** 3, 'TB': 1000 ** 4,
-             'KiB': 1024, 'MiB': 1024 ** 2, 'GiB': 1024 ** 3, 'TiB': 1024 ** 4}
-    for unit in sorted(units, key=len, reverse=True):
-        if value.endswith(unit):
-            try:
-                number = Decimal(value[:-len(unit)])
-                if number.is_finite() and number >= 0:
-                    size = int(number * units[unit])
-                    if size <= 9007199254740991:
-                        return size
-            except (InvalidOperation, ValueError, OverflowError):
-                pass
-            raise ValueError()
-    raise ValueError()
 
 
 def container_snapshot():
@@ -100,15 +71,14 @@ def container_snapshot():
                            'startedAt': None if started.startswith('0001-') else started,
                            'restarts': int(restarts)}
     usage = {}
-    for row in docker('stats', '--no-stream', '--format', '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}', *names):
-        name, cpu, memory = row.split('|')
+    for row in docker('stats', '--no-stream', '--format', '{{.Name}}|{{.CPUPerc}}', *names):
+        name, cpu = row.split('|')
         if name not in CONTAINERS or name in usage:
             raise ValueError()
         percent = None if cpu == '--' else float(cpu.removesuffix('%'))
         if percent is not None and (not math.isfinite(percent) or not 0 <= percent <= 10000):
             raise ValueError()
-        used, limit = memory.split(' / ')
-        usage[name] = {'cpuPercent': percent, 'memoryBytes': byte_size(used), 'memoryLimitBytes': byte_size(limit)}
+        usage[name] = {'cpuPercent': percent}
     if set(inspected) != set(CONTAINERS) or set(usage) != set(CONTAINERS):
         raise ValueError()
     return [{**inspected[name], **usage[name]} for name in names]
@@ -152,15 +122,85 @@ def sample(previous):
     current, cores = cpu_snapshot()
     with open('/proc/uptime', encoding='ascii') as source:
         uptime = math.floor(float(source.read(128).split()[0]))
-    disk = shutil.disk_usage('/')
     value = {'schemaVersion': 1, 'sampledAt': int(time.time() * 1000), 'uptimeSeconds': uptime,
              'cpu': {'percent': cpu_percent(current, previous), 'cores': cores},
-             'memory': memory_snapshot(), 'disk': {'totalBytes': disk.total, 'availableBytes': disk.free},
              'services': container_snapshot()}
     return value, current
 
 
-def record_history(value):
+class UnixHTTP(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect('/var/lib/linkx-collector/run/admin.sock')
+
+
+def read_traffic():
+    try:
+        descriptor = os.open('/etc/linkx-collector/admin.token', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, 'r', encoding='ascii') as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 256 or info.st_uid not in (0, 1000) or info.st_mode & 0o077:
+                return None, None
+            token = source.read(257).strip()
+        if not token or len(token) > 128 or any(char not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-' for char in token):
+            return None, None
+    except (OSError, ValueError):
+        return None, None
+    results = []
+    for connection, path in ((http.client.HTTPConnection('127.0.0.1', 3101, timeout=0.3), '/internal/v1/monitor'),
+                             (UnixHTTP('localhost', timeout=0.3), '/v1/console/traffic')):
+        try:
+            connection.request('GET', path, headers={'Authorization': 'Bearer ' + token})
+            response = connection.getresponse()
+            raw = response.read(16385)
+            if response.status != 200 or len(raw) > 16384:
+                raise ValueError()
+            value = json.loads(raw)
+            if type(value) is not dict or value.get('ok') is not True or type(value.get('minutes')) is not list or len(value['minutes']) > 6:
+                raise ValueError()
+            results.append(value)
+        except (OSError, ValueError, http.client.HTTPException):
+            results.append(None)
+        finally:
+            connection.close()
+    return tuple(results)
+
+
+def numeric(value):
+    return type(value) is int and 0 <= value <= 9007199254740991
+
+
+def minute_traffic(backend, collector, now):
+    end = now // 60000 * 60000
+    def valid(source):
+        return source if type(source) is dict and numeric(source.get('sampledAt')) and abs(source['sampledAt'] - now) <= 60000 else {}
+    backend, collector = valid(backend), valid(collector)
+    direct = {row['at']: row for row in backend.get('minutes', []) if type(row) is dict and all(numeric(row.get(key)) for key in ('at', 'direct', 'bridge', 'collection'))}
+    incoming = {row['at']: row for row in collector.get('minutes', []) if type(row) is dict and all(numeric(row.get(key)) for key in ('at', 'collection'))}
+    activity = {row['at']: row for row in collector.get('activity', []) if type(row) is dict and numeric(row.get('at'))}
+    values = []
+    for at in sorted(set(direct) | set(incoming) | set(activity)):
+        if not end - 360000 <= at < end or at % 60000:
+            continue
+        left, right, user = direct.get(at), incoming.get(at), activity.get(at, {})
+        counts = (left['direct'], left['bridge'], left['collection'] + right['collection']) if left and right else (None, None, None)
+        if counts[0] is not None and (not all(numeric(number) for number in counts) or not numeric(sum(counts))):
+            counts = (None, None, None)
+        active, events = user.get('activeUsers'), user.get('events')
+        values.append((at, *counts, active if numeric(active) else None, events if numeric(events) else None))
+    return values
+
+
+def summary(row, offset, count, peak):
+    mean, minimum, maximum = row[offset:offset + 3]
+    if not count or mean is None:
+        return None
+    return {'mean': round(mean, 3), 'min': minimum, 'max': maximum,
+            'peakAt': int(peak.split(':')[1]), 'samples': count}
+
+
+def record_history(value, traffic=(None, None)):
     now = value['sampledAt']
     minute = now // 60000 * 60000
     path = PRIVATE + '/metrics.sqlite'
@@ -168,7 +208,7 @@ def record_history(value):
         info = os.lstat(path)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
             raise ValueError()
-    deadline = time.monotonic() + 1.5
+    deadline = time.monotonic() + 8
     connection = sqlite3.connect(path, timeout=0.1)
     try:
         os.chmod(path, 0o600)
@@ -176,45 +216,51 @@ def record_history(value):
         connection.execute('PRAGMA cache_size=-512')
         page_size = connection.execute('PRAGMA page_size').fetchone()[0]
         connection.execute('PRAGMA max_page_count=' + str(16777216 // page_size))
+        columns = [row[1] for row in connection.execute('PRAGMA table_info(metrics)')]
+        if columns and 'memory_used_sum' in columns:
+            connection.execute('DROP TABLE metrics')
         connection.execute('''CREATE TABLE IF NOT EXISTS metrics (
-            at INTEGER PRIMARY KEY, cpu_sum REAL NOT NULL, cpu_count INTEGER NOT NULL,
-            samples INTEGER NOT NULL, memory_used_sum INTEGER NOT NULL, memory_total_sum INTEGER NOT NULL,
-            disk_used_sum INTEGER NOT NULL, disk_total_sum INTEGER NOT NULL)''')
-        previous = connection.execute('SELECT at FROM metrics ORDER BY at DESC LIMIT 1').fetchone()
+            at INTEGER PRIMARY KEY, cpu_sum REAL NOT NULL DEFAULT 0, cpu_count INTEGER NOT NULL DEFAULT 0,
+            cpu_min REAL, cpu_max REAL, cpu_peak INTEGER,
+            direct INTEGER, bridge INTEGER, collection INTEGER, active INTEGER, events INTEGER)''')
         cpu = value['cpu']['percent']
-        memory, disk = value['memory'], value['disk']
         with connection:
-            connection.execute('''INSERT INTO metrics VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(at) DO UPDATE SET
-                cpu_sum=cpu_sum+excluded.cpu_sum,cpu_count=cpu_count+excluded.cpu_count,
-                samples=samples+1,memory_used_sum=memory_used_sum+excluded.memory_used_sum,
-                memory_total_sum=memory_total_sum+excluded.memory_total_sum,
-                disk_used_sum=disk_used_sum+excluded.disk_used_sum,disk_total_sum=disk_total_sum+excluded.disk_total_sum''',
-                (minute, cpu if cpu is not None else 0, int(cpu is not None), 1,
-                 memory['totalBytes'] - memory['availableBytes'], memory['totalBytes'],
-                 disk['totalBytes'] - disk['availableBytes'], disk['totalBytes']))
-            if not previous or previous[0] != minute:
-                connection.execute('DELETE FROM metrics WHERE at<=?', (minute - 2592000000,))
+            connection.execute('''INSERT INTO metrics(at,cpu_sum,cpu_count,cpu_min,cpu_max,cpu_peak) VALUES(?,?,?,?,?,?)
+                ON CONFLICT(at) DO UPDATE SET cpu_sum=cpu_sum+excluded.cpu_sum,cpu_count=cpu_count+excluded.cpu_count,
+                cpu_min=CASE WHEN excluded.cpu_min IS NULL THEN cpu_min WHEN cpu_min IS NULL THEN excluded.cpu_min ELSE MIN(cpu_min,excluded.cpu_min) END,
+                cpu_max=CASE WHEN excluded.cpu_max IS NULL THEN cpu_max WHEN cpu_max IS NULL THEN excluded.cpu_max ELSE MAX(cpu_max,excluded.cpu_max) END,
+                cpu_peak=CASE WHEN excluded.cpu_max IS NOT NULL AND (cpu_max IS NULL OR excluded.cpu_max>cpu_max) THEN excluded.cpu_peak ELSE cpu_peak END''',
+                (minute, cpu if cpu is not None else 0, int(cpu is not None), cpu, cpu, now if cpu is not None else None))
+            for row in minute_traffic(*traffic, now):
+                connection.execute('''INSERT INTO metrics(at,direct,bridge,collection,active,events) VALUES(?,?,?,?,?,?)
+                    ON CONFLICT(at) DO UPDATE SET direct=COALESCE(metrics.direct,excluded.direct),bridge=COALESCE(metrics.bridge,excluded.bridge),
+                    collection=COALESCE(metrics.collection,excluded.collection),active=COALESCE(metrics.active,excluded.active),events=COALESCE(metrics.events,excluded.events)''', row)
+            connection.execute('DELETE FROM metrics WHERE at<=?', (minute - 2592000000,))
         if all(os.path.isfile(PUBLIC + '/history-' + name + '.json')
                and int(os.stat(PUBLIC + '/history-' + name + '.json').st_mtime * 1000) // 60000 == now // 60000
                for name, _, _ in RANGES):
             return
-        frames = []
         for name, duration, bucket in RANGES:
             start = max(0, now - duration)
             rows = connection.execute('''SELECT MAX(?,(at / ?) * ?) AS bucket,
-                CASE WHEN SUM(cpu_count)>0 THEN SUM(cpu_sum)/SUM(cpu_count) ELSE NULL END,
-                CAST(SUM(memory_used_sum) AS REAL)/SUM(samples),CAST(SUM(memory_total_sum) AS REAL)/SUM(samples),
-                CAST(SUM(disk_used_sum) AS REAL)/SUM(samples),CAST(SUM(disk_total_sum) AS REAL)/SUM(samples)
+                SUM(cpu_sum)/NULLIF(SUM(cpu_count),0),MIN(cpu_min),MAX(cpu_max),SUM(cpu_count),
+                MAX(CASE WHEN cpu_max IS NOT NULL THEN printf('%012.6f:%013d',cpu_max,cpu_peak) END),
+                AVG(direct+bridge+collection),MIN(direct+bridge+collection),MAX(direct+bridge+collection),COUNT(direct+bridge+collection),
+                MAX(CASE WHEN direct+bridge+collection IS NOT NULL THEN printf('%016d:%013d',direct+bridge+collection,at) END),
+                AVG(CASE WHEN direct+bridge+collection IS NOT NULL THEN direct END),AVG(CASE WHEN direct+bridge+collection IS NOT NULL THEN bridge END),AVG(CASE WHEN direct+bridge+collection IS NOT NULL THEN collection END),
+                AVG(active),MIN(active),MAX(active),COUNT(active),MAX(CASE WHEN active IS NOT NULL THEN printf('%016d:%013d',active,at) END),
+                AVG(events),MIN(events),MAX(events),COUNT(events),MAX(CASE WHEN events IS NOT NULL THEN printf('%016d:%013d',events,at) END)
                 FROM metrics WHERE at>=? AND at<=? GROUP BY (at / ?) ORDER BY bucket DESC LIMIT 720''',
                 (start, bucket, bucket, start, now, bucket)).fetchall()
-            points = [{'at': row[0], 'cpuPercent': None if row[1] is None else round(row[1], 2),
-                       'memoryUsedBytes': round(row[2]), 'memoryTotalBytes': round(row[3]),
-                       'diskUsedBytes': round(row[4]), 'diskTotalBytes': round(row[5])} for row in reversed(rows)]
-            frames.append({'schemaVersion': 1, 'range': name, 'sampledAt': now, 'from': start, 'to': now, 'points': points})
-        if sum(len(json.dumps(frame, separators=(',', ':'), allow_nan=False).encode()) for frame in frames) > 524288:
-            raise ValueError()
-        for frame in frames:
-            atomic_json(PUBLIC, 'history-' + frame['range'] + '.json', frame, 0o644, 524288)
+            points = []
+            for row in reversed(rows):
+                request = summary(row, 6, row[9], row[10])
+                if request:
+                    request.update(direct=round(row[11], 3), bridge=round(row[12], 3), collection=round(row[13], 3))
+                points.append({'at': row[0], 'cpu': summary(row, 1, row[4], row[5]), 'requests': request,
+                               'activeUsers': summary(row, 14, row[17], row[18]), 'events': summary(row, 19, row[22], row[23])})
+            frame = {'schemaVersion': 2, 'range': name, 'sampledAt': now, 'from': start, 'to': now, 'bucketMs': bucket, 'points': points}
+            atomic_json(PUBLIC, 'history-' + name + '.json', frame, 0o644, 524288)
     finally:
         connection.close()
 
@@ -234,7 +280,7 @@ def main():
         atomic_json(PUBLIC, 'host.json', value, 0o644)
         atomic_json(PRIVATE, 'state.json', current, 0o600)
         try:
-            record_history(value)
+            record_history(value, read_traffic())
         except Exception:
             sys.stderr.write('HOST_HISTORY_UNAVAILABLE\n')
         return 0

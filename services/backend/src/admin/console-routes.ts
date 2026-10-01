@@ -8,14 +8,15 @@ import { collectionProtocol as protocol } from '../analytics/protocol.ts';
 import { adminHttpGuard } from './routes.ts';
 import { requireSuperAdmin } from './service.ts';
 import { createAdminMonitor } from './monitor.ts';
+import type { RequestCounter } from './traffic.ts';
 import { editConsoleRow, getConsoleRow, listConsoleRows, listConsoleTables } from './data.ts';
 
 const eventQuery = z.strictObject({ limit: z.coerce.number().int().min(1).max(50).optional(),
   cursor: z.string().max(768).optional(), openid: z.string().trim().min(1).max(160).optional(),
   from: z.coerce.number().int().nonnegative().optional(), to: z.coerce.number().int().nonnegative().optional(),
   type: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/).optional() });
-export function registerAdminConsoleRoutes(app: FastifyInstance, deps: { pool: Pool; appId: string; config: Config }): void {
-  const monitor = createAdminMonitor(deps.config.adminMonitor);
+export function registerAdminConsoleRoutes(app: FastifyInstance, deps: { pool: Pool; appId: string; config: Config; traffic?: RequestCounter }): void {
+  const monitor = createAdminMonitor(deps.config.adminMonitor, deps.traffic);
   app.register(async scope => {
     scope.addHook('onRequest', adminHttpGuard(deps));
     scope.get('/api/v1/admin/console/status', async request => {

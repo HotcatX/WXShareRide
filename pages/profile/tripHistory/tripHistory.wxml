@@ -26,7 +26,7 @@
 
     <block wx:else>
       <view
-        class="ride-card ride-list-card history-card {{trip._feedbackPulse ? 'history-card--saved' : ''}}"
+        class="ride-card ride-list-card history-card"
         wx:for="{{historyTrips}}"
         wx:for-item="trip"
         wx:for-index="index"

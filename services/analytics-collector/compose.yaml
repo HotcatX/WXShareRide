@@ -2,7 +2,7 @@ services:
   collector:
     build: .
     # Preserve existing mounts/project identity when updating this image.
-    image: linkx-analytics-collector:20261001-console
+    image: linkx-analytics-collector:20261001-activity
     restart: unless-stopped
     init: true
     read_only: true

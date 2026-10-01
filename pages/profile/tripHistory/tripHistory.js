@@ -234,7 +234,7 @@ Page({
     if (!trip._feedbackAssumed && trip._feedbackOutcome) return
     const result = followup.reportHistory(trip, outcome, this)
     if (!result.ok) { this._patchTrip(id, { _feedbackError: '暂未保存，请重试' }); return }
-    this._patchTrip(id, { ...this._feedbackView(trip, result), _feedbackPulse: true })
+    this._patchTrip(id, this._feedbackView(trip, result))
   },
 
   async onHistoryRate(event) {
@@ -242,15 +242,15 @@ Page({
     const trip = this.data.historyTrips.find(item => item._id === id), account = historyIdentity()
     if (!account || account !== this._historyAccount || !this._historyActive || this._historyDisposed || !trip || !trip._showRating || trip._myRating || trip._feedbackBusy ||
       trip._roleKind !== 'passenger' || !trip.driverUserId || !Number.isInteger(score) || score < 1 || score > 5) return
-    this._patchTrip(id, { _feedbackBusy: true, _feedbackError: '', _feedbackPulse: false })
+    this._patchTrip(id, { _feedbackBusy: true, _feedbackError: '' })
     try {
       const result = await callTripManage({ action: 'rateUser', type: trip._sourceType, tripId: id, targetUserId: trip.driverUserId, targetRole: 'driver', score })
       if (historyIdentity() !== account || this._historyDisposed || !this._historyActive) return
       // Retry may confirm an earlier score; always render the actual receipt.
       if (!result?.ok || result.data?.rideId !== id || result.data?.targetId !== trip.driverUserId ||
         !Number.isInteger(result.data?.score) || result.data.score < 1 || result.data.score > 5) throw Error('INVALID_RESPONSE')
-      this._patchTrip(id, { _myRating: result.data.score, _feedbackBusy: false, _feedbackStatus: '已完成', _feedbackTone: 'done', _feedbackPulse: true })
-      followup.thank(this)
+      this._patchTrip(id, { _myRating: result.data.score, _feedbackBusy: false, _feedbackStatus: '已完成', _feedbackTone: 'done' })
+      followup.thank(this, false)
     } catch (error) {
       if (historyIdentity() === account && !this._historyDisposed && this._historyActive) this._patchTrip(id, {
         _feedbackBusy: false, _feedbackError: error?.code === 'ALREADY_RATED' ? '您已评价，请刷新查看' : '评价暂未保存，请重试' })

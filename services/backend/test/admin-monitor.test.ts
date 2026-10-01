@@ -10,14 +10,13 @@ import { createAdminMonitor } from '../src/admin/monitor.ts';
 import { AppError } from '../src/errors.ts';
 
 const processMetrics = () => ({ scope: 'process', sampledAt: Date.now(), uptimeSeconds: 5,
-  cpuPercent: null, cpuBasis: 'one_core', memory: { rssBytes: 100, heapUsedBytes: 20, heapTotalBytes: 30 } });
+  cpuPercent: null, cpuBasis: 'one_core' });
 const snapshot = () => ({ ok: true, sampledAt: Date.now(), process: processMetrics(),
-  storage: { databaseBytes: 1000, walBytes: 20 }, collection: { enabled: true, restoreGate: 'open',
-    latestReceivedAt: Date.now(), receivedLastMinute: 2, receivedLastMinuteCapped: false } });
+  traffic: {sampledAt:Date.now(),startedAt:Date.now(),minutes:[]}, collection: { enabled: true, restoreGate: 'open',
+    latestReceivedAt: Date.now(), receivedLastMinute: 2, receivedLastMinuteCapped: false, activeLastMinute:1, activeLastMinuteCapped:false } });
 const host = (sampledAt = Date.now()) => ({ schemaVersion: 1, sampledAt, uptimeSeconds: 50,
-  cpu: { percent: 5, cores: 2 }, memory: { totalBytes: 2000, availableBytes: 1000 },
-  disk: { totalBytes: 50000, availableBytes: 45000 }, services: [{ name: 'backend', state: 'healthy',
-    cpuPercent: 0, memoryBytes: 50, memoryLimitBytes: 100, startedAt: '2026-09-30T00:00:00Z', restarts: 0 }] });
+  cpu: { percent: 5, cores: 2 }, services: [{ name: 'backend', state: 'healthy',
+    cpuPercent: 0, startedAt: '2026-09-30T00:00:00Z', restarts: 0 }] });
 const page = () => ({ ok: true, sampledAt: Date.now(), timeBasis: 'receivedAt', from: 0, to: Date.now(),
   events: [{ openid: 'synthetic_operator_account_123', participantKey: randomUUID(), batchId: randomUUID(), receivedAt: Date.now(),
     eventId: randomUUID(), eventName: 'page_view', schemaVersion: 1, occurredAt: Date.now(), data: { page: 'home' } }],
@@ -118,13 +117,12 @@ test('history keeps sparse real points, shares reads and recovers after a missin
   const f = await fixture(t, (_req, res) => reply(res, snapshot()));
   const monitor = createAdminMonitor(f.config), now = Date.now();
   await assert.rejects(monitor.history('day'), (error: AppError) => error.status === 503);
-  const value = { schemaVersion: 1, range: 'day', sampledAt: now, from: now - 86400000, to: now,
-    points: [{ at: now - 60000, cpuPercent: null, memoryUsedBytes: 10, memoryTotalBytes: 20,
-      diskUsedBytes: 40, diskTotalBytes: 100 }] };
+  const value = { schemaVersion: 2, bucketMs:120000, range: 'day', sampledAt: now, from: now - 86400000, to: now,
+    points: [{ at: now - 60000, cpu:null,requests:null,activeUsers:null,events:null }] };
   writeFileSync(join(f.dir, 'history-day.json'), JSON.stringify(value));
   const results = await Promise.all(Array.from({ length: 20 }, () => monitor.history('day')));
   assert.ok(results.every(result => result === results[0]));
-  assert.equal(results[0].points.length, 1); assert.equal(results[0].points[0].cpuPercent, null);
+  assert.equal(results[0].points.length, 1); assert.equal(results[0].points[0].cpu, null);
   assert.equal('schemaVersion' in results[0], false);
   writeFileSync(join(f.dir, 'history-day.json'), '{}');
   assert.strictEqual(await monitor.history('day'), results[0]);
@@ -135,10 +133,11 @@ test('history keeps sparse real points, shares reads and recovers after a missin
 test('history rejects unsafe files, oversized pages and invalid temporal/resource measurements', async t => {
   const f = await fixture(t, (_req, res) => reply(res, snapshot())), now = Date.now();
   const path = join(f.dir, 'history-week.json');
-  const point = { at: now - 1000, cpuPercent: 5, memoryUsedBytes: 10, memoryTotalBytes: 20, diskUsedBytes: 40, diskTotalBytes: 100 };
-  const base = { schemaVersion: 1, range: 'week', sampledAt: now, from: now - 604800000, to: now, points: [point] };
+  const point = { at: now - 1000, cpu:{mean:5,min:2,max:10,peakAt:now-500,samples:2}, requests:null,activeUsers:null,events:null };
+  const base = { schemaVersion: 2, bucketMs:900000, range: 'week', sampledAt: now, from: now - 604800000, to: now, points: [point] };
   for (const bad of [{ ...base, token: 'secret' }, { ...base, range: 'month' }, { ...base, sampledAt: now + 60000 },
-    { ...base, points: [point, point] }, { ...base, points: [{ ...point, memoryUsedBytes: 30 }] },
+    { ...base, points: [point, point] }, { ...base, points: [{ ...point, cpu:{...point.cpu,max:101} }] },
+    { ...base, bucketMs:120000 }, { ...base,points:[{...point,cpu:{...point.cpu,min:7}}]},
     { ...base, points: Array.from({ length: 721 }, (_, index) => ({ ...point, at: now - 1000 + index })) }]) {
     writeFileSync(path, JSON.stringify(bad));
     await assert.rejects(createAdminMonitor(f.config).history('week'), (error: AppError) => error.status === 503 && !error.message.includes('secret'));

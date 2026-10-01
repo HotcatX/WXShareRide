@@ -165,3 +165,33 @@ test('console is exposed only through authenticated private Unix admin routes', 
     assert.equal((await privateRequest(path)).status, 200);
   }
 });
+
+test('activity uses deduplicated real receipts, completed minutes and no payload expansion', t => {
+  const f = fixture(t), a = account(f.store), b = account(f.store), synthetic = account(f.store, true);
+  const at = Math.ceil(f.now / 60000) * 60000;
+  const first = put(f.store, a.participant, at + 1000);
+  put(f.store, a.participant, at + 2000); put(f.store, b.participant, at + 3000);
+  put(f.store, synthetic.participant, at + 4000);
+  const retry = {...first,batchId:randomUUID()};
+  f.store.receive({sub:a.participant.participantKey,...a.participant},Buffer.from(JSON.stringify(retry)),retry,at+5000);
+  f.store.db.function('payload_json',()=>{throw new Error('must not inflate');});
+  assert.equal(f.console.traffic().activity.length,0,'startup partial minute is absent');
+  f.advance(at + 61000 - f.now);
+  const value=f.console.traffic();
+  assert.deepEqual(value.activity,[{at,activeUsers:2,events:3}]);
+  assert.equal(JSON.stringify(value).includes(a.openid),false);
+  assert.equal(f.console.status().collection.activeLastMinute,2);
+});
+
+test('activity cap returns unknown rather than falsely exact counts and retains bounded cached minutes', t => {
+  const f=fixture(t),a=account(f.store),at=Math.ceil(f.now/60000)*60000;
+  const insert=f.store.db.prepare('INSERT INTO event_receipts VALUES(?,?,?,?,?,?)');
+  f.store.db.transaction(()=>{for(let i=0;i<10001;i++) insert.run(a.participant.participantKey,randomUUID(),a.participant.grantId,'a'.repeat(64),randomUUID(),at+1000);})();
+  f.advance(at+61000-f.now);
+  assert.deepEqual(f.console.traffic().activity,[{at,activeUsers:null,events:null}]);
+  const status=f.console.status();
+  assert.equal(status.collection.receivedLastMinuteCapped,true);
+  assert.equal(status.collection.activeLastMinuteCapped,true);
+  f.advance(10*60000);
+  assert.equal(f.console.traffic().activity.length,6);
+});

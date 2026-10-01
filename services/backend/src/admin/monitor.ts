@@ -4,26 +4,26 @@ import { open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../errors.ts';
+import type { RequestCounter } from './traffic.ts';
 
 const epoch = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const bytes = epoch;
 const percent = z.number().min(0).max(10000).nullable();
 const id = z.string().regex(/^[A-Za-z0-9_-]{16,80}$/);
 const processSchema = z.strictObject({ scope: z.literal('process'), sampledAt: epoch, uptimeSeconds: epoch,
-  cpuPercent: percent, cpuBasis: z.literal('one_core'),
-  memory: z.strictObject({ rssBytes: bytes, heapUsedBytes: bytes, heapTotalBytes: bytes }) });
+  cpuPercent: percent, cpuBasis: z.literal('one_core') });
 const hostSchema = z.strictObject({ schemaVersion: z.literal(1), sampledAt: epoch, uptimeSeconds: epoch,
   cpu: z.strictObject({ percent, cores: z.number().int().min(1).max(1024) }),
-  memory: z.strictObject({ totalBytes: bytes, availableBytes: bytes }),
-  disk: z.strictObject({ totalBytes: bytes, availableBytes: bytes }),
   services: z.array(z.strictObject({ name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
     state: z.string().regex(/^[A-Za-z0-9 _-]{1,32}$/), cpuPercent: percent,
-    memoryBytes: bytes, memoryLimitBytes: bytes, startedAt: z.iso.datetime().nullable(), restarts: epoch })).max(10) });
+    startedAt: z.iso.datetime().nullable(), restarts: epoch })).max(10) });
+const trafficSchema = z.strictObject({ sampledAt: epoch, startedAt: epoch,
+  minutes: z.array(z.strictObject({ at: epoch, collection: epoch })).max(6) });
 const collectorSchema = z.strictObject({ ok: z.literal(true), sampledAt: epoch, process: processSchema,
-  storage: z.strictObject({ databaseBytes: bytes, walBytes: bytes }),
+  traffic: trafficSchema,
   collection: z.strictObject({ enabled: z.boolean(), restoreGate: z.enum(['open', 'closed']),
     latestReceivedAt: epoch.nullable(), receivedLastMinute: z.number().int().min(0).max(5000),
-    receivedLastMinuteCapped: z.boolean() }) });
+    receivedLastMinuteCapped: z.boolean(), activeLastMinute: z.number().int().min(0).max(5000),
+    activeLastMinuteCapped: z.boolean() }) });
 const querySchema = z.strictObject({ limit: z.number().int().min(1).max(50).optional(),
   cursor: z.string().regex(/^[A-Za-z0-9_-]{1,768}$/).optional(),
   subject: z.string().regex(/^[a-f0-9]{64}$/).optional(), synthetic: z.boolean().optional(),
@@ -39,17 +39,23 @@ const eventsSchema = z.strictObject({ ok: z.literal(true), sampledAt: epoch, tim
   from: epoch, to: epoch, events: z.array(eventSchema).max(50),
   nextCursor: z.string().regex(/^[A-Za-z0-9_-]{1,768}$/).nullable(), scanned: z.number().int().min(0).max(200) });
 const historyRange = z.enum(['day', 'week', 'month']);
-const historySchema = z.strictObject({ schemaVersion: z.literal(1), range: historyRange, sampledAt: epoch,
-  from: epoch, to: epoch, points: z.array(z.strictObject({ at: epoch, cpuPercent: z.number().min(0).max(100).nullable(),
-    memoryUsedBytes: bytes, memoryTotalBytes: bytes, diskUsedBytes: bytes, diskTotalBytes: bytes })).max(720) });
+const summaryFields = { mean: z.number().nonnegative(), min: z.number().nonnegative(),
+  max: z.number().nonnegative(), peakAt: epoch, samples: epoch };
+const summarySchema = z.strictObject(summaryFields).nullable();
+const historySchema = z.strictObject({ schemaVersion: z.literal(2), range: historyRange, sampledAt: epoch,
+  from: epoch, to: epoch, bucketMs: z.union([z.literal(120000), z.literal(900000), z.literal(3600000)]),
+  points: z.array(z.strictObject({ at: epoch, cpu: summarySchema,
+    requests: z.strictObject({ ...summaryFields, direct: z.number().nonnegative(), bridge: z.number().nonnegative(), collection: z.number().nonnegative() }).nullable(),
+    activeUsers: summarySchema, events: summarySchema })).max(720) });
 
 export type AdminMonitorConfig = { socketPath: string; token: string; hostSnapshotFile?: string };
 export type ConsoleEvents = Omit<z.infer<typeof eventsSchema>, 'ok'>;
 export type MonitorHistory = Omit<z.infer<typeof historySchema>, 'schemaVersion'>;
 type ProcessMetrics = z.infer<typeof processSchema>;
 type HostMetrics = Omit<z.infer<typeof hostSchema>, 'schemaVersion'>;
-type CollectorMetrics = Omit<z.infer<typeof collectorSchema>, 'ok'>;
+type CollectorMetrics = Omit<z.infer<typeof collectorSchema>, 'ok' | 'traffic'>;
 export type MonitorStatus = { sampledAt: number; refreshAfterMs: 10000; backend: ProcessMetrics;
+  requests: {at:number;direct:number;bridge:number;collection:number;total:number}|null;
   host: ({ status: 'ready' | 'stale' } & HostMetrics) | { status: 'unavailable' };
   collector: ({ status: 'ready' } & CollectorMetrics) | { status: 'unavailable' } };
 const unavailable = () => new AppError(503, 'ADMIN_MONITOR_UNAVAILABLE', '控制台数据暂不可用');
@@ -101,7 +107,7 @@ async function hostSnapshot(path: string | undefined, now: number): Promise<Moni
   } finally { await handle.close(); }
 }
 
-export function createAdminMonitor(config?: AdminMonitorConfig) {
+export function createAdminMonitor(config?: AdminMonitorConfig, traffic?: RequestCounter) {
   let cached: { at: number; value: Promise<MonitorStatus> } | undefined;
   let previous: { at: number; cpu: NodeJS.CpuUsage } | undefined;
   const histories = new Map<string, { at: number; value: Promise<MonitorHistory> }>();
@@ -109,18 +115,24 @@ export function createAdminMonitor(config?: AdminMonitorConfig) {
     const now = Date.now();
     if (cached && now - cached.at < 10000) return cached.value;
     const cpu = process.cpuUsage();
-    const memory = process.memoryUsage();
     const elapsed = now - (previous?.at ?? now);
     const backend: ProcessMetrics = { scope: 'process', sampledAt: now, uptimeSeconds: Math.floor(process.uptime()),
       cpuBasis: 'one_core', cpuPercent: elapsed > 0 ? Math.max(0,
-        (cpu.user + cpu.system - previous!.cpu.user - previous!.cpu.system) / (elapsed * 10)) : null,
-      memory: { rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal } };
+        (cpu.user + cpu.system - previous!.cpu.user - previous!.cpu.system) / (elapsed * 10)) : null };
     previous = { at: now, cpu };
     const value = Promise.allSettled([hostSnapshot(config?.hostSnapshotFile, now), config
-      ? request(config, '/v1/console/snapshot').then(value => { const { ok: _, ...data } = collectorSchema.parse(value); return data; }) : Promise.reject(unavailable())])
-      .then(([host, collector]): MonitorStatus => ({ sampledAt: now, refreshAfterMs: 10000, backend,
-        host: host.status === 'fulfilled' ? host.value as MonitorStatus['host'] : { status: 'unavailable' },
-        collector: collector.status === 'fulfilled' ? { status: 'ready', ...collector.value } : { status: 'unavailable' } }));
+      ? request(config, '/v1/console/snapshot').then(value => collectorSchema.parse(value)) : Promise.reject(unavailable())])
+      .then(([host, collector]): MonitorStatus => {
+        const latest = Math.floor(now / 60000) * 60000 - 60000;
+        const local = traffic?.snapshot().minutes.find(row => row.at === latest);
+        const incoming = collector.status === 'fulfilled' ? collector.value.traffic.minutes.find(row => row.at === latest) : undefined;
+        const requests = local && incoming ? { at: latest, direct: local.direct, bridge: local.bridge,
+          collection: local.collection + incoming.collection, total: local.direct + local.bridge + local.collection + incoming.collection } : null;
+        const { ok: _, traffic: __, ...data } = collector.status === 'fulfilled' ? collector.value : { ok: false, traffic: null };
+        return { sampledAt: now, refreshAfterMs: 10000, backend, requests,
+          host: host.status === 'fulfilled' ? host.value as MonitorStatus['host'] : { status: 'unavailable' },
+          collector: collector.status === 'fulfilled' ? { status: 'ready', ...data } as MonitorStatus['collector'] : { status: 'unavailable' } };
+      });
     cached = { at: now, value };
     return value;
   };
@@ -148,10 +160,13 @@ export function createAdminMonitor(config?: AdminMonitorConfig) {
         const { bytesRead } = await handle.read(data, 0, data.length, 0);
         if (bytesRead > 524288) throw unavailable();
         const { schemaVersion: _, ...result } = historySchema.parse(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data.subarray(0, bytesRead))));
-        if (result.range !== range || result.from > result.to || result.to > result.sampledAt || result.sampledAt > now + 5000
+        if (result.range !== range || result.bucketMs !== {day:120000,week:900000,month:3600000}[range]
+          || result.from > result.to || result.to > result.sampledAt || result.sampledAt > now + 5000
           || result.points.some((point, index) => point.at < result.from || point.at > result.to
             || index > 0 && point.at <= result.points[index - 1]!.at
-            || point.memoryUsedBytes > point.memoryTotalBytes || point.diskUsedBytes > point.diskTotalBytes)) throw unavailable();
+            || (point.cpu?.max ?? 0) > 100
+            || point.requests && Math.abs(point.requests.mean - point.requests.direct - point.requests.bridge - point.requests.collection) > 0.003
+            || [point.cpu,point.requests,point.activeUsers,point.events].some(value => value && (value.min > value.mean || value.mean > value.max || value.samples < 1 || value.peakAt < point.at || value.peakAt >= point.at + result.bucketMs || value.peakAt > result.to)))) throw unavailable();
         return result;
       } finally { await handle.close(); }
     })().catch(() => { histories.delete(range); throw unavailable(); });

@@ -1,9 +1,9 @@
-import { statSync } from 'node:fs';
 import { TABLES } from './schema.mjs';
 import { purposeVersionSql } from './compat/legacy.mjs';
 import { decodePayload } from './payload.mjs';
 import { requireThat } from './errors.mjs';
 import { eventSchemas, id, shape, validateBatch } from './validation.mjs';
+import { createRequestCounter } from './traffic.mjs';
 
 export const CONSOLE_STATUS_ROUTE = '/v1/console/snapshot';
 export const CONSOLE_EVENTS_ROUTE = '/v1/console/events';
@@ -46,17 +46,36 @@ function query(input, now) {
 
 function processSnapshot(previous, now) {
   const cpu = process.cpuUsage();
-  const memory = process.memoryUsage();
   const elapsed = now - (previous?.at ?? now);
   return { sample: { at: now, cpu }, value: { scope: 'process', sampledAt: now,
     uptimeSeconds: Math.floor(process.uptime()), cpuBasis: 'one_core',
-    cpuPercent: elapsed > 0 ? Math.max(0, (cpu.user + cpu.system - previous.cpu.user - previous.cpu.system) / (elapsed * 10)) : null,
-    memory: { rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal } } };
+    cpuPercent: elapsed > 0 ? Math.max(0, (cpu.user + cpu.system - previous.cpu.user - previous.cpu.system) / (elapsed * 10)) : null } };
 }
 
-export function createConsole(store, config, { clock = Date.now } = {}) {
+export function createConsole(store, config, { clock = Date.now, traffic = createRequestCounter(clock) } = {}) {
   const db = store.db;
   let cached, previous;
+  const activity = new Map();
+  const trafficSnapshot = () => {
+    const value = traffic.snapshot();
+    const rows = value.minutes.map(({ at }) => {
+      if (!activity.has(at)) {
+        const recent = db.prepare(`WITH chosen AS MATERIALIZED (
+          SELECT participant_key FROM event_receipts INDEXED BY console_event_time
+          WHERE received_at>=? AND received_at<? ORDER BY received_at DESC,participant_key DESC,event_id DESC LIMIT 10001)
+          SELECT c.participant_key,p.synthetic,a.account_subject,a.openid FROM chosen c
+          LEFT JOIN ${TABLES.participants} p ON p.participant_key=c.participant_key
+          LEFT JOIN ${TABLES.accounts} a ON a.participant_key=c.participant_key`).all(at, at + 60000);
+        const real = recent.filter(row => row.synthetic === 0);
+        activity.set(at, { at, activeUsers: recent.length > 10000 ? null : new Set(real.filter(row => row.openid && row.account_subject).map(row => row.account_subject)).size,
+          events: recent.length > 10000 ? null : real.length });
+      }
+      return db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value === 'open'
+        ? activity.get(at) : {at,activeUsers:null,events:null};
+    });
+    for (const at of activity.keys()) if (!value.minutes.some(row => row.at === at)) activity.delete(at);
+    return { ok: true, ...value, activity: rows };
+  };
   const status = () => {
     const now = clock();
     if (cached && now - cached.sampledAt < 10_000) return cached;
@@ -64,16 +83,19 @@ export function createConsole(store, config, { clock = Date.now } = {}) {
     const recent = db.prepare(`WITH recent AS MATERIALIZED (
       SELECT participant_key FROM event_receipts INDEXED BY console_event_time WHERE received_at>=?
       ORDER BY received_at DESC,participant_key DESC,event_id DESC LIMIT 5001)
-      SELECT p.synthetic FROM recent r JOIN ${TABLES.participants} p ON p.participant_key=r.participant_key`).all(now - 60_000);
+      SELECT r.participant_key,p.synthetic,a.account_subject,a.openid FROM recent r
+      JOIN ${TABLES.participants} p ON p.participant_key=r.participant_key
+      LEFT JOIN ${TABLES.accounts} a ON a.participant_key=r.participant_key`).all(now - 60_000);
     const latest = db.prepare(`SELECT received_at FROM event_receipts INDEXED BY console_event_time
       ORDER BY received_at DESC,participant_key DESC,event_id DESC LIMIT 1`).get();
-    const bytes = path => { try { return statSync(path).size; } catch { return 0; } };
     return cached = { ok: true, sampledAt: now, process: sample.value,
-      storage: { databaseBytes: bytes(config.dbPath), walBytes: bytes(`${config.dbPath}-wal`) },
+      traffic: traffic.snapshot(),
       collection: { enabled: Boolean(config.realEnabled),
         restoreGate: db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value,
         latestReceivedAt: latest?.received_at ?? null, receivedLastMinute: recent.slice(0, 5000).filter(row => row.synthetic === 0).length,
-        receivedLastMinuteCapped: recent.length > 5000 } };
+        receivedLastMinuteCapped: recent.length > 5000,
+        activeLastMinute: new Set(recent.slice(0, 5000).filter(row => row.synthetic === 0 && row.openid && row.account_subject).map(row => row.account_subject)).size,
+        activeLastMinuteCapped: recent.length > 5000 } };
   };
   const events = (input, now = clock()) => {
     const request = query(input, now);
@@ -136,5 +158,5 @@ export function createConsole(store, config, { clock = Date.now } = {}) {
       return result;
     }).deferred();
   };
-  return { status, events };
+  return { status, events, traffic: trafficSnapshot };
 }

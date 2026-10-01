@@ -15,6 +15,7 @@ import { LEGACY_BRIDGE_ROUTE, accountResponseForRequest } from './compat/legacy.
 import { isNoticeVersion, verifyBridgeRequest, validateAccountRequest } from './bridge.mjs';
 import { MAX_BYTES, validateBatch, validateState, validateTokenRequest, shape, purpose } from './validation.mjs';
 import { PLACE_ROUTE, BUSINESS_ROUTE, FOLLOWUP_QUERY_ROUTE } from './places.mjs';
+import { createRequestCounter } from './traffic.mjs';
 
 function reply(res, status, body) {
   const raw = JSON.stringify(body);
@@ -70,7 +71,8 @@ export function createCollector(config) {
   requireThat(purpose(config.purposeVersion), 500, 'INVALID_PURPOSE_CONFIGURATION');
   const store = openStore(config.dbPath, config);
   initializeConsole(store.db);
-  const console = createConsole(store, config);
+  const traffic = createRequestCounter();
+  const console = createConsole(store, config, { traffic });
   const tokens = createTokenService(config.privatePem, config.token);
   const rateGlobal = limiter(600, 1); const rateParticipant = limiter(60);
   const wrap = handler => {
@@ -146,12 +148,16 @@ export function createCollector(config) {
     requireThat(fs.bavail * fs.bsize >= config.minFreeBytes, 503, 'STORAGE_UNAVAILABLE');
     reply(res, 200, store.places.ingestBusiness(body, now));
   });
-  const publicServer = http.createServer({ maxHeaderSize: 8192 }, (req, res) =>
-    [BRIDGE_ROUTE, LEGACY_BRIDGE_ROUTE].includes(req.url) ? bridgeHandler(req, res) : req.url === BUSINESS_ROUTE ? businessHandler(req, res) : batchHandler(req, res));
+  const publicServer = http.createServer({ maxHeaderSize: 8192 }, (req, res) => {
+    if (req.method === 'POST' && ['/v1/batches', PLACE_ROUTE, FOLLOWUP_QUERY_ROUTE].includes(req.url))
+      res.once('finish', () => traffic.record());
+    return [BRIDGE_ROUTE, LEGACY_BRIDGE_ROUTE].includes(req.url) ? bridgeHandler(req, res) : req.url === BUSINESS_ROUTE ? businessHandler(req, res) : batchHandler(req, res);
+  });
   const adminServer = http.createServer({ maxHeaderSize: 8192 }, wrap(async (req, res) => {
     requireThat(/^Bearer [A-Za-z0-9_-]+$/.test(req.headers.authorization || '')
       && sameSecret(req.headers.authorization.slice(7), config.adminToken), 401, 'ADMIN_UNAUTHORIZED');
     if (req.method === 'GET' && req.url === CONSOLE_STATUS_ROUTE) return reply(res, 200, console.status());
+    if (req.method === 'GET' && req.url === '/v1/console/traffic') return reply(res, 200, console.traffic());
     if (req.method === 'GET' && req.url === '/v1/status') {
       return reply(res, 200, { ok: true, realCollectionEnabled: config.realEnabled,
         restoreGate: store.db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value,

@@ -180,7 +180,11 @@ only by the service UID. This server-only directory survives source replacements
 - `/api/v1/admin/auth/login`, `/api/v1/admin/auth/logout` and `/api/v1/admin/session`:
   separate password authentication for the management website. Only exact HTTPS
   origins recorded in `admin_origins` are accepted; an empty allowlist denies
-  access. An admin token cannot authenticate a mini-program user, or vice versa.
+  access. Login/session return `admin.role`: `admin` or `superadmin`. Migration
+  028 keeps existing accounts as `admin`; changing a role increments the
+  credential version and revokes sessions in a BEFORE UPDATE trigger. Every
+  elevated request and receipt replay checks the current role. An admin token
+  cannot authenticate a mini-program user, or vice versa.
 - `/healthz`: readiness against the database; exposes no account/configuration.
 - `/api/v1/market/listings`: public filtered reads and authenticated creates;
   detail/update/status/delete, own/seller lists and counted detail views are
@@ -191,8 +195,16 @@ only by the service UID. This server-only directory survives source replacements
   another person's OpenID. Own listings accept a status filter.
 - `/api/v1/admin/market/listings`, `/batches`, `/templates`: management publishing,
   version-checked edits, resumable bulk imports and shared reusable templates.
+  Both roles can list the application's nondeleted community listings and
+  `POST /listings/delete {items:[{id,expectedVersion}]}` for 1–50 distinct items.
+  Deletion is atomic, version checked and idempotent; it retains tombstones,
+  images and history. Ordinary edits retain the owner/shared-management scope.
+  `superadmin` can edit any nondeleted listing's canonical content, retaining
+  user-owned images, and `POST /listings/:id/status {expectedVersion,status}`
+  with online/offline/sold. Status changes never extend expiry or revive deleted items.
 - `/api/v1/community`: public display configuration; `/api/v1/admin/community`
-  reads/updates it with version checks and an attachment-preserving history.
+  lets both admin roles read/update it with version checks and an
+  attachment-preserving history.
 - `/api/v1/ads`: public active contact ads. Authenticated `POST /:id/clicks`
   records a tap with permanent idempotency; a tap is not a successful contact.
 - `/api/v1/files/images`: authenticated `POST application/octet-stream` with
@@ -204,6 +216,21 @@ only by the service UID. This server-only directory survives source replacements
   The entire batch must be readable by that viewer. Returns five-minute signed
   HTTPS URLs; never persist those URLs as file identity. The same two endpoints
   under `/api/v1/admin/files/` use management authentication and origin checks.
+- `/api/v1/admin/console`: superadmin-only `/tables`, `/rows`, `/rows/:table/:id`,
+  `/status`, `/history` and `/events`. The fixed table catalog exposes app-scoped data and
+  primary-key pagination; credentials, sessions and nonces are excluded.
+  At most two database reads run concurrently, with a two-second SQL timeout
+  and a 1 MiB JSON limit. `POST /rows/users/:id/edit` accepts only a version
+  digest and a name/profile patch, reusing normal profile validation and merging;
+  other tables remain read-only. File IDs do not confer storage access.
+  Host sampling runs every thirty seconds; status polling/cache refresh every ten
+  seconds. History retains minute averages for thirty days and exports fixed
+  day/week/month ranges once per minute, at most 720 points per range; reads are
+  cached for sixty seconds and never scan the business database. Event pages use received
+  time and support time/type/user UUID or OpenID filters, at most 50 events.
+  Read-only socket/snapshot configuration and bounded host sampling are in the
+  [monitor deployment guide](../../deploy/monitor/README.md). Missing or stale
+  metrics do not interrupt business service.
 
 Responses use `{ok:true,data,requestId}` or
 `{ok:false,error:{code,message},requestId}`. Each business write requires an

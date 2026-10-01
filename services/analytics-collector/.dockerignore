@@ -9,3 +9,6 @@ secrets
 *.token
 *.sock
 .git
+test
+**/._*
+**/.DS_Store

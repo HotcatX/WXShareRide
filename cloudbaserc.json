@@ -16,20 +16,6 @@
       "handler": "index.main",
       "timeout": 15,
       "triggers": []
-    },
-    {
-      "name": "marketApi",
-      "runtime": "Nodejs16.13",
-      "handler": "index.main",
-      "timeout": 30,
-      "triggers": []
-    },
-    {
-      "name": "webHouseShare",
-      "runtime": "Nodejs16.13",
-      "handler": "index.main",
-      "timeout": 15,
-      "triggers": []
     }
   ]
 }

@@ -8,6 +8,7 @@ import { openStore } from './store.mjs';
 import { createTokenService, sameSecret } from './auth.mjs';
 import { ApiError, requireThat } from './errors.mjs';
 import { readSafeMetrics } from './metrics.mjs';
+import { CONSOLE_STATUS_ROUTE, CONSOLE_EVENTS_ROUTE, initializeConsole, createConsole } from './console.mjs';
 import { DIAGNOSTIC_ROUTE, readAccountDiagnostics } from './diagnostics.mjs';
 import { BRIDGE_ROUTE, DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonicalPurposeVersion, canonicalNoticeVersion } from './protocol.mjs';
 import { LEGACY_BRIDGE_ROUTE, accountResponseForRequest } from './compat/legacy.mjs';
@@ -68,6 +69,8 @@ export function createCollector(config) {
   requireThat(config.bridgeKey === null || (Buffer.isBuffer(config.bridgeKey) && config.bridgeKey.length === 32), 500, 'INVALID_BRIDGE_CONFIGURATION');
   requireThat(purpose(config.purposeVersion), 500, 'INVALID_PURPOSE_CONFIGURATION');
   const store = openStore(config.dbPath, config);
+  initializeConsole(store.db);
+  const console = createConsole(store, config);
   const tokens = createTokenService(config.privatePem, config.token);
   const rateGlobal = limiter(600, 1); const rateParticipant = limiter(60);
   const wrap = handler => {
@@ -148,6 +151,7 @@ export function createCollector(config) {
   const adminServer = http.createServer({ maxHeaderSize: 8192 }, wrap(async (req, res) => {
     requireThat(/^Bearer [A-Za-z0-9_-]+$/.test(req.headers.authorization || '')
       && sameSecret(req.headers.authorization.slice(7), config.adminToken), 401, 'ADMIN_UNAUTHORIZED');
+    if (req.method === 'GET' && req.url === CONSOLE_STATUS_ROUTE) return reply(res, 200, console.status());
     if (req.method === 'GET' && req.url === '/v1/status') {
       return reply(res, 200, { ok: true, realCollectionEnabled: config.realEnabled,
         restoreGate: store.db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value,
@@ -158,6 +162,10 @@ export function createCollector(config) {
     }
     if (req.method === 'GET' && req.url === '/v1/places/status') return reply(res, 200, store.places.status());
     requireThat(req.method === 'POST', 404, 'NOT_FOUND');
+    if (req.url === CONSOLE_EVENTS_ROUTE) {
+      const { body } = await readJSON(req, 2048);
+      return reply(res, 200, console.events(body));
+    }
     if (req.url === '/v1/places/catalog/approve' || req.url === '/v1/places/catalog/seed') {
       const { body } = await readJSON(req, 8192);
       return reply(res, 200, req.url.endsWith('/seed') ? store.places.seed(body) : store.places.approve(body));

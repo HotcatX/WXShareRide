@@ -1,0 +1,31 @@
+[Unit]
+Description=LinkX bounded host metrics snapshot
+After=docker.service
+ConditionPathExists=/var/run/docker.sock
+ConditionPathExists=/opt/linkx-monitor/host-metrics.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecCondition=/usr/bin/test -S /var/run/docker.sock
+ExecStart=/usr/bin/python3 /opt/linkx-monitor/host-metrics.py
+TimeoutStartSec=9s
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=5%
+MemoryMax=64M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+ReadWritePaths=/opt/linkx-monitor/public /opt/linkx-monitor/private
+UMask=0077

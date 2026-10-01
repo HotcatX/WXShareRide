@@ -64,3 +64,23 @@
         respond 404
     }
 }
+
+admin.linkx.ink {
+    root * /data/site
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy same-origin
+    }
+    @entry path / /index.html /admin /admin/ /admin/index.html /admin/admin-config*.js
+    header @entry Cache-Control no-store
+    handle /admin* {
+        try_files {path} {path}/ /admin/index.html
+        file_server
+    }
+    handle {
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}

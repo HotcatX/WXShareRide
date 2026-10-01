@@ -23,7 +23,7 @@ async function admin(pool: Pool, id = 'admin_one', ownerKey = 'owner_one', app =
   const sessionHash = randomBytes(32).toString('hex');
   await pool.query(`INSERT INTO admin_sessions(token_hash,app_id,account_id,credential_version,expires_at)
     VALUES($1,$2,$3,1,clock_timestamp()+interval '1 hour')`, [sessionHash, app, id]);
-  return { appId: app, accountId: id, ownerKey, credentialVersion: 1, sessionHash };
+  return { appId: app, accountId: id, ownerKey, credentialVersion: 1, sessionHash, role: 'admin' };
 }
 async function file(pool: Pool, options: { app?: string; userId?: string; admin?: AdminIdentity; status?: string } = {}) {
   const id = randomUUID(), locator = `cloud://synthetic-private/${randomUUID()}.png`;

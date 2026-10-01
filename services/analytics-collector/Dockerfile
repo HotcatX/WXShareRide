@@ -12,7 +12,6 @@ COPY package.json package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts
-COPY --chown=node:node test ./test
 RUN mkdir -p /data /backups /secrets && chown node:node /data /backups /secrets
 USER node
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 \

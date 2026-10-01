@@ -11,8 +11,9 @@ import { marketListingExpiresAt } from '../src/market/time.ts';
 import { registerAdminRoutes } from '../src/admin/routes.ts';
 import { registerAdminMarketRoutes } from '../src/admin/market-routes.ts';
 import { adminMarketListingId, bulkCreateAdminMarketListings, createAdminMarketListing,
-  getAdminMarketListing, updateAdminMarketListing } from '../src/admin/market.ts';
+  deleteAdminMarketListings, getAdminMarketListing, listAdminMarketListings, setAdminMarketListingStatus, updateAdminMarketListing } from '../src/admin/market.ts';
 import type { AdminIdentity } from '../src/admin/service.ts';
+import { requireAdmin } from '../src/admin/service.ts';
 import { createTestDatabase } from './helpers/database.ts';
 
 const integration = { skip: !process.env.BACKEND_TEST_DATABASE_URL };
@@ -20,15 +21,15 @@ const APP = 'admin-market-test';
 const content = () => ({ listingType: 'goods', title: 'Synthetic desk', description: 'Synthetic content', priceCents: 1200,
   category: '家具', condition: '99新', region: { state: 'NJ', county: 'Bergen', area: 'Fort Lee' },
   buildingName: '', location: null, startDate: '2026-09-01', endDate: '2026-09-30', sellerContact: null, sublet: null, images: [] });
-async function admin(pool: Pool, ownerKey = 'shared-owner', appId = APP) {
+async function admin(pool: Pool, ownerKey = 'shared-owner', appId = APP, role: 'admin' | 'superadmin' = 'admin') {
   const accountId = `admin-${randomUUID()}`;
   const token = createHash('sha256').update(randomUUID()).digest('hex');
   const sessionHash = createHash('sha256').update(token).digest('hex');
-  await pool.query(`INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version,password_salt,password_hash)
-    VALUES($1,$2,$3,true,1,$4,$5)`, [appId, accountId, ownerKey, Buffer.alloc(32, 1), Buffer.alloc(64, 1)]);
+  await pool.query(`INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version,password_salt,password_hash,role)
+    VALUES($1,$2,$3,true,1,$4,$5,$6)`, [appId, accountId, ownerKey, Buffer.alloc(32, 1), Buffer.alloc(64, 1), role]);
   await pool.query(`INSERT INTO admin_sessions(token_hash,app_id,account_id,credential_version,expires_at)
     VALUES($1,$2,$3,1,clock_timestamp()+interval '1 hour')`, [sessionHash, appId, accountId]);
-  return { actor: { appId, accountId, ownerKey, credentialVersion: 1, sessionHash } satisfies AdminIdentity, token };
+  return { actor: { appId, accountId, ownerKey, credentialVersion: 1, sessionHash, role } satisfies AdminIdentity, token };
 }
 async function file(pool: Pool, actor: AdminIdentity, ready = true) {
   return transaction(pool, async client => {
@@ -213,7 +214,7 @@ test('admin market: a stale failing bulk attempt cannot downgrade a concurrently
   } finally { resume(); await stale.catch(() => {}); }
 });
 
-test('admin market HTTP: exact origin/session checks, private DTO, strict identities and no new status/delete surface', integration, async t => {
+test('admin market HTTP: exact origin/session checks, private DTO, strict identities and versioned moderation and super-only status surface', integration, async t => {
   const db = await createTestDatabase();
   const app = Fastify();
   t.after(async () => { await app.close(); await db.close(); });
@@ -236,13 +237,156 @@ test('admin market HTTP: exact origin/session checks, private DTO, strict identi
   assert.ok(!read.body.includes(actor.ownerKey)); assert.ok(!read.body.includes(actor.accountId));
   assert.equal((await app.inject({ method: 'GET', url: `/api/v1/admin/market/listings/${id}?ownerKey=forged`, headers })).statusCode, 400);
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/v1/admin/market/listings/${id}`, headers })).statusCode, 404);
-  assert.equal((await app.inject({ method: 'POST', url: `/api/v1/admin/market/listings/${id}/status`, headers, payload: { status: 'sold' } })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/v1/admin/market/listings/${id}/status`, headers, payload: { status: 'sold' } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/v1/admin/market/listings/${id}/status`, headers,
+    payload: { expectedVersion: 0, status: 'sold' } })).statusCode, 403);
+  const community = await app.inject({ method: 'GET', url: '/api/v1/admin/market/listings?limit=1', headers });
+  assert.equal(community.statusCode, 200); assert.equal(community.json().data.items[0].id, id);
+  assert.equal(community.headers['cache-control'], 'private, no-store');
   const edited = await app.inject({ method: 'POST', url: `/api/v1/admin/market/listings/${id}/edit`, headers: { ...headers, 'idempotency-key': 'http-edit-001' },
     payload: { expectedVersion: 0, patch: { title: 'Updated' } } });
   assert.equal(edited.statusCode, 200); assert.equal(edited.json().data.version, 1);
   const bulk = await app.inject({ method: 'POST', url: '/api/v1/admin/market/batches', headers,
     payload: { batchId: 'http_batch', items: [{ item: content() }] } });
   assert.equal(bulk.statusCode, 200); assert.equal(bulk.json().data.status, 'done');
+  const deletion = await app.inject({ method: 'POST', url: '/api/v1/admin/market/listings/delete',
+    headers: { ...headers, 'idempotency-key': 'http-delete-001' }, payload: { items: [{ id, expectedVersion: 1 }] } });
+  assert.equal(deletion.statusCode, 200); assert.equal(deletion.json().data.deleted[0].version, 2);
+  assert.equal(deletion.headers['cache-control'], 'private, no-store');
   const options = await app.inject({ method: 'OPTIONS', url: '/api/v1/admin/market/batches', headers: { origin, 'access-control-request-method': 'POST' } });
   assert.equal(options.statusCode, 204);
+});
+
+async function userListing(pool: Pool, id: string, options: { appId?: string; status?: string; createdAt?: string } = {}) {
+  const appId = options.appId ?? APP;
+  const userId = (await pool.query('INSERT INTO users(app_id,openid) VALUES($1,$2) RETURNING id', [appId, randomUUID()])).rows[0].id;
+  const { images: _images, ...stored } = content();
+  await pool.query(`INSERT INTO market_listings(app_id,id,owner_user_id,content,expires_at,status,created_at)
+    VALUES($1,$2,$3,$4,'2020-01-01T00:00:00.000Z',$5,$6::timestamptz)`,
+    [appId, id, userId, stored, options.status ?? 'online', options.createdAt ?? '2026-09-01T00:00:00.123456Z']);
+  return userId as string;
+}
+
+test('admin moderation: bounded app-scoped chronological listing preserves microsecond cursor and excludes tombstones', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const { actor } = await admin(db.pool);
+  await userListing(db.pool, 'item_a'); await userListing(db.pool, 'item_b');
+  await userListing(db.pool, 'item_c', { createdAt: '2026-09-01T00:00:00.123457Z', status: 'offline' });
+  await userListing(db.pool, 'item_deleted', { status: 'deleted' });
+  await userListing(db.pool, 'foreign_item', { appId: 'other-app' });
+  const first = await listAdminMarketListings(db.pool, actor, { limit: '1' });
+  assert.deepEqual(first.items.map(item => item.id), ['item_c']);
+  assert.equal(first.items[0]!.canEdit, false); assert.equal(first.items[0]!.source, 'user');
+  assert.ok(first.nextCursor);
+  const second = await listAdminMarketListings(db.pool, actor, { limit: 1, cursor: first.nextCursor });
+  assert.deepEqual(second.items.map(item => item.id), ['item_b']);
+  const last = await listAdminMarketListings(db.pool, actor, { limit: 1, cursor: second.nextCursor });
+  assert.deepEqual(last.items.map(item => item.id), ['item_a']); assert.equal(last.nextCursor, null);
+  assert.deepEqual((await listAdminMarketListings(db.pool, actor, { status: 'offline' })).items.map(item => item.id), ['item_c']);
+  await assert.rejects(listAdminMarketListings(db.pool, actor, { limit: 51 }), ZodError);
+  await assert.rejects(listAdminMarketListings(db.pool, actor, { cursor: 'not_json' }), { code: 'INVALID_CURSOR' });
+  await assert.rejects(listAdminMarketListings(db.pool, actor, { ownerKey: actor.ownerKey }), ZodError);
+  await db.pool.query('DELETE FROM admin_sessions WHERE token_hash=$1', [actor.sessionHash]);
+  await assert.rejects(listAdminMarketListings(db.pool, actor, {}), { code: 'ADMIN_UNAUTHORIZED' });
+});
+
+test('admin moderation: ordinary admin atomic soft deletion preserves images, old creates and deduplicates concurrent retries', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const { actor } = await admin(db.pool);
+  const ownId = String((await createAdminMarketListing(db.pool, actor, 'moderate-create-001', content())).data.id);
+  const userId = await userListing(db.pool, 'user_item');
+  const userFile = await transaction(db.pool, async client => {
+    const row = await reserveFile(client, { appId: APP, owner: { userId }, provider: 'cos', locator: `fixture/${randomUUID()}` });
+    await confirmFile(client, { appId: APP, owner: { userId }, fileId: row.id,
+      metadata: { sizeBytes: 1, mediaType: 'image/jpeg', sha256: 'b'.repeat(64) } });
+    await client.query(`INSERT INTO file_references(app_id,resource_kind,resource_id,slot,file_id)
+      VALUES($1,'listing','user_item','image.0',$2)`, [APP, row.id]);
+    return row.id;
+  });
+  const body = { items: [{ id: ownId, expectedVersion: 0 }, { id: 'user_item', expectedVersion: 0 }] };
+  await assert.rejects(deleteAdminMarketListings(db.pool, actor, 'moderate-conflict-001', {
+    items: [{ id: ownId, expectedVersion: 0 }, { id: 'user_item', expectedVersion: 1 }] }), { code: 'LISTING_VERSION_CONFLICT' });
+  assert.equal((await db.pool.query("SELECT count(*) FROM market_listings WHERE status='deleted'")).rows[0].count, '0');
+  await assert.rejects(deleteAdminMarketListings(db.pool, actor, 'moderate-duplicate-001', { items: [body.items[0], body.items[0]] }), ZodError);
+  await userListing(db.pool, 'foreign_item', { appId: 'foreign-app' });
+  await assert.rejects(deleteAdminMarketListings(db.pool, actor, 'moderate-foreign-001', { items: [{ id: 'foreign_item', expectedVersion: 0 }] }), { code: 'LISTING_NOT_FOUND' });
+  const requests = await Promise.all(Array.from({ length: 8 }, () => deleteAdminMarketListings(db.pool, actor, 'moderate-delete-001', body)));
+  for (const result of requests) assert.deepEqual(result, requests[0]);
+  assert.equal((await db.pool.query("SELECT count(*) FROM admin_audit WHERE action='market.deleteBatch'")).rows[0].count, '1');
+  assert.equal((await db.pool.query("SELECT count(*) FROM admin_requests WHERE operation='market.deleteBatch'")).rows[0].count, '1');
+  assert.deepEqual((await db.pool.query('SELECT id,status,version FROM market_listings WHERE app_id=$1 ORDER BY id', [APP])).rows,
+    [ownId, 'user_item'].sort().map(id => ({ id, status: 'deleted', version: '1' })));
+  assert.equal((await db.pool.query('SELECT file_id FROM file_references')).rows[0].file_id, userFile);
+  assert.equal((await db.pool.query('SELECT status FROM files WHERE id=$1', [userFile])).rows[0].status, 'ready');
+  assert.deepEqual((await createAdminMarketListing(db.pool, actor, 'moderate-create-001', content())).data, { id: ownId });
+  await assert.rejects(deleteAdminMarketListings(db.pool, actor, 'moderate-delete-001', { items: [body.items[0]] }), { code: 'IDEMPOTENCY_CONFLICT' });
+  assert.deepEqual((await listAdminMarketListings(db.pool, actor, {})).items, []);
+});
+
+test('admin moderation: audit failure rolls entire deletion back, and super content/status edit never transfers ownership or images', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const { actor: ordinary } = await admin(db.pool);
+  const { actor: superadmin } = await admin(db.pool, 'super-owner', APP, 'superadmin');
+  const userId = await userListing(db.pool, 'super_item');
+  await userListing(db.pool, 'rollback_item');
+  const before = (await db.pool.query("SELECT * FROM market_listings WHERE id='super_item'")).rows[0];
+  await assert.rejects(updateAdminMarketListing(db.pool, ordinary, 'ordinary-user-edit-001', 'super_item',
+    { expectedVersion: 0, patch: { title: 'Denied' } }), { code: 'LISTING_NOT_FOUND' });
+  await assert.rejects(setAdminMarketListingStatus(db.pool, ordinary, 'ordinary-status-001', 'super_item',
+    { expectedVersion: 0, status: 'sold' }), { code: 'ADMIN_FORBIDDEN' });
+  assert.equal((await listAdminMarketListings(db.pool, superadmin, {})).items.every(item => item.canEdit), true);
+  const edited = await updateAdminMarketListing(db.pool, superadmin, 'super-user-edit-001', 'super_item',
+    { expectedVersion: 0, patch: { title: 'Reviewed item', priceCents: 1500 } });
+  assert.equal(edited.data.version, 1);
+  await assert.rejects(updateAdminMarketListing(db.pool, superadmin, 'super-images-001', 'super_item',
+    { expectedVersion: 1, patch: { images: [] } }), { code: 'ADMIN_IMAGE_EDIT_FORBIDDEN' });
+  const status = await setAdminMarketListingStatus(db.pool, superadmin, 'super-status-001', 'super_item', { expectedVersion: 1, status: 'offline' });
+  assert.deepEqual(status.data, { id: 'super_item', status: 'offline', version: 2 });
+  assert.deepEqual(await setAdminMarketListingStatus(db.pool, superadmin, 'super-status-001', 'super_item', { expectedVersion: 1, status: 'offline' }), status);
+  const after = (await db.pool.query("SELECT * FROM market_listings WHERE id='super_item'")).rows[0];
+  assert.equal(after.owner_user_id, userId); assert.equal(after.admin_owner_key, null);
+  assert.deepEqual(after.expires_at, before.expires_at); assert.equal(after.shared_admin_management, false);
+  await db.pool.query(`CREATE FUNCTION reject_moderation_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.action='market.deleteBatch' THEN RAISE EXCEPTION 'synthetic moderation audit failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER fail_moderation_audit BEFORE INSERT ON admin_audit FOR EACH ROW EXECUTE FUNCTION reject_moderation_audit()`);
+  await assert.rejects(deleteAdminMarketListings(db.pool, ordinary, 'moderation-audit-failed', { items: [
+    { id: 'super_item', expectedVersion: 2 }, { id: 'rollback_item', expectedVersion: 0 } ] }), /synthetic moderation audit failure/);
+  assert.deepEqual((await db.pool.query('SELECT id,status,version FROM market_listings ORDER BY id')).rows,
+    [{ id: 'rollback_item', status: 'online', version: '0' }, { id: 'super_item', status: 'offline', version: '2' }]);
+  assert.equal((await db.pool.query("SELECT count(*) FROM admin_requests WHERE request_key='moderation-audit-failed'")).rows[0].count, '0');
+});
+
+test('admin market: a new downgraded session cannot replay elevated user edits, while managed tombstone receipts remain replayable', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const { actor } = await admin(db.pool, 'downgraded-owner', APP, 'superadmin');
+  const userId = await userListing(db.pool, 'restricted_user');
+  const elevatedBody = { expectedVersion: 0, patch: { title: 'Updated by super' } };
+  await updateAdminMarketListing(db.pool, actor, 'restricted-edit-001', 'restricted_user', elevatedBody);
+  await db.pool.query("UPDATE admin_accounts SET role='admin' WHERE app_id=$1 AND id=$2", [APP, actor.accountId]);
+  await assert.rejects(updateAdminMarketListing(db.pool, actor, 'restricted-edit-001', 'restricted_user', elevatedBody),
+    { code: 'ADMIN_UNAUTHORIZED' });
+  const token = createHash('sha256').update(randomUUID()).digest('hex');
+  await db.pool.query(`INSERT INTO admin_sessions(token_hash,app_id,account_id,credential_version,expires_at)
+    SELECT $1,app_id,id,credential_version,clock_timestamp()+interval '1 hour'
+    FROM admin_accounts WHERE app_id=$2 AND id=$3`, [createHash('sha256').update(token).digest('hex'), APP, actor.accountId]);
+  const current = await requireAdmin(db.pool, APP, `Bearer ${token}`);
+  assert.equal(current.role, 'admin'); assert.equal(current.credentialVersion, 2);
+  await assert.rejects(getAdminMarketListing(db.pool, current, 'restricted_user'), { code: 'LISTING_NOT_FOUND' });
+  await assert.rejects(updateAdminMarketListing(db.pool, current, 'restricted-edit-001', 'restricted_user', elevatedBody),
+    { code: 'LISTING_NOT_FOUND' });
+  await assert.rejects(updateAdminMarketListing(db.pool, current, 'restricted-edit-002', 'restricted_user',
+    { expectedVersion: 1, patch: { title: 'Denied' } }), { code: 'LISTING_NOT_FOUND' });
+  const restricted = (await db.pool.query("SELECT owner_user_id,admin_owner_key,content,version FROM market_listings WHERE id='restricted_user'")).rows[0];
+  assert.equal(restricted.owner_user_id, userId); assert.equal(restricted.admin_owner_key, null);
+  assert.equal(restricted.content.title, 'Updated by super'); assert.equal(restricted.version, '1');
+  assert.equal((await db.pool.query("SELECT count(*) FROM admin_requests WHERE operation='market.update'")).rows[0].count, '1');
+  const { images: _images, ...stored } = content();
+  await db.pool.query(`INSERT INTO market_listings(app_id,id,admin_owner_key,content,expires_at)
+    VALUES($1,'managed_item',$2,$3,'2020-01-01T00:00:00.000Z')`, [APP, current.ownerKey, stored]);
+  const managedBody = { expectedVersion: 0, patch: { title: 'Managed reviewed' } };
+  const managed = await updateAdminMarketListing(db.pool, current, 'managed-edit-001', 'managed_item', managedBody);
+  await deleteAdminMarketListings(db.pool, current, 'managed-delete-001', { items: [{ id: 'managed_item', expectedVersion: 1 }] });
+  assert.deepEqual(await updateAdminMarketListing(db.pool, current, 'managed-edit-001', 'managed_item', managedBody), managed);
+  assert.deepEqual((await db.pool.query("SELECT status,version,admin_owner_key,content->>'title' AS title FROM market_listings WHERE id='managed_item'")).rows[0],
+    { status: 'deleted', version: '2', admin_owner_key: current.ownerKey, title: 'Managed reviewed' });
 });

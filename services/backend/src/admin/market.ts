@@ -4,7 +4,7 @@ import { z, ZodError } from 'zod';
 import { idempotencyInput, transaction } from '../db.ts';
 import { AppError } from '../errors.ts';
 import { replaceFileReferences } from '../files/service.ts';
-import { marketListingContentSchema, marketListingCreateSchema, marketListingPatchSchema } from '../market/schemas.ts';
+import { marketListingContentSchema, marketListingCreateSchema, marketListingPatchSchema, marketListingStatusSchema } from '../market/schemas.ts';
 import type { MarketImage, MarketListingContent } from '../market/schemas.ts';
 import { marketListingExpiresAt, validateMarketListingDateWindow } from '../market/time.ts';
 import { lockAdmin, withAdminIdempotency } from './service.ts';
@@ -13,10 +13,17 @@ import type { AdminIdentity } from './service.ts';
 const idSchema = z.string().regex(/^[a-zA-Z0-9:_-]{1,160}$/);
 const batchIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 const updateSchema = z.strictObject({ expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), patch: marketListingPatchSchema });
+const statusSchema = marketListingStatusSchema.extend({ expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) });
 const batchSchema = z.strictObject({ batchId: batchIdSchema, items: z.array(z.unknown()).min(1).max(50) });
 const batchItemSchema = z.strictObject({ clientRequestId: batchIdSchema.optional(), externalId: batchIdSchema.optional(), item: marketListingCreateSchema });
+const listSchema = z.strictObject({ limit: z.coerce.number().int().min(1).max(50).default(30),
+  status: z.enum(['all', 'online', 'offline', 'sold']).default('all'), cursor: z.string().min(1).max(600).optional() });
+const cursorSchema = z.strictObject({ at: z.iso.datetime(), id: idSchema });
+const deleteBatchSchema = z.strictObject({ items: z.array(z.strictObject({ id: idSchema,
+  expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) })).min(1).max(50) })
+  .refine(value => new Set(value.items.map(item => item.id)).size === value.items.length, '商品编号不能重复');
 type Listing = { id: string; status: 'online' | 'offline' | 'sold'; version: string;
-  content: MarketListingContent; expires_at: Date; created_at: Date; updated_at: Date | null };
+  content: MarketListingContent; expires_at: Date; created_at: Date; updated_at: Date | null; owner_user_id: string | null };
 type BatchSuccess = { index: number; id: string; externalId: string };
 type BatchFailure = { index: number; error: string };
 type Batch = { id: string; payload_hash: string; payload_format: string; total: number;
@@ -31,10 +38,10 @@ export function adminMarketListingId(ownerKey: string, requestKey: string): stri
 }
 
 async function managedListing(client: PoolClient, actor: AdminIdentity, id: string, edit: boolean): Promise<Listing> {
-  const row = (await client.query<Listing>(`SELECT id,status,version,content,expires_at,created_at,updated_at
+  const row = (await client.query<Listing>(`SELECT id,status,version,content,expires_at,created_at,updated_at,owner_user_id
     FROM market_listings WHERE app_id=$1 AND id=$2 AND status<>'deleted'
-    AND (admin_owner_key=$3 OR shared_admin_management) FOR ${edit ? 'UPDATE' : 'SHARE'}`,
-  [actor.appId, id, actor.ownerKey])).rows[0];
+    AND (admin_owner_key=$3 OR shared_admin_management OR $4::boolean) FOR ${edit ? 'UPDATE' : 'SHARE'}`,
+  [actor.appId, id, actor.ownerKey, actor.role === 'superadmin'])).rows[0];
   if (!row) throw notFound();
   return row;
 }
@@ -84,22 +91,89 @@ export async function createAdminMarketListing(pool: Pool, actor: AdminIdentity,
 export async function getAdminMarketListing(pool: Pool, actor: AdminIdentity, rawId: unknown) {
   const id = idSchema.parse(rawId);
   return transaction(pool, async client => {
-    await lockAdmin(client, actor);
-    const row = await managedListing(client, actor, id, false);
+    const current = await lockAdmin(client, actor);
+    const row = await managedListing(client, current, id, false);
     return { id, content: marketListingContentSchema.parse(row.content), images: await images(client, actor.appId, id),
       status: row.status, version: Number(row.version), expiresAt: row.expires_at, createdAt: row.created_at, updatedAt: row.updated_at };
+  });
+}
+
+export async function listAdminMarketListings(pool: Pool, actor: AdminIdentity, rawQuery: unknown) {
+  const query = listSchema.parse(rawQuery);
+  let cursor: z.infer<typeof cursorSchema> | undefined;
+  if (query.cursor) {
+    try {
+      if (!/^[a-zA-Z0-9_-]+$/.test(query.cursor)) throw new Error('cursor');
+      cursor = cursorSchema.parse(JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8')));
+    } catch { throw new AppError(400, 'INVALID_CURSOR', '列表位置无效，请重新加载'); }
+  }
+  return transaction(pool, async client => {
+    const current = await lockAdmin(client, actor);
+    const rows = (await client.query<Listing & { cursor_at: string; can_edit: boolean; source: 'user' | 'admin' }>(
+      `SELECT id,status,version,content,expires_at,created_at,updated_at,
+        to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at,
+        (admin_owner_key=$3 OR shared_admin_management OR $7::boolean) IS TRUE AS can_edit,
+        CASE WHEN owner_user_id IS NULL THEN 'admin' ELSE 'user' END AS source
+       FROM market_listings WHERE app_id=$1 AND status<>'deleted'
+         AND ($2::text='all' OR status=$2)
+         AND ($4::timestamptz IS NULL OR (created_at,id)<($4::timestamptz,$5::text))
+       ORDER BY created_at DESC,id DESC LIMIT $6`,
+      [actor.appId, query.status, current.ownerKey, cursor?.at ?? null, cursor?.id ?? null, query.limit + 1, current.role === 'superadmin'])).rows;
+    const selected = rows.slice(0, query.limit);
+    const refs = selected.length ? (await client.query<{ resource_id: string; slot: string; file_id: string }>(
+      `SELECT r.resource_id,r.slot,r.file_id FROM file_references r
+       JOIN files f ON f.app_id=r.app_id AND f.id=r.file_id AND f.status='ready'
+       WHERE r.app_id=$1 AND r.resource_kind='listing' AND r.resource_id=ANY($2::text[])
+         AND r.slot ~ '^(image|thumbnail)[.][0-5]$' ORDER BY r.resource_id,r.slot`,
+      [actor.appId, selected.map(row => row.id)])).rows : [];
+    const last = selected.at(-1);
+    return { items: selected.map(row => {
+      const slots = new Map(refs.filter(ref => ref.resource_id === row.id).map(ref => [ref.slot, ref.file_id]));
+      const attachments = [...slots].filter(([slot]) => slot.startsWith('image.')).map(([slot, fileId]) => {
+        const thumbFileId = slots.get(`thumbnail.${slot.split('.')[1]}`);
+        return { fileId, ...(thumbFileId ? { thumbFileId } : {}) };
+      });
+      return { id: row.id, content: marketListingContentSchema.parse(row.content), images: attachments,
+        status: row.status, version: Number(row.version), expiresAt: row.expires_at, createdAt: row.created_at,
+        updatedAt: row.updated_at, canEdit: row.can_edit, source: row.source };
+    }), nextCursor: rows.length > query.limit && last
+      ? Buffer.from(JSON.stringify({ at: last.cursor_at, id: last.id })).toString('base64url') : null };
+  });
+}
+
+export async function deleteAdminMarketListings(pool: Pool, actor: AdminIdentity, key: unknown, body: unknown) {
+  const parsed = deleteBatchSchema.parse(body);
+  const items = [...parsed.items].sort((a, b) => a.id.localeCompare(b.id));
+  return withAdminIdempotency(pool, actor, 'market.deleteBatch', key, { items }, async client => {
+    const rows = (await client.query<Pick<Listing, 'id' | 'status' | 'version'>>(
+      `SELECT id,status,version FROM market_listings WHERE app_id=$1 AND id=ANY($2::text[]) AND status<>'deleted'
+       ORDER BY id FOR UPDATE`, [actor.appId, items.map(item => item.id)])).rows;
+    if (rows.length !== items.length) throw notFound();
+    const versions = new Map(rows.map(row => [row.id, Number(row.version)]));
+    for (const item of items) {
+      const version = versions.get(item.id)!;
+      if (version !== item.expectedVersion) throw new AppError(409, 'LISTING_VERSION_CONFLICT', '商品已更新，请刷新后重试');
+      if (version >= Number.MAX_SAFE_INTEGER) throw new AppError(409, 'LISTING_VERSION_LIMIT', '商品版本已达到上限');
+    }
+    await client.query(`UPDATE market_listings SET status='deleted',version=version+1,updated_at=clock_timestamp()
+      WHERE app_id=$1 AND id=ANY($2::text[])`, [actor.appId, items.map(item => item.id)]);
+    return { status: 200, data: { deleted: items.map(item => ({ id: item.id,
+      version: item.expectedVersion + 1, status: 'deleted' })) } };
   });
 }
 
 export async function updateAdminMarketListing(pool: Pool, actor: AdminIdentity, key: unknown, rawId: unknown, body: unknown) {
   const id = idSchema.parse(rawId);
   const input = updateSchema.parse(body);
-  return withAdminIdempotency(pool, actor, 'market.update', key, { id, ...input }, async client => {
-    const row = await managedListing(client, actor, id, true);
+  return withAdminIdempotency(pool, actor, 'market.update', key, { id, ...input }, async (client, current) => {
+    const row = await managedListing(client, current, id, true);
     const previous = Number(row.version);
     if (previous !== input.expectedVersion) throw new AppError(409, 'LISTING_VERSION_CONFLICT', '商品已更新，请刷新后重试');
     if (previous >= Number.MAX_SAFE_INTEGER) throw new AppError(409, 'LISTING_VERSION_LIMIT', '商品版本已达到上限');
     const { images: attachments, ...patch } = input.patch;
+    if (current.role === 'superadmin' && row.owner_user_id && attachments !== undefined) {
+      throw new AppError(403, 'ADMIN_IMAGE_EDIT_FORBIDDEN', '用户商品的原图片须保留');
+    }
     const content = marketListingContentSchema.parse({ ...row.content, ...patch });
     let expiresAt = row.expires_at;
     if (content.startDate !== row.content.startDate || content.endDate !== row.content.endDate || content.listingType !== row.content.listingType) {
@@ -111,7 +185,27 @@ export async function updateAdminMarketListing(pool: Pool, actor: AdminIdentity,
     await client.query(`UPDATE market_listings SET content=$3,expires_at=$4,version=$5,updated_at=clock_timestamp()
       WHERE app_id=$1 AND id=$2`, [actor.appId, id, content, expiresAt, previous + 1]);
     return { status: 200, data: { id, version: previous + 1, status: row.status } };
+  }, async (client, current) => {
+    if (current.role !== 'superadmin' && !(await client.query(
+      'SELECT 1 FROM market_listings WHERE app_id=$1 AND id=$2 AND (admin_owner_key=$3 OR shared_admin_management)',
+      [current.appId, id, current.ownerKey])).rowCount) throw notFound();
   });
+}
+
+export async function setAdminMarketListingStatus(pool: Pool, actor: AdminIdentity, key: unknown, rawId: unknown, body: unknown) {
+  const id = idSchema.parse(rawId);
+  const input = statusSchema.parse(body);
+  return withAdminIdempotency(pool, actor, 'market.status', key, { id, ...input }, async (client, current) => {
+    if (current.role !== 'superadmin') throw new AppError(403, 'ADMIN_FORBIDDEN', '该功能仅限最高级管理员');
+    const row = await managedListing(client, current, id, true);
+    const previous = Number(row.version);
+    if (previous !== input.expectedVersion) throw new AppError(409, 'LISTING_VERSION_CONFLICT', '商品已更新，请刷新后重试');
+    if (row.status === input.status) return { status: 200, data: { id, version: previous, status: row.status } };
+    if (previous >= Number.MAX_SAFE_INTEGER) throw new AppError(409, 'LISTING_VERSION_LIMIT', '商品版本已达到上限');
+    await client.query(`UPDATE market_listings SET status=$3,version=$4,updated_at=clock_timestamp()
+      WHERE app_id=$1 AND id=$2`, [current.appId, id, input.status, previous + 1]);
+    return { status: 200, data: { id, version: previous + 1, status: input.status } };
+  }, 'superadmin');
 }
 
 async function lockBatch(client: PoolClient, actor: AdminIdentity, id: string, hash: string): Promise<Batch | undefined> {

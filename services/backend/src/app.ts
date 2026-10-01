@@ -18,6 +18,7 @@ import { registerRatingRoutes } from './ratings/routes.ts';
 import { registerStatisticsRoutes } from './statistics/routes.ts';
 import { registerReferralRoutes } from './referrals/routes.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
+import { registerAdminConsoleRoutes } from './admin/console-routes.ts';
 import { registerMarketRoutes } from './market/routes.ts';
 import { registerCommunityRoutes } from './community/routes.ts';
 import { registerAdminMarketRoutes } from './admin/market-routes.ts';
@@ -31,7 +32,6 @@ import { registerLocationRoutes } from './locations/routes.ts';
 import { registerCityRequestRoutes } from './locations/requests.ts';
 import { createCollectionSessions } from './analytics/session.ts';
 import { compatBridgePath, createCompatBridge } from './compat/bridge.ts';
-import { registerLegacyPublicRoutes } from './compat/public-preview.ts';
 
 export async function createApp(deps: { config: Config; pool: Pool; exchange?: CodeExchange; storage?: FileStorage; collectorTransport?: typeof fetch }) {
   const app = Fastify({ bodyLimit: 65536, requestTimeout: 15000, logger: false, genReqId: () => randomUUID() });
@@ -122,6 +122,7 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerStatisticsRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerReferralRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
   registerAdminRoutes(app, { pool: deps.pool, appId: deps.config.appId });
+  registerAdminConsoleRoutes(app, { pool: deps.pool, appId: deps.config.appId, config: deps.config });
   registerMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser });
   registerCommunityRoutes(app, { pool: deps.pool, appId: deps.config.appId });
   registerAdminMarketRoutes(app, { pool: deps.pool, appId: deps.config.appId });
@@ -130,8 +131,5 @@ export async function createApp(deps: { config: Config; pool: Pool; exchange?: C
   registerFileRoutes(app, { pool: deps.pool, appId: deps.config.appId, requireUser: sessions.requireUser, storage: deps.storage });
   registerLocationRoutes(app);
   registerCityRequestRoutes(app, { pool: deps.pool, requireUser: sessions.requireUser });
-  registerLegacyPublicRoutes(app, { pool: deps.pool, appId: deps.config.appId, storage: deps.storage,
-    publicWebSecret: deps.config.legacyPublic?.secret, houseShareOrigins: deps.config.legacyPublic?.houseShareOrigins,
-    houseShareCurrency: deps.config.legacyPublic?.houseShareCurrency });
   return app;
 }

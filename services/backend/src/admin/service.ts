@@ -5,8 +5,9 @@ import { idempotencyInput, runIdempotentMutation, transaction } from '../db.ts';
 import type { MutationReceipt, MutationResult } from '../db.ts';
 import { AppError } from '../errors.ts';
 
-export type AdminIdentity = { appId: string; accountId: string; ownerKey: string; credentialVersion: number; sessionHash: string };
-type Account = { id: string; owner_key: string; enabled: boolean; credential_version: number;
+export type AdminRole = 'admin' | 'superadmin';
+export type AdminIdentity = { appId: string; accountId: string; ownerKey: string; role: AdminRole; credentialVersion: number; sessionHash: string };
+type Account = { id: string; owner_key: string; enabled: boolean; role: AdminRole; credential_version: number;
   password_salt: Buffer | null; password_hash: Buffer | null };
 const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9_-]{2,63}$/);
 const loginSchema = z.strictObject({ username: usernameSchema, password: z.string().min(12).max(256) });
@@ -65,7 +66,7 @@ export async function loginAdmin(pool: Pool, appId: string, input: unknown) {
   const { username: accountId, password } = parsed.data;
   await reserveLoginAttempt(pool, appId, accountId);
   const account = (await pool.query<Account>(
-    'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash FROM admin_accounts WHERE app_id=$1 AND id=$2',
+    'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash,role FROM admin_accounts WHERE app_id=$1 AND id=$2',
     [appId, accountId])).rows[0];
   const salt = account?.password_salt ?? Buffer.alloc(32);
   const expected = account?.password_hash ?? Buffer.alloc(64);
@@ -75,7 +76,7 @@ export async function loginAdmin(pool: Pool, appId: string, input: unknown) {
   return transaction(pool, async client => {
     // Recheck after scrypt: a password change or disable must defeat in-flight login.
     const current = (await client.query<Account>(
-      'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash FROM admin_accounts WHERE app_id=$1 AND id=$2 FOR SHARE',
+      'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash,role FROM admin_accounts WHERE app_id=$1 AND id=$2 FOR SHARE',
       [appId, accountId])).rows[0];
     if (!usable(current) || current.credential_version !== account.credential_version ||
       !current.password_salt.equals(account.password_salt) || !current.password_hash.equals(account.password_hash)) throw invalidCredentials();
@@ -84,20 +85,29 @@ export async function loginAdmin(pool: Pool, appId: string, input: unknown) {
        SELECT $1,$2,$3,$4,at,at+interval '8 hours' FROM (SELECT clock_timestamp() AS at) clock RETURNING expires_at`,
       [hash(token), appId, accountId, current.credential_version])).rows[0];
     await audit(client, { appId, accountId }, 'login');
-    return { token, expiresAt: session.expires_at.toISOString(), admin: { accountId, ownerKey: current.owner_key } };
+    return { token, expiresAt: session.expires_at.toISOString(), admin: { accountId, ownerKey: current.owner_key, role: current.role } };
   });
 }
 
 export async function requireAdmin(pool: Pool, appId: string, authorization: unknown): Promise<AdminIdentity> {
   const tokenHash = sessionHash(authorization);
-  const row = (await pool.query<{ account_id: string; owner_key: string; credential_version: number }>(
-    `SELECT s.account_id,a.owner_key,a.credential_version FROM admin_sessions s
+  const row = (await pool.query<{ account_id: string; owner_key: string; credential_version: number; role: AdminRole }>(
+    `SELECT s.account_id,a.owner_key,a.credential_version,a.role FROM admin_sessions s
      JOIN admin_accounts a ON a.app_id=s.app_id AND a.id=s.account_id
      WHERE s.token_hash=$1 AND s.app_id=$2 AND s.expires_at>clock_timestamp() AND a.enabled
        AND a.password_salt IS NOT NULL AND a.password_hash IS NOT NULL AND s.credential_version=a.credential_version`,
     [tokenHash, appId])).rows[0];
   if (!row) throw unauthorized();
-  return { appId, accountId: row.account_id, ownerKey: row.owner_key, credentialVersion: row.credential_version, sessionHash: tokenHash };
+  return { appId, accountId: row.account_id, ownerKey: row.owner_key, role: row.role, credentialVersion: row.credential_version, sessionHash: tokenHash };
+}
+
+function superAdmin(identity: AdminIdentity): AdminIdentity {
+  if (identity.role !== 'superadmin') throw new AppError(403, 'ADMIN_FORBIDDEN', '该功能仅限最高级管理员');
+  return identity;
+}
+
+export async function requireSuperAdmin(pool: Pool, appId: string, authorization: unknown): Promise<AdminIdentity> {
+  return superAdmin(await requireAdmin(pool, appId, authorization));
 }
 
 /** Business transactions lock account before session; logout uses the same order.
@@ -105,7 +115,7 @@ export async function requireAdmin(pool: Pool, appId: string, authorization: unk
  * wait for admitted transactions. The session lock serializes logout and writes. */
 export async function lockAdmin(client: PoolClient, identity: AdminIdentity): Promise<AdminIdentity> {
   const account = (await client.query<Account>(
-    'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash FROM admin_accounts WHERE app_id=$1 AND id=$2 FOR SHARE',
+    'SELECT id,owner_key,enabled,credential_version,password_salt,password_hash,role FROM admin_accounts WHERE app_id=$1 AND id=$2 FOR SHARE',
     [identity.appId, identity.accountId])).rows[0];
   if (!usable(account) || account.owner_key !== identity.ownerKey || account.credential_version !== identity.credentialVersion) throw unauthorized();
   const session = (await client.query<{ credential_version: number; expires_at: Date }>(
@@ -114,14 +124,18 @@ export async function lockAdmin(client: PoolClient, identity: AdminIdentity): Pr
   // Read DB wall-clock after both waits, not transaction start or pre-lock filter.
   const at: Date = (await client.query('SELECT clock_timestamp() AS at')).rows[0].at;
   if (!session || session.credential_version !== account.credential_version || session.expires_at <= at) throw unauthorized();
-  return { ...identity, ownerKey: account.owner_key, credentialVersion: account.credential_version };
+  return { ...identity, ownerKey: account.owner_key, role: account.role, credentialVersion: account.credential_version };
+}
+
+export async function lockSuperAdmin(client: PoolClient, identity: AdminIdentity): Promise<AdminIdentity> {
+  return superAdmin(await lockAdmin(client, identity));
 }
 
 export async function getAdminSession(pool: Pool, identity: AdminIdentity) {
   return transaction(pool, async client => {
-    await lockAdmin(client, identity);
+    const current = await lockAdmin(client, identity);
     const session = (await client.query<{ expires_at: Date }>('SELECT expires_at FROM admin_sessions WHERE token_hash=$1', [identity.sessionHash])).rows[0];
-    return { admin: { accountId: identity.accountId, ownerKey: identity.ownerKey }, expiresAt: session.expires_at.toISOString() };
+    return { admin: { accountId: current.accountId, ownerKey: current.ownerKey, role: current.role }, expiresAt: session.expires_at.toISOString() };
   });
 }
 
@@ -135,12 +149,18 @@ export async function logoutAdmin(pool: Pool, identity: AdminIdentity): Promise<
 
 /** Permanent deduplication belongs to app + owner, never a fabricated user UUID. */
 export async function withAdminIdempotency(pool: Pool, identity: AdminIdentity, operation: string, key: unknown,
-  payload: unknown, work: (client: PoolClient, identity: AdminIdentity) => Promise<MutationResult>): Promise<MutationResult> {
+  payload: unknown, work: (client: PoolClient, identity: AdminIdentity) => Promise<MutationResult>,
+  role?: 'superadmin' | ((client: PoolClient, identity: AdminIdentity) => Promise<void>)): Promise<MutationResult> {
   actionSchema.parse(operation);
   const input = idempotencyInput(key, payload);
+  let current = identity;
   return transaction(pool, client => runIdempotentMutation(client, {
     lockKey: ['admin', identity.appId, identity.ownerKey, operation, input.key], hash: input.hash,
-    beforeReceipt: async () => { await lockAdmin(client, identity); },
+    beforeReceipt: async () => {
+      current = await lockAdmin(client, identity);
+      if (role === 'superadmin') superAdmin(current);
+      else if (typeof role === 'function') await role(client, current);
+    },
     read: async () => {
       const previous = (await client.query<MutationReceipt & { payload_format: string }>(
         'SELECT payload_hash,payload_format,response_status,response_body FROM admin_requests WHERE app_id=$1 AND owner_key=$2 AND operation=$3 AND request_key=$4',
@@ -157,7 +177,7 @@ export async function withAdminIdempotency(pool: Pool, identity: AdminIdentity, 
         VALUES($1,$2,$3,$4,$5,$6,$7)`, [identity.appId, identity.ownerKey, operation, input.key, input.hash, result.status, result.data]);
       await audit(client, identity, operation);
     }
-  }, client => work(client, identity)));
+  }, client => work(client, current)));
 }
 
 export async function checkAdminOrigin(pool: Pool, appId: string, origin: unknown): Promise<string> {

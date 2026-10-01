@@ -23,7 +23,7 @@ async function admin(pool: Pool, ownerKey = 'shared-owner'): Promise<AdminIdenti
     VALUES($1,$2,$3,true,1,$4,$5)`, [APP, accountId, ownerKey, Buffer.alloc(32, 1), Buffer.alloc(64, 1)]);
   await pool.query(`INSERT INTO admin_sessions(token_hash,app_id,account_id,credential_version,expires_at)
     VALUES($1,$2,$3,1,clock_timestamp()+interval '1 hour')`, [sessionHash, APP, accountId]);
-  return { appId: APP, accountId, ownerKey, sessionHash, credentialVersion: 1 };
+  return { appId: APP, accountId, ownerKey, sessionHash, credentialVersion: 1, role: 'admin' };
 }
 function storage() {
   const objects = new Map<string, { body: Buffer; mediaType: string }>();

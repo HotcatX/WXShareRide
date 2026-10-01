@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, scrypt } from 'node:crypto';
+import { createHash, randomUUID, scrypt } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import Fastify from 'fastify';
 import type { Pool } from 'pg';
@@ -8,7 +9,7 @@ import { ZodError } from 'zod';
 import { createTestDatabase } from './helpers/database.ts';
 import { AppError } from '../src/errors.ts';
 import { registerAdminRoutes } from '../src/admin/routes.ts';
-import { getAdminSession, lockAdmin, loginAdmin, logoutAdmin, requireAdmin, withAdminIdempotency } from '../src/admin/service.ts';
+import { getAdminSession, lockAdmin, lockSuperAdmin, loginAdmin, logoutAdmin, requireAdmin, requireSuperAdmin, withAdminIdempotency } from '../src/admin/service.ts';
 import type { AdminIdentity } from '../src/admin/service.ts';
 
 const integration = { skip: !process.env.BACKEND_TEST_DATABASE_URL };
@@ -40,7 +41,7 @@ test('admin: normalized legacy credentials, hashed sessions and immediate revoca
   await account(db.pool, 'legacy_admin');
   const login = await loginAdmin(db.pool, APP, { username: ' LEGACY_ADMIN ', password: PASSWORD });
   assert.match(login.token, /^[a-f0-9]{64}$/);
-  assert.deepEqual(login.admin, { accountId: 'legacy_admin', ownerKey: 'owner_legacy_admin' });
+  assert.deepEqual(login.admin, { accountId: 'legacy_admin', ownerKey: 'owner_legacy_admin', role: 'admin' });
   const stored = (await db.pool.query('SELECT *,extract(epoch FROM expires_at-created_at) AS duration FROM admin_sessions')).rows[0];
   assert.equal(stored.token_hash, hash(login.token));
   assert.equal(Number(stored.duration), 8 * 60 * 60);
@@ -239,7 +240,7 @@ test('admin HTTP: exact HTTPS origins, empty defaults, private errors and OPTION
   const current = await app.inject({ method: 'GET', url: '/api/v1/admin/session', headers });
   assert.equal(current.statusCode, 200);
   assert.deepEqual(Object.keys(current.json().data).sort(), ['admin', 'expiresAt']);
-  assert.deepEqual(Object.keys(current.json().data.admin).sort(), ['accountId', 'ownerKey']);
+  assert.deepEqual(Object.keys(current.json().data.admin).sort(), ['accountId', 'ownerKey', 'role']);
   assert.equal((await app.inject({ method: 'POST', url: '/api/v1/admin/auth/logout', headers })).statusCode, 200);
   assert.equal((await app.inject({ method: 'GET', url: '/api/v1/admin/session', headers })).statusCode, 401);
   for (const url of ['/api/v1/admin/accounts', '/api/v1/admin/auth/register', '/api/v1/admin/auth/password']) {
@@ -275,4 +276,88 @@ test('admin: direct credential or owner updates permanently revoke sessions with
     await db.pool.query('UPDATE admin_accounts SET password_salt=$1,password_hash=$2,owner_key=$3 WHERE app_id=$4', [SALT, await DIGEST, 'owner_changed_admin', APP]);
     await assert.rejects(getAdminSession(db.pool, actor), { code: 'ADMIN_UNAUTHORIZED' });
   }
+});
+
+test('admin roles: original accounts stay ordinary and role changes revoke all sessions permanently', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  await account(db.pool, 'original_admin');
+  const initial = await loginAdmin(db.pool, APP, { username: 'original_admin', password: PASSWORD });
+  const ordinary = await requireAdmin(db.pool, APP, `Bearer ${initial.token}`);
+  assert.equal(initial.admin.role, 'admin');
+  await assert.rejects(requireSuperAdmin(db.pool, APP, `Bearer ${initial.token}`), { status: 403, code: 'ADMIN_FORBIDDEN' });
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await assert.rejects(lockSuperAdmin(client, { ...ordinary, role: 'superadmin' }), { code: 'ADMIN_FORBIDDEN' });
+    await client.query('ROLLBACK');
+  } finally { client.release(); }
+  await loginAdmin(db.pool, APP, { username: 'original_admin', password: PASSWORD });
+  assert.equal((await db.pool.query('SELECT count(*) FROM admin_sessions')).rows[0].count, '2');
+  await db.pool.query("UPDATE admin_accounts SET role='superadmin' WHERE app_id=$1", [APP]);
+  assert.equal((await db.pool.query('SELECT credential_version FROM admin_accounts')).rows[0].credential_version, 2);
+  assert.equal((await db.pool.query('SELECT count(*) FROM admin_sessions')).rows[0].count, '0');
+  await assert.rejects(requireAdmin(db.pool, APP, `Bearer ${initial.token}`), { code: 'ADMIN_UNAUTHORIZED' });
+  const high = await loginAdmin(db.pool, APP, { username: 'original_admin', password: PASSWORD });
+  assert.equal(high.admin.role, 'superadmin');
+  const elevated = await requireSuperAdmin(db.pool, APP, `Bearer ${high.token}`);
+  assert.equal((await getAdminSession(db.pool, elevated)).admin.role, 'superadmin');
+  await db.pool.query("UPDATE admin_accounts SET role='superadmin' WHERE app_id=$1", [APP]);
+  assert.equal((await db.pool.query('SELECT count(*) FROM admin_sessions')).rows[0].count, '1');
+  await db.pool.query("UPDATE admin_accounts SET role='admin' WHERE app_id=$1", [APP]);
+  assert.equal((await db.pool.query('SELECT credential_version FROM admin_accounts')).rows[0].credential_version, 3);
+  await assert.rejects(getAdminSession(db.pool, elevated), { code: 'ADMIN_UNAUTHORIZED' });
+  await assert.rejects(db.pool.query("UPDATE admin_accounts SET role='owner' WHERE app_id=$1", [APP]), { code: '23514' });
+  assert.equal((await db.pool.query('SELECT owner_key FROM admin_accounts')).rows[0].owner_key, ordinary.ownerKey);
+});
+
+test('admin roles: super-only receipts reauthorize before replay after demotion and lock waits', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  await account(db.pool, 'super_only');
+  await db.pool.query("UPDATE admin_accounts SET role='superadmin' WHERE app_id=$1", [APP]);
+  const elevated = await identity(db.pool, 'super_only');
+  let calls = 0;
+  const write = (actor: AdminIdentity) => withAdminIdempotency(db.pool, actor, 'database.edit', 'super-only-request-001', {}, async () => {
+    calls++; return { status: 200, data: { saved: true } };
+  }, 'superadmin');
+  assert.deepEqual(await write(elevated), await write(elevated)); assert.equal(calls, 1);
+  const holder = await db.pool.connect(), worker = await db.pool.connect();
+  try {
+    await holder.query('BEGIN'); await worker.query('BEGIN');
+    await holder.query('SELECT id FROM admin_accounts WHERE app_id=$1 FOR UPDATE', [APP]);
+    const pid = (await worker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const waiting = lockSuperAdmin(worker, elevated);
+    const rejected = assert.rejects(waiting, { code: 'ADMIN_UNAUTHORIZED' });
+    await waitBlocked(db.pool, pid);
+    await holder.query("UPDATE admin_accounts SET role='admin' WHERE app_id=$1", [APP]);
+    await holder.query('COMMIT'); await rejected; await worker.query('ROLLBACK');
+  } finally { await holder.query('ROLLBACK'); await worker.query('ROLLBACK'); holder.release(); worker.release(); }
+  const ordinary = await identity(db.pool, 'super_only');
+  await assert.rejects(write(ordinary), { code: 'ADMIN_FORBIDDEN' });
+  assert.equal(calls, 1);
+  assert.equal((await db.pool.query('SELECT count(*) FROM admin_requests')).rows[0].count, '1');
+});
+
+test('admin roles migration: existing ordinary credentials, ownership and sessions survive the additive upgrade', integration, async t => {
+  const db = await createTestDatabase(); t.after(db.close);
+  const schema = 'test_admin_upgrade_' + randomUUID().replaceAll('-', '');
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query(`SET LOCAL search_path=${schema}`);
+    await client.query(await readFile(new URL('../migrations/014_admin.sql', import.meta.url), 'utf8'));
+    await client.query('CREATE TABLE market_listings(app_id text,created_at timestamptz,id text,status text)');
+    await client.query(`INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version,password_salt,password_hash)
+      VALUES($1,'original_admin','original_owner',true,7,$2,$3)`, [APP, SALT, await DIGEST]);
+    const session = hash('synthetic-pre-upgrade-session');
+    await client.query(`INSERT INTO admin_sessions(token_hash,app_id,account_id,credential_version,expires_at)
+      VALUES($1,$2,'original_admin',7,clock_timestamp()+interval '1 hour')`, [session, APP]);
+    const before = (await client.query('SELECT * FROM admin_accounts')).rows[0];
+    await client.query(await readFile(new URL('../migrations/028_admin_roles.sql', import.meta.url), 'utf8'));
+    const after = (await client.query('SELECT * FROM admin_accounts')).rows[0];
+    assert.deepEqual(after, { ...before, role: 'admin' });
+    assert.equal((await client.query('SELECT token_hash FROM admin_sessions')).rows[0].token_hash, session);
+    assert.equal((await client.query('SELECT count(*) FROM admin_accounts')).rows[0].count, '1');
+    await client.query('ROLLBACK');
+  } finally { await client.query('ROLLBACK'); client.release(); }
 });

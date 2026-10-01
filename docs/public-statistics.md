@@ -1,6 +1,8 @@
 # 公开统计运行说明
 
-当前客户端通过统一的 `backendClient` 匿名读取 `GET https://collect.linkx.ink/api/v1/statistics/public`，使用 `servedCount` 和 `coverageText`。2026-09-30 切库后，公开统计只有 PostgreSQL 的 `public_statistics` 查询；不再维护 CloudBase 快照、小时同步任务或独立统计服务。生产切换与验收见[切库记录](backend-cutover-2026-09-30.md)。
+当前客户端源码通过统一的 `backendClient` 匿名读取 `GET https://collect.linkx.ink/api/v1/statistics/public`，使用 `servedCount` 和 `coverageText`。2026-09-30 切库后，公开统计查询 PostgreSQL 的 `public_statistics`；不再维护 CloudBase 快照、小时同步任务或独立统计服务。生产切换与客户端发布证据见[切库记录](backend-cutover-2026-09-30.md)。
+
+累计基线由迁移显式导入，不能用现存路线重新计算全部历史总量。关闭新行程时，有司机则同事务增加 `min(5, 1 + 有效乘客座位数合计)`，无司机求车增加 0；司机独行可增加 1。此口径与[个人完成次数](ride-completion-stats.md)不同，也不是回访确认的实际成行人数。实现见[内部关闭任务](../services/backend/src/rides/completion.ts)。
 
 ## 客户端缓存与兼容
 
@@ -21,4 +23,4 @@
 - 核验标准接口和旧协议地址时，对照标准 `servedCount` 与旧字段 `servedTrips`。故障先检查业务服务及 PostgreSQL，不恢复旧快照写者。
 - 已有新业务写入后，恢复旧数据库会丢失或分叉这些写入；兼容传输仍须使用同一 PostgreSQL。
 
-当前首页缓存、账号切换和真实后端客户端的错误/超时行为由 `tests/public-stats-client.test.cjs`、`tests/home-profile-read-cache.test.cjs` 验证。`services/backend/test/statistics.integration.test.ts` 与 `legacy-public-statistics.integration.test.ts` 验证真实 PG 查询、当前首页 HTTP 链路及独立保留的 5.1.0 旧格式和云统计契约；云统计专项另覆盖原生入口和身份桥。
+当前首页缓存、账号切换和后端客户端的错误/超时行为由 `tests/public-stats-client.test.cjs`、`tests/home-profile-read-cache.test.cjs` 覆盖。`services/backend/test/statistics.integration.test.ts` 与 `services/backend/test/legacy-public-statistics.integration.test.ts` 覆盖 PG 查询、当前首页 HTTP 链路及保留的 5.1.0 旧格式和云统计契约；云统计专项另覆盖原生入口和身份桥。本次整理核对源码及引用，未重新执行线上统计核验。

@@ -3,12 +3,8 @@ import { serializeSource } from './source.ts';
 import type { Document, IssueReporter } from './types.ts';
 import { object, parseExportTimestamp } from './values.ts';
 
-/** The deployed read-only webHouseShare endpoint still reads houseShare.
- * Current checked-in web client sources have no known call site; live traffic
- * has not been verified. A shadow can be archived without a second listing
- * only after the canonical market_goods passes its own full
- * converter and every non-view field is exactly equal. This comparison does
- * not whitelist additional fields in market_goods or create missing listings. */
+/** Preserve historical houseShare membership after the canonical listing passes
+ * its converter and all non-view fields match. Never create missing listings. */
 export function validateMarketShadow(documents: unknown, goods: unknown, issue: IssueReporter): void {
   const report = (code: string, field = 'content') => issue('other', code, `houseShare.${field}`);
   if (!Array.isArray(documents) || !Array.isArray(goods)) { report('INVALID_MARKET_SHADOW_COLLECTION'); return; }

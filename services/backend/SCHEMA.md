@@ -1,6 +1,6 @@
 # 业务数据库与迁移边界
 
-本文件描述 `migrations/001` 至 `027` 的字段契约。它是永久维护文档；实际交接、部署证据及完成的审计决定见[业务数据库切换记录](../../docs/backend-cutover-2026-09-30.md)，临时工作记录已在本轮收尾时删除。PostgreSQL 已是唯一业务权威库；客户端源码更新与正式发布仍须分别核验。
+本文件描述 `migrations/001` 至 `028` 的字段契约。它是永久维护文档；实际交接、部署证据及完成的审计决定见[业务数据库切换记录](../../docs/backend-cutover-2026-09-30.md)，临时工作记录已在本轮收尾时删除。PostgreSQL 已是唯一业务权威库；客户端源码更新与正式发布仍须分别核验。
 
 ## 唯一模型
 
@@ -24,8 +24,8 @@
 | `public_statistics`（009–010） | `app_id`、`served_count`、可空 `coverage_text`、`updated_at` | 显式导入旧累计值和覆盖文案；缺失文案为未知，不猜默认地区。关闭事件同事务增加人次，不从现存行程重算旧总数。 |
 | `referral_codes`（012） | `user_id` 主键、全局唯一 `code` | 每账号一个 `ref_` 加12位小写十六进制码，保留已发布旧码。 |
 | `referral_bindings`（012） | `referred_user_id` 主键、`referrer_user_id`、`bound_at` | 首次有效绑定不可更换，不可自邀；人数由事实关系查询，不另建计数表。 |
-| `admin_accounts`（014） | `(app_id,id)`、`owner_key`、`enabled`、`credential_version`、可空 `password_salt/password_hash`、创建/更新时间 | id 为原规范化账号名，不复制 username；owner_key 可由多个管理账号共享。缺凭据不能登录，旧未知更新时间允许null，不伪造用户/OpenID。 |
-| `admin_sessions`（014） | `token_hash`、`app_id/account_id`、`credential_version`、`expires_at/created_at` | token只存hash，有效期8小时；停用、改凭据或归属变化永久删除旧会话。 |
+| `admin_accounts`（014、028） | `(app_id,id)`、`owner_key`、`role`、`enabled`、`credential_version`、可空 `password_salt/password_hash`、创建/更新时间 | role 为 admin/superadmin，默认 admin，原账号不自动升级。id 为原规范化账号名；owner_key 可共享。缺凭据不能登录，旧未知更新时间允许null，不伪造用户/OpenID。 |
+| `admin_sessions`（014、028） | `token_hash`、`app_id/account_id`、`credential_version`、`expires_at/created_at` | token只存hash，有效期8小时；停用、改凭据、归属或角色变化永久删除旧会话。角色变化同时增加 credential_version。 |
 | `admin_login_attempts` / `admin_origins`（014） | `(app_id,scope)` 和窗口/次数；`(app_id,origin)` | 原子15分钟窗口，每账号10次、每应用120次；scope为账号hash或global。来源必须精确HTTPS匹配，默认无授权来源。 |
 | `admin_audit` / `admin_requests`（014、021） | 审计UUID、app/account/action/details/time；幂等主键 `(app_id,owner_key,operation,request_key)`；payload_format | 管理写入、审计和永久回执同事务；旧审计actor不强制有账号，不由日志创造权限。canonical-v1与legacy-web-v1摘要不能互比。 |
 | `files`（015–016、018、023） | UUID、app/provider/locator、user或admin owner、可空 `uploaded_by_admin_id`、`legacy_readonly`、status、可空内容元数据及时间 | `(provider,locator)` 全局唯一且不可修改；上传者不同于共享归属。旧只读文件未知时间可null，新文件时间和管理员上传者不可缺失。 |
@@ -163,9 +163,11 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 有限兼容桥命中上述回执时直接返回原结果；未命中才在同一事务内执行规范业务内核并写回执。模板旧 ID 通过唯一 `templates/identity.ts` 映射，不从当前实体重建历史成功响应。新客户端恢复旧请求后可经仅本人可读的模板 legacy 路径获得完整当前 DTO。这些兼容边界不增加业务字段或第二权威库。
 
-## 管理员与文件基础（014–016、018）
+## 管理员与文件基础（014–016、018、028）
 
 管理员账号不伪造OpenID，也不进入users。登录使用现有账户算法的异步scrypt（N=16384、r=8、p=1、32字节salt、64字节hash）；事务外计算后再次锁账号核对凭据。业务事务按账号→会话顺序锁定，并在等待后读取数据库clock_timestamp核验过期。凭据、归属或停用操作永久撤销原会话，重新启用不恢复旧token。无公开开户/重设密码/临时口令API；旧sessions不导入。
+
+028 将原账号及后续未指定角色的账号保留为 `admin`；独立 `superadmin` 账号继承运营权限。登录和 session 返回 `admin.role`，每次最高权限访问与事务均重新读取当前角色，不能只信任页面状态。`BEFORE UPDATE` 会话撤销触发器在角色变化时增加凭据版本并删除会话；降级后旧 token 或最高权限操作的原幂等回执均不能绕过鉴权。
 
 `normalizeAdminAccounts` 验证完整WebAdminAccounts、原规范化账号名/role/版本/所有权和摘要算法。只含元数据的投影会因缺密码摘要阻断；合法原salt/hash在私有JSON候选保留准确小写hex，中央导入写bytea时解码，不重哈希、不打印真实凭据到报告或测试夹具。
 
@@ -229,7 +231,7 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 所有写入带永久幂等键，修改另带expectedVersion，锁商品后校验归属/版本；正文、文件引用和回执同事务。
 删除写deleted墓碑并释放引用，不立即删除对象。重试原创建键返回原结果，不复活墓碑；同键不同内容409。
 无变化的状态操作不加版本；正文、图片和状态修改保留原expiresAt，真实日期/类型变化才重新校验日期窗。
-网站管理员批量发布、部分失败重试、批次与单行两层去重、管理模板和编辑权限已实现，见下节；没有新增管理员删商品或改状态权限。
+网站管理员批量发布、部分失败重试、批次与单行两层去重、管理模板、批量软删除及分级编辑权限见下节。
 
 `normalizeAds` 和 `normalizeCommunity` 已接中央原子导入：保留contact广告、点击事实、社区当前配置及连续修订；未匹配历史操作者保持null并保留原始来源，不生成账号或被删广告。点击不是曝光或成功联系。社区当前/历史文件槽统一属于community/main，历史修订不能自动发布为当前内容；群入口可用性和自动公告启用分别保留。其他广告目标类型明确阻断。社区和广告运行接口已接入，图片UUID通过受控文件解析取得短期URL。
 
@@ -239,7 +241,11 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 
 ## 管理发布、模板与社区运行接口
 
-管理员市场提供 `POST /api/v1/admin/market/listings`、`GET /:id`、`POST /:id/edit` 和 `POST /api/v1/admin/market/batches`。保留网站owner_key范围和旧shared_admin_management权限，不增加删除/状态操作。编辑需要expectedVersion，内容或图片变化不续期，实际日期/类型变化才重算到期时间。商品、图片引用、永久回执和审计在同一事务。
+两级管理员均可发布、批量发布、使用共享模板及修改公告。`GET /api/v1/admin/market/listings` 按创建时间和 ID 倒序分页，每页1–50条，默认返回本应用所有非deleted商品；status 可选 all/online/offline/sold，返回 `canEdit` 与 user/admin 来源。普通管理员的详情与编辑仍限 owner_key 或 shared_admin_management；`POST /:id/edit` 需要 expectedVersion，内容或图片变化不续期，实际日期/类型变化才重算到期时间。商品、图片引用、永久回执和审计在同一事务。
+
+`POST /api/v1/admin/market/listings/delete` 接受 `{items:[{id,expectedVersion}]}`，1–50个不同 ID，普通管理员也可删除本应用用户发布的商品。整批按 ID 锁定和核对版本，任一不存在或版本冲突则全部回滚；成功只写 deleted 墓碑、增加版本并保存审计和永久回执，保留原图片引用、浏览及历史，不删除存储对象。重试使用原 Idempotency-Key 与同一逻辑正文，不重新执行或复活商品。
+
+`superadmin` 可通过既有 `POST /:id/edit` 编辑本应用任意非deleted商品的规范内容，用户商品必须保留原图片；不能借管理员身份替换用户图片或转移归属。最高权限另有 `POST /:id/status {expectedVersion,status}`，status 仅 online/offline/sold，同状态不增加版本，状态变化不续期；已deleted商品不可恢复。权限检查在永久回执读取前完成。
 
 批次1–50行，batchId和完整输入摘要固定。显式clientRequestId优先externalId，再用batchId+行号；行身份沿用`web_ + sha256(ownerKey:有效请求键).slice(0,48)`，同externalId不额外做全局唯一。每行独立永久回执，失败可重试，并发结果只增加成功项，完成批次不可降级。旧生成器漏存部分明文clientRequestId，不能反推；`normalizeAdminMarket`保留存活商品ID作为回执键、原hash及`legacy-web-v1`格式，原批次结果保留已删除商品ID，绝不恢复商品。canonical接口遇旧格式返回409，正式切换前旧适配器必须按旧规范验证摘要，不能把旧hash冒充新DTOhash。当前回执数据不声称商品仍保持创建时内容。
 
@@ -248,6 +254,14 @@ node src/migration/analyze.ts /absolute/path/full-export.json
 `GET /api/v1/community` 只返回当前展示投影；`GET/POST /api/v1/admin/community`读取/更新完整配置，POST含expectedVersion和幂等键。每app配置锁后读取当前时钟，更新当前内容、连续修订、历史和当前图片引用、审计/回执同事务。已配置过的图片保留在community/main历史槽，允许有效管理员恢复，不改变文件归属。公共公告available（手动可看）与enabled（自动展示）分开；结束时刻不包含，使用群图时受更早的群有效期限制。历史不自动发布。API返回图片UUID，由客户端受控解析为短期URL；旧协议适配集中在兼容边界。
 
 `POST /api/v1/market/listings/:id/views`仅登录用户可写，body为空对象，同一次打开用同一幂等键。先锁商品，再按纽约日期对本人每日桶原子增加至最多10；历史已超10不截断也不再增加。非本人仅online且未过期可计，本人可计offline/sold/expired但不能deleted。商品锁同时保护累计值检查与并发隐藏/删除；超JS安全整数整次回滚。浏览桶与回执同事务，读取GET没有副作用。这些是计数后的详情浏览，不是完整曝光事件。
+
+## 最高管理员数据与监控
+
+`/api/v1/admin/console` 全部要求当前 superadmin 与原来源白名单。`GET /tables` 返回固定批准表目录和字段元数据；`GET /rows`、`GET /rows/:table/:id` 仅访问本应用数据，按完整主键分页，每页最多50条，可按用户 UUID、OpenID 或业务 ID 查询。表名和列名仅来自服务端目录，没有任意 SQL 接口；密码 salt/hash、认证会话与 nonce 表不开放。最多两个并发数据读取，事务 SQL 超时2秒，返回 JSON 最多1 MiB，超限明确报错。
+
+`POST /rows/users/:id/edit` 仅接受 `{expectedVersion,patch:{name?,profile?}}`，expectedVersion 是读取结果的内容摘要；使用原用户资料 schema、合并与更新内核。OpenID、AppID、头像文件、主键与其他表不能通过该入口修改。版本、审计、业务更新和永久回执同事务，最高权限在回执重放前重新核验。看到或复制 fileId/存储字段不会新增文件读取权限。
+
+`GET /status` 返回主机、固定容器、后端及采集进程的 CPU/内存、磁盘和采集状态；主机每30秒采样，接口缓存和前台状态轮询为10秒。CPU 首次样本可为null，进程/容器按单核基准。`GET /history?range=day|week|month` 读取每分钟生成的固定历史文件，每个范围最多720点、缓存60秒；历史保存30天，只显示启用以来的实际记录，空白时段不补零。`GET /events` 按真实接收时间倒序读取行为数据，每页最多50条，可按时间、事件类型或用户 UUID/OpenID 查询。采集查询通过独立本机 socket，主机快照只读挂载；不存在公网采集管理入口、Docker socket业务挂载或控制容器功能。采样陈旧超过60秒标记 stale，缺失标记 unavailable，不阻断主服务。配置和限额见[主机监控部署说明](../../deploy/monitor/README.md)。
 
 ## 市场读取与用户写入
 

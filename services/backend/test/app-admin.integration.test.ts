@@ -32,7 +32,7 @@ test('assembled app: admin and WeChat identities stay isolated, with private par
   const adminHeaders = { origin, authorization: `Bearer ${login.json().data.token}` };
   const session = await app.inject({ method: 'GET', url: '/api/v1/admin/session', headers: adminHeaders });
   assert.equal(session.statusCode, 200);
-  assert.deepEqual(session.json().data.admin, { accountId: 'app_admin', ownerKey: 'app_owner' });
+  assert.deepEqual(session.json().data.admin, { accountId: 'app_admin', ownerKey: 'app_owner', role: 'admin' });
   const userLogin = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { code: 'synthetic-code' } });
   assert.equal(userLogin.statusCode, 200, userLogin.body);
   const userHeaders = { authorization: `Bearer ${userLogin.json().data.token}` };

@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20260930-cutover
+    image: linkx-backend:20261001-console
     restart: unless-stopped
     init: true
     read_only: true
@@ -50,8 +50,9 @@ services:
       DATABASE_URL_FILE: /run/secrets/database_url
       WECHAT_APP_ID: wx8a8a389199aa2a0e
       BUSINESS_MODE: active
-      # Temporary compatibility for existing public website URLs, same old key.
-      LEGACY_PUBLIC_CONFIG_FILE: /run/secrets/identity/legacy-public.json
+      COLLECTOR_ADMIN_SOCKET: /run/linkx-collector/admin.sock
+      COLLECTOR_ADMIN_TOKEN_FILE: /run/secrets/collector_admin_token
+      HOST_METRICS_FILE: /run/linkx-host/host.json
     # Direct access stays host-local; Caddy reaches the business service below.
     ports: ["127.0.0.1:3101:3100"]
     networks:
@@ -68,6 +69,21 @@ services:
       - type: bind
         source: /etc/linkx-backend/identity
         target: /run/secrets/identity
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /var/lib/linkx-collector/run
+        target: /run/linkx-collector
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /etc/linkx-collector/admin.token
+        target: /run/secrets/collector_admin_token
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: /opt/linkx-monitor/public
+        target: /run/linkx-host
         read_only: true
         bind: { create_host_path: false }
     tmpfs: ["/tmp:size=8m,mode=1777"]

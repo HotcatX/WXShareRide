@@ -12,7 +12,9 @@ WXShareRide is the WeChat Mini Program and cloud backend behind **LinkX**. It br
 
 ## Architecture
 
-The Mini Program uses **JavaScript, WXML, and WXSS**. The released 5.1.0 client uses a single **Node.js 24/PostgreSQL** business backend on the Tencent Cloud server. CloudBase supplies WeChat identity and same-database compatibility bridges. A separate analytics collector receives batched events; public statistics come from the business backend. Some older cloud read functions remain deployed against the frozen historical database, outside the current client's server path and the [normal deployment list](cloudfunctions/DEPLOYMENT.md).
+The Mini Program uses **JavaScript, WXML, and WXSS**. The released 5.1.0 client uses a single **Node.js 24/PostgreSQL** business backend on the Tencent Cloud server. CloudBase supplies WeChat identity and compatibility bridges to the same PostgreSQL database. A separate analytics collector receives batched events; public statistics come from the business backend. Seven retained legacy query functions also read PostgreSQL through restricted compatibility adapters. Their deployment boundaries and the retired CloudBase writers are documented in the [cloud function deployment guide](cloudfunctions/DEPLOYMENT.md).
+
+The [management website](https://admin.linkx.ink/admin/) uses the same business backend. Its frontend is maintained in [LinkXweb](https://github.com/HotcatX/LinkXweb); ordinary administrators operate publishing and community notices, while `superadmin` can browse app-scoped data and bounded server monitoring. Host metrics are sampled every thirty seconds and retained for thirty days, without giving the backend Docker control.
 
 | Location | Contents |
 | --- | --- |
@@ -24,21 +26,22 @@ The Mini Program uses **JavaScript, WXML, and WXSS**. The released 5.1.0 client 
 | [`services/analytics-collector/`](services/analytics-collector/) | Deployed telemetry receiver, local operations and backup tools |
 | [`styles/`](styles/) and [`templates/`](templates/) | Shared presentation and templates |
 | [`tests/`](tests/) | Automated regression tests |
-| [`docs/`](docs/) | Architecture notes, maintenance records, and feature documentation |
+| [`docs/`](docs/README.md) | Current feature guides, cutover evidence, and links to historical reports |
 
 ## Reading the implementation
 
 Useful starting points:
 
-- [Shared ride calendars and form pickers](docs/ride-form-pickers-2026-09-11.md)
-- [Place recommendation design and catalog maintenance](docs/place-recommendation-and-data-plan-2026-09-23.md)
-- [Community announcements and remote configuration](docs/community-hot-update.md)
+- [Documentation index and historical reports](docs/README.md)
+- [Shared ride calendars and form pickers](docs/ride-form-pickers.md)
+- [Place recommendation design and catalog maintenance](docs/place-recommendations.md)
+- [Community announcements and remote configuration](docs/community.md)
 - [Ride completion statistics](docs/ride-completion-stats.md)
 - [Production database cutover and verification](docs/backend-cutover-2026-09-30.md)
 - [Public statistics operation and fallback](docs/public-statistics.md)
 - [Canonical backend data contract](services/backend/SCHEMA.md)
 
-Historical one-off experiment reports and retired duplicate notes are kept in Git history. Keep deploy/recovery tools and regression tests that cover current code; a legacy name alone does not prove an entry point is unused.
+Completed audits, old deployment checklists, and one-off fix reports are kept in Git history; the [documentation index](docs/README.md#历史报告) links to the fixed snapshot. Private migration exports and recovery material are described in `data/README.md` in the local checkout; they are excluded from Git and the Mini Program upload. Keep deploy/recovery tools and regression tests that cover current code; a legacy name alone does not prove an entry point is unused.
 
 Some documentation is in Chinese.
 

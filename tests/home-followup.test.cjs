@@ -12,10 +12,14 @@ function deferred() {
 }
 function harness() {
   const state = { account: 'account-a', guest: false, scope: true, used: false, eligible: true, history: [], calls: [], considered: [],
-    listeners: new Set(), timers: new Map(), timerId: 0, revision: 0, hides: 0, dismisses: 0, answers: [],
+    listeners: new Set(), timers: new Map(), timerId: 0, revision: 0, hides: 0, dismisses: 0, answers: [], ratings: [], modals: [], pauses: 0,
     notice: null, communityPending: null, cardsPending: null, outcomeReads: [], outcomesPending: null, now: 1800000000000 }
   class Clock extends Date { static now() { return state.now } }
   const followup = {
+    loadHistory(account) {
+      state.calls.push('history:' + account)
+      const pending = deferred(); state.history.push({ account, pending }); return pending.promise
+    },
     canConsider: () => !!(state.account && !state.guest && state.scope && !state.used),
     readUnpromptedTrips(list) {
       state.outcomeReads.push({ account: state.account, list })
@@ -28,12 +32,15 @@ function harness() {
     hide(page) { state.hides++; page.setData({ followupVisible: false }) },
     dispose(page) { followup.hide(page) },
     dismiss(page) { state.dismisses++; page.setData({ followupVisible: false }) },
-    answer(page, outcome) { state.answers.push(outcome); page.setData({ followupVisible: false }) }
+    answer(page, outcome) { state.answers.push(outcome); page.setData({ followupVisible: false }) },
+    rate(page, score, id) { state.ratings.push({ id, score }); return { ok: true } },
+    pause(page) { state.pauses++; if (state.pauseFailure) return { ok: false }; page.setData({ followupVisible: false }); return { ok: true } }
   }
   const wx = {
     getStorageSync: key => key === 'openid' ? state.account : key === 'isGuest' ? state.guest :
       key === 'rideListShouldRefreshAt' ? state.revision : undefined,
     setStorageSync() {},
+    showModal(options) { state.modals.push(options) },
     cloud: { callFunction() { throw new Error('Unexpected cloud request') } }
   }
   const community = {
@@ -52,10 +59,6 @@ function harness() {
       if (name.endsWith('/analyticsSession')) return { subscribe(fn) {
         state.listeners.add(fn); fn(); return () => state.listeners.delete(fn)
       } }
-      if (name.endsWith('/compat/rideHistory')) return { loadRideHistory(account) {
-        state.calls.push('history:' + account)
-        const pending = deferred(); state.history.push({ account, pending }); return pending.promise
-      } }
       if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, getHomeTripList() {
         state.calls.push('cards')
         return state.cardsPending || Promise.resolve({ result: { ok: true, data: {} } })
@@ -68,7 +71,7 @@ function harness() {
   })
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)) }
   page.setData = function (patch, callback) { Object.assign(this.data, patch); if (callback) callback.call(this) }
-  page.loadPublicStats = page.loadUnreadCount = () => Promise.resolve()
+  page.loadUnreadCount = () => Promise.resolve()
   page.refreshHomeData = () => Promise.resolve()
   function refreshTimer() {
     const entry = [...state.timers.entries()].find(([, timer]) => timer.delay === 300)
@@ -225,7 +228,6 @@ test('explicit close uses dismiss while page hiding is only an interruption', as
   assert.equal(h.state.hides, hides + 1)
   assert.equal(h.state.dismisses, 1)
   const markup = fs.readFileSync(path.join(__dirname, '../pages/home/home.wxml'), 'utf8')
-  assert.match(markup, /仅询问一次，关闭后不再提醒/)
   assert.doesNotMatch(markup, /稍后回答/)
 })
 
@@ -268,4 +270,29 @@ test('late remote prompt state cannot open after account changes, hiding, or a r
     assert.equal(h.state.considered.length, 0)
     assert.equal(h.page._homeFollowup, null)
   }
+})
+
+test('home forwards shared card event details to the exact followup and rating handlers', async () => {
+  const h = harness()
+  h.page.onFollowupAnswer({ detail: { id: 'ride-1', outcome: 'yes' } })
+  await h.page.onFollowupRate({ detail: { id: 'ride-1', score: 4 } })
+  assert.deepEqual(h.state.answers, ['yes'])
+  assert.deepEqual(h.state.ratings, [{ id: 'ride-1', score: 4 }])
+  const markup = fs.readFileSync(path.join(__dirname, '../pages/home/home.wxml'), 'utf8')
+  assert.match(markup, /<trip-feedback[^>]*bind:answer="onFollowupAnswer"[^>]*bind:rate="onFollowupRate"/)
+})
+
+test('checking the seven-day preference closes first and shows a single history reminder; unchecked and failures do not', () => {
+  const h = harness(); h.page.data.followupVisible = true
+  h.page.onFollowupPause({ detail: { value: [] } })
+  assert.equal(h.state.pauses, 0)
+  h.state.pauseFailure = true
+  h.page.onFollowupPause({ detail: { value: ['pause'] } })
+  assert.equal(h.state.modals.length, 0)
+  h.state.pauseFailure = false
+  h.page.onFollowupPause({ detail: { value: ['pause'] } })
+  assert.equal(h.page.data.followupVisible, false)
+  assert.equal(h.state.modals.length, 1)
+  assert.equal(h.state.modals[0].showCancel, false)
+  assert.equal(h.state.modals[0].content, '您仍可在我的-历史行程里完成回访，感谢您的支持！')
 })

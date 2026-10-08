@@ -60,7 +60,7 @@ function scope() {
 function listVisible(page) {
   const data = page.data || {}
   return !page._listDisposed && !page._rideTelemetryHidden && page._analyticsVisible !== false && !data.loading && !data.placePickerVisible &&
-    !data.refineFiltersVisible && !data.calendarVisible && !data.cityPickerVisible
+    !data.refineFiltersVisible && !data.calendarVisible && !data.cityPickerVisible && !data.timePickerVisible
 }
 function stopList(page) {
   const state = page._rideObservation
@@ -118,10 +118,11 @@ function renderList(page, groups, options = {}) {
   const summary = { source: options.source === 'network' ? 'network' : 'cache',
     renderedCount: trips.length, hasMore: page.data.hasMoreDays === true,
     candidates: candidates.slice(0, 50), candidatesComplete: candidates.length === trips.length && trips.length <= 50 }
+  if (options.context) summary.discovery = options.context
   // A filter panel closing or unchanged UI render is still the same choice set.
   // Compare every candidate (including those beyond the wire limit), preserving
   // business/freshness changes but excluding the local re-sampling timestamp.
-  const signature = JSON.stringify([options.queryKey || '', summary.source, summary.renderedCount,
+  const signature = JSON.stringify([options.queryKey || '', summary.discovery, summary.source, summary.renderedCount,
     summary.hasMore, summary.candidatesComplete, candidates.map(({ snapshotAt, ...candidate }) => candidate)])
   const previous = page._rideResultSet
   if (!options.searchId && previous && previous.scope === currentScope && previous.signature === signature) {
@@ -145,6 +146,15 @@ function clickTrip(page, id, type, trip) {
   const candidate = current && current.scope === scope() && current.byKey.get(`${type}:${id}`)
   emit('trip_card_clicked', candidate ? { selectionSetId: current.id, ...candidate }
     : { tripKey: id, tripType: tripType(type), ...snapshot(trip || {}) })
+}
+function requestIntent(stage, context = {}, trip = {}) {
+  if (!validTripId(context.sourceTripKey) || !['full_ride', 'ride_detail'].includes(context.entry) ||
+    (stage === 'published' && (!context.intentId || !validTripId(trip._id)))) return ''
+  const intentId = stage === 'started' ? analytics.makeEventId() : context.intentId
+  const data = { stage, intentId, sourceTripKey: context.sourceTripKey, entry: context.entry,
+    tripKey: stage === 'started' ? context.sourceTripKey : trip._id,
+    tripType: stage === 'started' ? 'carpool' : 'request', ...snapshot(trip) }
+  return emit('request_intent', data).ok ? intentId : ''
 }
 function pageVisible(page) {
   if (page._rideTelemetryHidden) page._rideDetailSeen = ''
@@ -201,5 +211,5 @@ function copyContact(page, content, channel, targetRole, original = {}) {
 }
 
 const safe = fn => function () { try { return fn.apply(this, arguments) } catch (_) { return '' } }
-module.exports = { referencePrice, coarseArea, snapshot, renderList: safe(renderList), observeList: safe(observeList),
+module.exports = { referencePrice, coarseArea, snapshot, renderList: safe(renderList), observeList: safe(observeList), requestIntent: safe(requestIntent),
   stopList, clickTrip: safe(clickTrip), pageVisible, pageHidden, detailViewed: safe(detailViewed), copyContact, validTripId }

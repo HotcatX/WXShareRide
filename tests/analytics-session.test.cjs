@@ -79,6 +79,15 @@ test('first in-cohort visit activates once then immediately uploads the current 
   assert.deepEqual(h.state.cloud, [])
 })
 
+test('publishing page uses the existing page-view queue without an extra identity request', async () => {
+  const h = harness(); await h.start(); await h.advance(0)
+  h.manager.pageShown('pages/home/newTrip/newTrip')
+  await h.advance(15000)
+  const events = h.state.batches.flatMap(batch => JSON.parse(batch.body).events)
+  assert.deepEqual(events.filter(event => event.data.page === 'new_trip').map(event => event.eventName), ['page_view'])
+  assert.deepEqual(h.state.calls.map(call => call.action), ['status', 'activate'])
+})
+
 test('unready authority rejects a collection session before either transport starts', async () => {
   const h = harness()
   h.wx.request = () => assert.fail('unready authority cannot send HTTP')

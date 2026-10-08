@@ -37,6 +37,10 @@ const tripSnapshot = Object.assign({ availableSeats: integer(0, 20), serviceDate
   departureMinute: integer(0, 1439), originArea: area, destinationArea: area, snapshotAt: integer(0, Number.MAX_SAFE_INTEGER) }, quote)
 const candidate = shape({ tripKey: recordId, tripType, position: integer(0, 999) },
   Object.assign({ tripVersion: integer(0, 2147483647) }, tripSnapshot))
+const discovery = shape({ surface: enumeration('full_ride', 'driver_publish'), basis: enumeration('form', 'history') }, {
+  sourceTripKey: recordId, serviceDate, departureMinute: integer(0, 1439),
+  originPlaceIds: tripSnapshot.originPlaceIds, destinationPlaceIds: tripSnapshot.destinationPlaceIds
+})
 const followup = { followupId: id, tripKey: recordId, tripType, role: enumeration('driver', 'passenger') }
 const context = shape({}, { clientVersion: shortCode, sdkVersion: shortCode,
   platform: enumeration('ios', 'android', 'devtools', 'windows', 'mac', 'ohos', 'unknown'),
@@ -61,17 +65,20 @@ const validators = {
   place_picker_selected: shape(Object.assign({}, picker, pickerItem), pickerOptional),
   place_picker_dismissed: shape(Object.assign({}, picker, { reason: enumeration('close', 'replaced', 'page_hide') }), pickerOptional),
   place_picker_custom: shape(Object.assign({}, picker, { result: enumeration('confirmed', 'cancelled') }), Object.assign({}, pickerOptional, { placeId })),
-  page_view: shape({ page: enumeration('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile') }),
+  page_view: shape({ page: enumeration('home', 'carpool_list', 'trip_detail', 'request_detail', 'new_trip', 'trip_history', 'market', 'profile') }),
   search_submitted: shape({ searchId: id, tripType: enumeration('all', 'carpool', 'request'), serviceDate }, {
     originArea: area, destinationArea: area, partySize: integer(1, 8), intentId: id, hideFullTrips: boolean
   }),
   result_set_rendered: shape({ searchId: id, selectionSetId: id, source: enumeration('network', 'cache'),
     renderedCount: integer(0, 500), loadedDateCount: integer(0, 31), hasMore: boolean, candidatesComplete: boolean }, {
     zeroReason: enumeration('none', 'empty', 'filtered', 'load_error'),
-    candidates: value => Array.isArray(value) && value.length <= 50 && value.every(candidate)
+    candidates: value => Array.isArray(value) && value.length <= 50 && value.every(candidate), discovery
   }),
   list_snapshot: shape({ selectionSetId: id, source: enumeration('network', 'cache'), renderedCount: integer(0, 500),
-    hasMore: boolean, candidatesComplete: boolean, candidates: value => Array.isArray(value) && value.length <= 50 && value.every(candidate) }, { searchId: id }),
+    hasMore: boolean, candidatesComplete: boolean, candidates: value => Array.isArray(value) && value.length <= 50 && value.every(candidate) }, { searchId: id, discovery }),
+  request_intent: value => shape({ stage: enumeration('started', 'published'), intentId: id, sourceTripKey: recordId,
+    entry: enumeration('full_ride', 'ride_detail'), tripKey: recordId, tripType }, tripSnapshot)(value) &&
+    (value.stage === 'started' ? value.tripType === 'carpool' && value.tripKey === value.sourceTripKey : value.tripType === 'request'),
   result_card_visible: shape({ selectionSetId: id, tripKey: recordId, tripType, position: integer(0, 999), visibilityBucket: enumeration('half_1s', 'full_1s') }, tripSnapshot),
   trip_card_clicked: shape({ tripKey: recordId, tripType }, Object.assign({ selectionSetId: id, position: integer(0, 999) }, tripSnapshot)),
   trip_detail_opened: shape({ tripKey: id, tripType, source: enumeration('list', 'history', 'share', 'other') }),

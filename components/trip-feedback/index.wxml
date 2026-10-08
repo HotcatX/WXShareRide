@@ -1,0 +1,20 @@
+<view class="trip-feedback" catchtap="stopCardTap">
+  <view wx:if="{{!trip._feedbackOutcome || trip._feedbackAssumed}}" class="history-question-row">
+    <view class="history-question-copy">
+      <text class="history-question">{{trip._feedbackQuestion}}</text>
+    </view>
+    <view class="history-answer-actions">
+      <button class="history-answer {{trip._feedbackBusy || !trip._feedbackReady ? 'history-answer--disabled' : ''}}" data-outcome="no" catchtap="onAnswer" disabled="{{trip._feedbackBusy || !trip._feedbackReady}}" aria-label="{{trip._roleKind === 'driver' ? '有预约乘客未上车' : '没有上车'}}">否</button>
+      <button class="history-answer history-answer--yes {{trip._feedbackBusy || !trip._feedbackReady ? 'history-answer--disabled' : ''}}" data-outcome="yes" catchtap="onAnswer" disabled="{{trip._feedbackBusy || !trip._feedbackReady}}" aria-label="{{trip._roleKind === 'driver' ? '预约乘客全部上车' : '已上车'}}">是</button>
+    </view>
+  </view>
+  <view wx:elif="{{trip._showRating}}" class="history-rating">
+    <text class="history-rating-title">{{trip._myRating ? '已评价司机' : '给司机打个分吧'}}</text>
+    <view wx:if="{{!trip._myRating}}" class="history-stars" aria-label="选择评分">
+      <button wx:for="{{stars}}" wx:for-item="score" wx:key="*this" class="history-star {{score <= trip._myRating ? 'history-star--selected' : ''}}" data-score="{{score}}" catchtap="onRate" disabled="{{trip._feedbackBusy || !trip._feedbackReady || trip._myRating > 0}}" aria-label="{{score}}星">{{score <= trip._myRating ? '★' : '☆'}}</button>
+    </view>
+  </view>
+  <view wx:else class="history-rating"><text class="history-rating-title">已完成</text></view>
+  <text wx:if="{{trip._feedbackError}}" class="history-feedback-error">{{trip._feedbackError}}</text>
+  <button wx:if="{{trip._feedbackError && !trip._feedbackReady}}" class="history-retry" catchtap="onRetry" disabled="{{trip._feedbackBusy}}">重新读取</button>
+</view>

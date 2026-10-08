@@ -11,6 +11,7 @@ function harness() {
   const state = { account: 'fixture-a', guest: false, requests: [], considered: [], hides: 0, disposed: 0,
     listeners: new Set(), timers: new Map(), nextTimer: 0, navigation: [], toasts: [], feedbackReads: 0, reports: [], ratings: [], readFailure: false, source: 'unanswered', outcome: null }
   const followup = {
+    loadHistory(account) { const pending = deferred(); state.requests.push({ pending, account }); return pending.promise },
     considerTrips(page, list) { state.considered.push({ account: state.account, list: plain(list) }) },
     answer() {}, hide() { state.hides++ }, dispose() { state.disposed++ }, thank() {},
     eligibleTrip: trip => trip._eligible ? {} : null,
@@ -32,11 +33,13 @@ function harness() {
   vm.runInNewContext(fs.readFileSync(SOURCE, 'utf8'), { wx, console,
     require(name) { if (name.endsWith('/tripFollowup')) return followup
       if (name.endsWith('/analyticsSession')) return analytics
-      if (name.endsWith('/compat/rideHistory')) return { loadRideHistory: account => {
-        const pending = deferred(); state.requests.push({ pending, account }); return pending.promise } }
-      if (name.endsWith('/compat/rides')) return { callTripManage: async input => {
-        state.ratings.push(plain(input)); if (state.ratingFlight) return state.ratingFlight.promise
-        return { ok: true, data: { rideId: input.tripId, targetId: input.targetUserId, score: state.recoveredScore || input.score } } } }
+      if (name.endsWith('/tripFeedback')) {
+        const shared = require('../utils/tripFeedback')
+        return { ...shared, rateDriver: (trip, score) => shared.rateDriver(trip, score, async input => {
+          state.ratings.push(plain(input)); if (state.ratingFlight) return state.ratingFlight.promise
+          return { ok: true, data: { rideId: input.tripId, targetId: input.targetUserId, score: state.recoveredScore || input.score } }
+        }) }
+      }
       throw new Error('Unexpected import: ' + name) },
     Page(value) { config = value },
     setTimeout(fn) { const id = ++state.nextTimer; state.timers.set(id, fn); return id },
@@ -138,7 +141,7 @@ test('history default can be corrected once; confirmed answers replace the quest
   answer(h, 'no')
   let card = h.page.data.historyTrips[0]
   assert.equal(card._feedbackOutcome, 'no'); assert.equal(card._feedbackAssumed, false)
-  assert.equal(card._feedbackStatus, '待评分'); assert.equal(card._showRating, true)
+  assert.equal(card._feedbackStatus, '已完成'); assert.equal(card._showRating, false)
   answer(h, 'yes'); answer(h, 'yes')
   assert.deepEqual(h.state.reports, [{ id: 'ride-1', outcome: 'no' }])
   assert.equal(h.page.data.historyTrips[0]._feedbackOutcome, 'no')
@@ -165,7 +168,7 @@ test('driver confirms only, never rates themselves; passenger rating uses actual
   await rate(h, 2); assert.equal(h.state.ratings.length, 1)
 })
 test('account switch rejects stale card actions and late ratings cannot update another account', async () => {
-  const h = await loaded({ source: 'self_report', outcome: 'no' })
+  const h = await loaded({ source: 'self_report', outcome: 'yes' })
   h.state.account = 'fixture-b'; answer(h, 'yes'); await rate(h, 5)
   assert.equal(h.state.reports.length, 0); assert.equal(h.state.ratings.length, 0)
   h.state.account = 'fixture-a'; h.state.ratingFlight = deferred()

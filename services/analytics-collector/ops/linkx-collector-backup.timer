@@ -2,8 +2,9 @@
 Description=Daily local LinkX collector backup
 
 [Timer]
-OnCalendar=*-*-* 03:30:00 UTC
-RandomizedDelaySec=15min
+OnCalendar=*-*-* 03:30:00 America/New_York
+RandomizedDelaySec=2min
+AccuracySec=1min
 Persistent=true
 Unit=linkx-collector-backup.service
 

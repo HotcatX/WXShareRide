@@ -20,7 +20,8 @@ function harness(kind) {
     getCurrentPages: () => [{}], require(name) {
       if (name.endsWith('/compat/rides')) return rides
       if (name.endsWith('/compat/profile')) return { getUserInfo: async () => state.profile, legacyDocument: r => r.result.data[0] }
-      if (name.endsWith('/rideTelemetry')) return { detailViewed() {} }
+      if (name.endsWith('/rideTelemetry')) return { detailViewed() {}, stopList() {} }
+      if (name.endsWith('/rideAlternatives')) return { loadRideAlternatives: async () => [] }
       if (name.endsWith('/tripDetailCache')) return { readTripDetailCache: () => null, removeTripDetailCache() {}, async fetchTripDetail(...args) {
         state.reads.push(args); if (state.fail) throw Error('permission refreshed unavailable'); return state.detail
       } }

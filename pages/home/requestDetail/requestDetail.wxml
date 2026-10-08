@@ -78,6 +78,7 @@
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
         <text class="ride-chip ride-chip--warn">{{referencePriceText || '价格待定'}}</text>
+        <text class="ride-publisher-name ride-publisher-name--detail">{{trip.name || '无用户名'}}</text>
       </view>
     </view>
 

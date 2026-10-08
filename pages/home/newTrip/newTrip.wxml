@@ -29,7 +29,7 @@
     </view>
   </view>
 
-  <scroll-view class="ride-scroll create-scroll" scroll-y="{{!calendarVisible && !timePickerVisible && !placePickerVisible}}" enhanced="true" show-scrollbar="{{false}}">
+  <scroll-view class="ride-scroll create-scroll list-scroll" scroll-y="{{!calendarVisible && !timePickerVisible && !placePickerVisible}}" enhanced="true" show-scrollbar="{{false}}">
     <view wx:if="{{publishedRide}}" class="create-published">
       <view class="create-success-icon">✓</view>
       <text class="create-success-title">路线已发布</text>
@@ -145,6 +145,17 @@
           </view>
       </view>
 
+      <view wx:if="{{requestSuggestions.length}}" class="create-request-section">
+        <text class="create-section-title">求车</text>
+        <view wx:for="{{requestSuggestions}}" wx:key="_id" class="create-request-card list-trip-card" data-id="{{item._id}}" data-type="request" bindtap="onRequestSuggestionTap" hover-class="create-shortcut-pressed" role="button" aria-label="{{item.dateText}} {{item.timeText}} {{item.fromText}}到{{item.toText}}，{{item.passengerCount}}人求车">
+          <view class="create-request-time"><text>{{item.timeText}}</text><text class="create-request-date">{{item.dateText}}</text></view>
+          <view class="create-request-main">
+            <view class="create-request-route"><text>{{item.fromText}}</text><text class="create-shortcut-arrow">→</text><text>{{item.toText}}</text></view>
+            <view class="create-request-meta"><text class="ride-publisher-name">{{item.name || '无用户名'}}</text><text class="create-request-count">{{item.passengerCount}}人求车</text></view>
+          </view>
+          <text class="create-request-arrow">›</text>
+        </view>
+      </view>
     </block>
 
     <block wx:if="{{mode==='passenger' && !publishedRide}}">

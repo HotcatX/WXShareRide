@@ -30,7 +30,7 @@
 
   <scroll-view
     wx:else
-    class="ride-scroll detail-scroll"
+    class="ride-scroll detail-scroll list-scroll"
     scroll-y
     enhanced="true"
     show-scrollbar="{{false}}"
@@ -83,6 +83,30 @@
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{formattedDepartTime || '时间待定'}}</text>
         <text class="ride-chip ride-chip--warn">{{referencePriceText || '价格以司机确认为准'}}</text>
+        <text class="ride-publisher-name ride-publisher-name--detail">{{trip.name || '无用户名'}}</text>
+      </view>
+    </view>
+
+    <view wx:if="{{!hasJoined && !isOwner && (trip.status === 'full' || trip.availSeatNum === 0)}}" class="ride-card ride-card-pad detail-alternatives">
+      <block wx:if="{{alternativesState === 'ready' && alternatives.length}}">
+        <view wx:for="{{alternatives}}" wx:key="_id" class="detail-alternative list-trip-card"
+          data-id="{{item._id}}" data-type="carpool" bindtap="openAlternative"
+          hover-class="ride-pressed" hover-stay-time="80">
+          <view class="detail-alternative-time">{{item.timeText}}</view>
+          <view class="detail-alternative-main">
+            <text class="detail-alternative-route">{{item.routeText}}</text>
+            <view class="detail-alternative-meta">
+              <text class="detail-alternative-seats">余位 {{item.availSeatNum}}</text>
+              <text>{{item.priceText}}</text>
+              <text class="ride-publisher-name">{{item.name || '无用户名'}}</text>
+            </view>
+          </view>
+          <text class="detail-alternative-arrow">›</text>
+        </view>
+      </block>
+      <view class="detail-request-row">
+        <text>没有找到需要的？</text>
+        <button id="request-alternative-trip" class="ride-btn detail-request-button" bindtap="goRequestTrip" hover-class="ride-pressed" hover-stay-time="80">点击求车</button>
       </view>
     </view>
 
@@ -104,7 +128,7 @@
       <view class="ride-person detail-driver">
         <image class="ride-avatar" src="{{driverInfo.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
         <view class="ride-person-main">
-          <text class="ride-person-name">{{driverInfo.name || driverInfo.nickName || '未设置昵称'}}</text>
+          <text class="ride-person-name">{{driverInfo.name || driverInfo.nickName || '无用户名'}}</text>
           <view class="ride-info-grid">
             <view wx:if="{{driverInfo.carNumber}}" class="ride-info-row">
               <text class="ride-info-label">车牌</text>
@@ -145,7 +169,7 @@
       <text class="ride-notice-text">仅包含 Fiat House、Modern、2050 和 Hudson Lights 四个公寓。</text>
     </view>
 
-    <view class="ride-card ride-card-pad">
+    <view wx:if="{{!hasJoined && !isOwner && trip.status !== 'full' && trip.availSeatNum > 0}}" class="ride-card ride-card-pad">
       <view class="create-card-head">
         <text class="ride-section-title">上下车点</text>
         <text class="ride-section-subtitle">加入前请填写，方便司机确认路线</text>
@@ -176,7 +200,7 @@
           <text class="ride-field-label">下车点</text>
           <input
             class="ride-input"
-            placeholder="如 2050 / 法学院 / 私议"
+            placeholder="如 Fiat / SIPA / 私议"
             placeholder-class="ride-placeholder"
             value="{{dropoffAddress}}"
             bindfocus="onDropoffFocus"
@@ -191,6 +215,10 @@
           </block>
           <view class="ride-chip ride-chip--accent" bindtap="onDropoffTagSelect" data-value="私议">私议</view>
         </view>
+      </view>
+      <view class="detail-request-row detail-request-row--inline">
+        <text>不是我想要的路线？</text>
+        <button id="request-another-trip" class="ride-btn detail-request-button" bindtap="goRequestTrip" hover-class="ride-pressed" hover-stay-time="80">点击求车</button>
       </view>
     </view>
 

@@ -19,11 +19,11 @@ const schema = readFileSync(new URL('./fixtures/schema-v4.sql', import.meta.url)
 const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
   : value !== null && typeof value === 'object' ? `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}` : JSON.stringify(value);
 const hash = value => createHash('sha256').update(value).digest('hex');
-const readTables = db => Object.fromEntries(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+const readTables = db => Object.fromEntries(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'followup_events' ORDER BY name")
   .all().map(({ name }) => [names[name] || name, db.prepare(`SELECT rowid,* FROM ${name} ORDER BY rowid`).all().map(row => {
     if (name === 'ingest_batches') { const { codec, raw_bytes, ...original } = row; return original; }
     return row;
-  })]));
+  }).filter(row => name !== 'collector_settings' || row.key !== 'followup_index_cursor')]));
 
 function legacyFixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'collector-schema-')); const path = join(dir, 'db.sqlite');

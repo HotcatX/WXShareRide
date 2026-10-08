@@ -105,6 +105,7 @@
               <view class="home-kind-row">
                 <text class="ride-list-kind">{{item.from === 'request' ? '求车请求' : '发车路线'}}</text>
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
+                <text class="ride-publisher-name">{{item.name || '无用户名'}}</text>
               </view>
               <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
             </view>
@@ -165,6 +166,7 @@
               <view class="home-kind-row">
                 <text class="ride-list-kind">{{item.from === 'request' ? '乘客路线' : '司机路线'}}</text>
                 <text wx:if="{{item._priceText}}" class="ride-chip home-price-chip">{{item._priceText}}</text>
+                <text class="ride-publisher-name">{{item.name || '无用户名'}}</text>
               </view>
               <text class="ride-list-time"> {{item._timeLabel || '待定'}}</text>
             </view>
@@ -192,16 +194,14 @@
     <view class="home-section">
       <view class="ride-row-between home-section-head">
         <text class="ride-section-title">社区数据</text>
-        <text class="ride-section-subtitle">每日更新</text>
       </view>
       <view class="home-stats ride-card ride-card-pad">
         <view class="home-stat-main">
-          <text class="home-stat-label">累计已服务</text>
+          <text class="home-stat-label">累计成功出行</text>
           <view class="home-stat-number-row">
-            <text class="home-stat-number">{{publicStats.servedTripsText}}</text>
-            <text wx:if="{{publicStats.hasServedTrips}}" class="home-stat-unit">人次</text>
+            <text class="home-stat-number">10K+</text>
+            <text class="home-stat-unit">人次</text>
           </view>
-          <text class="home-stat-subtitle">成功加入</text>
         </view>
         <view class="home-stat-side">
           <view
@@ -317,15 +317,23 @@
         <text class="home-followup-title">行程回访</text>
         <view class="home-followup-close" bindtap="onFollowupClose" aria-role="button" aria-label="关闭回访">×</view>
       </view>
-      <text class="home-followup-time">{{followupTime}}</text>
-      <text wx:if="{{followupRoute}}" class="home-followup-route">{{followupRoute}}</text>
-      <text class="home-followup-question">{{followupQuestion}}</text>
-      <text class="home-followup-note">仅询问一次，关闭后不再提醒。</text>
-      <text wx:if="{{followupError}}" class="home-followup-error">{{followupError}}</text>
-      <view class="home-followup-actions">
-        <button class="home-followup-no" data-outcome="no" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">否</button>
-        <button class="home-followup-yes" data-outcome="yes" bindtap="onFollowupAnswer" disabled="{{followupBusy}}">是</button>
+      <view class="home-followup-meta">
+        <text class="home-followup-time">{{followupTime}}</text>
+        <text class="ride-publisher-name">{{followupTrip.name || '无用户名'}}</text>
       </view>
+      <view class="home-followup-route-row">
+        <text wx:if="{{followupRoute}}" class="home-followup-route">{{followupRoute}}</text>
+        <text wx:if="{{followupAge}}" class="home-followup-age">{{followupAge}}</text>
+      </view>
+      <view class="home-followup-feedback">
+        <trip-feedback trip="{{followupTrip}}" bind:answer="onFollowupAnswer" bind:rate="onFollowupRate" />
+      </view>
+      <checkbox-group class="home-followup-preference" bindchange="onFollowupPause">
+        <label class="home-followup-pause">
+          <checkbox value="pause" checked="{{false}}" disabled="{{followupTrip._feedbackBusy}}" color="#087f79" />
+          <text>七天内不再显示</text>
+        </label>
+      </checkbox-group>
     </view>
   </view>
   <view wx:if="{{feedbackThanks}}" class="home-feedback-thanks" style="top: {{statusBarHeight + 52}}px;">谢谢您的反馈</view>

@@ -10,7 +10,7 @@ const { toHistoryRide } = require('../../../utils/compat/rideHistory.js');
 const { createFollowupController, eligibleTrip } = require('../../../utils/tripFollowup.js');
 const { validateEvent } = require('../../../utils/analyticsSchema.js');
 
-test('actual private history DTO drives all existing followup roles without exposing other OpenIDs or changing prompts',
+test('actual private history DTO drives shared followup roles without exposing other OpenIDs',
   { skip: !process.env.BACKEND_TEST_DATABASE_URL }, async t => {
     const database = await createTestDatabase(); t.after(database.close);
     const { pool } = database;
@@ -57,7 +57,8 @@ test('actual private history DTO drives all existing followup roles without expo
           } },
       });
       assert.equal(controller.considerTrips(page, [trip]), true);
-      assert.equal(page.data.followupQuestion, name === 'driver' ? '您接到乘客了吗？' : '您坐上车了吗？');
+      assert.equal((page.data.followupTrip as Record<string, unknown>)._feedbackQuestion,
+        name === 'driver' ? '预约的乘客都上车了吗？' : '您是否上车？');
       assert.equal(controller.answer(page, 'yes').ok, true);
       assert.equal(events[1].data.referencePriceCents, 1525);
       assert.equal(events[1].data.outcomeScope, name === 'driver' ? 'driver_any_passenger' : 'respondent_booking');

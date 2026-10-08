@@ -276,3 +276,15 @@ page{
   background: #ffffff;
   border-color: rgba(20,23,26,0.06);
 }
+
+.create-request-section{ margin: 24rpx 0 0; }
+.create-request-section > .create-section-title{ display: block; margin: 0 4rpx 12rpx; }
+.create-request-card{ display: flex; align-items: center; gap: 22rpx; margin-bottom: 12rpx; padding: 20rpx; background: #fff; border: 1rpx solid #e0e9e8; border-radius: 16rpx; }
+.create-request-time{ flex: none; display: flex; flex-direction: column; gap: 6rpx; color: #0e8986; font-size: 30rpx; font-weight: 750; }
+.create-request-date{ color: #7b858e; font-size: 20rpx; font-weight: 400; }
+.create-request-main{ flex: 1; min-width: 0; }
+.create-request-route{ display: flex; align-items: center; gap: 10rpx; color: #273239; font-size: 24rpx; font-weight: 650; }
+.create-request-route text{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.create-request-meta{ display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; color: #7b858e; font-size: 21rpx; }
+.create-request-count{ flex: none; }
+.create-request-arrow{ flex: none; color: #0e8986; font-size: 32rpx; }

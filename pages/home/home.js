@@ -1,17 +1,13 @@
 const profileApi = require("../../utils/compat/profile")
 const rides = require("../../utils/compat/rides")
-const { loadRideHistory } = require('../../utils/compat/rideHistory')
 const followup = require('../../utils/tripFollowup')
 const analytics = require('../../utils/analyticsSession')
 const HOME_REFRESH_INTERVAL = 30 * 1000
-const PUBLIC_STATS_CACHE_KEY = 'homePublicStatsCacheV1'
-const PUBLIC_STATS_CACHE_TTL = 24 * 60 * 60 * 1000
 const RIDE_LIST_REFRESH_KEY = 'rideListShouldRefreshAt'
 const MAX_TIMEOUT_MS = 2147483647
 const { formatRidePriceTag: formatRidePriceTagShared } = require("../../utils/tripManage")
 const rideTime = require("../../utils/rideTime")
 const community = require("../../utils/community")
-const backend = require("../../utils/backendClient")
 const {
   DEFAULT_CITY_TREE,
   RIDE_DEFAULT_CITY_KEY,
@@ -33,18 +29,6 @@ const RIDE_DEFAULT_CITY_SNAPSHOT = getCitySnapshot(DEFAULT_CITY_TREE, RIDE_DEFAU
 
 function homeIdentity() {
   return wx.getStorageSync('isGuest') ? '' : String(wx.getStorageSync('openid') || '')
-}
-
-function readPublicStatsCache() {
-  try {
-    const entry = wx.getStorageSync(PUBLIC_STATS_CACHE_KEY)
-    if (!entry || entry.version !== 1 || !Number.isSafeInteger(entry.syncedAt) || entry.syncedAt <= 0) return null
-    const age = Date.now() - entry.syncedAt
-    const data = entry.data
-    if (age < 0 || age >= PUBLIC_STATS_CACHE_TTL || !data ||
-      !Number.isSafeInteger(data.servedTrips) || data.servedTrips < 0 || typeof data.coverageText !== 'string') return null
-    return entry
-  } catch (_) { return null }
 }
 
 // Cache only completed reads. A changed identity or mutation revision starts a
@@ -127,25 +111,8 @@ function formatDateCNNoYear(dateStr) {
   return `${m}月${d}日`
 }
 
-function formatStatNumber(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n < 0) return 'N/A'
-  return String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-}
-
 function formatRidePriceTag(value) {
   return formatRidePriceTagShared(value)
-}
-
-function normalizePublicStats(raw = {}) {
-  const hasServedTrips = raw.servedTrips !== undefined && raw.servedTrips !== null && raw.servedTrips !== ''
-  const servedTrips = hasServedTrips ? Number(raw.servedTrips) : null
-  return {
-    servedTrips,
-    servedTripsText: formatStatNumber(servedTrips),
-    hasServedTrips: servedTrips !== null && Number.isFinite(servedTrips),
-    coverageText: raw.coverageText || 'NY / NJ'
-  }
 }
 
 function getHomeNavMetrics() {
@@ -288,16 +255,14 @@ Page({
     cityPickerEmptyText: "没有找到相关城市",
     cityPickerHintText: RIDE_CITY_PICKER_HINT,
 
-    publicStats: normalizePublicStats(),
     communityGroupLoading: false,
     communityNoticeVisible: false,
     communityNotice: null,
     followupVisible: false,
-    followupBusy: false,
-    followupError: '',
+    followupTrip: null,
     followupTime: '',
+    followupAge: '',
     followupRoute: '',
-    followupQuestion: '',
 
     isLoggedIn: false,
     customTabMarketBadge: 0,
@@ -375,7 +340,6 @@ Page({
     try {
       await Promise.all([
         this.refreshCommunityConfig({ force: true }),
-        this.loadPublicStats({ force: true }),
         this.refreshHomeData(true),
         this.loadUnreadCount({ force: true })
       ])
@@ -446,7 +410,6 @@ Page({
     this._homeShowTimer = setTimeout(() => {
       this._homeShowTimer = null
       if (this.data.isRideServiceAvailable) {
-        this.loadPublicStats()
         const visit = this._homeFollowupVisit
         Promise.resolve(this.refreshHomeData(false)).then(() => {
           if (!this._communityActive || !visit || this._homeFollowupVisit !== visit) return
@@ -487,7 +450,7 @@ Page({
         const current = () => isCurrent() && this._communityActive &&
           identity === homeIdentity() && key === this.homeReadKey()
         if (!isCurrent() || !this._communityActive || identity !== homeIdentity() || !followup.canConsider()) return false
-        const response = await loadRideHistory(identity)
+        const response = await followup.loadHistory(identity, force)
         if (!current()) return false
         if (!response || !response.result || response.result.ok !== true || !Array.isArray(response.result.data)) return false
         const trips = await followup.readUnpromptedTrips(response.result.data)
@@ -515,7 +478,21 @@ Page({
   },
 
   onFollowupAnswer(event) {
-    followup.answer(this, event && event.currentTarget && event.currentTarget.dataset.outcome)
+    const { id, outcome } = event?.detail || event?.currentTarget?.dataset || {}
+    followup.answer(this, outcome, id)
+  },
+
+  onFollowupRate(event) {
+    const { id, score } = event?.detail || event?.currentTarget?.dataset || {}
+    return followup.rate(this, Number(score), id)
+  },
+
+  onFollowupPause(event) {
+    if (!Array.isArray(event?.detail?.value) || !event.detail.value.includes('pause')) return
+    if (!followup.pause(this).ok) return
+    wx.showModal({ title: '已暂停回访提醒',
+      content: '您仍可在我的-历史行程里完成回访，感谢您的支持！',
+      showCancel: false, confirmText: '知道了' })
   },
 
   onFollowupClose() { followup.dismiss(this) },
@@ -642,7 +619,6 @@ Page({
       delete this._homeReads.trips
       delete this._homeReads.unread
       delete this._homeReads.followup
-      delete this._homeReads.stats
       this._homeFollowup = null
       followup.hide(this)
       this.setData({
@@ -869,42 +845,6 @@ Page({
 
     // passenger / passengerJoin -> myTripDetailPassenger
     wx.navigateTo({ url: `/pages/profile/myTripDetailPassenger/myTripDetailPassenger?tripId=${tripId}&sourceType=${sourceType}` })
-  },
-
-  async loadPublicStats({ force = false } = {}) {
-    try {
-      const identity = homeIdentity()
-      const previous = this._homeReads && this._homeReads.stats
-      const pending = previous && previous.key === identity && previous.promise
-      if (!force && !pending) {
-        const cached = readPublicStatsCache()
-        if (cached) {
-          this.setData({ publicStats: normalizePublicStats(cached.data) })
-          return
-        }
-      }
-      // Public totals have a separate persistent TTL and do not change when a
-      // local ride mutation or login invalidates the personal lists.
-      await readHomeResource(this, 'stats', identity, true, async isCurrent => {
-        await backend.ready()
-        if (!isCurrent() || identity !== homeIdentity()) return false
-        const data = await backend.get('/api/v1/statistics/public', { anonymous: true })
-        if (!isCurrent() || identity !== homeIdentity()) return false
-        if (!data || !Number.isSafeInteger(data.servedCount) || data.servedCount < 0 ||
-          (data.coverageText !== null && (typeof data.coverageText !== 'string' || data.coverageText.length > 120 ||
-            /[\u0000-\u001f\u007f]/.test(data.coverageText)))) throw new Error('获取社区统计失败')
-        const syncedAt = Date.now()
-        const stats = normalizePublicStats({ servedTrips: data.servedCount, coverageText: data.coverageText || 'N/A' })
-        try {
-          wx.setStorageSync(PUBLIC_STATS_CACHE_KEY, {
-            version: 1, syncedAt,
-            data: { servedTrips: stats.servedTrips, coverageText: stats.coverageText }
-          })
-        } catch (_) {}
-        this.setData({ publicStats: stats })
-      })
-    } catch (e) {
-    }
   },
 
   // =========================

@@ -1,0 +1,19 @@
+[Unit]
+Description=Upload verified LinkX backups to personal OneDrive
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/linkx-backend/ops/upload_backups.py
+TimeoutStartSec=95min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/linkx-backup /var/backups/linkx-backup-upload /var/backups/linkx-collector /var/backups/linkx-backend /run

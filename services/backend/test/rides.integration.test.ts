@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { Pool } from 'pg';
 import { createTestDatabase } from './helpers/database.ts';
 import { cancelRide, createRide, getRide, joinRide, leaveRide, listRides } from '../src/rides/service.ts';
+import { listMyRides } from '../src/rides/participants.ts';
 
 function offer(overrides = {}) {
   return {
@@ -203,12 +204,28 @@ test('ride service integrates against isolated PostgreSQL', { skip: !process.env
     assert.ok(list.rides.some(row => row.id === id));
     const json = JSON.stringify({ detail, list });
     for (const secret of [creator.id, creator.openid, 'private-phone', 'private-secret', 'hidden-openid', 'hidden-contact', 'hidden-token']) assert.equal(json.includes(secret), false);
-    assert.deepEqual(Object.keys(detail).sort(), ['id', 'kind', 'cityKey', 'status', 'seatCapacity', 'departureAt', 'timeZone', 'listedPriceCents', 'listedPriceLabel', 'version', 'note', 'availableSeats', 'hasDriver', 'driverStatistics', 'stops'].sort());
+    assert.deepEqual(Object.keys(detail).sort(), ['id', 'kind', 'cityKey', 'status', 'creatorName', 'seatCapacity', 'departureAt', 'timeZone', 'listedPriceCents', 'listedPriceLabel', 'version', 'note', 'availableSeats', 'hasDriver', 'driverStatistics', 'stops'].sort());
+    assert.equal(detail.creatorName, 'Test rider');
     assert.equal(detail.listedPriceLabel, null);
     await pool.query('UPDATE rides SET listed_price_label=$2, listed_price_cents=NULL WHERE id=$1', [id, '2人共30']);
     const historicalQuote = await getRide(pool, id);
     assert.equal(historicalQuote.listedPriceLabel, '2人共30');
     assert.equal(historicalQuote.listedPriceCents, null);
+  });
+
+  await t.test('list, detail and own history use the current publisher username for offers and requests', async () => {
+    for (const input of [offer(), request()]) {
+      const creator = await account(pool);
+      const id = rideId(await createRide(pool, creator.id, 'create-name-fixture', input));
+      await pool.query('UPDATE users SET name=$2 WHERE id=$1', [creator.id, 'Updated username']);
+      assert.equal((await getRide(pool, id)).creatorName, 'Updated username');
+      assert.equal((await listRides(pool, { cityKey: 'ny_nj', limit: 50 })).rides.find(row => row.id === id)?.creatorName, 'Updated username');
+      assert.equal((await listMyRides(pool, creator.id, {})).rides[0].creatorName, 'Updated username');
+      await pool.query("UPDATE rides SET status='closed' WHERE id=$1", [id]);
+      assert.equal((await listMyRides(pool, creator.id, { scope: 'history' })).rides[0].creatorName, 'Updated username');
+      await pool.query("UPDATE users SET name='' WHERE id=$1", [creator.id]);
+      assert.equal((await getRide(pool, id)).creatorName, '');
+    }
   });
 
   await t.test('expired departures and unsupported legacy aliases never enter a new booking', async () => {

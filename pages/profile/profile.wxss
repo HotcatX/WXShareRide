@@ -317,6 +317,19 @@ page{
   font-weight: 900;
 }
 
+.profile-followup-dot {
+  position: absolute;
+  top: 2rpx;
+  right: 2rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #e64c3c;
+  border: 3rpx solid #ffffff;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 .profile-privacy {
   display: flex;
   align-items: center;

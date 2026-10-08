@@ -168,3 +168,16 @@
   right: -10rpx;
   top: -10rpx;
 }
+
+.tab-followup-dot{
+  position: absolute;
+  right: -4rpx;
+  top: -4rpx;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #e64c3c;
+  border: 3rpx solid #fff;
+  box-sizing: border-box;
+  pointer-events: none;
+}

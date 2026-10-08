@@ -33,11 +33,11 @@ function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = fals
   }
   const wx = {
     getStorageSync: key => {
-      if (state.readError && key === 'carpoolListHideFullTripsV1') throw new Error('Storage unavailable')
+      if (state.readError && key === 'carpoolListHideFullTripsV2') throw new Error('Storage unavailable')
       return state.store[key]
     },
     setStorageSync: (key, value) => {
-      if (state.writeError && key === 'carpoolListHideFullTripsV1') throw new Error('Storage full')
+      if (state.writeError && key === 'carpoolListHideFullTripsV2') throw new Error('Storage full')
       state.store[key] = plain(value)
     },
     removeStorageSync: key => { delete state.store[key] },
@@ -108,25 +108,38 @@ function harness({ store, now = NOW, holdTimers = false, analyticsEnabled = fals
   return { page, state, fill, ids }
 }
 
-test('full cars are hidden by default; showing them keeps available cars and requests first without cloud calls', () => {
+test('full cars are visible by default in one group per date; time precedes same-minute seat availability', () => {
   const { page, fill, ids, state } = harness()
   fill([
-    route('full-early', { status: 'full' }),
+    route('full-early', { status: 'full', departures: [{ date: '2030-01-01', time: '11:00', address: 'Fort Lee' }] }),
     route('available-tomorrow', { departures: [{ date: '2030-01-02', time: '09:00', address: 'Fort Lee' }] }),
     route('zero', { availSeatNum: '0' }), route('available-today')
   ], [route('request-full', { status: 'full', availSeatNum: 0 })])
   assert.equal(page.data.fullTripCount, 2)
-  assert.equal(page.data.hideFullTrips, true)
-  assert.deepEqual(ids(), ['available-today', 'request-full', 'available-tomorrow'])
-  page.onToggleHideFullTrips()
   assert.equal(page.data.hideFullTrips, false)
-  assert.equal(state.store.carpoolListHideFullTripsV1, false)
-  assert.deepEqual(ids(), ['available-today', 'request-full', 'available-tomorrow', 'full-early', 'zero'])
+  assert.deepEqual(ids(), ['full-early', 'available-today', 'zero', 'request-full', 'available-tomorrow'])
+  assert.deepEqual(plain(page.data.dayGroups.map(group => [group.date, group.carpoolCount, group.requestCount])), [
+    ['2030-01-01', 3, 1], ['2030-01-02', 1, 0]
+  ])
   assert.equal(new Set(page.data.dayGroups.map(group => group.key)).size, page.data.dayGroups.length)
   page.onToggleHideFullTrips()
-  assert.equal(state.store.carpoolListHideFullTripsV1, true)
-  assert.equal(ids().length, 3)
+  assert.equal(page.data.hideFullTrips, true)
+  assert.equal(state.store.carpoolListHideFullTripsV2, true)
+  assert.deepEqual(ids(), ['available-today', 'request-full', 'available-tomorrow'])
+  page.onToggleHideFullTrips()
+  assert.equal(state.store.carpoolListHideFullTripsV2, false)
+  assert.deepEqual(ids(), ['full-early', 'available-today', 'zero', 'request-full', 'available-tomorrow'])
   assert.equal(state.calls.length, 0)
+})
+
+test('same displayed minute puts an available car before a full car even when server timestamps contain seconds', () => {
+  const { fill, ids } = harness()
+  fill([
+    route('full-first-second', { availSeatNum: 0, departureAtMs: Date.parse('2030-01-01T12:00:01-05:00') }),
+    route('available-last-second', { departureAtMs: Date.parse('2030-01-01T12:00:59-05:00') }),
+    route('available-next-minute', { departureAtMs: Date.parse('2030-01-01T12:01:00-05:00') })
+  ])
+  assert.deepEqual(ids(), ['available-last-second', 'full-first-second', 'available-next-minute'])
 })
 
 test('full count follows date/address filters and showing all-full lists persists through filter changes', () => {
@@ -134,11 +147,10 @@ test('full count follows date/address filters and showing all-full lists persist
   fill([route('full-today', { availSeatNum: 0 }), route('full-tomorrow', {
     availSeatNum: 0, departures: [{ date: '2030-01-02', time: '12:00', address: 'JFK' }]
   }), route('expired', { status: 'past', availSeatNum: 0 })])
-  assert.deepEqual(ids(), [])
+  assert.deepEqual(ids(), ['full-today', 'full-tomorrow'])
   assert.equal(page.data.fullTripCount, 2)
-  page.onToggleHideFullTrips()
   assert.equal(ids().length, 2)
-  assert.deepEqual(plain(page.data.dayGroups.map(group => [group.carpoolCount, group.requestCount])), [[1, 0], [1, 0]], 'dates with only full cars retain their totals when expanded')
+  assert.deepEqual(plain(page.data.dayGroups.map(group => [group.carpoolCount, group.requestCount])), [[1, 0], [1, 0]], 'dates with only full cars retain their totals')
   page.onTimeFilterChange({ detail: { value: '0' } })
   assert.equal(page.data.hideFullTrips, false)
   assert.equal(page.data.fullTripCount, 1)
@@ -154,40 +166,56 @@ test('full count follows date/address filters and showing all-full lists persist
 test('full-car visibility restores on page entry after a year and persists both boolean choices', async () => {
   const first = harness()
   first.page.onToggleHideFullTrips()
-  assert.equal(first.state.store.carpoolListHideFullTripsV1, false)
+  assert.equal(first.state.store.carpoolListHideFullTripsV2, true)
   assert.equal(first.state.calls.length, 0)
   const second = harness({ store: first.state.store, now: NOW + 366 * 86400000, holdTimers: true })
   second.page.loadBothLists = async () => {}
   second.page.onLoad({})
   await tick()
-  assert.equal(second.page.data.hideFullTrips, false, 'false must not be replaced by the default onLoad')
+  assert.equal(second.page.data.hideFullTrips, true, 'a V2 choice must not be replaced by the default onLoad')
   second.fill([route('full', { status: 'full', departures: [{ date: second.page.data.todayDateStr, time: '12:00', address: 'Fort Lee' }] })])
-  assert.deepEqual(second.ids(), ['full'])
+  assert.deepEqual(second.ids(), [])
   second.page.onToggleHideFullTrips()
-  assert.equal(second.state.store.carpoolListHideFullTripsV1, true)
+  assert.equal(second.state.store.carpoolListHideFullTripsV2, false)
   const third = harness({ store: second.state.store, now: NOW + 732 * 86400000, holdTimers: true })
   third.page.loadBothLists = async () => {}
   third.page.onLoad({})
   await tick()
-  assert.equal(third.page.data.hideFullTrips, true)
+  assert.equal(third.page.data.hideFullTrips, false)
   third.fill([route('full', { status: 'full', departures: [{ date: third.page.data.todayDateStr, time: '12:00', address: 'Fort Lee' }] })])
-  assert.deepEqual(third.ids(), [])
+  assert.deepEqual(third.ids(), ['full'])
   assert.equal(second.state.calls.length + third.state.calls.length, 0)
 })
 
-test('missing or malformed visibility preferences and storage read failures safely default to hiding full cars', () => {
-  for (const saved of [undefined, null, '', 'false', 'true', 0, 1, {}, [], { value: false, savedAt: NOW }]) {
-    const { page, state } = harness({ store: { carpoolListHideFullTripsV1: saved } })
-    page.data.hideFullTrips = false
+test('the V2 key resets old visibility choices once and preserves subsequent explicit choices', () => {
+  for (const legacy of [true, false]) {
+    const { page, state } = harness({ store: { carpoolListHideFullTripsV1: legacy } })
     page.restoreFullTripPreference()
-    assert.equal(page.data.hideFullTrips, true, JSON.stringify(saved))
+    assert.equal(page.data.hideFullTrips, false)
+    page.onToggleHideFullTrips()
+    page.restoreFullTripPreference()
+    assert.equal(page.data.hideFullTrips, true)
+    assert.equal(state.store.carpoolListHideFullTripsV2, true)
+    page.onToggleHideFullTrips()
+    page.restoreFullTripPreference()
+    assert.equal(page.data.hideFullTrips, false)
+    assert.equal(state.store.carpoolListHideFullTripsV2, false)
+  }
+})
+
+test('missing or malformed V2 preferences and storage read failures default to showing full cars', () => {
+  for (const saved of [undefined, null, '', 'false', 'true', 0, 1, {}, [], { value: false, savedAt: NOW }]) {
+    const { page, state } = harness({ store: { carpoolListHideFullTripsV2: saved } })
+    page.data.hideFullTrips = true
+    page.restoreFullTripPreference()
+    assert.equal(page.data.hideFullTrips, false, JSON.stringify(saved))
     assert.equal(state.calls.length, 0)
   }
-  const { page, state } = harness({ store: { carpoolListHideFullTripsV1: false } })
-  page.data.hideFullTrips = false
+  const { page, state } = harness({ store: { carpoolListHideFullTripsV2: true } })
+  page.data.hideFullTrips = true
   state.readError = true
   assert.doesNotThrow(() => page.restoreFullTripPreference())
-  assert.equal(page.data.hideFullTrips, true)
+  assert.equal(page.data.hideFullTrips, false)
 })
 
 test('a storage write failure still changes visible full cars immediately without advancing pagination', () => {
@@ -198,18 +226,19 @@ test('a storage write failure still changes visible full cars immediately withou
   page.data.nextPageDate = '2030-01-03'
   page._listLoadMoreArmed = true
   assert.doesNotThrow(() => page.onToggleHideFullTrips())
-  assert.equal(page.data.hideFullTrips, false)
-  assert.deepEqual(ids(), ['available', 'full'])
+  assert.equal(page.data.hideFullTrips, true)
+  assert.deepEqual(ids(), ['available'])
   page.onListScrollToLower()
   assert.equal(page.data.nextPageDate, '2030-01-03')
   assert.equal(state.calls.length, 0)
   assert.doesNotThrow(() => page.onToggleHideFullTrips())
-  assert.equal(page.data.hideFullTrips, true)
-  assert.deepEqual(ids(), ['available'])
+  assert.equal(page.data.hideFullTrips, false)
+  assert.deepEqual(ids(), ['available', 'full'])
 })
 
 test('refresh, list-cache reuse, more dates and city changes preserve full-car visibility', async () => {
   const { page, state, ids } = harness()
+  page.onToggleHideFullTrips()
   page.onToggleHideFullTrips()
   state.next = deferred()
   const first = page.loadBothLists()
@@ -243,7 +272,7 @@ test('refresh, list-cache reuse, more dates and city changes preserve full-car v
   assert.equal(page.data.hideFullTrips, false)
   await page.onPullDownRefresh()
   assert.equal(page.data.hideFullTrips, false)
-  assert.equal(state.store.carpoolListHideFullTripsV1, false)
+  assert.equal(state.store.carpoolListHideFullTripsV2, false)
 })
 
 test('missing seat counts do not falsely fold legacy cars', () => {

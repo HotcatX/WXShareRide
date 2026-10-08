@@ -60,6 +60,7 @@
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
         <text wx:if="{{trip.referencePriceText}}" class="ride-chip ride-chip--warn">价格：{{trip.referencePriceText}}</text>
+        <text class="ride-publisher-name ride-publisher-name--detail">{{trip.name || '无用户名'}}</text>
       </view>
     </view>
 
@@ -85,7 +86,7 @@
 
         <view class="ride-person-main">
           <text class="ride-person-name">
-            {{driverInfo.name || '未设置昵称'}}
+            {{driverInfo.name || '无用户名'}}
           </text>
 
           <text class="ride-social-line">
@@ -145,7 +146,7 @@
               wx:if="{{isRequestCompleted && !driverInfo.hasRated}}"
               class="ride-mini-btn ride-mini-btn--accent"
               data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
-              data-name="{{driverInfo.name || '司机'}}"
+              data-name="{{driverInfo.name || '无用户名'}}"
               bindtap="onRateDriver"
             >
               评价
@@ -155,7 +156,7 @@
               wx:if="{{isRequestCompleted && driverInfo.hasRated}}"
               class="ride-mini-btn ride-mini-btn--disabled"
               data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
-              data-name="{{driverInfo.name || '司机'}}"
+              data-name="{{driverInfo.name || '无用户名'}}"
               bindtap="onRateDriver"
             >
               已评价
@@ -164,7 +165,7 @@
             <view
               class="ride-mini-btn ride-mini-btn--danger"
               data-openid="{{driverInfo._openid}}" data-user-id="{{driverInfo.userId}}"
-              data-name="{{driverInfo.name || '该用户'}}"
+              data-name="{{driverInfo.name || '无用户名'}}"
               bindtap="onBlockUser"
             >
               拉黑
@@ -214,7 +215,7 @@
         <view class="ride-person" wx:for="{{passengerList}}" wx:key="index" wx:for-item="p">
           <image class="ride-avatar" src="{{p.avatarUrl || defaultAvatarUrl}}" mode="aspectFill" />
           <view class="ride-person-main">
-            <text class="ride-person-name">{{p.name || p.nickName || '未设置昵称'}}</text>
+            <text class="ride-person-name">{{p.name || p.nickName || '无用户名'}}</text>
             <text class="ride-social-line">{{p.rideStatsText || '暂无记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
@@ -234,7 +235,7 @@
               </view>
             </view>
             <view class="ride-person-actions">
-              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || p.nickName || '无用户名'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>
         </view>

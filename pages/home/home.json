@@ -4,6 +4,7 @@
   "backgroundTextStyle": "dark",
   "backgroundColor": "#f4f6f8",
   "usingComponents": {
+    "trip-feedback": "/components/trip-feedback/index",
     "app-tabbar": "/components/app-tabbar/app-tabbar",
     "community-announcement": "/components/community-announcement/community-announcement"
   }

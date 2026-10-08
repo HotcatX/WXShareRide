@@ -5,13 +5,17 @@ const path = require('node:path')
 const vm = require('node:vm')
 
 function harness(active = 'home') {
-  const state = { remembered: [], navigation: [], events: [], storage: {} }
+  const state = { remembered: [], navigation: [], events: [], storage: {}, pendingListeners: new Set(), pendingRefreshes: 0 }
   let definition
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../components/app-tabbar/app-tabbar.js'), 'utf8'), {
     Component(value) { definition = value },
     require(name) {
-      assert.equal(name, '../../utils/tabMemory')
-      return { rememberTab: tab => state.remembered.push(tab) }
+      if (name === '../../utils/tabMemory') return { rememberTab: tab => state.remembered.push(tab) }
+      assert.equal(name, '../../utils/tripFollowup')
+      return {
+        subscribePendingFollowup(listener) { state.pendingListeners.add(listener); listener(false); return () => state.pendingListeners.delete(listener) },
+        refreshPendingFollowup() { state.pendingRefreshes++ }
+      }
     },
     wx: {
       getStorageSync: key => state.storage[key],
@@ -26,7 +30,7 @@ function harness(active = 'home') {
     setData(patch) { Object.assign(this.data, patch) },
     triggerEvent(name, detail) { state.events.push({ name, detail }) }
   }
-  return { component, state }
+  return { component, state, definition }
 }
 
 const tabEvent = (key, url = `/pages/${key}/${key}`) => ({ currentTarget: { dataset: { key, url } } })
@@ -97,4 +101,21 @@ test('cross-page market navigation remembers goods or sublets after success and 
     state.navigation[1].success()
     assert.deepEqual(state.remembered, [type])
   }
+})
+
+test('follow-up state updates the static dot independently from unread counts and detaches cleanly', () => {
+  const { component, state, definition } = harness()
+  state.storage.customTabProfileBadge = 7
+  definition.lifetimes.attached.call(component)
+  assert.equal(component.data.profileBadgeText, '7')
+  assert.equal(component.data.hasPendingFollowup, false)
+  state.pendingListeners.forEach(listener => listener(true))
+  assert.equal(component.data.hasPendingFollowup, true)
+  assert.equal(component.data.profileBadgeText, '7')
+  definition.pageLifetimes.show.call(component)
+  assert.equal(state.pendingRefreshes, 2)
+  state.pendingListeners.forEach(listener => listener(false))
+  assert.equal(component.data.hasPendingFollowup, false)
+  definition.lifetimes.detached.call(component)
+  assert.equal(state.pendingListeners.size, 0)
 })

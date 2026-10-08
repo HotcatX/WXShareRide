@@ -8,6 +8,7 @@ const { blockRideUser, formatRidePricePerPerson, formatRideStats, markRideListSt
 const { fetchTripDetail } = require("../../../utils/tripDetailCache")
 const { isRouteExpired } = require("../../../utils/routeExpiry")
 const { routeKey, readJoinAddresses, rememberJoinAddresses } = require("../../../utils/joinAddresses")
+const { loadRideAlternatives } = require("../../../utils/rideAlternatives")
 
 // ===== 工具函数：把 "2025-12-01" 转成 "周三" =====
 function getWeekdayStr(dateStr) {
@@ -88,6 +89,8 @@ Page({
     formattedDepartTime: '',
     referencePriceText: '',
     carBrandModel: '',
+    alternatives: [],
+    alternativesState: 'idle',
 
     tripId: '',
 
@@ -200,11 +203,14 @@ Page({
     this._detailAccount = accountKey()
     if (changedAccount) {
       this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+      this._alternativesSequence = (this._alternativesSequence || 0) + 1
+      rideTelemetry.stopList(this)
       this._joinAddressRoute = ''
       this._joinAddressEdited = {}
       this.setData({ trip: null, driverInfo: null, isOwner: false, hasJoined: false, joinedByMe: false, acceptedByMe: false,
         driverUserId: '', ownerUserId: '', driverOpenid: '', ownerOpenid: '', pickupSpotList: [], dropoffSpotList: [],
-        pickupAddress: '', dropoffAddress: '', showPickupOptions: false, showDropoffOptions: false })
+        pickupAddress: '', dropoffAddress: '', showPickupOptions: false, showDropoffOptions: false,
+        alternatives: [], alternativesState: 'idle' })
       this._lastDetailLoadedAt = 0
       if (this.data.tripId) this.loadTripDetail(this.data.tripId, { silent: true, force: true })
     }
@@ -235,8 +241,76 @@ Page({
     // ✅ 登录/完善资料回来后，静默刷新一下按钮状态（hasJoined/isOwner）
     const { tripId } = this.data
     if (!tripId || this.data.loading || this.data.loadError) return
-    if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) return
+    if (Date.now() - (this._lastDetailLoadedAt || 0) < DETAIL_REFRESH_INTERVAL) {
+      if (this.data.alternativesState === 'idle') this.loadTripAlternatives()
+      return
+    }
     this.loadTripDetail(tripId, { silent: true })
+  },
+
+  async loadTripAlternatives(trip = this.data.trip) {
+    const sequence = this._alternativesSequence = (this._alternativesSequence || 0) + 1
+    const owner = accountKey()
+    rideTelemetry.stopList(this)
+    const full = trip && (trip.status === 'full' ||
+      (trip.availSeatNum != null && trip.availSeatNum !== '' && Number(trip.availSeatNum) === 0))
+    if (!full || this.data.hasJoined || this.data.isOwner || this.data.routeExpired ||
+      isRouteExpired(trip) || this._disposed || this._rideTelemetryHidden) {
+      this.setData({ alternatives: [], alternativesState: 'idle' })
+      return
+    }
+    const isCurrent = () => !this._disposed && !this._rideTelemetryHidden && owner === accountKey() &&
+      sequence === this._alternativesSequence && this.data.trip?._id === trip._id &&
+      this.data.trip.businessVersion === trip.businessVersion &&
+      (this.data.trip.status === 'full' || Number(this.data.trip.availSeatNum) === 0) &&
+      !this.data.hasJoined && !this.data.isOwner && !this.data.routeExpired
+    this.setData({ alternatives: [], alternativesState: 'loading' })
+    try {
+      const candidates = await loadRideAlternatives(trip)
+      if (!isCurrent()) return
+      if (this.checkRouteExpiry()) return
+      const alternatives = candidates.map(candidate => ({
+        ...candidate,
+        _type: 'carpool',
+        routeText: `${candidate.departures.map(stop => stop.address).join(' → ')} → ${candidate.destinations.map(stop => stop.address).join(' → ')}`,
+        timeText: candidate.departures[0].time,
+        priceText: formatRidePricePerPerson(candidate.referencePrice || candidate.price || candidate.displayPrice, '价格私议')
+      }))
+      this.setData({ alternatives, alternativesState: 'ready' }, () => {
+        if (isCurrent()) rideTelemetry.renderList(this, [{ items: alternatives }], {
+          source: 'network', queryKey: `alternatives:${trip._id}`,
+          context: { surface: 'full_ride', basis: 'form', sourceTripKey: trip._id }
+        })
+      })
+    } catch (_) {
+      if (isCurrent()) this.setData({ alternatives: [], alternativesState: 'error' })
+    }
+  },
+
+  openAlternative(e) {
+    if (this._disposed || this._rideTelemetryHidden || this.checkRouteExpiry()) return
+    const id = e.currentTarget.dataset.id
+    const trip = this.data.alternatives.find(candidate => candidate._id === id)
+    if (!trip || this.data.alternativesState !== 'ready') return
+    rideTelemetry.clickTrip(this, id, 'carpool', trip)
+    wx.redirectTo({ url: `/pages/home/tripDetail/tripDetail?id=${encodeURIComponent(id)}` })
+  },
+
+  goRequestTrip() {
+    if (this._disposed || this._rideTelemetryHidden || this.data.loading || this.data.submitting ||
+      this._detailAccount !== accountKey() || this.checkRouteExpiry()) return
+    const trip = this.data.trip
+    if (!trip || trip._id !== this.data.tripId || trip.availSeatNum == null ||
+      this.data.hasJoined || this.data.isOwner || this.data.loadError) return
+    const departure = trip.departures[0]
+    const context = { sourceTripKey: trip._id,
+      entry: trip.status === 'full' || trip.availSeatNum === 0 ? 'full_ride' : 'ride_detail' }
+    const query = { mode: 'passenger', from: departure.address,
+      to: trip.destinations[trip.destinations.length - 1].address,
+      date: departure.date, time: departure.time, cityKey: trip.cityKey,
+      ...context, intentId: rideTelemetry.requestIntent('started', context, trip) }
+    wx.navigateTo({ url: '/pages/home/newTrip/newTrip?' + Object.entries(query)
+      .filter(([, value]) => value).map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&') })
   },
 
   async resumeJoinAfterLogin() {
@@ -364,6 +438,8 @@ Page({
   },
 
   setLoadError(message, options = {}) {
+    this._alternativesSequence = (this._alternativesSequence || 0) + 1
+    rideTelemetry.stopList(this)
     this.setData({
       loading: false,
       loadError: message || '路线加载失败，请稍后重试',
@@ -382,7 +458,9 @@ Page({
       formattedDepartTime: '',
       carBrandModel: '',
       showFortLeeCoreTip: false,
-      submitting: false
+      submitting: false,
+      alternatives: [],
+      alternativesState: 'idle'
     })
   },
 
@@ -401,12 +479,15 @@ Page({
   },
 
   onHide() {
+    this._alternativesSequence = (this._alternativesSequence || 0) + 1
+    this.setData({ alternatives: [], alternativesState: 'idle' })
     if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
     this._imageRefreshTimer = null
   },
 
   onUnload() {
     this._disposed = true
+    this._alternativesSequence = (this._alternativesSequence || 0) + 1
     if (this._imageRefreshTimer) clearInterval(this._imageRefreshTimer)
     if (this._redirectTimer) clearTimeout(this._redirectTimer)
     this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
@@ -504,7 +585,11 @@ Page({
       carBrandModel: '',
       showFortLeeCoreTip,
       loading: false
-    }, () => rideTelemetry.detailViewed(this, trip, 'carpool'))
+    }, () => {
+      if (this.data.trip?._id !== trip._id || this.data.trip.businessVersion !== trip.businessVersion) return
+      rideTelemetry.detailViewed(this, trip, 'carpool')
+      this.loadTripAlternatives(trip)
+    })
 
     this._lastDetailLoadedAt = Date.now()
     return true
@@ -541,15 +626,16 @@ Page({
 
   async loadTripDetail(id, options = {}) {
     const sequence = this._detailLoadSequence = (this._detailLoadSequence || 0) + 1
+    const owner = accountKey()
     const { silent = false } = options
     if (!silent) this.setData({ loading: true, loadError: '', notFound: false })
 
     try {
       const result = await fetchTripDetail("carpool", id, { force: true })
-      if (sequence !== this._detailLoadSequence) return
+      if (this._disposed || owner !== accountKey() || sequence !== this._detailLoadSequence) return
       this.applyTripDetailResult(result, id)
     } catch (err) {
-      if (sequence !== this._detailLoadSequence) return
+      if (this._disposed || owner !== accountKey() || sequence !== this._detailLoadSequence) return
       this.setLoadError(err.message || '路线加载失败，请重试')
     }
   },

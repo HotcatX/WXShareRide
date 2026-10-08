@@ -4,12 +4,17 @@ import { decodePayload } from './payload.mjs';
 import { requireThat } from './errors.mjs';
 import { eventSchemas, id, shape, validateBatch } from './validation.mjs';
 import { createRequestCounter } from './traffic.mjs';
+import { statSync, statfsSync } from 'node:fs';
 
 export const CONSOLE_STATUS_ROUTE = '/v1/console/snapshot';
 export const CONSOLE_EVENTS_ROUTE = '/v1/console/events';
+export const CONSOLE_STATISTICS_ROUTE = '/v1/console/statistics';
 const DAY = 86_400_000;
 const MAX_RESPONSE = 196_608;
 const epoch = value => Number.isSafeInteger(value) && value >= 0;
+const date = value => typeof value === 'string' && /^20\d\d-\d\d-\d\d$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+const storageDay = value => shape(value, { date, from: epoch, to: epoch }) && value.from <= value.to;
 const subject = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const cursorFields = { at: epoch, participant: id, event: id, from: epoch, to: epoch,
   synthetic: value => typeof value === 'boolean', subject: value => value === null || subject(value),
@@ -52,7 +57,8 @@ function processSnapshot(previous, now) {
     cpuPercent: elapsed > 0 ? Math.max(0, (cpu.user + cpu.system - previous.cpu.user - previous.cpu.system) / (elapsed * 10)) : null } };
 }
 
-export function createConsole(store, config, { clock = Date.now, traffic = createRequestCounter(clock) } = {}) {
+export function createConsole(store, config, { clock = Date.now, traffic = createRequestCounter(clock),
+  fileStat = statSync, volumeStat = statfsSync } = {}) {
   const db = store.db;
   let cached, previous;
   const activity = new Map();
@@ -158,5 +164,75 @@ export function createConsole(store, config, { clock = Date.now, traffic = creat
       return result;
     }).deferred();
   };
-  return { status, events, traffic: trafficSnapshot };
+  const statistics = (input, now = clock()) => {
+    requireThat(shape(input, { from: epoch, to: epoch,
+      days: value => Array.isArray(value) && value.length === 7 && value.every(storageDay) }, ['to']) && input.to <= now + 300_000
+      && (input.from === undefined || input.from <= input.to)
+      && (!input.days || input.days.at(-1).to === input.to && input.days.every((day, index) => index === 0
+        || day.date > input.days[index - 1].date && day.from === input.days[index - 1].to + 1)), 422, 'INVALID_CONSOLE_QUERY');
+    return db.transaction(() => {
+      const collection = { status: 'unavailable', events: null, followups: null };
+      const result = { ok: true, sampledAt: now, collection, storage: null };
+      if (db.prepare("SELECT value FROM collector_settings WHERE key='restore_gate'").get().value !== 'open') return result;
+      // Storage includes every retained batch, including test and development
+      // data. These bytes describe compressed payload additions, not net disk
+      // growth: receipts, indexes, free SQLite pages and backups have other costs.
+      const days = input.days ?? [];
+      const params = [input.from ?? 0, input.to, ...days.flatMap(day => [day.from, day.to])];
+      const daily = days.map((_, index) => `COALESCE(SUM(CASE WHEN received_at>=? AND received_at<=?
+        THEN length(payload) ELSE 0 END),0) AS day${index}`);
+      const sizes = db.prepare(`SELECT COALESCE(SUM(length(payload)),0) AS payloadBytes,
+        COALESCE(SUM(CASE WHEN received_at>=? AND received_at<=? THEN length(payload) ELSE 0 END),0) AS addedBytes
+        ${daily.length ? ',' + daily.join(',') : ''} FROM ingest_batches`).get(...params);
+      const storage = { collectorBytes: null, payloadBytes: sizes.payloadBytes, addedBytes: sizes.addedBytes,
+        totalBytes: null, freeBytes: null, daily: days.map((day, index) => ({ date: day.date, bytes: sizes[`day${index}`] })) };
+      try {
+        const main = fileStat(db.name).size;
+        let wal = 0;
+        try { wal = fileStat(db.name + '-wal').size; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        storage.collectorBytes = epoch(main + wal) ? main + wal : null;
+      } catch {}
+      try {
+        const volume = volumeStat(db.name), total = volume.blocks * volume.bsize, free = volume.bavail * volume.bsize;
+        storage.totalBytes = epoch(total) ? total : null; storage.freeBytes = epoch(free) ? free : null;
+      } catch {}
+      result.storage = storage;
+      const eligible = `p.synthetic=0 AND p.status='active' AND p.grant_id=b.grant_id
+        AND ${purposeVersionSql('p.purpose_version')}=${purposeVersionSql('b.purpose_version')}
+        AND b.received_at>?`;
+      const from = input.from ?? null, expiry = now - 180 * DAY;
+      collection.events = db.prepare(`SELECT COUNT(*) AS count FROM event_receipts r
+        JOIN ingest_batches b ON b.participant_key=r.participant_key AND b.batch_id=r.first_batch_id
+        JOIN ${TABLES.participants} p ON p.participant_key=b.participant_key
+        WHERE ${eligible} AND r.received_at>=? AND r.received_at<=?`).get(expiry, from ?? 0, input.to).count;
+      collection.status = store.followups.status();
+      if (collection.status === 'unavailable') collection.events = null;
+      if (collection.status !== 'ready') return result;
+      // Choose the current full-history outcome first. An explicit answer always
+      // outranks a default, including a newer or late-delivered default. Only the
+      // winning response's occurrence time is then restricted to the selected days.
+      collection.followups = db.prepare(`WITH candidates AS (
+        SELECT f.*,COALESCE('openid:'||NULLIF(a.openid,''),'participant:'||f.participant_key) AS identity
+        FROM followup_events f JOIN ingest_batches b ON b.participant_key=f.participant_key AND b.batch_id=f.batch_id
+        JOIN ${TABLES.participants} p ON p.participant_key=f.participant_key
+        LEFT JOIN ${TABLES.accounts} a ON a.participant_key=f.participant_key
+        WHERE ${eligible} AND f.release=1
+      ), ranked AS (
+        SELECT *,ROW_NUMBER() OVER (PARTITION BY identity,trip_type,trip_id,role
+          ORDER BY CASE source WHEN 'self_report' THEN 1 ELSE 0 END DESC,occurred_at DESC,event_id DESC) AS rank
+        FROM candidates
+      ), chosen AS (
+        SELECT * FROM ranked WHERE rank=1 AND (? IS NULL OR occurred_at>=?) AND occurred_at<=?
+      ) SELECT COUNT(*) FILTER (WHERE source='self_report') AS responses,
+        COUNT(DISTINCT CASE WHEN source='self_report' THEN identity END) AS users,
+        COUNT(DISTINCT CASE WHEN source='self_report' THEN trip_type||':'||trip_id END) AS rides,
+        COUNT(*) FILTER (WHERE source='self_report' AND role='passenger') AS passenger,
+        COUNT(*) FILTER (WHERE source='self_report' AND role='driver') AS driver,
+        COUNT(*) FILTER (WHERE source='self_report' AND outcome='yes') AS yes,
+        COUNT(*) FILTER (WHERE source='self_report' AND outcome='no') AS no,
+        COUNT(*) FILTER (WHERE source='dismissed_default') AS defaults FROM chosen`).get(expiry, from, from, input.to);
+      return result;
+    }).deferred();
+  };
+  return { status, events, statistics, traffic: trafficSnapshot };
 }

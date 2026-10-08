@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 export const TABLES = Object.freeze({
   participants: 'analytics_participants',
   accounts: 'analytics_accounts',
@@ -34,7 +34,7 @@ export function migrateTableNames(db) {
   const fail = () => { throw new Error('Unsupported mixed or incomplete collector schema'); };
   if (old.length && current.length) fail();
   if (current.length) {
-    if (![5, 6, 7].includes(version) || current.length !== tableRenames.length
+    if (![5, 6, 7, 8].includes(version) || current.length !== tableRenames.length
       || current.some(([, name]) => objects.get(name).type !== 'table')
       || [...baseTables, ...placeTables].some(name => objects.get(name)?.type !== 'table')
       || indexes.some(([name]) => objects.has(name))) fail();

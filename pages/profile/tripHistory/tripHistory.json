@@ -1,3 +1,6 @@
 {
-  "navigationStyle": "custom"
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "trip-feedback": "/components/trip-feedback/index"
+  }
 }

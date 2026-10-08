@@ -2,6 +2,7 @@ const rideTime = require('./rideTime')
 const { sha256 } = require('./hash')
 const analytics = require('./analyticsSession')
 const { referencePrice } = require('./rideTelemetry')
+const { feedbackView, rateDriver, ratingError } = require('./tripFeedback')
 
 const DAY = 86400000
 const STORAGE_PREFIX = 'rideFollowupV1_'
@@ -41,7 +42,7 @@ function eligibleTrip(trip, account, now, history = false) {
   if (!departureAt || !history && now - departureAt > 7 * DAY || now < departureAt) return null
   // A past status only means departure has passed, not that the ride arrived.
   // Keep a short completion buffer; there is no longer a next-morning gate.
-  if (now < departureAt + 4 * 3600000) return null
+  if (now < departureAt + 3600000) return null
   return { tripKey: text(trip._id), tripType: type, role, departureAt, trip }
 }
 
@@ -50,10 +51,13 @@ function createFollowupController(options = {}) {
   const api = options.analytics || analytics
   const now = options.now || Date.now
   const price = options.referencePrice || referencePrice
+  const submitRating = options.rateDriver || rateDriver
   const disposed = new WeakSet()
   let foreground = true, usedThisForeground = false, active = null, storageBlocked = false
   const completedInMemory = new Set()
   let thankedAt = 0
+  const pendingListeners = new Set()
+  let pendingCache = { key: '' }, pendingSubscription = null
 
   function identity() {
     try { return wxApi.getStorageSync('isGuest') ? '' : text(wxApi.getStorageSync('openid')) } catch (_) { return '' }
@@ -64,6 +68,80 @@ function createFollowupController(options = {}) {
       return typeof value === 'string' && /^(real|test):[A-Za-z0-9_-]{16,80}(?::\d{1,10})?$/.test(value) ? value : ''
     } catch (_) { return '' }
   }
+  function pendingState() {
+    let revision = 0, mode = ''
+    try { revision = wxApi.getStorageSync('rideListShouldRefreshAt') || 0 } catch (_) {}
+    try {
+      const environment = wxApi.getAccountInfoSync().miniProgram.envVersion
+      mode = environment === 'release' ? 'real' : ['develop', 'trial'].includes(environment) ? 'test' : ''
+    } catch (_) {}
+    const account = identity(), value = scope()
+    const key = account ? [account, mode, value, revision].join('|') : ''
+    // Lazy authorization may grant this same account while its first history
+    // request is in flight. Adopt that scope without adopting another account,
+    // real/test environment, or an older account's replaced cache object.
+    if (account && value && pendingCache.trips && pendingCache.key === [account, mode, '', revision].join('|')) pendingCache.key = key
+    if (pendingCache.key !== key || !pendingCache.trips) {
+      pendingCache = { key, trips: new Set(), at: 0, history: null, historyAt: 0, historyFlight: null, outcomes: null }
+      pendingListeners.forEach(listener => { try { listener(false) } catch (_) {} })
+    }
+    return pendingCache
+  }
+  function publishPending() {
+    const state = pendingState(), value = !!identity() && !!scope() && state.trips.size > 0
+    pendingListeners.forEach(listener => { try { listener(value) } catch (_) {} })
+    return value
+  }
+  function completePending(item, outcome, occurredAt) {
+    const state = pendingState()
+    state.trips.delete([item.tripType, item.tripKey, item.role].join('|'))
+    if (state.outcomes?.result) state.outcomes.result = state.outcomes.result.map(value =>
+      value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role
+        ? { ...value, outcome, source: 'self_report', occurredAt } : value)
+    publishPending()
+  }
+  function loadHistory(account = identity(), force = false) {
+    const state = pendingState(), age = now() - state.historyAt
+    if (!account || account !== identity()) return Promise.reject(new Error('历史行程账号已变化'))
+    if (state.historyFlight) return state.historyFlight
+    if (!force && state.history && age >= 0 && age < 30000) return Promise.resolve(state.history)
+    const read = options.loadRideHistory || require('./compat/rideHistory').loadRideHistory
+    const task = Promise.resolve().then(() => read(account)).then(response => {
+      if (pendingState() !== state || account !== identity()) throw new Error('历史行程账号已变化')
+      if (response?.result?.ok !== true || !Array.isArray(response.result.data)) throw new Error('历史行程响应异常')
+      state.history = response; state.historyAt = now()
+      return response
+    }).finally(() => { if (state.historyFlight === task) state.historyFlight = null })
+    state.historyFlight = task
+    return task
+  }
+  async function refreshPendingFollowup(force = false) {
+    const state = pendingState(), age = now() - state.at
+    if (!foreground || !identity() || !scope()) return publishPending()
+    if (!force && state.at && age >= 0 && age < 30000) return publishPending()
+    if (force) state.outcomes = null
+    try {
+      const response = await loadHistory(identity(), force)
+      if (pendingState() === state) await readHistoryOutcomes(response.result.data, true)
+    } catch (_) {} // An optional reminder never blocks navigation on a failed read.
+    return publishPending()
+  }
+  function subscribePendingFollowup(listener) {
+    if (typeof listener !== 'function') return () => {}
+    pendingListeners.add(listener)
+    publishPending()
+    if (pendingListeners.size === 1 && typeof api.subscribe === 'function') pendingSubscription = api.subscribe(() => {
+      const previous = pendingCache.key
+      pendingState()
+      // Upload notifications reuse the known result; only a changed identity or
+      // collection scope starts a read. Page entry handles the short cache TTL.
+      if (pendingCache.key !== previous && identity() && scope()) refreshPendingFollowup()
+    })
+    return () => {
+      pendingListeners.delete(listener)
+      if (!pendingListeners.size && pendingSubscription) { pendingSubscription(); pendingSubscription = null }
+    }
+  }
   // Authorization versions invalidate an open prompt, but do not forget an
   // answer already given by this participant in the same real/test mode.
   function participantScope(value) { return value.split(':').slice(0, 2).join(':') }
@@ -71,9 +149,11 @@ function createFollowupController(options = {}) {
   function readState(value) {
     try {
       const saved = wxApi.getStorageSync(storageKey(value))
-      if (!saved) return { version: 1, lastPromptAt: 0, entries: {} }
+      if (!saved) return { version: 1, lastPromptAt: 0, pauseUntil: 0, entries: {} }
       if (saved.version !== 1 || !Number.isSafeInteger(saved.lastPromptAt) || saved.lastPromptAt < 0 || saved.lastPromptAt > now() ||
         !saved.entries || typeof saved.entries !== 'object' || Array.isArray(saved.entries) || Object.keys(saved.entries).length > 64) return null
+      const pauseUntil = saved.pauseUntil === undefined ? 0 : saved.pauseUntil
+      if (!Number.isSafeInteger(pauseUntil) || pauseUntil < 0) return null
       const entries = {}
       for (const [key, entry] of Object.entries(saved.entries)) {
         if (!/^[a-f0-9]{64}$/.test(key) || !entry || !['shown', 'dismissed', 'answered'].includes(entry.status) ||
@@ -84,7 +164,7 @@ function createFollowupController(options = {}) {
           if (entry.status === 'dismissed' && entry.assumedOutcome === 'yes') entries[key].assumedOutcome = 'yes'
         }
       }
-      return { version: 1, lastPromptAt: saved.lastPromptAt, entries }
+      return { version: 1, lastPromptAt: saved.lastPromptAt, pauseUntil, entries }
     } catch (_) { return null }
   }
   function saveState(value, state) {
@@ -117,7 +197,26 @@ function createFollowupController(options = {}) {
     try { return typeof api.getPendingFollowupOutcomes === 'function' ? api.getPendingFollowupOutcomes().filter(value =>
       value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role) : [] } catch (_) { return [] }
   }
-  async function readHistoryOutcomes(trips) {
+  function mergeHistoryOutcome(item, value, before = []) {
+    if (!item) return null
+    const current = historyItem(item.trip), saved = readState(scope())
+    if (!current || !saved) return null
+    const local = saved.entries[current.followupId]
+    const explicit = local?.status === 'answered' && ['yes', 'no'].includes(local.outcome)
+    const assumed = local?.status === 'dismissed' && local.assumedOutcome === 'yes'
+    const queued = before.filter(value => value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role)
+      .concat(pendingOutcomes(item))
+    if (explicit || assumed) queued.push({ outcome: explicit ? local.outcome : 'yes',
+      source: explicit ? 'self_report' : 'dismissed_default', occurredAt: local.at })
+    const chosen = queued.reduce((latest, candidate) => {
+      const priority = source => source === 'self_report' ? 2 : source === 'dismissed_default' ? 1 : 0
+      return priority(candidate.source) > priority(latest.source) || priority(candidate.source) === priority(latest.source) &&
+        candidate.occurredAt > latest.occurredAt ? candidate : latest
+    }, value)
+    return { tripKey: item.tripKey, tripType: item.tripType, role: item.role,
+      outcome: chosen.outcome, source: chosen.source, occurredAt: chosen.occurredAt }
+  }
+  async function fetchHistoryOutcomes(trips) {
     const account = identity()
     let requestScope = scope()
     if (!account || !Array.isArray(trips)) return null
@@ -143,33 +242,52 @@ function createFollowupController(options = {}) {
           (value.source === 'unanswered' ? value.outcome !== null :
             !['yes', 'no'].includes(value.outcome) || value.occurredAt <= 0 || value.source === 'dismissed_default' && value.outcome !== 'yes')) return null
         seen.add(item.tripKey)
-        const current = historyItem(item.trip), saved = readState(scope())
-        if (!current || !saved) return null
-        const local = saved.entries[current.followupId]
         // Accepted queue entries may not have reached the collector yet. Keep
         // those explicit choices, using the same precedence as its projection.
-        const explicit = local?.status === 'answered' && ['yes', 'no'].includes(local.outcome)
-        const assumed = local?.status === 'dismissed' && local.assumedOutcome === 'yes'
-        const queued = pendingBefore.filter(value => value.tripKey === item.tripKey && value.tripType === item.tripType && value.role === item.role)
-          .concat(pendingOutcomes(item))
-        if (explicit || assumed) queued.push({ outcome: explicit ? local.outcome : 'yes',
-          source: explicit ? 'self_report' : 'dismissed_default', occurredAt: local.at })
-        const chosen = queued.reduce((latest, candidate) => {
-          const priority = source => source === 'self_report' ? 2 : source === 'dismissed_default' ? 1 : 0
-          return priority(candidate.source) > priority(latest.source) || priority(candidate.source) === priority(latest.source) &&
-            candidate.occurredAt > latest.occurredAt ? candidate : latest
-        }, value)
-        outcomes.push({ tripKey: item.tripKey, tripType: item.tripType, role: item.role,
-          outcome: chosen.outcome, source: chosen.source, occurredAt: chosen.occurredAt })
+        const chosen = mergeHistoryOutcome(item, value, pendingBefore)
+        if (!chosen) return null
+        outcomes.push(chosen)
       }
     }
+    return outcomes
+  }
+  async function readHistoryOutcomes(trips, complete = false) {
+    const account = identity(), requestScope = scope(), state = pendingState()
+    if (!account || !Array.isArray(trips)) return null
+    const candidates = trips.map(trip => eligibleTrip(trip, account, now(), true)).filter(Boolean)
+    const signature = candidates.map(item => [item.tripType, item.tripKey, item.role].join('|')).sort().join(',')
+    let entry = complete && state.outcomes
+    if (!entry || entry.signature !== signature || !entry.promise && (!entry.result || now() - entry.at < 0 || now() - entry.at >= 30000)) {
+      entry = { signature, at: 0, promise: null, result: null }
+      if (complete) state.outcomes = entry
+      entry.promise = fetchHistoryOutcomes(trips).then(result => {
+        entry.result = result; if (result) entry.at = now()
+        return result
+      }).finally(() => { entry.promise = null })
+    }
+    const result = entry.promise ? await entry.promise : entry.result
+    if (!result || pendingState() !== state || identity() !== account || !scope() || requestScope && scope() !== requestScope) return null
+    // Merge again after all chunks so a choice accepted during a later chunk
+    // or a cached read cannot put an already confirmed trip back on the badge.
+    const outcomes = result.map(value => mergeHistoryOutcome(candidates.find(item => item.tripKey === value.tripKey &&
+      item.tripType === value.tripType && item.role === value.role), value))
+    if (outcomes.some(value => !value)) return null
+    const current = pendingState()
+    if (complete) current.trips.clear()
+    outcomes.forEach(value => {
+      const key = [value.tripType, value.tripKey, value.role].join('|')
+      if (value.source === 'self_report') current.trips.delete(key)
+      else current.trips.add(key)
+    })
+    if (complete) current.at = now()
+    publishPending()
     return outcomes
   }
   async function readUnpromptedTrips(trips) {
     const account = identity(), currentScope = scope()
     if (!account || !currentScope || !Array.isArray(trips)) return null
     const candidates = trips.filter(trip => eligibleTrip(trip, account, now()))
-    const outcomes = await readHistoryOutcomes(candidates)
+    const outcomes = await readHistoryOutcomes(trips, true)
     if (!outcomes || identity() !== account || scope() !== currentScope) return null
     // A recorded presentation or hidden prompt is still unanswered, but its
     // positive timestamp proves this trip was already asked on another device.
@@ -199,6 +317,7 @@ function createFollowupController(options = {}) {
     const recent = Object.entries(state.entries).sort((a, b) => b[1].at - a[1].at).slice(0, 64)
     state.entries = Object.fromEntries(recent)
     saveState(item.scope, state)
+    completePending(item, outcome, meta.occurredAt)
     try { Promise.resolve(api.flush()).catch(() => {}) } catch (_) {}
     thank(page, false)
     return { ok: true, outcome, source: 'self_report', occurredAt: meta.occurredAt }
@@ -206,11 +325,17 @@ function createFollowupController(options = {}) {
   function matches(item) { return item && item.scope === scope() && item.account === identity() && !disposed.has(item.page) }
   function closeView(item) {
     if (active === item) active = null
-    setView(item && item.page, { followupVisible: false, followupBusy: false, followupError: '' })
+    setView(item && item.page, { followupVisible: false, followupTrip: null })
+  }
+  function updateFeedback(item, update) {
+    item.trip = Object.assign({}, item.trip, update)
+    setView(item.page, { followupTrip: item.trip })
   }
   function canConsider() {
     if (active && !matches(active)) closeView(active)
-    return foreground && !usedThisForeground && !active && !storageBlocked && !!identity() && !!scope()
+    if (!foreground || usedThisForeground || active || storageBlocked || !identity() || !scope()) return false
+    const state = readState(scope())
+    return !!state && state.pauseUntil <= now()
   }
   function considerTrips(page, list) {
     if (!canConsider() || disposed.has(page) || !Array.isArray(list)) return false
@@ -245,34 +370,59 @@ function createFollowupController(options = {}) {
     const trip = item.trip, departure = Array.isArray(trip.departures) ? trip.departures[0] || {} : {}
     const destination = Array.isArray(trip.destinations) ? trip.destinations[0] || {} : {}
     const local = rideTime.getRideDateTime(item.departureAt)
-    setView(page, { followupVisible: true, followupBusy: false, followupError: '',
+    item.trip = feedbackView({ ...trip, _roleKind: item.role, _sourceType: item.tripType, _myRating: trip.myRating || 0 },
+      { source: 'unanswered', outcome: null, occurredAt: 0 })
+    setView(page, { followupVisible: true, followupTrip: item.trip,
       followupTime: local.date + ' ' + local.time,
-      followupRoute: [text(trip._fromAddress || departure.address).slice(0, 50), text(trip._toAddress || destination.address).slice(0, 50)].filter(Boolean).join(' → '),
-      followupQuestion: item.role === 'driver' ? '您接到乘客了吗？' : '您坐上车了吗？' })
+      followupAge: Math.max(1, Math.floor((shownAt - item.departureAt) / 3600000)) + '小时前',
+      followupRoute: [text(trip._fromAddress || departure.address).slice(0, 50), text(trip._toAddress || destination.address).slice(0, 50)].filter(Boolean).join(' → ') })
     return true
   }
-  function answer(page, outcome) {
+  function answer(page, outcome, tripKey) {
     const item = active
-    if (!item || item.page !== page || item.submitted || !['yes', 'no'].includes(outcome)) return { ok: false }
+    if (!item || item.page !== page || item.submitted || tripKey !== undefined && tripKey !== item.tripKey ||
+      !['yes', 'no'].includes(outcome)) return { ok: false }
     if (!foreground || !matches(item)) { closeView(item); return { ok: false } }
     if (!item.attempt || item.attempt.outcome !== outcome) item.attempt = {
       outcome, meta: eventMeta(now())
     }
     const data = Object.assign(base(item), { outcome,
       outcomeScope: item.role === 'driver' ? 'driver_any_passenger' : 'respondent_booking' }, price(item.trip))
-    setView(page, { followupBusy: true, followupError: '' })
+    updateFeedback(item, { _feedbackBusy: true, _feedbackError: '' })
     const result = record('followup_answer', data, item.attempt.meta)
     if (!result.ok) {
-      setView(page, { followupBusy: false, followupError: '暂未保存，请重试。' })
+      updateFeedback(item, { _feedbackBusy: false, _feedbackError: '暂未保存，请重试' })
       return { ok: false }
     }
     item.submitted = true
     completedInMemory.add(item.followupId)
     item.state.entries[item.followupId] = { status: 'answered', at: item.attempt.meta.occurredAt, outcome }
     saveState(item.scope, item.state) // Only mark done after the persistent event queue accepts it.
+    completePending(item, outcome, item.attempt.meta.occurredAt)
+    updateFeedback(item, feedbackView(item.trip, { outcome, source: 'self_report', occurredAt: item.attempt.meta.occurredAt }))
+    try { Promise.resolve(api.flush()).catch(() => {}) } catch (_) {}
+    if (item.trip._showRating && !item.trip._myRating) return { ok: true }
     closeView(item)
-    thank(page)
+    thank(page, false)
     return { ok: true }
+  }
+  async function rate(page, score, tripKey) {
+    const item = active
+    if (!item || item.page !== page || !item.submitted || tripKey !== item.tripKey || !foreground || !matches(item) ||
+      !item.trip._showRating || item.trip._myRating || item.trip._feedbackBusy || !Number.isInteger(score) || score < 1 || score > 5) return { ok: false }
+    const current = () => active === item && foreground && matches(item)
+    updateFeedback(item, { _feedbackBusy: true, _feedbackError: '' })
+    try {
+      const savedScore = await submitRating(item.trip, score)
+      if (!current()) return { ok: false }
+      updateFeedback(item, { _myRating: savedScore, _feedbackBusy: false, _feedbackStatus: '已完成', _feedbackTone: 'done' })
+      closeView(item)
+      thank(page, false)
+      return { ok: true, score: savedScore }
+    } catch (error) {
+      if (current()) updateFeedback(item, { _feedbackBusy: false, _feedbackError: ratingError(error) })
+      return { ok: false }
+    }
   }
   function hide(page, explicitClose = false) {
     const item = active
@@ -291,16 +441,31 @@ function createFollowupController(options = {}) {
     closeView(item)
   }
   function dismiss(page) { hide(page, true) }
+  function pause(page) {
+    const item = active
+    if (!item || item.page !== page || !foreground || !matches(item) || item.trip._feedbackBusy) return { ok: false }
+    item.state.pauseUntil = now() + 7 * DAY
+    if (!saveState(item.scope, item.state)) {
+      updateFeedback(item, { _feedbackError: '暂未保存，请重试' })
+      return { ok: false }
+    }
+    // Pausing reminders is not a boarding answer. Keep the existing close
+    // control's default separate from this explicit reminder preference.
+    hide(page)
+    return { ok: true }
+  }
   function dispose(page) { hide(page); disposed.add(page) }
   function beginForeground() { if (!foreground) { foreground = true; usedThisForeground = false } }
   function endForeground() { if (active) hide(active.page); foreground = false }
-  return { canConsider, considerTrips, answer, dismiss, hide, dispose, beginForeground, endForeground, readHistoryOutcomes, readUnpromptedTrips, reportHistory, thank }
+  return { canConsider, considerTrips, answer, rate, pause, dismiss, hide, dispose, beginForeground, endForeground,
+    loadHistory, refreshPendingFollowup, subscribePendingFollowup, readHistoryOutcomes, readUnpromptedTrips, reportHistory, thank }
 }
 
 let singleton
 function current() { if (!singleton) singleton = createFollowupController(); return singleton }
 const exported = { createFollowupController, eligibleTrip, referencePrice, STORAGE_PREFIX }
-;['canConsider', 'considerTrips', 'answer', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground', 'readHistoryOutcomes', 'readUnpromptedTrips', 'reportHistory', 'thank'].forEach(name => {
+;['canConsider', 'considerTrips', 'answer', 'rate', 'pause', 'dismiss', 'hide', 'dispose', 'beginForeground', 'endForeground',
+  'loadHistory', 'refreshPendingFollowup', 'subscribePendingFollowup', 'readHistoryOutcomes', 'readUnpromptedTrips', 'reportHistory', 'thank'].forEach(name => {
   exported[name] = function () { return current()[name].apply(null, arguments) }
 })
 module.exports = exported

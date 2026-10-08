@@ -29,7 +29,7 @@ sudo journalctl -u linkx-backend-backup.service --no-pager -n 10
 sudo systemctl enable --now linkx-backend-backup.timer
 ```
 
-The timer runs approximately every six hours, with five minutes of jitter, and
+The timer runs daily at 03:35 America/New_York, with two minutes of jitter, and
 catches up after host downtime. These are local backups on the same server;
 they do not protect against loss of that server/disk. Restoring over production
 requires a separate stopped-writer procedure and must never undo newer writes.

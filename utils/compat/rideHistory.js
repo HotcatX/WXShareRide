@@ -31,6 +31,7 @@ function toHistoryRide(row, account) {
     row.driverUserId != null && (typeof row.driverUserId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(row.driverUserId)) ||
     row.myRating != null && (!Number.isInteger(row.myRating) || row.myRating < 1 || row.myRating > 5)) throw invalid()
   return { _id: row.id, historySource, historyRole, status: row.status === 'closed' ? 'past' : 'open',
+    name: typeof row.creatorName === 'string' ? row.creatorName.trim() : '',
     businessVersion: row.version, cityKey: row.cityKey,
     driverUserId: row.role === 'passenger' && eligible ? row.driverUserId || '' : '',
     myRating: row.role === 'passenger' && eligible ? row.myRating || 0 : 0,

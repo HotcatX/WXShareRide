@@ -103,6 +103,7 @@ function harness() {
 
 test('combined place, date and route-type filters update results and full counts without network calls', () => {
   const { page, fill, pick, ids, state } = harness()
+  page.onToggleHideFullTrips()
   fill([
     route('today'), route('tomorrow', 'Fort Lee', 'Columbia', '2030-01-02'),
     route('full-tomorrow', 'Fort Lee', 'Columbia', '2030-01-02', { availSeatNum: 0 }),
@@ -117,18 +118,18 @@ test('combined place, date and route-type filters update results and full counts
   assert.equal(page.data.fullTripCount, 1)
   assert.deepEqual(counts(), [['2030-01-02', 2, 1]], 'daily totals include folded full cars after place/date filtering')
   page.onToggleHideFullTrips()
-  assert.deepEqual(ids(), ['tomorrow', 'request', 'full-tomorrow'])
-  assert.deepEqual(counts(), [['2030-01-02', 2, 1], ['2030-01-02', 2, 1]], 'both sections show the same daily totals')
+  assert.deepEqual(ids(), ['tomorrow', 'full-tomorrow', 'request'])
+  assert.deepEqual(counts(), [['2030-01-02', 2, 1]], 'a date keeps one group and complete totals when full cars are shown')
   page.onRouteTypeChange(event('type', 'request'))
   assert.deepEqual(ids(), ['request'])
   assert.equal(page.data.hideFullTrips, false, 'changing route type keeps the display preference')
-  assert.equal(page.data.fullTripCount, 0, 'requests never enter the full-car section')
+  assert.equal(page.data.fullTripCount, 0, 'requests never count as full cars')
   assert.deepEqual(counts(), [['2030-01-02', 0, 1]])
   assert.equal(page.data.moreFilterCount, 2)
   page.onRouteTypeChange(event('type', 'carpool'))
   assert.deepEqual(ids(), ['tomorrow', 'full-tomorrow'])
   assert.equal(page.data.fullTripCount, 1)
-  assert.deepEqual(counts(), [['2030-01-02', 2, 0], ['2030-01-02', 2, 0]])
+  assert.deepEqual(counts(), [['2030-01-02', 2, 0]])
   assert.equal(state.calls.length, 0)
 })
 
@@ -273,6 +274,7 @@ test('reset clears all filters; a late configuration read cannot restore stale s
 
 test('full-car visibility is independent from filter badges and survives resetting every filter', () => {
   const { page, fill, pick, ids, state } = harness()
+  page.onToggleHideFullTrips()
   fill([route('available'), route('full', 'Fort Lee', 'Columbia', '2030-01-01', { availSeatNum: 0 })])
   assert.equal(page.data.hideFullTrips, true)
   assert.equal(page.data.hasActiveFilters, false)
@@ -290,7 +292,7 @@ test('full-car visibility is independent from filter badges and survives resetti
   assert.deepEqual(ids(), ['available', 'full'])
   assert.equal(page.data.hasActiveFilters, false)
   assert.equal(page.data.moreFilterCount, 0)
-  assert.equal(state.store.carpoolListHideFullTripsV1, false)
+  assert.equal(state.store.carpoolListHideFullTripsV2, false)
   assert.equal(state.calls.length, 0)
 })
 
@@ -361,7 +363,7 @@ test('fixed-place config is refreshed at five minutes on opening either picker, 
   assert.deepEqual(plain(page.data.fromPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '新固定地点'])
   assert.deepEqual(plain(page.data.toPlaceList), ['Fort Lee', '哥大', '法拉盛', 'JFK', 'EWR 纽瓦克机场', 'LGA 拉瓜迪亚', 'LIC', 'JSQ', 'Inwood', '中城', 'NYU', 'Queens', '新固定地点'])
   assert.equal(page.data.selectedFromPlace, '自选演唱会')
-  assert.equal(page.data.hideFullTrips, false)
+  assert.equal(page.data.hideFullTrips, true)
   assert.ok(page.data.fromFilterOptions.includes('自选演唱会'))
   await page.onOpenPlacePicker(event('field', 'to'))
   assert.equal(state.configReads.length, 2)

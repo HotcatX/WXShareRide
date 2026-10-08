@@ -8,7 +8,7 @@ import { openStore } from './store.mjs';
 import { createTokenService, sameSecret } from './auth.mjs';
 import { ApiError, requireThat } from './errors.mjs';
 import { readSafeMetrics } from './metrics.mjs';
-import { CONSOLE_STATUS_ROUTE, CONSOLE_EVENTS_ROUTE, initializeConsole, createConsole } from './console.mjs';
+import { CONSOLE_STATUS_ROUTE, CONSOLE_EVENTS_ROUTE, CONSOLE_STATISTICS_ROUTE, initializeConsole, createConsole } from './console.mjs';
 import { DIAGNOSTIC_ROUTE, readAccountDiagnostics } from './diagnostics.mjs';
 import { BRIDGE_ROUTE, DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonicalPurposeVersion, canonicalNoticeVersion } from './protocol.mjs';
 import { LEGACY_BRIDGE_ROUTE, accountResponseForRequest } from './compat/legacy.mjs';
@@ -172,6 +172,10 @@ export function createCollector(config) {
       const { body } = await readJSON(req, 2048);
       return reply(res, 200, console.events(body));
     }
+    if (req.url === CONSOLE_STATISTICS_ROUTE) {
+      const { body } = await readJSON(req, 1024);
+      return reply(res, 200, console.statistics(body));
+    }
     if (req.url === '/v1/places/catalog/approve' || req.url === '/v1/places/catalog/seed') {
       const { body } = await readJSON(req, 8192);
       return reply(res, 200, req.url.endsWith('/seed') ? store.places.seed(body) : store.places.approve(body));
@@ -224,6 +228,7 @@ export function createCollector(config) {
       await new Promise((resolve, reject) => adminServer.once('error', reject).listen(config.adminSocket, resolve));
       chmodSync(config.adminSocket, 0o600);
       await new Promise((resolve, reject) => publicServer.once('error', reject).listen(config.port, config.host, resolve));
+      store.followups.start();
       return publicServer.address();
     },
     async close() {

@@ -1,4 +1,5 @@
 const profileApi = require('../../utils/compat/profile')
+const followup = require('../../utils/tripFollowup')
 const { resolveProfileAvatar } = require('../../utils/profileDisplay')
 const defaultAvatarUrl =
   '/images/profile.png'
@@ -80,6 +81,7 @@ Page({
     passengerRatingText: '暂无评分',
     passengerCompletedText: '已作为乘客 0 次',
     blockedCount: 0,
+    hasPendingFollowup: false,
 
     statusBarHeight: 80,
     menuRightSpace: 28,
@@ -96,6 +98,9 @@ Page({
 
   onLoad() {
     this._disposed = false
+    this._followupUnsubscribe = followup.subscribePendingFollowup(hasPendingFollowup => {
+      if (!this._disposed) this.setData({ hasPendingFollowup })
+    })
     this.setData(getProfileNavMetrics())
 
     // 先用缓存的基础 userInfo（头像/昵称）快速渲染
@@ -122,6 +127,8 @@ Page({
   onUnload() {
     this._disposed = true
     this._profileReads = {}
+    if (this._followupUnsubscribe) this._followupUnsubscribe()
+    this._followupUnsubscribe = null
     this.clearProfileRefresh()
   },
 
@@ -150,6 +157,7 @@ Page({
     // ✅ 与 home 一致：openid 存在但 isGuest=true，也视为未登录
     if (!openid || isGuest) {
       this.applyLoggedOutState()
+      followup.refreshPendingFollowup()
       return Promise.resolve()
     }
 
@@ -158,6 +166,7 @@ Page({
       this._profileIdentity = openid
     }
     this.setData({ isLoggedIn: true })
+    followup.refreshPendingFollowup(force)
     return Promise.all([this.loadUserInfo({ force }), this.loadUnreadCount({ force })])
   },
 
@@ -191,7 +200,8 @@ Page({
       driverCompletedText: '司机完成 0 次',
       passengerRatingText: '暂无评分',
       passengerCompletedText: '已作为乘客 0 次',
-      blockedCount: 0
+      blockedCount: 0,
+      hasPendingFollowup: false
     })
 
     wx.setStorageSync('customTabMarketBadge', 0)

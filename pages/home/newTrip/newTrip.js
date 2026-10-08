@@ -9,6 +9,8 @@ const { shortRidePlaceLabel, resolvePlaceId } = require("../../../utils/ridePlac
 const { loadRideAddressConfig, getStaticRideAddressConfig } = require("../../../utils/rideAddressConfig")
 const placeRecommendations = require("../../../utils/placeRecommendations")
 const placePickerTelemetry = require("../../../utils/placePickerTelemetry")
+const { createRequestRecommendations } = require("../../../utils/requestRecommendations")
+const rideTelemetry = require("../../../utils/rideTelemetry")
 const { markRideListStale } = require("../../../utils/tripManage")
 const {
   DEFAULT_CITY_KEY,
@@ -77,6 +79,7 @@ Page({
 
     templates: [],
     loadingTemplates: false,
+    requestSuggestions: [],
     publishedRide: null,
     preparingReturn: false,
 
@@ -98,6 +101,10 @@ Page({
       ...this.getFilterDateData(),
       ...(mode === "passenger" ? { referencePrice: "", referencePriceHasNumber: false } : {})
     })
+    this._requestIntent = { entry: options.entry || '', sourceTripKey: options.sourceTripKey || '',
+      intentId: options.intentId || '', cityKey: options.cityKey || '' }
+    this._requests = createRequestRecommendations(this, () => getRideCitySnapshot().key || DEFAULT_CITY_KEY)
+    if (mode === "passenger" && options.from && options.to) this.applyRequestPrefill(options)
 
     // 地址可对游客开放加载
     this.loadAllAddresses()
@@ -107,16 +114,21 @@ Page({
 
     // 司机默认：加载模板
     this.loadTemplatesIfNeeded()
+    this._requests.show()
   },
 
   onShow() {
     const identity = profileApi.identity()
     if (this._pageIdentity !== undefined && identity !== this._pageIdentity) {
+      this._requestIntent = this._passengerLoginDraft ? this._requestIntent : {}
       this.invalidateUserInfoRead()
       this._selectedTemplate = null
       this._priceManuallyEdited = false
       this.setData({ userInfo: null, departureAddress: "", destinationAddress: "", departureDate: "", departureTime: "",
-        referencePrice: "", comment: "", templateRouteSummary: "", publishedRide: null, preparingReturn: false, submitting: false })
+        referencePrice: "", comment: "", templateRouteSummary: "", publishedRide: null, preparingReturn: false, submitting: false,
+        ...this._passengerLoginDraft })
+      this._passengerLoginDraft = null
+      if (this.data.mode === "passenger") this.updateReferencePriceFromRequestPrice()
     }
     this._pageIdentity = identity
     if (this._publishedOwner && this._publishedOwner !== (wx.getStorageSync("openid") || "")) {
@@ -138,14 +150,17 @@ Page({
 
     this.loadUserInfo()
     this.loadTemplatesIfNeeded()
+    this._requests?.show()
   },
 
   onHide() {
+    this._requests?.pause()
     placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     if (this.data.placePickerVisible) this.setData({ placePickerVisible: false })
   },
 
   onUnload() {
+    this._requests?.pause()
     placePickerTelemetry.closePlacePicker(this._placeSession, "page_hide")
     this._calendarDisposed = true
     this._placeReadRevision = (this._placeReadRevision || 0) + 1
@@ -162,6 +177,8 @@ Page({
     this._priceManuallyEdited = false
     this._selectedTemplate = null
     this._returnDepartureTimestamp = null
+    this._requestIntent = {}
+    this._passengerLoginDraft = null
 
     this.setData({
       mode,
@@ -175,8 +192,10 @@ Page({
       destinationAddress: "",
       referencePrice: "",
       referencePriceHasNumber: false,
+      requestSuggestions: [],
       // passengerCountInput 只给司机用；乘客人数你也可保留不动
     }, async () => {
+      this._requests?.refresh()
       // 两种发布模式共用地点配置，切换时复用五分钟缓存。
       await this.loadAllAddresses()
       if (this._calendarDisposed || this.data.mode !== mode) return
@@ -218,7 +237,9 @@ Page({
   ensureLoginBeforeCreate_passenger() {
     if (this.isLoggedIn()) return true
 
-    const pendingUrl = "/pages/home/newTrip/newTrip?mode=passenger"
+    const { departureAddress, destinationAddress, departureDate, departureTime } = this.data
+    this._passengerLoginDraft = { departureAddress, destinationAddress, departureDate, departureTime }
+    const pendingUrl = this.passengerReturnUrl()
     wx.setStorageSync("pendingPage", { url: pendingUrl })
     wx.setStorageSync("postLoginAction", {
       type: "requireProfile",
@@ -232,6 +253,29 @@ Page({
 
   showError(msg) {
     wx.showToast({ title: msg, icon: "none", duration: 2000 })
+  },
+
+  applyRequestPrefill(options) {
+    const decode = value => { try { return decodeURIComponent(String(value || "")).trim() } catch (_) { return "" } }
+    const from = decode(options.from), to = decode(options.to)
+    this.setData({ departureAddress: from.slice(0, 200), destinationAddress: to.slice(0, 200),
+      departureDate: rideTime.isValidRideDate(options.date) ? options.date : "",
+      departureTime: /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(decode(options.time)) ? decode(options.time) : "" })
+    this.updateReferencePriceFromRequestPrice()
+  },
+
+  passengerReturnUrl() {
+    const values = { ...this._requestIntent, mode: "passenger", from: this.data.departureAddress,
+      to: this.data.destinationAddress, date: this.data.departureDate, time: this.data.departureTime }
+    return "/pages/home/newTrip/newTrip?" + Object.entries(values).filter(([, value]) => value)
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&")
+  },
+
+  onRequestSuggestionTap(e) {
+    const trip = this.data.requestSuggestions.find(item => item._id === e.currentTarget.dataset.id)
+    if (!trip || this.data.submitting) return
+    rideTelemetry.clickTrip(this, trip._id, "request", trip)
+    wx.navigateTo({ url: `/pages/home/requestDetail/requestDetail?id=${encodeURIComponent(trip._id)}` })
   },
 
   parseDateTimeSafe(dateStr, timeStr) {
@@ -387,6 +431,11 @@ Page({
     return this.onOpenCalendar()
   },
 
+  onCloseCalendar() {
+    rideCalendarPicker.methods.onCloseCalendar.call(this)
+    this._requests?.observe()
+  },
+
   applyCalendarSelection(date) {
     this.setData({ departureDate: date, calendarVisible: false }, () => this.refreshTemplateRouteSummary())
   },
@@ -398,6 +447,7 @@ Page({
 
   onCloseTimePicker() {
     this.setData({ timePickerVisible: false })
+    this._requests?.observe()
   },
 
   onTimeChange(e) {
@@ -471,6 +521,7 @@ Page({
     placePickerTelemetry.closePlacePicker(this._placeSession, "close")
     this._placeReadRevision = (this._placeReadRevision || 0) + 1
     this.setData({ placePickerVisible: false })
+    this._requests?.observe()
   },
 
   async onConfirmPlace(e) {
@@ -845,7 +896,7 @@ Page({
       templateRouteSummary: "",
       publishedRide: null,
       preparingReturn: true
-    })
+    }, () => this._requests?.refresh())
   },
 
   onReturnHome() {
@@ -881,7 +932,7 @@ Page({
         this.setData({ publishedRide: created.recovered ? { id: created.id, recovered: true } : {
           id: created.id, kind: 'offer', departureAddress, destinationAddress, departureDate, departureTime,
           passengerCount, referencePrice, comment, ...(created.payload ? { stops: created.payload.stops, routeSummary: publishApi.summarizeStops(created.payload.stops) } : {})
-        }, preparingReturn: false })
+        }, preparingReturn: false }, () => this._requests?.refresh())
       }
     } catch (e) {
       if (this._calendarDisposed || draft.openid !== (wx.getStorageSync("openid") || "") || wx.getStorageSync("isGuest")) return
@@ -907,7 +958,7 @@ Page({
 
     if (!userInfo) {
       wx.showToast({ title: "请先完善个人信息", icon: "none" })
-      wx.setStorageSync("pendingPage", { url: "/pages/home/newTrip/newTrip?mode=passenger" })
+      wx.setStorageSync("pendingPage", { url: this.passengerReturnUrl() })
       wx.navigateTo({ url: "/pages/profile/addInfo/addInfo?from=login" })
       return
     }
@@ -970,6 +1021,7 @@ Page({
       catch (_) { templateRouteSummary = '多站路线：' + this._selectedTemplate.definition.stops.map(stop => stop.address).join(' → ') + '（请确认完整出发时间）' }
     }
     this.setData({ templateRouteSummary })
+    this._requests?.refresh()
   },
 
   async passenger_submitRequest(draft = this.capturePassengerDraft()) {
@@ -986,6 +1038,10 @@ Page({
       markRideListStale()
       if (this._calendarDisposed || draft.openid !== (wx.getStorageSync('openid') || '') || wx.getStorageSync('isGuest')) return
       this._publishedOwner = draft.openid
+      if (!created.recovered) rideTelemetry.requestIntent('published', this._requestIntent || {}, {
+        _id: created.id, departures: [{ address: departureAddress, date: departureDate, time: departureTime }],
+        destinations: [{ address: destinationAddress }], referencePrice
+      })
       this.setData({ publishedRide: created.recovered ? { id: created.id, recovered: true } : {
         id: created.id, kind: 'request', departureAddress, destinationAddress, departureDate, departureTime,
         passengerCount, referencePrice, ...(created.payload ? { stops: created.payload.stops, routeSummary: publishApi.summarizeStops(created.payload.stops) } : {})

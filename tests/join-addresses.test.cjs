@@ -88,7 +88,8 @@ function pageHarness() {
         getUserInfo: async () => state.profile || { result: { data: [{ _openid: wx.getStorageSync('openid'), wechatID: 'valid' }] } },
         legacyDocument: () => ({})
       }
-      if (name.endsWith('/rideTelemetry')) return { detailViewed() {} }
+      if (name.endsWith('/rideTelemetry')) return { detailViewed() {}, stopList() {} }
+      if (name.endsWith('/rideAlternatives')) return { loadRideAlternatives: async () => [] }
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale() {} }
       if (name.endsWith('/tripDetailCache')) return {}
       return require(path.resolve(path.dirname(file), name))

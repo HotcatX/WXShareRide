@@ -10,6 +10,7 @@ const ROUTES = Object.freeze({
   'pages/home/carpoolList/carpoolList': 'carpool_list',
   'pages/home/tripDetail/tripDetail': 'trip_detail',
   'pages/home/requestDetail/requestDetail': 'request_detail',
+  'pages/home/newTrip/newTrip': 'new_trip',
   'pages/profile/tripHistory/tripHistory': 'trip_history'
 })
 const validVersion = value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647

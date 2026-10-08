@@ -12,7 +12,7 @@ const values = (...allowed) => v => allowed.includes(v);
 const bool = v => typeof v === 'boolean';
 const area = values('fort_lee', 'columbia', 'flushing', 'jfk', 'ewr', 'lga', 'lic', 'jsq', 'inwood', 'midtown', 'downtown', 'queens', 'other', 'unknown');
 const tripType = values('carpool', 'request');
-const page = values('home', 'carpool_list', 'trip_detail', 'request_detail', 'trip_history', 'market', 'profile');
+const page = values('home', 'carpool_list', 'trip_detail', 'request_detail', 'new_trip', 'trip_history', 'market', 'profile');
 const serviceDate = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v)
   && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 export const purpose = isPurposeVersion;
@@ -34,6 +34,9 @@ const tripSnapshot = { availableSeats: integer(0, 20), serviceDate,
   destinationPlaceIds: v => Array.isArray(v) && v.length <= 10 && v.every(placeId), ...quote };
 const candidate = v => shape(v, { tripKey: recordId, tripType, position: integer(0, 999),
   tripVersion: integer(0, 2_147_483_647), ...tripSnapshot }, ['tripKey', 'tripType', 'position']);
+const discovery = v => shape(v, { surface: values('full_ride', 'driver_publish'), basis: values('form', 'history'),
+  sourceTripKey: recordId, serviceDate, departureMinute: integer(0, 1439),
+  originPlaceIds: tripSnapshot.originPlaceIds, destinationPlaceIds: tripSnapshot.destinationPlaceIds }, ['surface', 'basis']);
 const followup = { followupId: id, tripKey: recordId, tripType, role: values('driver', 'passenger') };
 const eventContext = v => shape(v, { clientVersion: shortCode, sdkVersion: shortCode,
   platform: values('ios', 'android', 'devtools', 'windows', 'mac', 'ohos', 'unknown'),
@@ -68,13 +71,17 @@ export const eventSchemas = {
     searchId: id, selectionSetId: id, source: values('network', 'cache'),
     renderedCount: integer(0, 500), loadedDateCount: integer(0, 31), hasMore: bool, candidatesComplete: bool,
     zeroReason: values('none', 'empty', 'filtered', 'load_error'),
-    candidates: list => Array.isArray(list) && list.length <= 50 && list.every(candidate),
+    candidates: list => Array.isArray(list) && list.length <= 50 && list.every(candidate), discovery,
   }, ['searchId', 'selectionSetId', 'source', 'renderedCount', 'loadedDateCount', 'hasMore', 'candidatesComplete'])
     && (!v.candidatesComplete || (Array.isArray(v.candidates) && v.candidates.length === v.renderedCount)),
   list_snapshot: v => shape(v, { selectionSetId: id, source: values('network', 'cache'), renderedCount: integer(0, 500),
-    hasMore: bool, candidatesComplete: bool, candidates: list => Array.isArray(list) && list.length <= 50 && list.every(candidate), searchId: id },
+    hasMore: bool, candidatesComplete: bool, candidates: list => Array.isArray(list) && list.length <= 50 && list.every(candidate), searchId: id, discovery },
     ['selectionSetId', 'source', 'renderedCount', 'hasMore', 'candidatesComplete', 'candidates']) &&
     (!v.candidatesComplete || v.candidates.length === v.renderedCount),
+  request_intent: v => shape(v, { stage: values('started', 'published'), intentId: id, sourceTripKey: recordId,
+    entry: values('full_ride', 'ride_detail'), tripKey: recordId, tripType, ...tripSnapshot },
+    ['stage', 'intentId', 'sourceTripKey', 'entry', 'tripKey', 'tripType']) &&
+    (v.stage === 'started' ? v.tripType === 'carpool' && v.tripKey === v.sourceTripKey : v.tripType === 'request'),
   result_card_visible: v => shape(v, {
     selectionSetId: id, tripKey: recordId, tripType, position: integer(0, 999),
     visibilityBucket: values('half_1s', 'full_1s'), ...tripSnapshot,

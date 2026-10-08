@@ -13,6 +13,29 @@ async function copyMigrations(directory: string) {
   }
 }
 
+test('default usernames fill only blank names and repeated backfill leaves every row unchanged', async () => {
+  const db = await createTestDatabase();
+  try {
+    for (const [openid, name] of [['empty', ''], ['whitespace', ' \t\n '], ['named', '  用户自己的名字  ']]) {
+      await db.pool.query(`INSERT INTO users(app_id,openid,name,profile,created_at,updated_at)
+        VALUES('app',$1,$2,'{"bio":"preserve"}','2020-01-01','2021-01-01')`, [openid, name]);
+    }
+    const before = (await db.pool.query('SELECT * FROM users ORDER BY openid')).rows;
+    const sql = await readFile(new URL('../migrations/029_default_user_names.sql', import.meta.url), 'utf8');
+    assert.equal((await db.pool.query(sql)).rowCount, 2);
+    const after = (await db.pool.query('SELECT * FROM users ORDER BY openid')).rows;
+    assert.deepEqual(after[1], before[1]);
+    for (const index of [0, 2]) {
+      assert.match(after[index].name, /^用户 [0-9A-F]{8}$/);
+      assert.ok(after[index].updated_at > before[index].updated_at);
+      assert.deepEqual({ ...after[index], name: before[index].name, updated_at: before[index].updated_at }, before[index]);
+    }
+    assert.equal((await db.pool.query(sql)).rowCount, 0);
+    assert.deepEqual((await db.pool.query('SELECT * FROM users ORDER BY openid')).rows, after);
+    assert.deepEqual(await runMigrations(db.pool), []);
+  } finally { await db.close(); }
+});
+
 test('migrations are repeatable, serialized, and reject changed history', async () => {
   const db = await createTestDatabase();
   const directory = await mkdtemp(join(tmpdir(), 'linkx-migrations-'));

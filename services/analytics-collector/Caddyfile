@@ -84,3 +84,23 @@ admin.linkx.ink {
         file_server
     }
 }
+car.linkx.ink {
+    root * /data/site
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy same-origin
+    }
+    @entry path / /index.html
+    header @entry Cache-Control no-store
+
+    @admin path /admin /admin/*
+    handle @admin {
+        redir https://admin.linkx.ink{uri} 308
+    }
+    handle {
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}

@@ -114,6 +114,7 @@
         <view class="profile-grid-item" bindtap="goTripHistory" hover-class="ride-card-pressed" hover-stay-time="80">
           <view class="profile-grid-icon-wrap">
             <image class="profile-grid-icon" src="/images/icon_history.png" mode="aspectFit" />
+            <view wx:if="{{hasPendingFollowup}}" class="profile-followup-dot" aria-label="待完成回访"></view>
           </view>
           <text class="profile-grid-text">历史行程</text>
         </view>

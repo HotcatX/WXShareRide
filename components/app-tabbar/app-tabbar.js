@@ -1,4 +1,5 @@
 const { rememberTab } = require('../../utils/tabMemory')
+const followup = require('../../utils/tripFollowup')
 
 function formatBadge(value) {
   const n = Number(value || 0)
@@ -56,7 +57,8 @@ Component({
     displayActive: 'home',
     displayMarketType: 'goods',
     marketBadgeText: '',
-    profileBadgeText: ''
+    profileBadgeText: '',
+    hasPendingFollowup: false
   },
 
   observers: {
@@ -81,6 +83,7 @@ Component({
     show() {
       this.syncMarketTypeFromStorage()
       this.syncBadgesFromStorage()
+      followup.refreshPendingFollowup()
     }
   },
 
@@ -91,6 +94,12 @@ Component({
         displayMarketType: this.data.marketType ? normalizeMarketType(this.data.marketType) : getStoredMarketType()
       })
       this.syncBadgesFromStorage()
+      this._followupUnsubscribe = followup.subscribePendingFollowup(hasPendingFollowup => this.setData({ hasPendingFollowup }))
+      followup.refreshPendingFollowup()
+    },
+    detached() {
+      if (this._followupUnsubscribe) this._followupUnsubscribe()
+      this._followupUnsubscribe = null
     }
   },
 

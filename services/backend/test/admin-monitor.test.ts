@@ -148,3 +148,52 @@ test('history rejects unsafe files, oversized pages and invalid temporal/resourc
   writeFileSync(f.config.hostSnapshotFile, JSON.stringify(base));
   await assert.rejects(createAdminMonitor(f.config).history('week'), (error: AppError) => error.status === 503);
 });
+
+test('statistics use uncached private reads, keep backfill unavailable and validate aggregate contracts', async t => {
+  const followups = { responses: 2, users: 1, rides: 2, passenger: 1, driver: 1, yes: 1, no: 1, defaults: 3 };
+  let collection: unknown = { status: 'ready', events: 10, followups }, reads = 0;
+  const f = await fixture(t, (req, res) => {
+    reads++; assert.equal(req.method, 'POST'); assert.equal(req.url, '/v1/console/statistics');
+    assert.equal(req.headers.authorization, `Bearer ${f.config.token}`);
+    let raw = ''; req.on('data', chunk => { raw += chunk; }); req.on('end', () => {
+      assert.deepEqual(JSON.parse(raw), { from: 1, to: 1000 });
+      reply(res, { ok: true, sampledAt: Date.now(), collection });
+    });
+  });
+  const monitor = createAdminMonitor(f.config), input = { from: 1, to: 1000 };
+  assert.deepEqual(await monitor.statistics(input), { collection, storage: null });
+  collection = { status: 'building', events: 10, followups: null };
+  assert.deepEqual(await monitor.statistics(input), { collection, storage: null });
+  collection = { status: 'unavailable', events: null, followups: null };
+  assert.deepEqual(await monitor.statistics(input), { collection, storage: null });
+  for (const invalid of [
+    { status: 'ready', events: 10, followups: null },
+    { status: 'building', events: 10, followups },
+    { status: 'unavailable', events: 10, followups: null },
+    { status: 'ready', events: 10, followups: { ...followups, responses: 3 } },
+    { status: 'ready', events: 10, followups: { ...followups, token: 'private-secret' } },
+  ]) {
+    collection = invalid;
+    assert.deepEqual(await monitor.statistics(input), { collection: { status: 'unavailable', events: null, followups: null }, storage: null });
+  }
+  assert.equal(reads, 8, 'every read reaches the collector so withdrawals and restore gates take effect immediately');
+  assert.deepEqual(await createAdminMonitor().statistics(input), { collection: { status: 'unavailable', events: null, followups: null }, storage: null });
+});
+
+test('statistics preserve partial storage values and discard mismatched or unsafe transport summaries', async t => {
+  const collection = { status: 'building', events: 10, followups: null };
+  const days = Array.from({ length: 7 }, (_, index) => ({ date: `2026-10-0${index + 1}`, from: index * 1000, to: index * 1000 + 999 }));
+  const partial = { collectorBytes: null, payloadBytes: 100, addedBytes: 20, totalBytes: null, freeBytes: null,
+    daily: days.map(day => ({ date: day.date, bytes: 0 })) };
+  let storage: unknown = partial;
+  const f = await fixture(t, (_req, res) => reply(res, { ok: true, sampledAt: Date.now(), collection, storage }));
+  const monitor = createAdminMonitor(f.config), input = { to: 6999, days };
+  assert.deepEqual(await monitor.statistics(input), { collection, storage: partial });
+  storage = { ...partial, daily: [{ date: '2026-10-01', bytes: 100 }] };
+  assert.deepEqual(await monitor.statistics(input), { collection, storage: null });
+  for (const bad of [{ ...partial, freeBytes: -1 }, { ...partial, collectorBytes: Number.MAX_SAFE_INTEGER + 1 },
+    { ...partial, daily: days.map(day => ({ date: day.date, bytes: null, token: 'secret' })) }]) {
+    storage = bad;
+    assert.deepEqual(await monitor.statistics(input), { collection: { status: 'unavailable', events: null, followups: null }, storage: null });
+  }
+});

@@ -27,7 +27,7 @@ services:
       options: { max-size: "2m", max-file: "2" }
   backend:
     build: .
-    image: linkx-backend:20261001-activity
+    image: linkx-backend:20261008-default-names
     restart: unless-stopped
     init: true
     read_only: true

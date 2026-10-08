@@ -9,7 +9,7 @@ import { adminHttpGuard } from './routes.ts';
 import { requireSuperAdmin } from './service.ts';
 import { createAdminMonitor } from './monitor.ts';
 import type { RequestCounter } from './traffic.ts';
-import { editConsoleRow, getConsoleRow, listConsoleRows, listConsoleTables } from './data.ts';
+import { editConsoleRow, getConsoleRow, getConsoleStatistics, listConsoleRows, listConsoleTables, statisticsRange } from './data.ts';
 
 const eventQuery = z.strictObject({ limit: z.coerce.number().int().min(1).max(50).optional(),
   cursor: z.string().max(768).optional(), openid: z.string().trim().min(1).max(160).optional(),
@@ -28,6 +28,16 @@ export function registerAdminConsoleRoutes(app: FastifyInstance, deps: { pool: P
       await requireSuperAdmin(deps.pool, deps.appId, request.headers.authorization);
       const { range } = z.strictObject({ range: z.enum(['day', 'week', 'month']) }).parse(request.query);
       return { ok: true, data: await monitor.history(range), requestId: request.id };
+    });
+    scope.get('/api/v1/admin/console/statistics', async request => {
+      const actor = await requireSuperAdmin(deps.pool, deps.appId, request.headers.authorization);
+      const { range } = z.strictObject({ range: statisticsRange.default('all') }).parse(request.query);
+      const { businessBytes, days, ...value } = await getConsoleStatistics(deps.pool, actor, range);
+      const { collection, storage: measured } = await monitor.statistics({ ...(value.from === null ? {} : { from: value.from }), to: value.to, days });
+      const storage = { businessBytes, collectorBytes: measured?.collectorBytes ?? null, payloadBytes: measured?.payloadBytes ?? null,
+        addedBytes: measured?.addedBytes ?? null, totalBytes: measured?.totalBytes ?? null, freeBytes: measured?.freeBytes ?? null,
+        daily: days.map((day, index) => ({ date: day.date, bytes: measured?.daily[index]?.bytes ?? null })) };
+      return { ok: true, data: { ...value, sampledAt: value.to, collection, storage }, requestId: request.id };
     });
     scope.get('/api/v1/admin/console/tables', async request => {
       const actor = await requireSuperAdmin(deps.pool, deps.appId, request.headers.authorization);

@@ -42,6 +42,7 @@ function toRide(row) {
   const destinations = points.filter((_, i) => row.stops[i].kind === 'destination')
   if (!departures.length || !destinations.length) throw invalid()
   return { _id: row.id, serverMode: true, kind: row.kind, cityKey: row.cityKey, businessVersion: row.version,
+    name: typeof row.creatorName === 'string' ? row.creatorName.trim() : '',
     status: row.status === 'closed' ? 'past' : 'open', canonicalStatus: row.status,
     departures, destinations, departureAtMs: Date.parse(row.departureAt),
     latestDepartureAtMs: Math.max(...row.stops.filter(stop => stop.kind === "departure").map(stop => Date.parse(stop.departureAt))),
@@ -55,7 +56,7 @@ function toRide(row) {
 function toMember(member) {
   if (!object(member) || !uuid(member.id) || typeof member.name !== 'string' || !['driver', 'passenger'].includes(member.role) ||
     !Number.isInteger(member.seatCount) || member.seatCount < 0 || member.avatarFileId !== null && !uuid(member.avatarFileId)) throw invalid()
-  return { userId: member.id, name: member.name, role: member.role, isCreator: member.isCreator === true,
+  return { userId: member.id, name: member.name.trim(), role: member.role, isCreator: member.isCreator === true,
     seatCount: member.seatCount, avatarFileId: member.avatarFileId, avatarUrl: '',
     phone: member.phone || '', regionPhone: member.phoneRegion || '', wechatID: member.wechatId || '',
     carNumber: member.vehicle?.plate || '', carBrand: member.vehicle?.brand || '', carModel: member.vehicle?.model || '',

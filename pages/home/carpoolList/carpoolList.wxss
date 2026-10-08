@@ -300,6 +300,29 @@ page{
   padding: 16rpx 18rpx;
 }
 
+.list-trip-card--full{
+  background: #f8fafb;
+  border-color: #e3e7eb;
+}
+
+.list-trip-card--full .list-route-name{
+  color: #46515c;
+}
+
+.list-trip-card--full .ride-list-kind{
+  color: #69727d;
+}
+
+.list-trip-card--full .list-route-arrow{
+  color: #66717d;
+  background: #eef2f4;
+  border-color: #dce0e4;
+}
+
+.list-trip-card--full .list-price-chip{
+  background: #69727d;
+}
+
 .list-ride .ride-bottom-space{
   height: calc(180rpx + env(safe-area-inset-bottom));
 }
@@ -332,6 +355,7 @@ page{
 }
 
 .list-kind-row{
+  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -339,6 +363,7 @@ page{
 }
 
 .list-trip-card .ride-list-kind{
+  flex: none;
   display: flex;
   align-items: center;
   font-size: 23rpx;
@@ -346,6 +371,7 @@ page{
 }
 
 .list-kind-row .ride-chip{
+  flex: none;
   height: 36rpx;
   padding: 0 11rpx;
   border-radius: 10rpx;
@@ -353,6 +379,13 @@ page{
   line-height: 34rpx;
   display: flex;
   align-items: center;
+}
+
+.list-kind-row .ride-publisher-name{
+  flex: 1;
+  margin-left: 8rpx;
+  font-weight: 900;
+  color: #69727d;
 }
 
 .list-trip-card .ride-list-time{

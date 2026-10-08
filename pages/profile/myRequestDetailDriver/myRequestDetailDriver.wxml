@@ -59,6 +59,7 @@
       <view class="ride-meta">
         <text class="ride-chip ride-chip--dark">{{dateText}} {{weekdayText}} {{timeText}}</text>
         <text wx:if="{{trip.referencePriceText}}" class="ride-chip ride-chip--warn">价格：{{trip.referencePriceText}}</text>
+        <text class="ride-publisher-name ride-publisher-name--detail">{{trip.name || '无用户名'}}</text>
       </view>
     </view>
 
@@ -85,7 +86,7 @@
         <view class="ride-person" wx:for="{{passengers}}" wx:key="index" wx:for-item="p">
           <image class="ride-avatar" src="{{p.avatarUrl || '/images/profile.png'}}" mode="aspectFill" />
           <view class="ride-person-main">
-            <text class="ride-person-name">{{p.name || '未设置昵称'}}</text>
+            <text class="ride-person-name">{{p.name || '无用户名'}}</text>
             <text class="ride-social-line">{{p.rideStatsText || '暂无记录'}}</text>
             <view class="ride-info-grid">
               <view class="ride-info-row">
@@ -105,9 +106,9 @@
               </view>
             </view>
             <view class="ride-person-actions">
-              <view wx:if="{{isRequestCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '该乘客'}}" bindtap="onRatePassenger">评价</view>
-              <view wx:if="{{isRequestCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '该乘客'}}" bindtap="onRatePassenger">已评价</view>
-              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '该用户'}}" bindtap="onBlockUser">拉黑</view>
+              <view wx:if="{{isRequestCompleted && !p.hasRated}}" class="ride-mini-btn ride-mini-btn--accent" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '无用户名'}}" bindtap="onRatePassenger">评价</view>
+              <view wx:if="{{isRequestCompleted && p.hasRated}}" class="ride-mini-btn ride-mini-btn--disabled" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '无用户名'}}" bindtap="onRatePassenger">已评价</view>
+              <view class="ride-mini-btn ride-mini-btn--danger" data-openid="{{p._openid}}" data-user-id="{{p.userId}}" data-name="{{p.name || '无用户名'}}" bindtap="onBlockUser">拉黑</view>
             </view>
           </view>
         </view>

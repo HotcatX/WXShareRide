@@ -95,7 +95,7 @@
         <block wx:if="{{item.items && item.items.length}}">
           <block wx:for="{{item.items}}" wx:for-item="trip" wx:key="_id">
             <view
-              class="ride-card ride-list-card list-trip-card {{trip._type === 'request' ? 'list-trip-card--request' : ''}}"
+              class="ride-card ride-list-card list-trip-card {{trip._type === 'request' ? 'list-trip-card--request' : (trip._seatAvailability === 'full' ? 'list-trip-card--full' : '')}}"
               bindtap="goItemDetail"
               data-id="{{trip._id}}"
               data-type="{{trip._type}}"
@@ -106,6 +106,7 @@
                 <view class="list-kind-row">
                   <text class="ride-list-kind">{{trip._type === 'request' ? '求车路线' : '发车路线'}}</text>
                   <text wx:if="{{trip._priceText}}" class="ride-chip list-price-chip">{{trip._priceText}}</text>
+                  <text class="ride-publisher-name">{{trip.name || '无用户名'}}</text>
                 </view>
                 <text class="ride-list-time">时间 {{trip._timeLabel || '待定'}}</text>
               </view>

@@ -141,20 +141,20 @@ test('changing the hide-full-cars preference cannot turn a pending scroll or lay
   page.onListTouchStart({ touches: [{ clientY: 500 }] })
   page.onListTouchEnd()
   page.onToggleHideFullTrips()
-  assert.equal(page.data.hideFullTrips, false)
-  assert.equal(state.store.carpoolListHideFullTripsV1, false)
+  assert.equal(page.data.hideFullTrips, true)
+  assert.equal(state.store.carpoolListHideFullTripsV2, true)
   await page.onListScrollToLower()
-  assert.deepEqual(ids(), ['available', 'full'])
+  assert.deepEqual(ids(), ['available'])
   assert.equal(page.data.nextPageDate, '2030-01-03')
   assert.equal(state.calls.length, 1)
 
-  // A previous scroll intent must also be cleared before the list shrinks.
+  // A previous scroll intent must also be cleared before the list expands.
   page.onListTouchStart({ touches: [{ clientY: 500 }] })
   page.onListTouchMove({ touches: [{ clientY: 450 }] })
   page.onToggleHideFullTrips()
-  assert.equal(page.data.hideFullTrips, true)
+  assert.equal(page.data.hideFullTrips, false)
   await page.onListScrollToLower()
-  assert.deepEqual(ids(), ['available'])
+  assert.deepEqual(ids(), ['available', 'full'])
   assert.equal(state.calls.length, 1)
 })
 
@@ -223,6 +223,7 @@ test('first-page and load-more duplicates each share a single read', async () =>
 
 test('later two-day pages append unique routes, preserve hidden and shown full-car preferences, and keep complete date totals', async () => {
   const { page, state, ids, holdNext, ranges } = harness()
+  page.onToggleHideFullTrips()
   let held = holdNext()
   let load = page.loadBothLists()
   held.resolve(pageResponse(state.calls[0], [route('today')], [], { hasMore: true }))
@@ -243,7 +244,7 @@ test('later two-day pages append unique routes, preserve hidden and shown full-c
   assert.equal(group.requestCount, 1)
   assert.equal(page.data.nextPageDate, '2030-01-05')
   page.onToggleHideFullTrips()
-  assert.deepEqual(ids(), ['today', 'later', 'request', 'full'])
+  assert.deepEqual(ids(), ['today', 'later', 'full', 'request'])
   assert.equal(page.data.hideFullTrips, false)
   assert.equal(state.calls.length, 2, 'changing display preference only regroups existing routes')
   held = holdNext()
@@ -253,11 +254,11 @@ test('later two-day pages append unique routes, preserve hidden and shown full-c
   ]))
   await load
   assert.equal(page.data.hideFullTrips, false)
-  assert.equal(state.store.carpoolListHideFullTripsV1, false)
-  assert.deepEqual(ids(), ['today', 'later', 'request', 'last-available', 'full', 'last-full'])
+  assert.equal(state.store.carpoolListHideFullTripsV2, false)
+  assert.deepEqual(ids(), ['today', 'later', 'full', 'request', 'last-available', 'last-full'])
   assert.equal(page.data.fullTripCount, 2)
   const lastGroups = page.data.dayGroups.filter(item => item.date === '2030-01-05')
-  assert.deepEqual(plain(lastGroups.map(item => [item.carpoolCount, item.requestCount])), [[2, 0], [2, 0]])
+  assert.deepEqual(plain(lastGroups.map(item => [item.carpoolCount, item.requestCount])), [[2, 0]])
   assert.deepEqual(ranges().at(-1), ['2030-01-05', '2030-01-07'])
 })
 
@@ -503,10 +504,10 @@ test('analytics records only explicit exact-date searches and their actually ren
   assert.equal(h.state.analytics[0].data.serviceDate, '2030-01-01')
   const { candidates, candidatesComplete, selectionSetId, ...summary } = h.state.analytics[1].data
   assert.deepEqual(summary, { searchId: h.state.analytics[0].searchId,
-    source: 'network', renderedCount: 1, loadedDateCount: 1, hasMore: false })
+    source: 'network', renderedCount: 2, loadedDateCount: 1, hasMore: false })
   assert.equal(candidatesComplete, true)
   assert.ok(selectionSetId)
-  assert.deepEqual(candidates.map(item => item.tripKey), ['available'], 'hidden full trips are not included in the rendered candidate snapshot')
+  assert.deepEqual(candidates.map(item => item.tripKey), ['available', 'full'], 'default-visible full trips are included in the rendered candidate snapshot')
   const calls = h.state.calls.length
   h.page.onRouteTypeChange(event('type', 'request')); await tick()
   assert.equal(h.state.calls.length, calls)

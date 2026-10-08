@@ -398,6 +398,23 @@ button {
   color: #111418;
 }
 
+.ride-publisher-name{
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 23rpx;
+  line-height: 30rpx;
+  color: #7b8794;
+}
+
+.ride-publisher-name--detail{
+  flex: 1;
+  align-self: center;
+}
+
 .ride-form-grid{
   display: grid;
   grid-template-columns: repeat(2, minmax(0,1fr));

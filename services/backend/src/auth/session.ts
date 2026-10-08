@@ -22,8 +22,13 @@ export async function issueSession(client: PoolClient, config: Pick<Config, 'app
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + config.sessionTtlSeconds * 1000);
   const result = await client.query<Identity>(
-    `INSERT INTO users(app_id,openid) VALUES($1,$2)
-     ON CONFLICT(app_id,openid) DO UPDATE SET openid=EXCLUDED.openid RETURNING id,openid`,
+    `WITH new_user AS (SELECT gen_random_uuid() AS id)
+     INSERT INTO users(id,app_id,openid,name)
+     SELECT id,$1,$2,'用户 '||upper(substr(md5(id::text),1,8)) FROM new_user
+     ON CONFLICT(app_id,openid) DO UPDATE SET
+       name=CASE WHEN users.name~'^[[:space:]]*$' THEN '用户 '||upper(substr(md5(users.id::text),1,8)) ELSE users.name END,
+       updated_at=CASE WHEN users.name~'^[[:space:]]*$' THEN clock_timestamp() ELSE users.updated_at END
+     RETURNING id,openid`,
     [config.appId, openid]
   );
   await client.query('DELETE FROM sessions WHERE user_id=$1 AND expires_at<=now()', [result.rows[0].id]);

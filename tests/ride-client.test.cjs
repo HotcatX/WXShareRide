@@ -33,6 +33,18 @@ test('public DTO preserves all stops, New York local time, unresolved quote and 
   assert.equal(trip.availSeatNum, 2); assert.equal('_openid' in trip, false)
   assert.throws(() => toRide(row({ availableSeats: 5 })), { code: 'INVALID_RESPONSE' })
 })
+test('ride lists and guest detail reuse the response username without profile requests', async () => {
+  const h = harness(true)
+  h.state.row = row({ creatorName: '  Driver Lin  ' })
+  assert.equal((await h.api.getTripDetail('carpool', 'ride')).data.name, 'Driver Lin')
+  h.state.get = async () => ({ rides: [h.state.row, row({ id: 'request', kind: 'request', creatorName: '乘客 Chen' })], nextPage: null, nextDate: null })
+  const listed = (await h.api.callTripList({ startDate: '2030-01-01', endDateExclusive: '2030-01-02' })).result.data
+  assert.equal(listed.carpool[0].name, 'Driver Lin')
+  assert.equal(listed.request[0].name, '乘客 Chen')
+  assert.equal(h.state.calls.length, 2)
+  assert.ok(h.state.calls.every(path => path.startsWith('/api/v1/rides')))
+  for (const creatorName of [undefined, null, '', '   ', {}, 1]) assert.equal(toRide(row({ creatorName })).name, '')
+})
 test('guest details make one public read and reveal neither memberships nor contacts', async () => {
   const h = harness(true), value = await h.api.getTripDetail('carpool', 'ride')
   assert.deepEqual(h.state.calls, ['/api/v1/rides/ride'])

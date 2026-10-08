@@ -203,9 +203,10 @@ export async function cancelRide(pool: Pool, userId: string, key: unknown, id: u
   });
 }
 
-// Explicit public projection: never serialize users, memberships, OpenID,
+// Explicit public projection: never serialize full users, memberships, OpenID,
 // arbitrary imported details, contact information or business event payloads.
 export const publicProjection = `r.id, r.kind, r.city_key AS "cityKey", r.status,
+  (SELECT u.name FROM users u WHERE u.id=r.creator_id) AS "creatorName",
   r.seat_capacity AS "seatCapacity", r.departure_at AS "departureAt", r.time_zone AS "timeZone",
   r.listed_price_cents AS "listedPriceCents", r.listed_price_label AS "listedPriceLabel", r.version,
   COALESCE(r.details->>'note', '') AS note,

@@ -41,6 +41,7 @@
       <view class="tab-icon-wrap">
         <image class="tab-icon" src="{{displayActive === 'profile' ? '/images/profile_press.png' : '/images/profile.png'}}" mode="aspectFit" />
         <view wx:if="{{profileBadgeText}}" class="tab-badge">{{profileBadgeText}}</view>
+        <view wx:elif="{{hasPendingFollowup}}" class="tab-followup-dot" aria-label="待完成回访"></view>
       </view>
       <text class="tab-text">我的</text>
     </view>

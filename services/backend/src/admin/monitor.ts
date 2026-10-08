@@ -38,6 +38,23 @@ const eventSchema = z.strictObject({ openid: z.string().regex(/^[A-Za-z0-9_-]{16
 const eventsSchema = z.strictObject({ ok: z.literal(true), sampledAt: epoch, timeBasis: z.literal('receivedAt'),
   from: epoch, to: epoch, events: z.array(eventSchema).max(50),
   nextCursor: z.string().regex(/^[A-Za-z0-9_-]{1,768}$/).nullable(), scanned: z.number().int().min(0).max(200) });
+const followupsSchema = z.strictObject({ responses: epoch, users: epoch, rides: epoch,
+  passenger: epoch, driver: epoch, yes: epoch, no: epoch, defaults: epoch });
+const storageSchema = z.strictObject({ collectorBytes: epoch.nullable(), payloadBytes: epoch.nullable(), addedBytes: epoch.nullable(),
+  totalBytes: epoch.nullable(), freeBytes: epoch.nullable(),
+  daily: z.array(z.strictObject({ date: z.string().regex(/^20\d\d-\d\d-\d\d$/), bytes: epoch.nullable() })).max(7) });
+const statisticsSchema = z.strictObject({ ok: z.literal(true), sampledAt: epoch,
+  storage: storageSchema.nullable().optional(),
+  collection: z.strictObject({ status: z.enum(['ready', 'building', 'unavailable']),
+    events: epoch.nullable(), followups: followupsSchema.nullable() }) }).superRefine((value, ctx) => {
+  const { status, events, followups } = value.collection;
+  if (status === 'ready' && (events === null || followups === null)
+    || status !== 'ready' && followups !== null || status === 'unavailable' && events !== null
+    || followups && (followups.responses !== followups.passenger + followups.driver
+      || followups.responses !== followups.yes + followups.no || followups.users > followups.responses || followups.rides > followups.responses)) {
+    ctx.addIssue({ code: 'custom', message: 'Invalid statistics' });
+  }
+});
 const historyRange = z.enum(['day', 'week', 'month']);
 const summaryFields = { mean: z.number().nonnegative(), min: z.number().nonnegative(),
   max: z.number().nonnegative(), peakAt: epoch, samples: epoch };
@@ -173,5 +190,17 @@ export function createAdminMonitor(config?: AdminMonitorConfig, traffic?: Reques
     histories.set(range, { at: now, value });
     return value;
   };
-  return { status, events, history };
+  const statistics = async (input: { from?: number; to: number; days?: Array<{ date: string; from: number; to: number }> })
+    : Promise<Pick<z.infer<typeof statisticsSchema>, 'collection' | 'storage'>> => {
+    const fallback = { collection: { status: 'unavailable' as const, events: null, followups: null }, storage: null };
+    if (!config) return fallback;
+    try {
+      const result = statisticsSchema.parse(await request(config, '/v1/console/statistics', JSON.stringify(input)));
+      if (result.sampledAt > Date.now() + 5000) throw unavailable();
+      const storage = result.storage && (!input.days || result.storage.daily.length === input.days.length
+        && result.storage.daily.every((day, index) => day.date === input.days![index]!.date)) ? result.storage : null;
+      return { collection: result.collection, storage };
+    } catch { return fallback; }
+  };
+  return { status, events, history, statistics };
 }

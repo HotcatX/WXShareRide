@@ -32,7 +32,8 @@ const {
 } = require("../../../utils/cityTree")
 
 const LIST_REFRESH_INTERVAL = 30 * 1000
-const HIDE_FULL_TRIPS_KEY = "carpoolListHideFullTripsV1"
+// V2 starts with full cars visible; later explicit choices remain persistent.
+const HIDE_FULL_TRIPS_KEY = "carpoolListHideFullTripsV2"
 const TRIP_EXPIRE_GRACE = 30 * 60 * 1000
 const LIST_CACHE_KEY = "carpoolListDataV1"
 const LIST_CACHE_TTL = LIST_REFRESH_INTERVAL
@@ -107,10 +108,10 @@ Page({
     originalRequestList: [],
 
     // 分组后的渲染数据
-    // 有空座/求车路线在前；是否显示末尾的满员车辆是长期本地偏好。
+    // 按日期、时间显示路线；隐藏满员车辆是长期本地偏好。
     dayGroups: [],
     fullTripCount: 0,
-    hideFullTrips: true,
+    hideFullTrips: false,
     hasMoreDays: false,
     nextPageDate: "",
     loadingMoreDays: false,
@@ -742,16 +743,17 @@ Page({
   },
 
   sortByDateTime(a, b) {
-    const ta = this.getTripTimestamp(a)
-    const tb = this.getTripTimestamp(b)
+    const ta = Math.floor(this.getTripTimestamp(a) / 60000)
+    const tb = Math.floor(this.getTripTimestamp(b) / 60000)
 
     if (ta !== tb) return ta - tb
 
-    // 时间完全一致时，再按类型稳定排序，但不再强制 carpool 全局在前
-    // 这里只是为了结果稳定
+    // Match the displayed minute; fullness only breaks ties between carpool rides.
     const aType = a && a._type ? a._type : ""
     const bType = b && b._type ? b._type : ""
-    return String(aType).localeCompare(String(bType))
+    const typeOrder = String(aType).localeCompare(String(bType))
+    if (typeOrder) return typeOrder
+    return aType === "carpool" ? Number(this.isFullCarpool(a)) - Number(this.isFullCarpool(b)) : 0
   },
 
   formatMonthDayWeek(dateStr) {
@@ -1186,7 +1188,7 @@ Page({
 
   // =========================
   // 统一筛选 + 分组
-  // 同一区块按时间分组；满员车辆统一折叠到列表末尾。
+  // 每个日期只保留一组；时间优先，同分钟供车余位优先。
   // =========================
   applyAllFiltersAndGroup() {
     this.syncFilterUi()
@@ -1298,12 +1300,11 @@ Page({
     })
 
     const fullTrips = carpoolFiltered.filter(trip => this.isFullCarpool(trip))
-    const availableTrips = [
-      ...carpoolFiltered.filter(trip => !this.isFullCarpool(trip)),
+    const visibleTrips = [
+      ...carpoolFiltered.filter(trip => !this.data.hideFullTrips || !this.isFullCarpool(trip)),
       ...requestFiltered
     ]
-    const groups = this.groupTripsByDate(availableTrips, "available", dateCounts)
-    if (!this.data.hideFullTrips) groups.push(...this.groupTripsByDate(fullTrips, "full", dateCounts))
+    const groups = this.groupTripsByDate(visibleTrips, dateCounts)
     const search = this._analyticsSearch
     const renderGeneration = this._analyticsRenderGeneration = (this._analyticsRenderGeneration || 0) + 1
     this.setData({ dayGroups: groups, fullTripCount: fullTrips.length }, () => {
@@ -1343,14 +1344,14 @@ Page({
     return count != null && count <= 0
   },
 
-  groupTripsByDate(trips, section, dateCounts) {
+  groupTripsByDate(trips, dateCounts) {
     const map = new Map()
     ;[...trips].sort((a, b) => this.sortByDateTime(a, b)).forEach(trip => {
       const date = trip._date || ""
       if (!date) return
       if (!map.has(date)) {
         map.set(date, {
-          key: `${section}:${date}`,
+          key: date,
           date,
           dateLabel: this.formatMonthDayWeek(date),
           ...(dateCounts && dateCounts.get(date)),
@@ -1363,7 +1364,7 @@ Page({
   },
 
   restoreFullTripPreference() {
-    let hideFullTrips = true
+    let hideFullTrips = false
     try {
       const saved = wx.getStorageSync(HIDE_FULL_TRIPS_KEY)
       if (typeof saved === "boolean") hideFullTrips = saved

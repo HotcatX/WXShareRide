@@ -1,9 +1,9 @@
 [Unit]
-Description=Back up LinkX PostgreSQL every six hours
+Description=Daily LinkX PostgreSQL backup
 
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:10:00 UTC
-RandomizedDelaySec=5min
+OnCalendar=*-*-* 03:35:00 America/New_York
+RandomizedDelaySec=2min
 AccuracySec=1min
 Persistent=true
 Unit=linkx-backend-backup.service

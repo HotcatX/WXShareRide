@@ -22,9 +22,11 @@ function personalRides(id) {
 
 function harness(kind, existingStorage) {
   const storage = existingStorage || { openid: 'user-a', isGuest: false }
-  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [], stats: { servedCount: 42, coverageText: 'NY / NJ' } }
+  const state = { now: 1800000000000, calls: [], pending: {}, count: 3, toasts: [], notices: [], navigations: [],
+    pendingFollowup: false, followupListeners: new Set() }
   class Clock extends Date { static now() { return state.now } }
   const wx = {
+    getWindowInfo: () => ({ windowWidth: 390, statusBarHeight: 44 }),
     getStorageSync: key => storage[key],
     setStorageSync: (key, value) => { storage[key] = value },
     removeStorageSync: key => { delete storage[key] },
@@ -44,15 +46,6 @@ function harness(kind, existingStorage) {
       } }) }) })
     }
   }
-  const backend = {
-    ready: () => state.pending.ready || Promise.resolve(),
-    get(route, options) {
-      assert.equal(route, '/api/v1/statistics/public')
-      assert.equal(options.anonymous, true)
-      state.calls.push(route)
-      return state.pending.statistics || Promise.resolve(state.stats)
-    }
-  }
   const rides = require('../utils/compat/rides').createRideClient({ wx, backend: {
     isBackendEnabled: () => true,
     get(route) {
@@ -66,12 +59,15 @@ function harness(kind, existingStorage) {
     Page: value => { definition = value }, wx, Date: Clock, console: { error() {} },
     setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     require(name) {
-      if (name.endsWith('/tripFollowup')) return { hide() {}, canConsider: () => false }
+      if (name.endsWith('/tripFollowup')) return { hide() {}, canConsider: () => false,
+        refreshPendingFollowup() { state.followupListeners.forEach(listener => listener(!!storage.openid && !storage.isGuest && state.pendingFollowup)) },
+        subscribePendingFollowup(listener) { state.followupListeners.add(listener)
+          listener(!!storage.openid && !storage.isGuest && state.pendingFollowup)
+          return () => state.followupListeners.delete(listener) } }
       if (name.endsWith('/analyticsSession')) return { subscribe: () => () => {} }
       if (name.endsWith('/compat/rides')) return { isBackendEnabled: () => true, ...rides }
       if (name.endsWith('/compat/profile')) return require('./helpers/profile-api.cjs')(wx)
       if (name.endsWith('/profileDisplay')) return { resolveProfileAvatar: async (user, fallback) => user.avatarUrl || fallback }
-      if (name.endsWith('/backendClient')) return backend
       if (name.includes('rideTime')) return require('../utils/rideTime')
       if (name.includes('cityTree')) return {
         getCitySnapshot: () => ({ key: 'ny_nj' }), getCountryTabs: () => [], getCountryGroups: () => []
@@ -94,17 +90,17 @@ function harness(kind, existingStorage) {
 
 test('home reuses ordinary personal reads for 30 seconds, preserves forced refresh and stops speculative details', async () => {
   const { page, state } = harness('home')
-  const read = () => Promise.all([page.refreshHomeData(), page.loadPublicStats(), page.loadUnreadCount()])
+  const read = () => Promise.all([page.refreshHomeData(), page.loadUnreadCount()])
   await Promise.all([read(), read()])
-  assert.deepEqual(state.calls, ['/api/v1/me/rides', 'unread', '/api/v1/statistics/public'])
+  assert.deepEqual(state.calls, ['/api/v1/me/rides', 'unread'])
   state.now += 29999
   await read()
-  assert.equal(state.calls.length, 3)
+  assert.equal(state.calls.length, 2)
   state.now += 1
   await read()
-  assert.equal(state.calls.length, 5)
+  assert.equal(state.calls.length, 4)
   await page.refreshHomeByUser()
-  assert.equal(state.calls.length, 8)
+  assert.equal(state.calls.length, 6)
   assert.equal(state.notices.at(-1).force, true)
   assert.equal(state.calls.includes('getTripDetail'), false)
 })
@@ -176,125 +172,6 @@ test('home A-to-B-to-A returns cannot reuse an obsolete request or refresh its c
   assert.equal(page._homeReads.trips.at, currentTimestamp)
 })
 
-test('public statistics persist for 24 hours and keep their original sync time across login and ride changes', async () => {
-  const { page, state, storage } = harness('home')
-  await page.loadPublicStats()
-  const syncedAt = storage.homePublicStatsCacheV1.syncedAt
-  state.now += 60000
-  storage.openid = 'user-b'
-  storage.rideListShouldRefreshAt = 123
-  page.syncLoginState()
-  await page.loadPublicStats()
-  assert.equal(state.calls.filter(name => name === '/api/v1/statistics/public').length, 1)
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
-  assert.equal(page.data.publicStats.servedTripsText, '42')
-
-  const reopened = harness('home', storage)
-  reopened.state.now = syncedAt + 24 * 3600000 - 1
-  await reopened.page.loadPublicStats()
-  assert.equal(reopened.state.calls.length, 0)
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, syncedAt)
-  reopened.state.now++
-  await reopened.page.loadPublicStats()
-  assert.deepEqual(reopened.state.calls, ['/api/v1/statistics/public'])
-  await reopened.page.loadPublicStats({ force: true })
-  assert.equal(reopened.state.calls.length, 2)
-})
-
-test('home keeps the shared cache until expiry and forced canonical reads replace it', async () => {
-  const { page, state, storage } = harness('home')
-  await page.loadPublicStats()
-  const original = storage.homePublicStatsCacheV1
-  state.stats.servedCount = 84
-  await page.loadPublicStats()
-  assert.equal(state.calls.length, 1)
-  assert.equal(storage.homePublicStatsCacheV1, original)
-  await page.loadPublicStats({ force: true })
-  assert.equal(state.calls.length, 2)
-  assert.equal(page.data.publicStats.servedTripsText, '84')
-  const serverCachedAt = storage.homePublicStatsCacheV1.syncedAt
-  state.now += 1000
-  await page.loadPublicStats()
-  assert.equal(state.calls.length, 2)
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, serverCachedAt)
-  state.now = serverCachedAt + 24 * 3600000
-  state.stats.servedCount = 85
-  await page.loadPublicStats()
-  assert.equal(state.calls.length, 3)
-  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 85)
-})
-
-test('late statistics cannot overwrite a cached screen after an account switch', async () => {
-  const { page, state, storage } = harness('home')
-  await page.loadPublicStats()
-  const original = storage.homePublicStatsCacheV1
-  const old = deferred()
-  state.pending.statistics = old.promise
-  const pending = page.loadPublicStats({ force: true })
-  await tick()
-  storage.openid = 'user-b'; page.syncLoginState()
-  await page.loadPublicStats()
-  old.resolve({ servedCount: 999, coverageText: 'old' })
-  await pending
-  assert.equal(page.data.publicStats.servedTripsText, '42')
-  assert.equal(storage.homePublicStatsCacheV1, original)
-})
-
-test('statistics A-to-B-to-A transitions never reuse an old pending read or refresh its timestamp', async () => {
-  const { page, state, storage } = harness('home')
-  const old = deferred()
-  state.pending.statistics = old.promise
-  const pending = page.loadPublicStats()
-  await tick()
-  const obsolete = page._homeReads.stats
-  delete state.pending.statistics
-  for (const openid of ['user-b', 'user-a']) {
-    storage.openid = openid; page.syncLoginState()
-    await page.loadPublicStats({ force: true })
-  }
-  const current = storage.homePublicStatsCacheV1
-  state.now += 1000
-  old.resolve({ servedCount: 999, coverageText: 'old' })
-  await pending
-  assert.equal(state.calls.length, 3)
-  assert.equal(obsolete.at, 0)
-  assert.equal(storage.homePublicStatsCacheV1, current)
-  assert.equal(page.data.publicStats.servedTrips, 42)
-})
-
-test('statistics do not start a request for an account changed while service readiness was pending', async () => {
-  const { page, state, storage } = harness('home')
-  const ready = deferred(); state.pending.ready = ready.promise
-  const pending = page.loadPublicStats()
-  await tick()
-  storage.openid = 'user-b'; page.syncLoginState()
-  ready.resolve(); await pending
-  assert.equal(state.calls.length, 0)
-  assert.equal(storage.homePublicStatsCacheV1, undefined)
-  await page.loadPublicStats()
-  assert.equal(state.calls.length, 1)
-})
-
-test('concurrent forced reads merge, failed refreshes retain the cache, and a fresh attempt retries immediately', async () => {
-  const { page, state, storage } = harness('home')
-  await Promise.all(Array.from({ length: 5 }, () => page.loadPublicStats({ force: true })))
-  assert.deepEqual(state.calls, ['/api/v1/statistics/public'])
-  const cached = storage.homePublicStatsCacheV1
-  state.pending.statistics = Promise.reject(new Error('temporary failure'))
-  await page.loadPublicStats({ force: true })
-  assert.equal(state.calls.length, 2)
-  assert.equal(storage.homePublicStatsCacheV1, cached)
-  assert.equal(page.data.publicStats.servedTrips, 42)
-  delete state.pending.statistics
-  await page.loadPublicStats()
-  assert.equal(state.calls.length, 2)
-  state.stats.servedCount = 84; state.now += 1000
-  await page.loadPublicStats({ force: true })
-  assert.equal(state.calls.length, 3)
-  assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 84)
-  assert.equal(storage.homePublicStatsCacheV1.syncedAt, state.now)
-})
-
 test('home request entry opens passenger mode for members and guests without changing the default driver entry', () => {
   for (const storage of [{ openid: 'member', isGuest: false }, { openid: '', isGuest: true }]) {
     const { page, state } = harness('home', storage)
@@ -317,24 +194,6 @@ test('both home create entries block navigation in an unsupported ride city', ()
   assert.deepEqual(state.toasts.map(toast => toast.title), ['该地区暂未开通', '该地区暂未开通'])
 })
 
-test('public statistics reject malformed, expired and future-dated cache entries and retry failures', async () => {
-  for (const entry of [
-    { version: 1, syncedAt: 1800000000001, data: { servedTrips: 1, coverageText: 'NY / NJ' } },
-    { version: 1, syncedAt: 1799900000000, data: { servedTrips: 1, coverageText: 'NY / NJ' } },
-    { version: 1, syncedAt: 1800000000000, data: { servedTrips: 'unknown', coverageText: 'NY / NJ' } }
-  ]) {
-    const { page, state, storage } = harness('home')
-    storage.homePublicStatsCacheV1 = entry
-    state.pending.statistics = Promise.reject(new Error('temporary failure'))
-    await page.loadPublicStats()
-    assert.equal(storage.homePublicStatsCacheV1, entry)
-    delete state.pending.statistics
-    await page.loadPublicStats()
-    assert.equal(state.calls.length, 2)
-    assert.equal(storage.homePublicStatsCacheV1.data.servedTrips, 42)
-  }
-})
-
 test('profile ordinary returns deduplicate and cache reads, but editing and ride mutations invalidate', async () => {
   const { page, state, storage } = harness('profile')
   await Promise.all([page.refreshAuthAndData(), page.refreshAuthAndData()])
@@ -352,6 +211,22 @@ test('profile ordinary returns deduplicate and cache reads, but editing and ride
   state.now += 30000
   await page.refreshAuthAndData()
   assert.equal(state.calls.length, 10)
+})
+
+test('first profile refresh preserves a cached pending badge after identity setup and guests clear it', async () => {
+  const { page, state, storage } = harness('profile')
+  state.pendingFollowup = true
+  page.onLoad()
+  assert.equal(page.data.hasPendingFollowup, true)
+  await page.refreshAuthAndData()
+  assert.equal(page.data.hasPendingFollowup, true)
+  assert.equal(page.data.isLoggedIn, true)
+  storage.isGuest = true
+  await page.refreshAuthAndData()
+  assert.equal(page.data.hasPendingFollowup, false)
+  assert.equal(page.data.isLoggedIn, false)
+  page.onUnload()
+  assert.equal(state.followupListeners.size, 0)
 })
 
 test('notification callbacks still force unread refresh and failures do not fill the short cache', async () => {

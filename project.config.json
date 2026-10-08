@@ -77,6 +77,14 @@
         "value": "research"
       },
       {
+        "type": "folder",
+        "value": "personal-site"
+      },
+      {
+        "type": "folder",
+        "value": "deploy"
+      },
+      {
         "type": "file",
         "value": "BACKEND_MIGRATION_WORK.md"
       },

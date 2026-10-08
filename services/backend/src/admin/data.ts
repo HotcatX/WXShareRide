@@ -31,6 +31,8 @@ const hidden = new Set(['password_hash', 'password_salt']);
 const querySchema = z.strictObject({ table: z.string(), limit: z.coerce.number().int().min(1).max(50).default(20),
   cursor: z.string().max(4096).optional(), search: z.string().trim().min(1).max(160).optional() });
 const editSchema = z.strictObject({ expectedVersion: z.string().regex(/^[a-f0-9]{64}$/), patch: updateUserSchema });
+export const statisticsRange = z.enum(['all', 'day', 'week', 'month']);
+export type StatisticsRange = z.infer<typeof statisticsRange>;
 type Column = { name: string; type: string; nullable: boolean };
 type Table = { key: string; primaryKey: string[]; columns: Column[]; editableFields: string[] };
 const catalogs = new WeakMap<Pool, { until: number; tables: Table[] }>();
@@ -102,6 +104,32 @@ async function admitted<T>(pool: Pool, actor: AdminIdentity, work: (client: Pool
 export async function listConsoleTables(pool: Pool, actor: AdminIdentity) {
   const tables = await catalog(pool);
   return admitted(pool, actor, async () => ({ tables }));
+}
+export async function getConsoleStatistics(pool: Pool, actor: AdminIdentity, range: StatisticsRange) {
+  return admitted(pool, actor, async client => {
+    const row = (await client.query<{ from: string | null; to: string; users: string; rides: string; business_bytes: string;
+      days: Array<{ date: string; from: number; to: number }> }>(`
+      WITH bounds AS (
+        SELECT floor(extract(epoch FROM statement_timestamp())*1000)::bigint AS "to",
+          (statement_timestamp() AT TIME ZONE 'America/New_York')::date AS today,
+          CASE WHEN $2='all' THEN NULL ELSE floor(extract(epoch FROM (
+            (date_trunc('day',statement_timestamp() AT TIME ZONE 'America/New_York')
+              - CASE $2 WHEN 'day' THEN interval '0 days' WHEN 'week' THEN interval '6 days' ELSE interval '29 days' END)
+            AT TIME ZONE 'America/New_York'))*1000)::bigint END AS "from"
+      ) SELECT b."from",b."to",pg_database_size(current_database())::text AS business_bytes,
+        (SELECT json_agg(json_build_object('date',to_char(b.today-6+n,'YYYY-MM-DD'),
+          'from',floor(extract(epoch FROM ((b.today-6+n)::timestamp AT TIME ZONE 'America/New_York'))*1000)::bigint,
+          'to',LEAST(b."to",floor(extract(epoch FROM ((b.today-5+n)::timestamp AT TIME ZONE 'America/New_York'))*1000)::bigint-1)) ORDER BY n)
+          FROM generate_series(0,6) AS n) AS days,
+        (SELECT COUNT(*) FROM users u WHERE u.app_id=$1 AND (b."from" IS NULL OR
+          u.created_at BETWEEN to_timestamp(b."from"/1000.0) AND to_timestamp(b."to"/1000.0))) AS users,
+        (SELECT COUNT(*) FROM rides r JOIN users u ON u.id=r.creator_id WHERE u.app_id=$1 AND (b."from" IS NULL OR
+          r.created_at BETWEEN to_timestamp(b."from"/1000.0) AND to_timestamp(b."to"/1000.0))) AS rides
+      FROM bounds b`, [actor.appId, range])).rows[0]!;
+    return { range, from: row.from === null ? null : Number(row.from), to: Number(row.to),
+      timeZone: 'America/New_York' as const, business: { users: Number(row.users), rides: Number(row.rides) },
+      businessBytes: Number(row.business_bytes), days: row.days };
+  });
 }
 export async function listConsoleRows(pool: Pool, actor: AdminIdentity, raw: unknown) {
   const input = querySchema.parse(raw), table = await tableInfo(pool, input.table);

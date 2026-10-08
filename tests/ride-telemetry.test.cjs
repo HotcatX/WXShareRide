@@ -131,6 +131,40 @@ test('real candidate, order, filter, freshness and completeness changes create n
     assert.equal(h.events.length, 2, name)
   }
 })
+
+test('discovery context distinguishes form and history even when rendered requests are unchanged', () => {
+  const h = harness(), groups = [{ items: [h.trip] }]
+  const context = { surface: 'driver_publish', basis: 'form', serviceDate: '2026-09-24', departureMinute: 570,
+    originPlaceIds: ['fort_lee'], destinationPlaceIds: ['columbia'] }
+  const id = h.helper.renderList(h.page, groups, { context })
+  assert.deepEqual(h.events[0].data.discovery, context)
+  assert.equal(h.helper.renderList(h.page, groups, { context: { ...context } }), id)
+  assert.notEqual(h.helper.renderList(h.page, groups, { context: { ...context, basis: 'history' } }), id)
+  h.helper.clickTrip(h.page, h.trip._id, 'carpool', h.trip)
+  assert.equal(h.events.at(-1).data.selectionSetId, h.events[1].data.selectionSetId)
+})
+
+test('request CTA and successful publish correlate without a second event stream or raw place text', () => {
+  const h = harness(), context = { sourceTripKey: h.trip._id, entry: 'full_ride' }
+  const intentId = h.helper.requestIntent('started', context, h.trip)
+  const request = { ...h.trip, _id: 'created_request', departures: [{ address: 'LIC', date: '2026-09-25', time: '10:00' }] }
+  assert.equal(h.helper.requestIntent('published', { ...context, intentId }, request), intentId)
+  assert.deepEqual(h.events.map(event => event.name), ['request_intent', 'request_intent'])
+  assert.equal(h.events[0].data.tripKey, h.trip._id)
+  assert.equal(h.events[0].data.tripType, 'carpool')
+  assert.equal(h.events[1].data.tripKey, request._id)
+  assert.equal(h.events[1].data.tripType, 'request')
+  assert.equal(h.events[1].data.sourceTripKey, h.trip._id)
+  assert.equal(h.events[1].data.intentId, intentId)
+  assert.equal(h.events[1].data.serviceDate, '2026-09-25')
+  assert.equal(h.events[1].data.departureMinute, 600)
+  assert.deepEqual(h.events[1].data.originPlaceIds, ['lic'])
+  assert.ok(!JSON.stringify(h.events).includes('private address'))
+  assert.equal(h.helper.requestIntent('published', context, request), '')
+  assert.equal(h.helper.requestIntent('published', { ...context, intentId }, {}), '')
+  assert.equal(h.helper.requestIntent('started', {}, h.trip), '')
+  assert.equal(h.events.length, 2)
+})
 test('changes past the 50-candidate payload limit still produce a new result and accurate visible-card attributes', () => {
   const h = harness(), trips = Array.from({ length: 55 }, (_, i) => ({ ...h.trip, _id: `trip_${i}` }))
   const groups = [{ items: trips }], first = h.helper.renderList(h.page, groups)
@@ -154,6 +188,16 @@ test('overlays and an account change invalidate pending impressions; clicks reta
   h.setScope('test:participant_synthetic:1')
   h.helper.clickTrip(h.page, h.trip._id, 'carpool', h.trip)
   assert.equal(h.events.at(-1).data.selectionSetId, h.events[0].data.selectionSetId)
+})
+
+test('a time picker covering a request card prevents an impression until the full visibility interval resumes', () => {
+  const h = harness()
+  h.helper.renderList(h.page, [{ items: [h.trip] }])
+  h.fire(1); h.page.data.timePickerVisible = true; h.advance()
+  assert.equal(h.events.length, 1)
+  h.page.data.timePickerVisible = false; h.helper.observeList(h.page)
+  h.fire(1); h.advance()
+  assert.equal(h.events.at(-1).name, 'result_card_visible')
 })
 test('large result lists explicitly truncate snapshots while visible cards beyond 50 keep their own attributes', () => {
   const h = harness()

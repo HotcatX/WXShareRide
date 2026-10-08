@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily LinkX backup upload and seven-day retention
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 America/New_York
+RandomizedDelaySec=2min
+AccuracySec=1min
+Persistent=true
+Unit=linkx-backup-upload.service
+
+[Install]
+WantedBy=timers.target

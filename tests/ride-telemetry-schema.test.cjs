@@ -9,7 +9,7 @@ before(async () => {
   ;({ makeRideEvents } = await import('../services/analytics-collector/test/fixtures/ride-events.mjs'))
 })
 const names = ['search_submitted','result_set_rendered','list_snapshot','result_card_visible','trip_card_clicked',
-  'detail_viewed','contact_action','followup_presented','followup_dismissed','followup_answer','service_request','client_error']
+  'detail_viewed','contact_action','followup_presented','followup_dismissed','followup_answer','service_request','client_error','request_intent']
 const fixture = name => makeRideEvents(NOW).find(event => event.eventName === name)
 function parity(event, expected, label) {
   // Compare the ordinary JSON wire representation, not JS prototypes/getters.
@@ -61,6 +61,35 @@ test('list candidate truncation is explicit and a declared complete set must mat
     parity({ ...event, data: { ...event.data, candidates: [{ ...one, phone: '5550101234' }], candidatesComplete: false } }, false)
     parity({ ...event, data: { ...event.data, candidates: [{ ...one, serviceDate: '2026-02-30' }], candidatesComplete: false } }, false)
   }
+})
+
+test('discovery identifies the surface and matching basis without collecting free-form routes', () => {
+  for (const name of ['result_set_rendered', 'list_snapshot']) {
+    const event = fixture(name)
+    for (const surface of ['full_ride', 'driver_publish']) for (const basis of ['form', 'history']) {
+      parity({ ...event, data: { ...event.data, discovery: { surface, basis, sourceTripKey: 'trip_1',
+        serviceDate: '2026-10-06', departureMinute: 1439, originPlaceIds: ['fort_lee'], destinationPlaceIds: ['columbia'] } } }, true)
+    }
+    for (const discovery of [{ surface: 'driver_publish' }, { surface: 'private', basis: 'form' },
+      { surface: 'driver_publish', basis: 'history', departureMinute: 1440 },
+      { surface: 'driver_publish', basis: 'form', originPlaceIds: ['123 private street'] },
+      { surface: 'driver_publish', basis: 'form', rawRoute: 'private address' }]) parity({ ...event, data: { ...event.data, discovery } }, false)
+  }
+})
+
+test('publishing page is a recognized page-view source on client and collector', () => {
+  parity({ eventId: randomUUID(), eventName: 'page_view', schemaVersion: 1, occurredAt: NOW, data: { page: 'new_trip' } }, true)
+})
+
+test('request intent binds source and successful request with a shared opaque ID and distinct stage semantics', () => {
+  const event = fixture('request_intent')
+  parity(event, true)
+  const started = { ...event.data, stage: 'started', tripType: 'carpool', tripKey: event.data.sourceTripKey }
+  parity({ ...event, data: started }, true)
+  for (const patch of [{ stage: 'opened' }, { intentId: '' }, { sourceTripKey: '' }, { entry: 'other' },
+    { tripType: 'carpool' }, { tripKey: '' }]) parity({ ...event, data: { ...event.data, ...patch } }, false)
+  parity({ ...event, data: { ...started, tripKey: 'unrelated_trip' } }, false)
+  parity({ ...event, data: { ...started, tripType: 'request' } }, false)
 })
 
 test('price fields admit listed references and legacy reference labels, never transaction/paid inputs', () => {

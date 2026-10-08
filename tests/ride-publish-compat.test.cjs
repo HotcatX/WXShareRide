@@ -34,6 +34,7 @@ function fixture() {
       if (name.endsWith('/compat/rideTemplates')) return { loadRideTemplates: async () => [templates.toLegacyTemplate(row, state.openid)] }
       if (name.endsWith('/tripManage')) return { ...require('../utils/tripManage'), markRideListStale: () => state.stale++ }
       if (name.endsWith('/rideTime')) return require('../utils/rideTime')
+      if (name.endsWith('/rideTelemetry')) return { requestIntent() {} }
       if (name.endsWith('/driverRideDefaults')) return require('../utils/driverRideDefaults')
       if (name.endsWith('/cityTree')) return { DEFAULT_CITY_KEY: 'ny_nj', getStoredCitySnapshot: () => ({ key: 'ny_nj' }),
         isRideServiceCityKey: () => true, getRideServiceCitySnapshot: () => ({ key: 'ny_nj', label: '纽约/新泽西' }) }

@@ -9,6 +9,7 @@ import { requireThat } from './errors.mjs';
 import { validateBatch } from './validation.mjs';
 import { DEFAULT_NOTICE_VERSION, DEFAULT_PURPOSE_VERSION, canonicalPurposeVersion, canonicalNoticeVersion, samePurposeVersion, sameNoticeVersion } from './protocol.mjs';
 import { initializePlaces, createPlacesStore } from './places.mjs';
+import { initializeFollowups, createFollowupIndex } from './followups.mjs';
 
 const DAY_MS = 86_400_000;
 const MAX_VERSION = 2_147_483_647;
@@ -42,7 +43,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
   const pageSize = db.pragma('page_size', { simple: true });
   db.pragma(`max_page_count = ${Math.floor(maxDatabaseMB * 1024 * 1024 / pageSize)}`);
   chmodSync(path, 0o600);
-  let places;
+  let places, followups;
   try { db.transaction(() => { const previousVersion = db.pragma('user_version', { simple: true }); migrateTableNames(db); migratePayloadColumns(db); db.exec(`
     CREATE TABLE IF NOT EXISTS collector_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     INSERT OR IGNORE INTO collector_settings VALUES ('restore_gate', 'open');
@@ -122,7 +123,9 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
         FROM eligible_events e JOIN ${TABLES.accounts} a ON a.participant_key=e.participant_key
         JOIN ${TABLES.participants} p ON p.participant_key=e.participant_key;`);
     initializePlaces(db);
+    initializeFollowups(db);
     places = createPlacesStore(db, { realEnabled });
+    followups = createFollowupIndex(db);
     if (previousVersion < 7) places.backfillPublicRoutes();
     db.pragma(`user_version = ${SCHEMA_VERSION}`);
     if (db.pragma('foreign_key_check').length) throw new Error('Collector schema has foreign key violations');
@@ -263,6 +266,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     // Recheck age at commit; expired-but-previously-accepted retries remain idempotent.
     validateBatch(body, now);
     const encoded = encodePayload(raw);
+    const firstEvents = [];
     for (const event of body.events) {
       const eventHash = createHash('sha256').update(canonical(event)).digest('hex');
       const old = db.prepare('SELECT grant_id,event_hash FROM event_receipts WHERE participant_key=? AND event_id=?').get(claims.sub, event.eventId);
@@ -270,6 +274,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       else {
         db.prepare('INSERT INTO event_receipts VALUES (?,?,?,?,?,?)').run(claims.sub, event.eventId, claims.grantId, eventHash, body.batchId, now);
         places.recordEvent(participant, event);
+        firstEvents.push(event);
       }
     }
     db.prepare('INSERT INTO batch_receipts VALUES (?,?,?,?,?,?)').run(claims.sub, body.batchId, claims.grantId, hash, body.events.length, now);
@@ -277,10 +282,11 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
       (participant_key,batch_id,grant_id,status_version,purpose_version,received_at,payload,codec,raw_bytes)
       VALUES (?,?,?,?,?,?,?,?,?)`).run(claims.sub, body.batchId, claims.grantId,
       claims.statusVersion, canonicalPurposeVersion(claims.purposeVersion), now, encoded.payload, encoded.codec, encoded.rawBytes);
+    for (const event of firstEvents) followups.record(claims.sub, body.batchId, event);
     return { ok: true, batchId: body.batchId, payloadHash: hash, eventCount: body.events.length, receivedAt: now, duplicate: false };
   });
   return {
-    db, sqliteVersion, places,
+    db, sqliteVersion, places, followups,
     placeSuggestions(claims, body, now = Date.now()) {
       const p = getParticipant(claims.sub); assertActive(p, claims);
       requireThat(claims.scopes?.includes('places:read'), 403, 'PLACE_SCOPE_REQUIRED');
@@ -303,7 +309,7 @@ export function openStore(path, { realEnabled = false, purposeVersion = DEFAULT_
     applyState(state, now = Date.now()) { return stateTransaction.immediate(state, now); },
     activeParticipant(key) { const p = getParticipant(key); assertActive(p); return normalize(p); },
     receive(claims, raw, body, now = Date.now()) { return receiveTransaction.immediate(claims, raw, body, now); },
-    close() { db.close(); },
+    close() { followups.close(); db.close(); },
     async backup(path) { return db.backup(path); },
     prune(now = Date.now()) {
       return db.transaction(() => {

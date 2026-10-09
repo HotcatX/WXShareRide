@@ -41,8 +41,6 @@ Useful starting points:
 - [Public statistics operation and fallback](docs/public-statistics.md)
 - [Canonical backend data contract](services/backend/SCHEMA.md)
 
-Completed audits, old deployment checklists, and one-off fix reports are kept in Git history; the [documentation index](docs/README.md#历史报告) links to the fixed snapshot. Private migration exports and recovery material are described in `data/README.md` in the local checkout; they are excluded from Git and the Mini Program upload. Keep deploy/recovery tools and regression tests that cover current code; a legacy name alone does not prove an entry point is unused.
-
 Some documentation is in Chinese.
 
 ## License

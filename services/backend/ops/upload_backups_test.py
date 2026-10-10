@@ -1,14 +1,18 @@
 import datetime
+import errno
 import fcntl
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('backup_upload', Path(__file__).with_name('upload_backups.py'))
@@ -147,6 +151,87 @@ class UploadTests(unittest.TestCase):
             self.assertFalse(self.package(kind, path).exists())
             self.assertEqual(self.marker(kind, path).stat().st_mode & 0o777, 0o600)
         self.assertTrue(pg.exists())
+
+    def test_cross_mount_staging_copies_atomically_and_survives_original_removal(self):
+        data = b'synthetic snapshot' * 150000
+        files = {kind: self.file(kind, data=data) for kind in upload.SOURCES}
+        with patch.object(upload.os, 'link', side_effect=OSError(errno.EXDEV, 'cross mount')), \
+                patch.object(upload.os, 'read', wraps=os.read) as read, \
+                patch.object(upload.os, 'open', wraps=os.open) as opened:
+            self.assertEqual(upload.run(stage_only=True)['pending'], 2)
+        self.assertTrue(read.call_args_list)
+        self.assertTrue(all(call.args[1] == 1024 * 1024 for call in read.call_args_list))
+        for kind, path in files.items():
+            payload = self.package(kind, path) / path.name
+            self.assertNotEqual(payload.stat().st_ino, path.stat().st_ino)
+            self.assertEqual(payload.read_bytes(), data)
+            self.assertEqual(payload.stat().st_uid, path.stat().st_uid)
+            self.assertEqual(payload.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(any(call.args[0] == path and call.args[1] & os.O_NOFOLLOW for call in opened.call_args_list))
+            path.unlink()
+        self.assertEqual(list(upload.STATE_DIR.glob('.payload-*')), [])
+        self.assertEqual(upload.run()['uploaded'], 2)
+        for kind, path in files.items():
+            self.assertEqual(upload.load(self.marker(kind, path))['sha256'], hashlib.sha256(data).hexdigest())
+
+    def test_only_cross_mount_link_errors_use_copy_fallback(self):
+        path = self.file('collector')
+        with patch.object(upload.os, 'link', side_effect=OSError(errno.EACCES, 'denied')), \
+                patch.object(upload.os, 'read', wraps=os.read) as read:
+            with self.assertRaises(OSError) as caught:
+                upload.run(stage_only=True)
+        self.assertEqual(caught.exception.errno, errno.EACCES)
+        read.assert_not_called()
+        self.assertFalse((self.package('collector', path) / path.name).exists())
+        self.assertEqual(self.calls, [])
+
+    def test_interrupted_or_changed_copy_never_publishes_partial_payload_and_can_retry(self):
+        upload.run(stage_only=True)
+        actual_read, actual_replace = os.read, os.replace
+        for index, failure in enumerate(['read', 'mutation', 'publish']):
+            with self.subTest(failure=failure):
+                path = self.file('collector', at=NOW + index)
+                reads = 0
+
+                def read(descriptor, size):
+                    nonlocal reads
+                    reads += 1
+                    if failure == 'read' and reads == 2:
+                        raise OSError(errno.EIO, 'interrupted')
+                    block = actual_read(descriptor, size)
+                    if failure == 'mutation' and reads == 1:
+                        path.write_bytes(b'changed source')
+                    return block
+
+                def replace(source, destination):
+                    if failure == 'publish' and Path(source).name.startswith('.payload-'):
+                        raise OSError(errno.ENOSPC, 'full')
+                    return actual_replace(source, destination)
+
+                with patch.object(upload.os, 'link', side_effect=OSError(errno.EXDEV, 'cross mount')), \
+                        patch.object(upload.os, 'read', side_effect=read), \
+                        patch.object(upload.os, 'replace', side_effect=replace):
+                    with self.assertRaises((OSError, RuntimeError)):
+                        upload.stage('collector', path)
+                package = self.package('collector', path)
+                self.assertEqual(list(package.iterdir()), [])
+                self.assertEqual(list(upload.STATE_DIR.glob('.payload-*')), [])
+                self.assertTrue(path.exists())
+                self.assertFalse(self.marker('collector', path).exists())
+                self.assertEqual(self.calls, [])
+                with patch.object(upload.os, 'link', side_effect=OSError(errno.EXDEV, 'cross mount')):
+                    manifest = upload.stage('collector', path)
+                self.assertEqual(manifest['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def test_cli_reports_numeric_os_error_without_sensitive_details(self):
+        output = io.StringIO()
+        with patch.object(os, 'geteuid', return_value=0), \
+                patch.object(Path, 'mkdir', side_effect=PermissionError(errno.EACCES, 'sensitive detail', '/private/path')), \
+                patch('sys.argv', ['upload_backups.py']), redirect_stdout(output):
+            with self.assertRaises(SystemExit) as stopped:
+                runpy.run_path(str(Path(__file__).with_name('upload_backups.py')), run_name='__main__')
+        self.assertEqual(stopped.exception.code, 1)
+        self.assertEqual(json.loads(output.getvalue()), {'status': 'failed', 'code': 'PermissionError', 'errno': errno.EACCES})
 
     def test_copy_check_timeout_and_post_check_mutation_fail_without_verification_or_delete(self):
         for failure in ['copy', 'check', 'timeout', 'mutation']:

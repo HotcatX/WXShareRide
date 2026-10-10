@@ -44,9 +44,13 @@ sudo systemctl enable --now linkx-backup-upload.timer
 The first stage records a durable startup timestamp and selects only the latest
 snapshot from each database. Subsequent runs select snapshots created at or after
 that timestamp, plus either initially selected snapshot. Historical development
-archives are not uploaded or deleted. Pending snapshots are durable hard links
-under `/var/backups/linkx-backup-upload/pending`, on the same filesystem as both
-source directories. An original file's removal cannot remove its pending copy.
+archives are not uploaded or deleted. Pending snapshots under
+`/var/backups/linkx-backup-upload/pending` use hard links where available. When
+separate sandbox mounts prevent hard linking (`EXDEV`), staging copies in bounded
+chunks, checks that the source did not change, preserves its private permissions
+and owner, then fsyncs and atomically publishes the copy. An original file's
+removal cannot remove its pending copy. The systemd writable paths stay restricted
+to the existing backup and configuration directories.
 Staging briefly takes each producer's existing lock; network work only holds the
 independent upload lock. An overlapping upload run exits without doing work.
 
@@ -57,9 +61,10 @@ an 8 MiB buffer and a 1 MiB/s limit. Each copy or check has a 15-minute process
 deadline; the service has a 95-minute total deadline. `copy --immutable` never
 overwrites a conflicting same-name cloud file. `check --download --one-way`
 compares the downloaded contents, and the script checks the local payload's
-SHA-256 again before atomically recording success. Only then are pending links
+SHA-256 again before atomically recording success. Only then are pending files
 removed. Failures retain the package, suppress local retention cleanup for that
-run, and report only the phase, exception type and rclone exit code.
+run, and report only the phase, exception type and rclone exit code. Local staging
+failures also report the numeric OS error code, without file contents or credentials.
 
 Retention runs only after uploads succeed and no pending packages remain. Both
 databases' latest snapshots must be within 30 hours, match their local verified

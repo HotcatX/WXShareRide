@@ -3,6 +3,7 @@
 import argparse
 import configparser
 import datetime
+import errno
 import fcntl
 import hashlib
 import json
@@ -166,10 +167,40 @@ def stage(kind, path):
     payload = package / path.name
     if not payload.exists():
         original = regular(path, owner)
-        os.link(path, payload, follow_symlinks=False)
-        copied = regular(payload, owner)
-        if (copied.st_dev, copied.st_ino) != (original.st_dev, original.st_ino):
-            raise RuntimeError('CHANGED_FILE')
+        try:
+            os.link(path, payload, follow_symlinks=False)
+        except OSError as error:
+            if error.errno != errno.EXDEV:
+                raise
+            # The systemd sandbox mounts source and queue paths separately.
+            source = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                before = os.fstat(source)
+                fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                if any(getattr(before, field) != getattr(original, field) for field in fields):
+                    raise RuntimeError('CHANGED_FILE')
+                descriptor, temporary = tempfile.mkstemp(prefix='.payload-', dir=STATE_DIR)
+                try:
+                    with os.fdopen(descriptor, 'wb') as stream:
+                        for block in iter(lambda: os.read(source, 1024 * 1024), b''):
+                            stream.write(block)
+                        after = os.fstat(source)
+                        if (stream.tell() != before.st_size
+                                or any(getattr(before, field) != getattr(after, field) for field in fields)):
+                            raise RuntimeError('CHANGED_FILE')
+                        stream.flush()
+                        if os.fstat(stream.fileno()).st_uid != owner:
+                            os.fchown(stream.fileno(), owner, -1)
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, payload)
+                finally:
+                    Path(temporary).unlink(missing_ok=True)
+            finally:
+                os.close(source)
+        else:
+            copied = regular(payload, owner)
+            if (copied.st_dev, copied.st_ino) != (original.st_dev, original.st_ino):
+                raise RuntimeError('CHANGED_FILE')
         sync_directory(package)
     size, checksum = digest(payload, owner)
     manifest = {'version': 1, 'kind': kind, 'name': path.name, 'createdAt': created_at(kind, path.name),
@@ -471,5 +502,8 @@ if __name__ == '__main__':
     except Exception as error:
         # Never print rclone output, config contents, OAuth tokens or DB records.
         code = str(error) if isinstance(error, RuntimeError) else type(error).__name__
-        print(json.dumps({'status': 'failed', 'code': code}), flush=True)
+        result = {'status': 'failed', 'code': code}
+        if isinstance(error, OSError) and error.errno is not None:
+            result['errno'] = error.errno
+        print(json.dumps(result), flush=True)
         raise SystemExit(1)

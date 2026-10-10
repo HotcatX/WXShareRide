@@ -18,6 +18,10 @@ $RECYCLE.BIN/
 # Node.js
 node_modules/
 
+# Python tool caches
+__pycache__/
+*.pyc
+
 # Logs
 *.log
 npm-debug.log*
